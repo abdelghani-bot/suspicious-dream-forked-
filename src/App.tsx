@@ -1,8 +1,8 @@
 import { QRCodeSVG } from "qrcode.react";
 import { createClient } from "@supabase/supabase-js";
 const supabase = createClient(
-  "https://glcdvwpwxbhutfecljdj.supabase.co",
-  "sb_publishable_wvhAd7F7h9pwfWRd9g0Xmg_NlNYnNHt"
+  import.meta.env.VITE_SUPABASE_URL
+import.meta.env.VITE_SUPABASE_KEY
 );
 import { useState, useEffect, useRef, useCallback } from "react";
 
