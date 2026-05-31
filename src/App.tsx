@@ -3313,7 +3313,6 @@ function InventoryCount({
   );
 }
 
-// ==================== PRODUCTS MODULE ====================
 function ProductsModule({ products, setProducts, suppliers, showToast }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -3327,12 +3326,11 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     price: "",
     cost: "",
     taxable: true,
-    stock: "",
     minStock: "",
-    supplier: "",
-    expiry: "",
+    maxStock: "",          // ✅ جديد
     activeIngredient: "",
     concentration: "",
+    isEssential: false,    // ✅ جديد - دواء أساسي
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -3351,11 +3349,12 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       ...p,
       price: String(p.price),
       cost: String(p.cost),
-      stock: String(p.stock),
       minStock: String(p.minStock),
+      maxStock: String(p.maxStock || ""),
     });
     setShowForm(true);
   };
+
   const openAdd = () => {
     setEditing(null);
     setForm({
@@ -3366,7 +3365,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   };
 
   const save = async () => {
-    if (!form.name || !form.price || !form.stock) {
+    if (!form.name || !form.price) {
       showToast("يرجى ملء الحقول المطلوبة", "error");
       return;
     }
@@ -3374,8 +3373,9 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       ...form,
       price: +form.price,
       cost: +form.cost,
-      stock: +form.stock,
       min_stock: +form.minStock,
+      max_stock: +form.maxStock,      // ✅ جديد
+      is_essential: form.isEssential, // ✅ جديد
     };
     if (editing) {
       await supabase.from("products").update(p).eq("id", editing);
@@ -3390,291 +3390,103 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 18,
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
-          إدارة الأصناف
-        </h2>
-        <Btn icon="plus" onClick={openAdd}>
-          إضافة صنف
-        </Btn>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الأصناف</h2>
+        <Btn icon="plus" onClick={openAdd}>إضافة صنف</Btn>
       </div>
+
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
         style={{
-          width: "100%",
-          background: "#080e1a",
-          border: "1px solid #1d2d4a",
-          borderRadius: 8,
-          padding: "9px 14px",
-          color: "#dde8ff",
-          fontSize: 14,
-          outline: "none",
-          boxSizing: "border-box",
-          marginBottom: 14,
+          width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
+          borderRadius: 8, padding: "9px 14px", color: "#dde8ff",
+          fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14,
         }}
       />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4,1fr)",
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <StatCard
-          label="إجمالي الأصناف"
-          value={products.length}
-          icon="inventory"
-          color="#3a9aff"
-        />
-        <StatCard
-          label="مخزون منخفض"
-          value={products.filter((p) => p.stock <= p.minStock).length}
-          icon="alert"
-          color="#ffaa44"
-        />
-        <StatCard
-          label="أصناف خاضعة للضريبة"
-          value={products.filter((p) => p.taxable).length}
-          icon="tax"
-          color="#88dd44"
-        />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
+        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#3a9aff" />
+        <StatCard label="مخزون منخفض" value={products.filter((p) => p.stock <= p.minStock).length} icon="alert" color="#ffaa44" />
+        {/* ✅ بطاقة جديدة للأدوية الأساسية */}
+        <StatCard label="أدوية أساسية" value={products.filter((p) => p.isEssential).length} icon="star" color="#f59e0b" />
         <StatCard
           label="قيمة المخزون"
-          value={
-            products.reduce((s, p) => s + p.cost * p.stock, 0).toFixed(0) +
-            " ر.س"
-          }
-          icon="money"
-          color="#a78bfa"
+          value={products.reduce((s, p) => s + p.cost * (p.stock || 0), 0).toFixed(0) + " ر.س"}
+          icon="money" color="#a78bfa"
         />
       </div>
+
       <Table
         headers={[
-          "رمز",
-          "الصنف",
-          "الباركود",
-          "الفئة",
-          "سعر البيع",
-          "التكلفة",
-          "الضريبة",
-          "المخزون",
-          "الحد الأدنى",
-          "الانتهاء",
-          "إجراءات",
+          "رمز", "الصنف", "الباركود", "الفئة",
+          "سعر البيع", "التكلفة", "الضريبة",
+          "الحد الأدنى", "الحد الأقصى", "أساسي", "إجراءات",  // ✅ تعديل الأعمدة
         ]}
         rows={filtered.map((p) => [
           <span style={{ color: "#4a6a8a", fontSize: 11 }}>{p.id}</span>,
           <div>
             <div style={{ fontWeight: 700, color: "#dde8ff" }}>{p.name}</div>
-            <div style={{ fontSize: 10, color: "#3a5a8a" }}>
-              {p.activeIngredient} {p.concentration}
-            </div>
+            <div style={{ fontSize: 10, color: "#3a5a8a" }}>{p.activeIngredient} {p.concentration}</div>
           </div>,
-          <span
-            style={{ fontSize: 11, color: "#4a6a8a", fontFamily: "monospace" }}
-          >
-            {p.barcode}
-          </span>,
+          <span style={{ fontSize: 11, color: "#4a6a8a", fontFamily: "monospace" }}>{p.barcode}</span>,
           <Badge>{p.category}</Badge>,
-          <span style={{ color: "#3a9aff", fontWeight: 700 }}>
-            {p.price} ر.س
-          </span>,
+          <span style={{ color: "#3a9aff", fontWeight: 700 }}>{p.price} ر.س</span>,
           <span style={{ color: "#4a6a8a" }}>{p.cost} ر.س</span>,
-          <Badge
-            color={p.taxable ? "#0a2a00" : "#1a1a2a"}
-            text={p.taxable ? "#44dd88" : "#4a6a8a"}
-          >
+          <Badge color={p.taxable ? "#0a2a00" : "#1a1a2a"} text={p.taxable ? "#44dd88" : "#4a6a8a"}>
             {p.taxable ? "15%" : "معفى"}
           </Badge>,
-          <span
-            style={{
-              color:
-                p.stock <= p.minStock
-                  ? "#ffaa44"
-                  : p.stock === 0
-                  ? "#ff5555"
-                  : "#44dd88",
-              fontWeight: 700,
-            }}
-          >
-            {p.stock}
-          </span>,
           p.minStock,
-          <span
-            style={{
-              color: new Date(p.expiry) < new Date() ? "#ff5555" : "#4a6a8a",
-              fontSize: 12,
-            }}
-          >
-            {p.expiry}
-          </span>,
+          p.maxStock || "-",   // ✅ الحد الأقصى
+          // ✅ أيقونة دواء أساسي
+          p.isEssential
+            ? <Badge color="#2a1a00" text="#f59e0b">⭐ أساسي</Badge>
+            : <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>,
           <div style={{ display: "flex", gap: 5 }}>
-            <Btn
-              size="sm"
-              icon="edit"
-              variant="secondary"
-              onClick={() => openEdit(p)}
-            >
-              تعديل
-            </Btn>
-            <Btn
-              size="sm"
-              icon="trash"
-              variant="danger"
-              onClick={async () => {
-                await supabase.from("products").delete().eq("id", p.id);
-                setProducts((prev) => prev.filter((x) => x.id !== p.id));
-                showToast("تم حذف الصنف");
-              }}
-            >
-              حذف
-            </Btn>
+            <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
+            <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
+              await supabase.from("products").delete().eq("id", p.id);
+              setProducts((prev) => prev.filter((x) => x.id !== p.id));
+              showToast("تم حذف الصنف");
+            }}>حذف</Btn>
           </div>,
         ])}
       />
-      <Modal
-        open={showForm}
-        onClose={() => setShowForm(false)}
-        title={editing ? "تعديل الصنف" : "إضافة صنف جديد"}
-        wide
-      >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: 12,
-          }}
-        >
-          <Input
-            label="رمز الصنف"
-            value={form.id}
-            onChange={(v) => F("id", v)}
-            placeholder="P001"
-            style={{ gridColumn: "1/2" }}
-          />
-          <Input
-            label="اسم الصنف *"
-            value={form.name}
-            onChange={(v) => F("name", v)}
-            placeholder="اسم الدواء"
-            style={{ gridColumn: "2/4" }}
-          />
-          <Input
-            label="الباركود (Barcode/QR)"
-            value={form.barcode}
-            onChange={(v) => F("barcode", v)}
-            placeholder="رقم الباركود"
-          />
-          <Select
-            label="الفئة"
-            value={form.category}
-            onChange={(v) => F("category", v)}
-            options={CATEGORIES}
-          />
-          <Input
-            label="وحدة القياس"
-            value={form.unit}
-            onChange={(v) => F("unit", v)}
-            placeholder="قرص / كبسولة..."
-          />
-          <Input
-            label="سعر البيع *"
-            value={form.price}
-            onChange={(v) => F("price", v)}
-            type="number"
-            placeholder="0.00"
-          />
-          <Input
-            label="سعر التكلفة"
-            value={form.cost}
-            onChange={(v) => F("cost", v)}
-            type="number"
-            placeholder="0.00"
-          />
-          <Input
-            label="الكمية في المخزون *"
-            value={form.stock}
-            onChange={(v) => F("stock", v)}
-            type="number"
-            placeholder="0"
-          />
-          <Input
-            label="الحد الأدنى للمخزون"
-            value={form.minStock}
-            onChange={(v) => F("minStock", v)}
-            type="number"
-            placeholder="10"
-          />
-          <Input
-            label="المادة الفعالة"
-            value={form.activeIngredient}
-            onChange={(v) => F("activeIngredient", v)}
-            placeholder="Paracetamol"
-          />
-          <Input
-            label="التركيز"
-            value={form.concentration}
-            onChange={(v) => F("concentration", v)}
-            placeholder="500mg"
-          />
-          <Input
-            label="تاريخ الانتهاء"
-            value={form.expiry}
-            onChange={(v) => F("expiry", v)}
-            type="date"
-          />
-          <Select
-            label="المورد"
-            value={form.supplier}
-            onChange={(v) => F("supplier", v)}
-            options={[
-              { v: "", l: "اختر المورد" },
-              ...suppliers.map((s) => ({ v: s.id, l: s.name })),
-            ]}
-          />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "8px 0",
-            }}
-          >
-            <label style={{ color: "#5a7aaa", fontSize: 13, fontWeight: 600 }}>
-              خاضع لضريبة القيمة المضافة 15%
-            </label>
-            <input
-              type="checkbox"
-              checked={form.taxable}
-              onChange={(e) => F("taxable", e.target.checked)}
-              style={{ width: 16, height: 16, cursor: "pointer" }}
-            />
+
+      <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? "تعديل الصنف" : "إضافة صنف جديد"} wide>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <Input label="رمز الصنف" value={form.id} onChange={(v) => F("id", v)} placeholder="P001" />
+          <Input label="اسم الصنف *" value={form.name} onChange={(v) => F("name", v)} placeholder="اسم الدواء" style={{ gridColumn: "2/4" }} />
+          <Input label="الباركود (Barcode/QR)" value={form.barcode} onChange={(v) => F("barcode", v)} placeholder="رقم الباركود" />
+          <Select label="الفئة" value={form.category} onChange={(v) => F("category", v)} options={CATEGORIES} />
+          <Input label="وحدة القياس" value={form.unit} onChange={(v) => F("unit", v)} placeholder="قرص / كبسولة..." />
+          <Input label="سعر البيع *" value={form.price} onChange={(v) => F("price", v)} type="number" placeholder="0.00" />
+          <Input label="سعر التكلفة" value={form.cost} onChange={(v) => F("cost", v)} type="number" placeholder="0.00" />
+          
+          {/* ✅ الحد الأدنى والأقصى بجانب بعض */}
+          <Input label="الحد الأدنى للمخزون" value={form.minStock} onChange={(v) => F("minStock", v)} type="number" placeholder="10" />
+          <Input label="الحد الأقصى للمخزون" value={form.maxStock} onChange={(v) => F("maxStock", v)} type="number" placeholder="100" />
+          
+          <Input label="المادة الفعالة" value={form.activeIngredient} onChange={(v) => F("activeIngredient", v)} placeholder="Paracetamol" />
+          <Input label="التركيز" value={form.concentration} onChange={(v) => F("concentration", v)} placeholder="500mg" />
+
+          {/* ✅ خاضع للضريبة */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+            <label style={{ color: "#5a7aaa", fontSize: 13, fontWeight: 600 }}>خاضع لضريبة القيمة المضافة 15%</label>
+            <input type="checkbox" checked={form.taxable} onChange={(e) => F("taxable", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
+          </div>
+
+          {/* ✅ دواء أساسي - جديد */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+            <label style={{ color: "#f59e0b", fontSize: 13, fontWeight: 600 }}>⭐ دواء أساسي (قائمة هيئة الغذاء والدواء)</label>
+            <input type="checkbox" checked={form.isEssential} onChange={(e) => F("isEssential", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
         </div>
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            marginTop: 18,
-            justifyContent: "flex-end",
-          }}
-        >
-          <Btn variant="ghost" onClick={() => setShowForm(false)}>
-            إلغاء
-          </Btn>
-          <Btn icon="check" onClick={save}>
-            {editing ? "حفظ التعديل" : "إضافة الصنف"}
-          </Btn>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={save}>{editing ? "حفظ التعديل" : "إضافة الصنف"}</Btn>
         </div>
       </Modal>
     </div>
