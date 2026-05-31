@@ -4338,12 +4338,12 @@ function TaxReport({ sales, purchases }) {
     months.some((m) => p.date.startsWith(m))
   );
 
-  const salesSubtotal = filtSales.reduce((a, s) => a + s.subtotal, 0);
-  const salesTax = filtSales.reduce((a, s) => a + s.taxAmount, 0);
-  const salesTotal = filtSales.reduce((a, s) => a + s.total, 0);
-  const purchSubtotal = filtPurchases.reduce((a, p) => a + p.subtotal, 0);
-  const purchTax = filtPurchases.reduce((a, p) => a + p.taxAmount, 0);
-  const purchTotal = filtPurchases.reduce((a, p) => a + p.total, 0);
+  const salesSubtotal = filtSales.reduce((a, s) => a + (s.subtotal || 0), 0);
+const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
+const salesTotal = filtSales.reduce((a, s) => a + (s.total || 0), 0);
+const purchSubtotal = filtPurchases.reduce((a, p) => a + (p.subtotal || 0), 0);
+const purchTax = filtPurchases.reduce((a, p) => a + (p.tax_amount || 0), 0);
+const purchTotal = filtPurchases.reduce((a, p) => a + (p.total || 0), 0);
   const netTax = salesTax - purchTax;
 
   return (
