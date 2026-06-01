@@ -3365,29 +3365,38 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   };
 
   const save = async () => {
-    if (!form.name || !form.price) {
-      showToast("يرجى ملء الحقول المطلوبة", "error");
-      return;
-    }
-    const p = {
-      ...form,
-      price: +form.price,
-      cost: +form.cost,
-      min_stock: +form.minStock,
-      max_stock: +form.maxStock,      // ✅ جديد
-      is_essential: form.isEssential, // ✅ جديد
-    };
-    if (editing) {
-      await supabase.from("products").update(p).eq("id", editing);
-      setProducts((prev) => prev.map((x) => (x.id === editing ? p : x)));
-    } else {
-      await supabase.from("products").insert(p);
-      setProducts((prev) => [...prev, p]);
-    }
-    setShowForm(false);
-    showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
+  if (!form.name || !form.price) {
+    showToast("يرجى ملء الحقول المطلوبة", "error");
+    return;
+  }
+  
+  const p = {
+    id: form.id,
+    name: form.name,
+    barcode: form.barcode,
+    category: form.category,
+    unit: form.unit,
+    price: +form.price,
+    cost: +form.cost,
+    taxable: form.taxable,
+    min_stock: +form.minStock,
+    max_stock: +form.maxStock,
+    active_ingredient: form.activeIngredient,
+    concentration: form.concentration,
+    is_essential: form.isEssential,
   };
 
+  if (editing) {
+    await supabase.from("products").update(p).eq("id", editing);
+    setProducts((prev) => prev.map((x) => (x.id === editing ? {...x, ...p} : x)));
+  } else {
+    await supabase.from("products").insert(p);
+    setProducts((prev) => [...prev, p]);
+  }
+  
+  setShowForm(false);
+  showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
+};
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
