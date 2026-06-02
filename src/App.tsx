@@ -1050,7 +1050,13 @@ export default function PharmacyPro() {
         supabase.from("sales").select("*"),
         supabase.from("purchases").select("*"),
       ]);
-      if (p.data?.length) setProducts(p.data);
+      if (p.data?.length) setProducts(p.data.map(x => ({
+  ...x,
+  minStock: x.min_stock,
+  maxStock: x.max_stock,
+  activeIngredient: x.active_ingredient,
+  isEssential: x.is_essential,
+})));
       if (s.data?.length) setSuppliers(s.data);
       if (c.data?.length) setCustomers(c.data);
       if (sa.data?.length) setSales(sa.data);
