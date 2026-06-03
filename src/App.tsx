@@ -3746,6 +3746,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+
   const blank = {
     id: "",
     name: "",
@@ -3754,9 +3755,41 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     totalSpent: 0,
     visits: 0,
     lastVisit: "-",
+    category: "individual",       // فرد | family_with_kids | family_no_kids
+    childrenCount: "",
+    childrenAges: [],             // مصفوفة فئات عمرية مختارة
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  // فئات عمرية
+  const AGE_GROUPS = [
+    { value: "infant", label: "رضيع (0–2)" },
+    { value: "toddler", label: "طفل صغير (3–5)" },
+    { value: "child", label: "طفل (6–12)" },
+    { value: "teen", label: "مراهق (13–17)" },
+  ];
+
+  const CATEGORY_LABELS = {
+    individual: "فرد",
+    family_with_kids: "أسرة بأطفال",
+    family_no_kids: "أسرة بدون أطفال",
+  };
+
+  const CATEGORY_COLORS = {
+    individual: { bg: "#1a1a3a", text: "#8888ff" },
+    family_with_kids: { bg: "#002a1a", text: "#44dd88" },
+    family_no_kids: { bg: "#1a2a00", text: "#aadd44" },
+  };
+
+  const toggleAgeGroup = (val) => {
+    setForm((p) => ({
+      ...p,
+      childrenAges: p.childrenAges.includes(val)
+        ? p.childrenAges.filter((x) => x !== val)
+        : [...p.childrenAges, val],
+    }));
+  };
 
   const openAdd = () => {
     setEditing(null);
@@ -3766,19 +3799,31 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     });
     setShowForm(true);
   };
+
   const openEdit = (c) => {
     setEditing(c.id);
-    setForm(c);
+    setForm({ ...blank, ...c });
     setShowForm(true);
   };
+
   const save = () => {
     if (!form.name || !form.phone) {
       showToast("يرجى ملء بيانات العميل", "error");
       return;
     }
+    if (form.category === "family_with_kids" && !form.childrenCount) {
+      showToast("يرجى إدخال عدد الأطفال", "error");
+      return;
+    }
+    const saved = {
+      ...form,
+      // لو مش أسرة بأطفال نمسح البيانات
+      childrenCount: form.category === "family_with_kids" ? form.childrenCount : "",
+      childrenAges: form.category === "family_with_kids" ? form.childrenAges : [],
+    };
     if (editing)
-      setCustomers((p) => p.map((x) => (x.id === editing ? form : x)));
-    else setCustomers((p) => [...p, form]);
+      setCustomers((p) => p.map((x) => (x.id === editing ? saved : x)));
+    else setCustomers((p) => [...p, saved]);
     setShowForm(false);
     showToast(editing ? "تم تعديل العميل" : "تمت إضافة العميل ✓");
   };
@@ -3807,6 +3852,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
           إضافة عميل
         </Btn>
       </div>
+
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -3824,6 +3870,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
           marginBottom: 14,
         }}
       />
+
       <div
         style={{
           display: "grid",
@@ -3831,133 +3878,134 @@ function CustomersModule({ customers, setCustomers, showToast }) {
           gap: 14,
         }}
       >
-        {filtered.map((c) => (
-          <div
-            key={c.id}
-            style={{
-              background: "#0f1623",
-              border: "1px solid #1d2d4a",
-              borderRadius: 14,
-              padding: 18,
-            }}
-          >
+        {filtered.map((c) => {
+          const catColor = CATEGORY_COLORS[c.category] || CATEGORY_COLORS.individual;
+          return (
             <div
+              key={c.id}
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                marginBottom: 12,
+                background: "#0f1623",
+                border: "1px solid #1d2d4a",
+                borderRadius: 14,
+                padding: 18,
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    background: "#1a2a5a",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#5a9aff",
-                  }}
-                >
-                  <IC n="user" s={18} />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  marginBottom: 12,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 10,
+                      background: "#1a2a5a",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#5a9aff",
+                    }}
+                  >
+                    <IC n="user" s={18} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#dde8ff" }}>
+                      {c.name}
+                    </div>
+                    <div style={{ color: "#3a6a9a", fontSize: 12 }}>
+                      {c.phone}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontWeight: 700, color: "#dde8ff" }}>
-                    {c.name}
-                  </div>
-                  <div style={{ color: "#3a6a9a", fontSize: 12 }}>
-                    {c.phone}
-                  </div>
+                <div style={{ display: "flex", gap: 5 }}>
+                  <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(c)}>
+                    تعديل
+                  </Btn>
+                  <Btn
+                    size="sm"
+                    icon="trash"
+                    variant="danger"
+                    onClick={() => {
+                      setCustomers((p) => p.filter((x) => x.id !== c.id));
+                      showToast("تم حذف العميل");
+                    }}
+                  >
+                    حذف
+                  </Btn>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 5 }}>
-                <Btn
-                  size="sm"
-                  icon="edit"
-                  variant="secondary"
-                  onClick={() => openEdit(c)}
-                >
-                  تعديل
-                </Btn>
-                <Btn
-                  size="sm"
-                  icon="trash"
-                  variant="danger"
-                  onClick={() => {
-                    setCustomers((p) => p.filter((x) => x.id !== c.id));
-                    showToast("تم حذف العميل");
-                  }}
-                >
-                  حذف
-                </Btn>
-              </div>
-            </div>
-            {c.taxId && (
-              <div style={{ marginBottom: 8 }}>
-                <Badge color="#0a2a00" text="#44dd88">
-                  رقم ضريبي: {c.taxId}
+
+              {/* التصنيف */}
+              <div style={{ marginBottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <Badge color={catColor.bg} text={catColor.text}>
+                  {CATEGORY_LABELS[c.category] || "فرد"}
                 </Badge>
+                {c.category === "family_with_kids" && c.childrenCount && (
+                  <Badge color="#002233" text="#33bbff">
+                    {c.childrenCount} أطفال
+                  </Badge>
+                )}
+                {c.taxId && (
+                  <Badge color="#0a2a00" text="#44dd88">
+                    رقم ضريبي: {c.taxId}
+                  </Badge>
+                )}
               </div>
-            )}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 8,
-              }}
-            >
+
+              {/* فئات عمرية */}
+              {c.category === "family_with_kids" && c.childrenAges?.length > 0 && (
+                <div style={{ marginBottom: 8, display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {c.childrenAges.map((age) => (
+                    <span
+                      key={age}
+                      style={{
+                        background: "#001a2a",
+                        color: "#55aaff",
+                        borderRadius: 6,
+                        padding: "2px 8px",
+                        fontSize: 11,
+                      }}
+                    >
+                      {AGE_GROUPS.find((g) => g.value === age)?.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div
                 style={{
-                  background: "#080e1a",
-                  borderRadius: 8,
-                  padding: "9px 11px",
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
                 }}
               >
-                <div style={{ color: "#3a5a8a", fontSize: 10 }}>
-                  إجمالي المشتريات
+                <div style={{ background: "#080e1a", borderRadius: 8, padding: "9px 11px" }}>
+                  <div style={{ color: "#3a5a8a", fontSize: 10 }}>إجمالي المشتريات</div>
+                  <div style={{ color: "#3a9aff", fontWeight: 700, fontSize: 15, marginTop: 2 }}>
+                    {c.totalSpent.toFixed(2)} ر.س
+                  </div>
                 </div>
-                <div
-                  style={{
-                    color: "#3a9aff",
-                    fontWeight: 700,
-                    fontSize: 15,
-                    marginTop: 2,
-                  }}
-                >
-                  {c.totalSpent.toFixed(2)} ر.س
-                </div>
-              </div>
-              <div
-                style={{
-                  background: "#080e1a",
-                  borderRadius: 8,
-                  padding: "9px 11px",
-                }}
-              >
-                <div style={{ color: "#3a5a8a", fontSize: 10 }}>
-                  عدد الزيارات
-                </div>
-                <div
-                  style={{
-                    color: "#44dd88",
-                    fontWeight: 700,
-                    fontSize: 15,
-                    marginTop: 2,
-                  }}
-                >
-                  {c.visits}
+                <div style={{ background: "#080e1a", borderRadius: 8, padding: "9px 11px" }}>
+                  <div style={{ color: "#3a5a8a", fontSize: 10 }}>عدد الزيارات</div>
+                  <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 15, marginTop: 2 }}>
+                    {c.visits}
+                  </div>
                 </div>
               </div>
+              <div style={{ marginTop: 8, color: "#2a4a6a", fontSize: 11 }}>
+                آخر زيارة: {c.lastVisit}
+              </div>
             </div>
-            <div style={{ marginTop: 8, color: "#2a4a6a", fontSize: 11 }}>
-              آخر زيارة: {c.lastVisit}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {/* ===== Modal ===== */}
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
@@ -3982,7 +4030,84 @@ function CustomersModule({ customers, setCustomers, showToast }) {
             onChange={(v) => F("taxId", v)}
             placeholder="310XXXXXXXXX003 (اختياري)"
           />
+
+          {/* ===== تصنيف العميل ===== */}
+          <div>
+            <div style={{ color: "#8aa0cc", fontSize: 13, marginBottom: 8 }}>
+              تصنيف العميل *
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[
+                { value: "individual", label: "👤 فرد" },
+                { value: "family_with_kids", label: "👨‍👩‍👧 أسرة بأطفال" },
+                { value: "family_no_kids", label: "👫 أسرة بدون أطفال" },
+              ].map((opt) => (
+                <div
+                  key={opt.value}
+                  onClick={() => F("category", opt.value)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontSize: 13,
+                    border: "1px solid",
+                    transition: "all 0.2s",
+                    borderColor: form.category === opt.value ? "#4a8aff" : "#1d2d4a",
+                    background: form.category === opt.value ? "#0a1a3a" : "#080e1a",
+                    color: form.category === opt.value ? "#8abbff" : "#5a7aaa",
+                    fontWeight: form.category === opt.value ? 700 : 400,
+                  }}
+                >
+                  {opt.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ===== حقول الأطفال (تظهر فقط لو أسرة بأطفال) ===== */}
+          {form.category === "family_with_kids" && (
+            <>
+              <Input
+                label="عدد الأطفال *"
+                value={form.childrenCount}
+                onChange={(v) => F("childrenCount", v)}
+                placeholder="مثال: 3"
+                type="number"
+              />
+              <div>
+                <div style={{ color: "#8aa0cc", fontSize: 13, marginBottom: 8 }}>
+                  الفئات العمرية للأطفال
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {AGE_GROUPS.map((grp) => {
+                    const selected = form.childrenAges.includes(grp.value);
+                    return (
+                      <div
+                        key={grp.value}
+                        onClick={() => toggleAgeGroup(grp.value)}
+                        style={{
+                          padding: "7px 12px",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                          fontSize: 12,
+                          border: "1px solid",
+                          transition: "all 0.2s",
+                          borderColor: selected ? "#33bbff" : "#1d2d4a",
+                          background: selected ? "#001a2a" : "#080e1a",
+                          color: selected ? "#55ddff" : "#4a6a8a",
+                          fontWeight: selected ? 700 : 400,
+                        }}
+                      >
+                        {grp.label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
+
         <div
           style={{
             display: "flex",
