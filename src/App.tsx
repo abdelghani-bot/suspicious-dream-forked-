@@ -1408,7 +1408,6 @@ function useEssentialAlerts(products) {
 
   return alerts;
 }
-// ==================== DASHBOARD ====================
 function Dashboard({
   products,
   sales,
@@ -1435,7 +1434,6 @@ function Dashboard({
 
   return (
     <div>
-      {/* ← هنا حط الكود */}
       {alerts.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ color: "#f59e0b", marginBottom: 10 }}>
@@ -1464,7 +1462,6 @@ function Dashboard({
           ))}
         </div>
       )}
-      {/* ← السطر 1438 يفضل هنا */}
       <div
         style={{
           display: "flex",
@@ -1555,8 +1552,7 @@ function Dashboard({
                 gap: 8,
               }}
             >
-              <IC n="alert" s={16} />
-              مخزون منخفض ({lowStock.length} صنف)
+              <IC n="alert" s={16} /> مخزون منخفض ({lowStock.length} صنف)
             </h3>
             {lowStock.map((p) => (
               <div
@@ -1597,8 +1593,7 @@ function Dashboard({
                 gap: 8,
               }}
             >
-              <IC n="alert" s={16} />
-              تنتهي قريباً ({expiringSoon.length} صنف)
+              <IC n="alert" s={16} /> تنتهي قريباً ({expiringSoon.length} صنف)
             </h3>
             {expiringSoon.map((p) => (
               <div
