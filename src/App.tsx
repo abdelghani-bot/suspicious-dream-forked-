@@ -3395,7 +3395,14 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
 
   if (editing) {
     await supabase.from("products").update(p).eq("id", editing);
-    setProducts((prev) => prev.map((x) => (x.id === editing ? {...x, ...p} : x)));
+    setProducts((prev) => prev.map((x) => (x.id === editing ? {
+  ...x, 
+  ...p,
+  isEssential: p.is_essential,
+  minStock: p.min_stock,
+  maxStock: p.max_stock,
+  activeIngredient: p.active_ingredient,
+} : x)));
   } else {
     await supabase.from("products").insert(p);
     setProducts((prev) => [...prev, p]);
