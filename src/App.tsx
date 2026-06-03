@@ -1433,8 +1433,6 @@ function Dashboard({
   );
   const monthRev = monthSales.reduce((a, s) => a + s.total, 0);
 
-  return (
-    <div>
       return (
   <div>
     {/* ← هنا حط الكود */}
@@ -1667,7 +1665,7 @@ function Dashboard({
       </div>
     </div>
   );
-
+}
 // ==================== POS ====================
 function POS({
   products,
@@ -1680,7 +1678,7 @@ function POS({
   currentUser,
   currentShift,
   showToast,
-}) {
+}) 
   const [cart, setCart] = useState([]);
   const [selCustomer, setSelCustomer] = useState(null);
   const [payment, setPayment] = useState("نقدي");
