@@ -1667,7 +1667,6 @@ function Dashboard({
       </div>
     </div>
   );
-}
 
 // ==================== POS ====================
 function POS({
