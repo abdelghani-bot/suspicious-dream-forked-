@@ -2515,31 +2515,66 @@ function ReturnsModule({
   customers, showToast,
 }) {
   const [type, setType] = useState("sales");
+  const [searchMode, setSearchMode] = useState("invoice");
   const [search, setSearch] = useState("");
+  const [filteredSales, setFilteredSales] = useState([]);
   const [returnItems, setReturnItems] = useState([]);
   const [reason, setReason] = useState("");
   const [selCustomer, setSelCustomer] = useState("");
   const [selInvoice, setSelInvoice] = useState("");
 
+  // ── إعادة تعيين عند تغيير النوع ──
   useEffect(() => {
     setReturnItems([]);
     setSearch("");
     setSelCustomer("");
     setReason("");
     setSelInvoice("");
+    setFilteredSales([]);
+    setSearchMode("invoice");
   }, [type]);
 
-  // فاتورة الشراء المختارة
+  // ── عند اختيار فاتورة شراء ──
   const purchaseInvoice = purchases.find((p) => p.id === selInvoice);
-
   useEffect(() => {
     if (type === "purchases" && purchaseInvoice) {
       setReturnItems(purchaseInvoice.items.map((i) => ({ ...i, returnQty: 0 })));
     }
   }, [selInvoice, type]);
 
-  // بحث للمبيعات فقط
-  const handleSearch = (val) => {
+  // ── عند اختيار فاتورة بيع ──
+  const salesInvoice = sales?.find((s) => s.id === selInvoice);
+  useEffect(() => {
+    if (type === "sales" && salesInvoice) {
+      setReturnItems(salesInvoice.items.map((i) => ({ ...i, returnQty: 0 })));
+      setSelCustomer(salesInvoice.customer || "");
+    }
+  }, [selInvoice, type]);
+
+  // ── بحث في فواتير البيع ──
+  const handleSalesSearch = (val) => {
+    setSearch(val);
+    if (!val.trim()) { setFilteredSales([]); return; }
+
+    const results = (sales || []).filter((s) => {
+      if (s.returned) return false;
+      if (searchMode === "invoice")
+        return s.id.toLowerCase().includes(val.toLowerCase());
+      if (searchMode === "customer") {
+        const cust = customers?.find((c) => c.id === s.customer);
+        return cust?.name?.toLowerCase().includes(val.toLowerCase()) ||
+               s.customer_name?.toLowerCase().includes(val.toLowerCase());
+      }
+      if (searchMode === "product")
+        return s.items?.some((i) => i.name.toLowerCase().includes(val.toLowerCase()));
+      return false;
+    });
+
+    setFilteredSales(results);
+  };
+
+  // ── بحث يدوي بالباركود (بدون فاتورة) ──
+  const handleBarcodeSearch = (val) => {
     setSearch(val);
     if (!val.trim()) return;
     const found = products.find(
@@ -2547,13 +2582,15 @@ function ReturnsModule({
         p.name.toLowerCase().includes(val.toLowerCase())
     );
     if (found) {
-      const already = returnItems.find((i) => i.id === found.id);
-      if (already) { showToast("الصنف موجود بالفعل", "error"); return; }
+      if (returnItems.find((i) => i.id === found.id)) {
+        showToast("الصنف موجود بالفعل", "error"); return;
+      }
       setReturnItems((prev) => [...prev, { ...found, returnQty: 1 }]);
       setSearch("");
     }
   };
 
+  // ── حسابات المرتجع ──
   const returnSubtotal = returnItems.reduce(
     (s, i) => s + (type === "purchases" ? (i.cost || i.price) : i.price) * i.returnQty, 0
   );
@@ -2564,37 +2601,35 @@ function ReturnsModule({
   );
   const returnTotal = returnSubtotal + returnTax;
 
+  // ── حفظ المرتجع ──
   const processReturn = async () => {
     if (returnItems.length === 0 || returnItems.every((i) => i.returnQty === 0)) {
-      showToast("يرجى إضافة أصناف للمرتجع", "error");
+      showToast("يرجى إدخال كمية للمرتجع", "error");
+      return;
+    }
+
+    // التحقق من الكميات
+    const invalidItem = returnItems.find((i) => {
+      const maxQty = type === "purchases"
+        ? i.qty
+        : selInvoice ? i.qty : i.stock;
+      return i.returnQty > maxQty;
+    });
+    if (invalidItem) {
+      showToast(`كمية المرتجع للصنف "${invalidItem.name}" تتجاوز الكمية المسموحة`, "error");
       return;
     }
 
     const returnId = `RET-${Date.now()}`;
     const customer = customers?.find((c) => c.id === selCustomer);
 
-    setProducts((p) =>
-      p.map((x) => {
-        const ri = returnItems.find((i) => i.id === x.id);
-        return ri && ri.returnQty > 0
-          ? { ...x, stock: x.stock + ri.returnQty } : x;
-      })
-    );
-
-    if (type === "purchases" && selInvoice) {
-      setPurchases((p) =>
-        p.map((s) =>
-          s.id === selInvoice
-            ? { ...s, returned: true, returnReason: reason } : s
-        )
-      );
-    }
-
+    // ── حفظ في Supabase أولاً ──
     const { error } = await supabase.from("returns").insert([{
       id: returnId,
       date: new Date().toISOString().split("T")[0],
       type,
-      customer: selCustomer || null,
+      invoice_ref: selInvoice || null,
+      customer_id: selCustomer || null,
       customer_name: customer?.name || "زبون عادي",
       items: returnItems,
       reason,
@@ -2603,19 +2638,55 @@ function ReturnsModule({
       total: returnTotal,
     }]);
 
-    if (error) { showToast("خطأ في حفظ المرتجع", "error"); return; }
+    if (error) {
+      console.error("Return save error:", error);
+      showToast("خطأ في حفظ المرتجع: " + error.message, "error");
+      return;
+    }
+
+    // ── بعد النجاح: تحديث المخزون ──
+    setProducts((p) =>
+      p.map((x) => {
+        const ri = returnItems.find((i) => i.id === x.id);
+        if (!ri || ri.returnQty === 0) return x;
+        return {
+          ...x,
+          stock: type === "sales"
+            ? x.stock + ri.returnQty   // مرتجع مبيعات → يزيد المخزون
+            : x.stock - ri.returnQty,  // مرتجع مشتريات → ينقص المخزون
+        };
+      })
+    );
+
+    // ── تحديث حالة الفاتورة الأصلية ──
+    if (type === "purchases" && selInvoice) {
+      setPurchases((p) =>
+        p.map((s) => s.id === selInvoice
+          ? { ...s, returned: true, returnReason: reason } : s)
+      );
+    }
+    if (type === "sales" && selInvoice) {
+      setSales((p) =>
+        p.map((s) => s.id === selInvoice
+          ? { ...s, returned: true, returnReason: reason } : s)
+      );
+    }
 
     setReturnItems([]);
     setReason("");
     setSelCustomer("");
     setSelInvoice("");
+    setSearch("");
+    setFilteredSales([]);
     showToast(`تم تسجيل المرتجع ✓ — ${returnTotal.toFixed(2)} ر.س`);
   };
 
+  // ─────────────────────────── UI ───────────────────────────
   return (
     <div>
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>المرتجعات</h2>
 
+      {/* نوع المرتجع */}
       <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
         {["sales", "purchases"].map((t) => (
           <button key={t} onClick={() => setType(t)} style={{
@@ -2630,25 +2701,138 @@ function ReturnsModule({
         ))}
       </div>
 
-      {/* مرتجع المبيعات: بحث */}
+      {/* ══ مرتجع المبيعات ══ */}
       {type === "sales" && (
         <>
-          <div style={{ marginBottom: 14 }}>
-            <input
-              placeholder="🔍 ابحث بالاسم أو الباركود..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch(search)}
-              style={{
-                width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
-                borderRadius: 9, padding: "11px 14px", color: "#dde8ff",
-                fontSize: 14, outline: "none", boxSizing: "border-box",
-              }}
-            />
+          {/* أزرار طريقة البحث */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {[
+              { k: "invoice",  l: "🔢 رقم الفاتورة" },
+              { k: "customer", l: "👤 اسم العميل"   },
+              { k: "product",  l: "💊 اسم الصنف"    },
+            ].map(({ k, l }) => (
+              <button key={k} onClick={() => {
+                setSearchMode(k);
+                setSearch("");
+                setFilteredSales([]);
+                setSelInvoice("");
+                setReturnItems([]);
+                setSelCustomer("");
+              }} style={{
+                padding: "7px 14px", borderRadius: 8, border: "1px solid",
+                borderColor: searchMode === k ? "#2a6aef" : "#1d2d4a",
+                background: searchMode === k ? "#142a5a" : "transparent",
+                color: searchMode === k ? "#6aaeff" : "#4a6a8a",
+                fontSize: 13, cursor: "pointer",
+              }}>{l}</button>
+            ))}
           </div>
+
+          {/* حقل البحث بالفاتورة/العميل/الصنف */}
+          {!selInvoice && (
+            <div style={{ marginBottom: 14, position: "relative" }}>
+              <input
+                placeholder={
+                  searchMode === "invoice"  ? "🔍 ابحث برقم الفاتورة..." :
+                  searchMode === "customer" ? "🔍 ابحث باسم العميل..."   :
+                                              "🔍 ابحث باسم الصنف..."
+                }
+                value={search}
+                onChange={(e) => handleSalesSearch(e.target.value)}
+                style={{
+                  width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
+                  borderRadius: 9, padding: "11px 14px", color: "#dde8ff",
+                  fontSize: 14, outline: "none", boxSizing: "border-box",
+                }}
+              />
+
+              {/* نتائج البحث */}
+              {filteredSales.length > 0 && (
+                <div style={{
+                  position: "absolute", top: "100%", left: 0, right: 0,
+                  background: "#0f1623", border: "1px solid #1d2d4a",
+                  borderRadius: 9, zIndex: 99, maxHeight: 220, overflowY: "auto",
+                }}>
+                  {filteredSales.map((s) => {
+                    const cName = customers?.find((c) => c.id === s.customer)?.name
+                      || s.customer_name || "زبون عادي";
+                    return (
+                      <div key={s.id}
+                        onClick={() => {
+                          setSelInvoice(s.id);
+                          setSearch("");
+                          setFilteredSales([]);
+                        }}
+                        style={{
+                          padding: "10px 14px", cursor: "pointer",
+                          borderBottom: "1px solid #0a101a",
+                          color: "#c0d0f0", fontSize: 13,
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = "#142a5a"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                      >
+                        <span style={{ color: "#6aaeff", fontWeight: 700 }}>{s.id}</span>
+                        {"  ·  "}{cName}{"  ·  "}{s.date}{"  ·  "}
+                        <span style={{ color: "#88dd44" }}>{s.total?.toFixed(2)} ر.س</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* الفاتورة المختارة */}
+          {selInvoice && (
+            <div style={{
+              background: "#0a1a0a", border: "1px solid #1a3a1a",
+              borderRadius: 9, padding: "10px 14px", marginBottom: 14,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <span style={{ color: "#44dd88", fontSize: 13 }}>
+                ✓ الفاتورة: <strong>{selInvoice}</strong>
+              </span>
+              <button onClick={() => {
+                setSelInvoice(""); setReturnItems([]); setSelCustomer("");
+              }} style={{
+                background: "transparent", border: "none",
+                color: "#ff6666", cursor: "pointer", fontSize: 13,
+              }}>✕ تغيير</button>
+            </div>
+          )}
+
+          {/* تحذير بدون فاتورة */}
+          {!selInvoice && returnItems.length > 0 && (
+            <div style={{
+              background: "#1a1000", border: "1px solid #3a2a00",
+              borderRadius: 8, padding: "10px 14px", marginBottom: 14,
+              color: "#ffaa44", fontSize: 13,
+            }}>
+              ⚠️ بدون فاتورة — الحد الأقصى للإرجاع هو المخزون الحالي
+            </div>
+          )}
+
+          {/* بحث يدوي بالباركود (بدون فاتورة) */}
+          {!selInvoice && (
+            <div style={{ marginBottom: 14 }}>
+              <input
+                placeholder="📦 أو أضف صنف بالباركود يدوياً..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleBarcodeSearch(search)}
+                style={{
+                  width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
+                  borderRadius: 9, padding: "11px 14px", color: "#dde8ff",
+                  fontSize: 14, outline: "none", boxSizing: "border-box",
+                }}
+              />
+            </div>
+          )}
+
+          {/* العميل */}
           <div style={{ marginBottom: 14 }}>
             <Select
-              label="العميل (اختياري)"
+              label="العميل"
               value={selCustomer}
               onChange={setSelCustomer}
               options={[
@@ -2660,7 +2844,7 @@ function ReturnsModule({
         </>
       )}
 
-      {/* مرتجع الشراء: اختيار فاتورة */}
+      {/* ══ مرتجع المشتريات ══ */}
       {type === "purchases" && (
         <div style={{ marginBottom: 14 }}>
           <Select
@@ -2678,55 +2862,108 @@ function ReturnsModule({
         </div>
       )}
 
+      {/* سبب الإرجاع */}
       <div style={{ marginBottom: 14 }}>
-        <Input label="سبب الإرجاع" value={reason} onChange={setReason} placeholder="سبب الإرجاع (اختياري)" />
+        <Input
+          label="سبب الإرجاع"
+          value={reason}
+          onChange={setReason}
+          placeholder="سبب الإرجاع (اختياري)"
+        />
       </div>
 
       {/* الأصناف */}
       {returnItems.length > 0 && (
-        <div style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 12, padding: 16, marginBottom: 14 }}>
-          {returnItems.map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #0a101a" }}>
-              <div style={{ flex: 1, fontSize: 13, color: "#c0d0f0" }}>{item.name}</div>
-              <div style={{ color: "#4a6a8a", fontSize: 12 }}>
-                {(type === "purchases" ? (item.cost || item.price) : item.price).toFixed(2)} ر.س
-              </div>
-              <input
-                type="number" min={type === "purchases" ? 0 : 1}
-                max={type === "purchases" ? item.qty : undefined}
-                value={item.returnQty}
-                onChange={(e) => setReturnItems((p) =>
-                  p.map((x, j) => j === i
-                    ? { ...x, returnQty: type === "purchases" ? Math.min(+e.target.value, item.qty) : Math.max(1, +e.target.value) }
-                    : x)
+        <div style={{
+          background: "#0f1623", border: "1px solid #1d2d4a",
+          borderRadius: 12, padding: 16, marginBottom: 14,
+        }}>
+          {returnItems.map((item, i) => {
+            const maxQty = type === "purchases"
+              ? item.qty
+              : selInvoice ? item.qty : item.stock;
+            const unitPrice = type === "purchases"
+              ? (item.cost || item.price) : item.price;
+
+            return (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "8px 0", borderBottom: "1px solid #0a101a",
+              }}>
+                <div style={{ flex: 1, fontSize: 13, color: "#c0d0f0" }}>{item.name}</div>
+                <div style={{ color: "#4a6a8a", fontSize: 12 }}>
+                  {unitPrice.toFixed(2)} ر.س
+                </div>
+
+                {/* حقل الكمية مع الحد الأقصى */}
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={maxQty}
+                    value={item.returnQty}
+                    onChange={(e) => {
+                      const val = Math.min(
+                        Math.max(0, parseInt(e.target.value) || 0),
+                        maxQty
+                      );
+                      setReturnItems((p) =>
+                        p.map((x, j) => j === i ? { ...x, returnQty: val } : x)
+                      );
+                    }}
+                    style={{
+                      width: 55, background: "#080e1a",
+                      border: `1px solid ${item.returnQty > maxQty ? "#ff4444" : "#1d2d4a"}`,
+                      borderRadius: 6, padding: "5px 8px",
+                      color: "#dde8ff", fontSize: 13, outline: "none",
+                    }}
+                  />
+                  <span style={{ color: "#4a6a8a", fontSize: 11 }}>/ {maxQty}</span>
+                </div>
+
+                {type === "sales" && !selInvoice && (
+                  <button
+                    onClick={() => setReturnItems((p) => p.filter((_, j) => j !== i))}
+                    style={{
+                      background: "transparent", border: "none",
+                      color: "#ff6666", cursor: "pointer", fontSize: 16,
+                    }}>✕</button>
                 )}
-                style={{ width: 60, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "5px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-              />
-              {type === "sales" && (
-                <button onClick={() => setReturnItems((p) => p.filter((_, j) => j !== i))}
-                  style={{ background: "transparent", border: "none", color: "#ff6666", cursor: "pointer", fontSize: 16 }}>✕</button>
-              )}
-              {item.taxable && <Badge color="#0a2a00" text="#44dd88">15%</Badge>}
-            </div>
-          ))}
+
+                {item.taxable && (
+                  <Badge color="#0a2a00" text="#44dd88">15%</Badge>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
+      {/* الإجمالي */}
       {returnTotal > 0 && (
-        <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{
+          background: "#080e1a", borderRadius: 10,
+          padding: 14, marginBottom: 14,
+        }}>
           <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", marginBottom: 5 }}>
             <span>قبل الضريبة</span><span>{returnSubtotal.toFixed(2)} ر.س</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", marginBottom: 5 }}>
             <span>الضريبة المستردة 15%</span><span>{returnTax.toFixed(2)} ر.س</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
+          <div style={{
+            display: "flex", justifyContent: "space-between",
+            color: "#dde8ff", fontWeight: 800, fontSize: 16,
+            borderTop: "1px solid #1d2d4a", paddingTop: 8,
+          }}>
             <span>إجمالي المرتجع</span><span>{returnTotal.toFixed(2)} ر.س</span>
           </div>
         </div>
       )}
 
-      <Btn icon="returns" onClick={processReturn} variant="danger">تأكيد الإرجاع</Btn>
+      <Btn icon="returns" onClick={processReturn} variant="danger">
+        تأكيد الإرجاع
+      </Btn>
     </div>
   );
 }
