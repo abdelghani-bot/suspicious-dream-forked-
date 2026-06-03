@@ -4153,18 +4153,40 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     setForm(c);
     setShowForm(true);
   };
-  const save = () => {
-    if (!form.name || !form.phone) {
-      showToast("يرجى ملء بيانات العميل", "error");
-      return;
-    }
-    if (editing)
-      setCustomers((p) => p.map((x) => (x.id === editing ? form : x)));
-    else setCustomers((p) => [...p, form]);
-    setShowForm(false);
-    showToast(editing ? "تم تعديل العميل" : "تمت إضافة العميل ✓");
+ const save = async () => {
+  if (!form.name || !form.phone) {
+    showToast("يرجى ملء بيانات العميل", "error");
+    return;
+  }
+  if (form.category === "family_with_kids" && !form.childrenCount) {
+    showToast("يرجى إدخال عدد الأطفال", "error");
+    return;
+  }
+
+  const saved = {
+    ...form,
+    childrenCount: form.category === "family_with_kids" ? form.childrenCount : "",
+    childrenAges: form.category === "family_with_kids" ? form.childrenAges : [],
   };
 
+  if (editing) {
+    const { error } = await supabase
+      .from("customers")
+      .update(saved)
+      .eq("id", editing);
+    if (error) { showToast("خطأ في التعديل: " + error.message, "error"); return; }
+    setCustomers((p) => p.map((x) => (x.id === editing ? saved : x)));
+  } else {
+    const { error } = await supabase
+      .from("customers")
+      .insert(saved);
+    if (error) { showToast("خطأ في الحفظ: " + error.message, "error"); return; }
+    setCustomers((p) => [...p, saved]);
+  }
+
+  setShowForm(false);
+  showToast(editing ? "تم تعديل العميل" : "تمت إضافة العميل ✓");
+};
   const filtered = customers.filter(
     (c) =>
       c.name.includes(search) ||
@@ -4268,10 +4290,15 @@ function CustomersModule({ customers, setCustomers, showToast }) {
                   size="sm"
                   icon="trash"
                   variant="danger"
-                  onClick={() => {
-                    setCustomers((p) => p.filter((x) => x.id !== c.id));
-                    showToast("تم حذف العميل");
-                  }}
+                  onClick={async () => {
+  const { error } = await supabase
+    .from("customers")
+    .delete()
+    .eq("id", c.id);
+  if (error) { showToast("خطأ في الحذف", "error"); return; }
+  setCustomers((p) => p.filter((x) => x.id !== c.id));
+  showToast("تم حذف العميل");
+}}
                 >
                   حذف
                 </Btn>
