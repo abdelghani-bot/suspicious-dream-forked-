@@ -2622,24 +2622,28 @@ function ReturnsModule({
 
     const returnId = `RET-${Date.now()}`;
     const customer = customers?.find((c) => c.id === selCustomer);
+    console.log("selCustomer:", selCustomer);
+console.log("customer found:", customer);
+console.log("customers list:", customers);
 
     // ── حفظ في Supabase أولاً ──
     const { error } = await supabase.from("returns").insert([{
-      id: returnId,
-      date: new Date().toISOString().split("T")[0],
-      type,
-      invoice_ref: selInvoice || null,
-      customer_id: selCustomer || null,
-      customer_name: customer?.name || "زبون عادي",
-      items: returnItems,
-      reason,
-      subtotal: returnSubtotal,
-      tax: returnTax,
-      total: returnTotal,
-    }]);
+  id: returnId,
+  date: new Date().toISOString().split("T")[0],
+  type,
+  invoice_ref: selInvoice || null,
+  customer_id: selCustomer || null,
+  customer_name: customer?.name || "زبون عادي",
+  items: returnItems,
+  reason,
+  subtotal: returnSubtotal,
+  tax: returnTax,
+  return_total: returnTotal,   // ← غيّر هنا حسب اسم الـ column
+}]);
 
     if (error) {
       console.error("Return save error:", error);
+      console.log("Full error details:", JSON.stringify(error));
       showToast("خطأ في حفظ المرتجع: " + error.message, "error");
       return;
     }
