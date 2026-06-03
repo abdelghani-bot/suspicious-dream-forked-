@@ -3433,7 +3433,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
         <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#3a9aff" />
         <StatCard label="مخزون منخفض" value={products.filter((p) => p.stock <= p.minStock).length} icon="alert" color="#ffaa44" />
         {/* ✅ بطاقة جديدة للأدوية الأساسية */}
-        <StatCard label="أدوية أساسية" value={products.filter((p) => p.isEssential).length} icon="star" color="#f59e0b" />
+        <StatCard label="أدوية أساسية" value={products.filter((p) => p.isEssential || p.is_essential).length} icon="star" color="#f59e0b" />
         <StatCard
           label="قيمة المخزون"
           value={products.reduce((s, p) => s + p.cost * (p.stock || 0), 0).toFixed(0) + " ر.س"}
@@ -3463,9 +3463,9 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
           p.minStock,
           p.maxStock || "-",   // ✅ الحد الأقصى
           // ✅ أيقونة دواء أساسي
-          p.isEssential
-            ? <Badge color="#2a1a00" text="#f59e0b">⭐ أساسي</Badge>
-            : <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>,
+          (p.isEssential || p.is_essential)
+  ? <Badge color="#2a1a00" text="#f59e0b">⭐ أساسي</Badge>
+  : <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>,
           <div style={{ display: "flex", gap: 5 }}>
             <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
             <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
