@@ -1,8 +1,8 @@
 import { QRCodeSVG } from "qrcode.react";
 import { createClient } from "@supabase/supabase-js";
 const supabase = createClient(
-  "https://glcdvwpwxbhutfecljdj.supabase.co",
-"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdsY2R2d3B3eGJodXRmZWNsamRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5NzE1OTIsImV4cCI6MjA5NTU0NzU5Mn0.w-dLQiFTTPzB0eeA7Asf95hy5x7kjA-OvilneYAIHHA"
+  VITE_SUPABASE_URL=https://glcdvwpwxbhutfecljdj.supabase.co,
+  VITE_SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdsY2R2d3B3eGJodXRmZWNsamRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5NzE1OTIsImV4cCI6MjA5NTU0NzU5Mn0.w-dLQiFTTPzB0eeA7Asf95hy5x7kjA-OvilneYAIHHA
 );
 import { useState, useEffect, useRef, useCallback } from "react";
 
@@ -1050,13 +1050,7 @@ export default function PharmacyPro() {
         supabase.from("sales").select("*"),
         supabase.from("purchases").select("*"),
       ]);
-      if (p.data?.length) setProducts(p.data.map(x => ({
-  ...x,
-  minStock: x.min_stock,
-  maxStock: x.max_stock,
-  activeIngredient: x.active_ingredient,
-  isEssential: x.is_essential,
-})));
+      if (p.data?.length) setProducts(p.data);
       if (s.data?.length) setSuppliers(s.data);
       if (c.data?.length) setCustomers(c.data);
       if (sa.data?.length) setSales(sa.data);
@@ -1383,6 +1377,37 @@ export default function PharmacyPro() {
   );
 }
 
+function useEssentialAlerts(products) {
+  const [alerts, setAlerts] = useState([]);
+
+  useEffect(() => {
+    if (!products || products.length === 0) return;
+
+    const grouped = {};
+    products
+      .filter((p) => p.is_essential)
+      .forEach((p) => {
+        const key = `${p.active_ingredient} ${p.concentration}`;
+        if (!grouped[key]) {
+          grouped[key] = { totalStock: 0, minStock: p.min_stock || 0 };
+        }
+        grouped[key].totalStock += p.stock || 0;
+      });
+
+    const newAlerts = [];
+    Object.entries(grouped).forEach(([name, data]) => {
+      if (data.totalStock === 0) {
+        newAlerts.push({ type: "danger", name });
+      } else if (data.totalStock <= data.minStock) {
+        newAlerts.push({ type: "warning", name, stock: data.totalStock });
+      }
+    });
+
+    setAlerts(newAlerts);
+  }, [products]);
+
+  return alerts;
+}
 // ==================== DASHBOARD ====================
 function Dashboard({
   products,
@@ -1393,6 +1418,7 @@ function Dashboard({
   currentUser,
   setTab,
 }) {
+  const alerts = useEssentialAlerts(products);
   const today = new Date().toISOString().split("T")[0];
   const todaySales = sales.filter((s) => s.date === today && !s.returned);
   const todayRev = todaySales.reduce((a, s) => a + s.total, 0);
@@ -1409,7 +1435,32 @@ function Dashboard({
 
   return (
     <div>
-      <div
+      return (
+  <div>
+    {/* ← هنا حط الكود */}
+    {alerts.length > 0 && (
+      <div style={{ marginBottom: 20 }}>
+        <h3 style={{ color: "#f59e0b", marginBottom: 10 }}>
+          ⚠️ تنبيهات الأدوية الأساسية
+        </h3>
+        {alerts.map((alert, i) => (
+          <div key={i} style={{
+            padding: "12px 16px",
+            marginBottom: 8,
+            borderRadius: 8,
+            backgroundColor: alert.type === "danger" ? "#2a0a0a" : "#2a1a00",
+            borderRight: `4px solid ${alert.type === "danger" ? "#ef4444" : "#f59e0b"}`,
+            color: alert.type === "danger" ? "#fca5a5" : "#fcd34d",
+            fontSize: 14,
+          }}>
+            {alert.type === "danger"
+              ? `🔴 نفاذ المخزون: ${alert.name}`
+              : `🟡 قرب النفاذ: ${alert.name} (المخزون: ${alert.stock})`}
+          </div>
+        ))}
+      </div>
+    )}
+    <div  {/* ← السطر 1438 يفضل هنا */}<div
         style={{
           display: "flex",
           alignItems: "center",
@@ -1630,53 +1681,11 @@ function POS({
   currentShift,
   showToast,
 }) {
-  // ===== Tabs State =====
-  const newTab = () => ({
-    id: Date.now(),
-    label: "فاتورة",
-    cart: [],
-    selCustomer: null,
-    payment: "نقدي",
-    discount: 0,
-    prescriptionImg: null,
-  });
-
-  const [tabs, setTabs] = useState([newTab()]);
-  const [activeTab, setActiveTab] = useState(0);
-
-  const currentTab = tabs[activeTab];
-  const T = (k, v) =>
-    setTabs((prev) =>
-      prev.map((t, i) => (i === activeTab ? { ...t, [k]: v } : t))
-    );
-
-  // shortcuts
-  const cart = currentTab.cart;
-  const setCart = (v) =>
-    T("cart", typeof v === "function" ? v(currentTab.cart) : v);
-  const selCustomer = currentTab.selCustomer;
-  const setSelCustomer = (v) => T("selCustomer", v);
-  const payment = currentTab.payment;
-  const setPayment = (v) => T("payment", v);
-  const discount = currentTab.discount;
-  const setDiscount = (v) => T("discount", v);
-  const prescriptionImg = currentTab.prescriptionImg;
-  const setPrescriptionImg = (v) => T("prescriptionImg", v);
-
-  const addTab = () => {
-    const tab = newTab();
-    setTabs((p) => [...p, tab]);
-    setActiveTab(tabs.length);
-  };
-
-  const closeTab = (idx) => {
-    if (tabs[idx].cart.length > 0) {
-      if (!window.confirm("فيه أصناف في الفاتورة، تأكيد الحذف؟")) return;
-    }
-    setTabs((p) => p.filter((_, i) => i !== idx));
-    setActiveTab((prev) => Math.max(0, prev > idx ? prev - 1 : Math.min(prev, tabs.length - 2)));
-  };
-
+  const [cart, setCart] = useState([]);
+  const [selCustomer, setSelCustomer] = useState(null);
+  const [payment, setPayment] = useState("نقدي");
+  const [discount, setDiscount] = useState(0);
+  const [prescriptionImg, setPrescriptionImg] = useState(null);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("الكل");
   const [success, setSuccess] = useState(false);
@@ -1692,11 +1701,17 @@ function POS({
   );
 
   const addToCart = (p) => {
-    if (p.stock <= 0) { showToast("المخزون نفد!", "error"); return; }
+    if (p.stock <= 0) {
+      showToast("المخزون نفد!", "error");
+      return;
+    }
     setCart((prev) => {
       const ex = prev.find((i) => i.id === p.id);
       if (ex) {
-        if (ex.qty >= p.stock) { showToast("لا يوجد مخزون كافٍ", "error"); return prev; }
+        if (ex.qty >= p.stock) {
+          showToast("لا يوجد مخزون كافٍ", "error");
+          return prev;
+        }
         return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
       }
       return [...prev, { ...p, qty: 1, dose: "" }];
@@ -1711,14 +1726,22 @@ function POS({
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const taxAmount = cart.reduce(
-    (s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s), 0
+    (s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s),
+    0
   );
-  const discountAmt = Math.round((((subtotal + taxAmount) * discount) / 100) * 100) / 100;
+  const discountAmt =
+    Math.round((((subtotal + taxAmount) * discount) / 100) * 100) / 100;
   const total = subtotal + taxAmount - discountAmt;
 
   const completeSale = async () => {
-    if (!currentShift) { showToast("يرجى فتح شفت أولاً", "error"); return; }
-    if (cart.length === 0) { showToast("السلة فارغة!", "error"); return; }
+    if (!currentShift) {
+      showToast("يرجى فتح شفت أولاً", "error");
+      return;
+    }
+    if (cart.length === 0) {
+      showToast("السلة فارغة!", "error");
+      return;
+    }
     const id = "INV-" + String(sales.length + 1).padStart(4, "0");
     const inv = {
       id,
@@ -1726,20 +1749,32 @@ function POS({
       customer: selCustomer?.id || null,
       customer_name: selCustomer?.name || "زبون عادي",
       items: cart.map((i) => ({
-        id: i.id, name: i.name, qty: i.qty,
-        price: i.price, taxable: i.taxable, dose: i.dose,
+        id: i.id,
+        name: i.name,
+        qty: i.qty,
+        price: i.price,
+        taxable: i.taxable,
+        dose: i.dose,
       })),
-      subtotal, tax_amount: taxAmount,
-      discount_amt: discountAmt, total, payment,
-      shift: currentShift?.id, returned: false,
+      subtotal,
+      tax_amount: taxAmount,
+      discount_amt: discountAmt,
+      total,
+      payment,
+      shift: currentShift?.id,
+      returned: false,
     };
 
     await supabase.from("sales").insert(inv);
+
+    // تحديث المخزون
     for (const ci of cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
-        await supabase.from("products")
-          .update({ stock: prod.stock - ci.qty }).eq("id", ci.id);
+        await supabase
+          .from("products")
+          .update({ stock: prod.stock - ci.qty })
+          .eq("id", ci.id);
       }
     }
 
@@ -1750,13 +1785,10 @@ function POS({
         return ci ? { ...x, stock: x.stock - ci.qty } : x;
       })
     );
-
-    // إغلاق التاب الحالي بعد البيع وفتح جديد لو مفيش تابات
-    setTabs((prev) => {
-      const updated = prev.filter((_, i) => i !== activeTab);
-      return updated.length === 0 ? [newTab()] : updated;
-    });
-    setActiveTab(0);
+    setCart([]);
+    setDiscount(0);
+    setPrescriptionImg(null);
+    setSelCustomer(null);
     setSuccess(true);
     setTimeout(() => setSuccess(false), 2000);
     setShowPrint(inv);
@@ -1774,98 +1806,149 @@ function POS({
   const CATS = ["الكل", ...new Set(products.map((p) => p.category))];
 
   return (
-    <div style={{ height: "calc(100vh - 100px)", display: "flex", flexDirection: "column", gap: 12 }}>
+    <div
+      style={{
+        height: "calc(100vh - 100px)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}
+    >
       <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>نقطة البيع</h2>
-
       {!currentShift && (
-        <div style={{ background: "#3a1500", border: "1px solid #7a3000", borderRadius: 10, padding: "12px 16px", color: "#ffaa44", fontSize: 14, fontWeight: 600 }}>
+        <div
+          style={{
+            background: "#3a1500",
+            border: "1px solid #7a3000",
+            borderRadius: 10,
+            padding: "12px 16px",
+            color: "#ffaa44",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
           ⚠ يرجى فتح شفت من قسم الشفتات قبل البيع
         </div>
       )}
-
-      {/* ===== Tabs Bar ===== */}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        {tabs.map((tab, idx) => (
-          <div
-            key={tab.id}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "6px 12px",
-              borderRadius: 8,
-              border: "1px solid",
-              borderColor: activeTab === idx ? "#4a8aff" : "#1d2d4a",
-              background: activeTab === idx ? "#0a1a3a" : "#080e1a",
-              cursor: "pointer",
-              fontSize: 13,
-              color: activeTab === idx ? "#8abbff" : "#4a6a8a",
-              fontWeight: activeTab === idx ? 700 : 400,
-              transition: "all 0.15s",
-            }}
-            onClick={() => setActiveTab(idx)}
-          >
-            🛒 {tab.label} {idx + 1}
-            {tab.cart.length > 0 && (
-              <span style={{ background: "#2a6aff", color: "#fff", borderRadius: 10, fontSize: 10, padding: "1px 6px" }}>
-                {tab.cart.length}
-              </span>
-            )}
-            {tabs.length > 1 && (
-              <span
-                onClick={(e) => { e.stopPropagation(); closeTab(idx); }}
-                style={{ color: "#5a3a3a", fontWeight: 900, fontSize: 14, marginLeft: 2, lineHeight: 1 }}
-              >
-                ×
-              </span>
-            )}
-          </div>
-        ))}
-        {tabs.length < 5 && (
-          <div
-            onClick={addTab}
-            style={{
-              padding: "6px 12px", borderRadius: 8,
-              border: "1px dashed #1d2d4a",
-              background: "transparent", cursor: "pointer",
-              color: "#4a6a8a", fontSize: 18, lineHeight: 1,
-            }}
-          >
-            +
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, flex: 1, overflow: "hidden" }}>
-        {/* الفاتورة */}
-        <div style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr",
+          gap: 16,
+          flex: 1,
+          overflow: "hidden",
+        }}
+      >
+        {/* الفاتورة - يمين */}
+        <div
+          style={{
+            background: "#0f1623",
+            border: "1px solid #1d2d4a",
+            borderRadius: 16,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
           {/* بحث وباركود */}
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid #1d2d4a", display: "flex", flexDirection: "column", gap: 8 }}>
-            <BarcodeScanner onScan={scanBarcode} placeholder="امسح باركود الصنف (Barcode/QR)..." />
+          <div
+            style={{
+              padding: "12px 16px",
+              borderBottom: "1px solid #1d2d4a",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <BarcodeScanner
+              onScan={scanBarcode}
+              placeholder="امسح باركود الصنف (Barcode/QR)..."
+            />
             <div style={{ position: "relative" }}>
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="🔍 ابحث عن صنف بالاسم أو الباركود..."
-                style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: "#dde8ff", fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                style={{
+                  width: "100%",
+                  background: "#080e1a",
+                  border: "1px solid #1d2d4a",
+                  borderRadius: 8,
+                  padding: "9px 14px",
+                  color: "#dde8ff",
+                  fontSize: 14,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
               />
               {search && (
-                <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 8, zIndex: 100, maxHeight: 200, overflowY: "auto", marginTop: 4 }}>
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    left: 0,
+                    background: "#0f1623",
+                    border: "1px solid #1d2d4a",
+                    borderRadius: 8,
+                    zIndex: 100,
+                    maxHeight: 200,
+                    overflowY: "auto",
+                    marginTop: 4,
+                  }}
+                >
                   {filtered.slice(0, 8).map((p) => (
                     <div
                       key={p.id}
-                      onClick={() => { addToCart(p); setSearch(""); }}
-                      style={{ padding: "8px 14px", cursor: p.stock === 0 ? "not-allowed" : "pointer", opacity: p.stock === 0 ? 0.5 : 1, borderBottom: "1px solid #1a2a3a", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "#1a2a3a")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      onClick={() => {
+                        addToCart(p);
+                        setSearch("");
+                      }}
+                      style={{
+                        padding: "8px 14px",
+                        cursor: p.stock === 0 ? "not-allowed" : "pointer",
+                        opacity: p.stock === 0 ? 0.5 : 1,
+                        borderBottom: "1px solid #1a2a3a",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.background = "#1a2a3a")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.background = "transparent")
+                      }
                     >
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{p.name}</div>
-                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>{p.category} | مخزون: {p.stock}</div>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: "#dde8ff",
+                          }}
+                        >
+                          {p.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                          {p.category} | مخزون: {p.stock}
+                        </div>
                       </div>
-                      <span style={{ color: "#2a9aff", fontWeight: 700 }}>{p.price} ر.س</span>
+                      <span style={{ color: "#2a9aff", fontWeight: 700 }}>
+                        {p.price} ر.س
+                      </span>
                     </div>
                   ))}
                   {filtered.length === 0 && (
-                    <div style={{ padding: 12, color: "#4a6a8a", textAlign: "center" }}>لا يوجد نتائج</div>
+                    <div
+                      style={{
+                        padding: 12,
+                        color: "#4a6a8a",
+                        textAlign: "center",
+                      }}
+                    >
+                      لا يوجد نتائج
+                    </div>
                   )}
                 </div>
               )}
@@ -1873,68 +1956,278 @@ function POS({
           </div>
 
           {/* العميل والوصفة */}
-          <div style={{ padding: "8px 16px", borderBottom: "1px solid #1d2d4a", display: "flex", gap: 8 }}>
+          <div
+            style={{
+              padding: "8px 16px",
+              borderBottom: "1px solid #1d2d4a",
+              display: "flex",
+              gap: 8,
+            }}
+          >
             <select
               value={selCustomer?.id || ""}
-              onChange={(e) => setSelCustomer(customers.find((c) => c.id === e.target.value) || null)}
-              style={{ flex: 1, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "7px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }}
+              onChange={(e) =>
+                setSelCustomer(
+                  customers.find((c) => c.id === e.target.value) || null
+                )
+              }
+              style={{
+                flex: 1,
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                padding: "7px 10px",
+                color: "#dde8ff",
+                fontSize: 13,
+                outline: "none",
+              }}
             >
               <option value="">زبون عادي</option>
               {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}{c.taxId ? ` — ${c.taxId}` : ""}</option>
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.taxId ? ` — ${c.taxId}` : ""}
+                </option>
               ))}
             </select>
             <button
               onClick={() => fileRef.current.click()}
-              style={{ padding: "7px 12px", background: "#0a1a2a", border: "1px dashed #1d3a5a", borderRadius: 8, color: prescriptionImg ? "#44dd88" : "#4a6a8a", cursor: "pointer", fontSize: 12 }}
+              style={{
+                padding: "7px 12px",
+                background: "#0a1a2a",
+                border: "1px dashed #1d3a5a",
+                borderRadius: 8,
+                color: prescriptionImg ? "#44dd88" : "#4a6a8a",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
             >
               {prescriptionImg ? "✓ وصفة" : "📎 وصفة"}
             </button>
-            <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={uploadPrescription} />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={uploadPrescription}
+            />
           </div>
 
           {/* أصناف الفاتورة */}
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 16px" }}>
             {cart.length === 0 ? (
-              <div style={{ textAlign: "center", color: "#1a2a4a", padding: "60px 0", fontSize: 14 }}>
-                <IC n="cart" s={50} /><br /><br />
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "#1a2a4a",
+                  padding: "60px 0",
+                  fontSize: 14,
+                }}
+              >
+                <IC n="cart" s={50} />
+                <br />
+                <br />
                 ابحث عن صنف أو امسح الباركود لإضافته
               </div>
             ) : (
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #1d2d4a" }}>
-                    {["الصنف", "الكمية", "السعر", "الإجمالي", ""].map((h, i) => (
-                      <th key={i} style={{ textAlign: i === 0 ? "right" : "center", padding: "8px 4px", color: "#4a6a8a", fontSize: 12, fontWeight: 600 }}>{h}</th>
-                    ))}
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "8px 4px",
+                        color: "#4a6a8a",
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      الصنف
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "center",
+                        padding: "8px 4px",
+                        color: "#4a6a8a",
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      الكمية
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "center",
+                        padding: "8px 4px",
+                        color: "#4a6a8a",
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      السعر
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "center",
+                        padding: "8px 4px",
+                        color: "#4a6a8a",
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      الإجمالي
+                    </th>
+                    <th style={{ width: 30 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {cart.map((item) => (
-                    <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
+                    <tr
+                      key={item.id}
+                      style={{ borderBottom: "1px solid #0a101a" }}
+                    >
                       <td style={{ padding: "8px 4px" }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{item.name}</div>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: "#dde8ff",
+                          }}
+                        >
+                          {item.name}
+                        </div>
                         <input
                           value={item.dose}
-                          onChange={(e) => setCart((p) => p.map((i) => i.id === item.id ? { ...i, dose: e.target.value } : i))}
+                          onChange={(e) =>
+                            setCart((p) =>
+                              p.map((i) =>
+                                i.id === item.id
+                                  ? { ...i, dose: e.target.value }
+                                  : i
+                              )
+                            )
+                          }
                           placeholder="الجرعة..."
-                          style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: "#6a8aaa", fontSize: 11, outline: "none", padding: "2px 0" }}
+                          style={{
+                            width: "100%",
+                            background: "transparent",
+                            border: "none",
+                            borderBottom: "1px solid #1a2a4a",
+                            color: "#6a8aaa",
+                            fontSize: 11,
+                            outline: "none",
+                            padding: "2px 0",
+                          }}
                         />
                       </td>
                       <td style={{ textAlign: "center", padding: "8px 4px" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                          <button onClick={() => setCart((p) => p.map((i) => i.id === item.id ? { ...i, qty: Math.max(1, i.qty - 1) } : i))}
-                            style={{ width: 20, height: 20, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer" }}>-</button>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff", minWidth: 20, textAlign: "center" }}>{item.qty}</span>
-                          <button onClick={() => setCart((p) => p.map((i) => i.id === item.id ? { ...i, qty: Math.min(i.qty + 1, products.find((x) => x.id === i.id)?.stock || 99) } : i))}
-                            style={{ width: 20, height: 20, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer" }}>+</button>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <button
+                            onClick={() =>
+                              setCart((p) =>
+                                p.map((i) =>
+                                  i.id === item.id
+                                    ? { ...i, qty: Math.max(1, i.qty - 1) }
+                                    : i
+                                )
+                              )
+                            }
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 4,
+                              background: "#1a2540",
+                              border: "none",
+                              color: "#5a9aff",
+                              cursor: "pointer",
+                            }}
+                          >
+                            -
+                          </button>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              color: "#dde8ff",
+                              minWidth: 20,
+                              textAlign: "center",
+                            }}
+                          >
+                            {item.qty}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setCart((p) =>
+                                p.map((i) =>
+                                  i.id === item.id
+                                    ? {
+                                        ...i,
+                                        qty: Math.min(
+                                          i.qty + 1,
+                                          products.find((x) => x.id === i.id)
+                                            ?.stock || 99
+                                        ),
+                                      }
+                                    : i
+                                )
+                              )
+                            }
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 4,
+                              background: "#1a2540",
+                              border: "none",
+                              color: "#5a9aff",
+                              cursor: "pointer",
+                            }}
+                          >
+                            +
+                          </button>
                         </div>
                       </td>
-                      <td style={{ textAlign: "center", padding: "8px 4px", color: "#2a9aff", fontSize: 13 }}>{item.price}</td>
-                      <td style={{ textAlign: "center", padding: "8px 4px", color: "#dde8ff", fontSize: 13, fontWeight: 700 }}>{(item.price * item.qty).toFixed(2)}</td>
+                      <td
+                        style={{
+                          textAlign: "center",
+                          padding: "8px 4px",
+                          color: "#2a9aff",
+                          fontSize: 13,
+                        }}
+                      >
+                        {item.price}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "center",
+                          padding: "8px 4px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {(item.price * item.qty).toFixed(2)}
+                      </td>
                       <td style={{ textAlign: "center" }}>
-                        <button onClick={() => setCart((p) => p.filter((i) => i.id !== item.id))}
-                          style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}>✕</button>
+                        <button
+                          onClick={() =>
+                            setCart((p) => p.filter((i) => i.id !== item.id))
+                          }
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: "#5a2a2a",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ✕
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -1944,54 +2237,161 @@ function POS({
           </div>
 
           {/* الإجمالي وإتمام البيع */}
-          <div style={{ padding: "12px 16px", borderTop: "1px solid #1d2d4a", background: "#080e1a" }}>
+          <div
+            style={{
+              padding: "12px 16px",
+              borderTop: "1px solid #1d2d4a",
+              background: "#080e1a",
+            }}
+          >
             <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
               {["نقدي", "بطاقة", "تحويل", "آجل"].map((m) => (
-                <button key={m} onClick={() => setPayment(m)}
-                  style={{ flex: 1, padding: "7px 0", borderRadius: 7, border: "1px solid", borderColor: payment === m ? "#2a6aef" : "#1d2d4a", background: payment === m ? "#142a5a" : "transparent", color: payment === m ? "#6aaeff" : "#4a6a8a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                <button
+                  key={m}
+                  onClick={() => setPayment(m)}
+                  style={{
+                    flex: 1,
+                    padding: "7px 0",
+                    borderRadius: 7,
+                    border: "1px solid",
+                    borderColor: payment === m ? "#2a6aef" : "#1d2d4a",
+                    background: payment === m ? "#142a5a" : "transparent",
+                    color: payment === m ? "#6aaeff" : "#4a6a8a",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
                   {m}
                 </button>
               ))}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 10,
+              }}
+            >
               <label style={{ color: "#4a6a8a", fontSize: 12 }}>خصم %</label>
-              <input type="number" min="0" max="100" value={discount} onChange={(e) => setDiscount(+e.target.value)}
-                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 7, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none", width: 70 }} />
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={discount}
+                onChange={(e) => setDiscount(+e.target.value)}
+                style={{
+                  background: "#080e1a",
+                  border: "1px solid #1d2d4a",
+                  borderRadius: 7,
+                  padding: "6px 10px",
+                  color: "#dde8ff",
+                  fontSize: 13,
+                  outline: "none",
+                  width: 70,
+                }}
+              />
               {cart.length > 0 && (
-                <button onClick={() => setCart([])}
-                  style={{ marginRight: "auto", background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer", fontSize: 12 }}>
+                <button
+                  onClick={() => setCart([])}
+                  style={{
+                    marginRight: "auto",
+                    background: "transparent",
+                    border: "none",
+                    color: "#5a2a2a",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
                   🗑 مسح الكل
                 </button>
               )}
             </div>
-            <div style={{ background: "#0a1020", borderRadius: 10, padding: 10, marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>
-                <span>قبل الضريبة</span><span>{subtotal.toFixed(2)} ر.س</span>
+            <div
+              style={{
+                background: "#0a1020",
+                borderRadius: 10,
+                padding: 10,
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: "#4a6a8a",
+                  fontSize: 12,
+                  marginBottom: 4,
+                }}
+              >
+                <span>قبل الضريبة</span>
+                <span>{subtotal.toFixed(2)} ر.س</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", fontSize: 12, marginBottom: 4 }}>
-                <span>ضريبة 15%</span><span>{taxAmount.toFixed(2)} ر.س</span>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: "#88dd44",
+                  fontSize: 12,
+                  marginBottom: 4,
+                }}
+              >
+                <span>ضريبة 15%</span>
+                <span>{taxAmount.toFixed(2)} ر.س</span>
               </div>
               {discount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", color: "#ffaa44", fontSize: 12, marginBottom: 4 }}>
-                  <span>خصم {discount}%</span><span>- {discountAmt.toFixed(2)} ر.س</span>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    color: "#ffaa44",
+                    fontSize: 12,
+                    marginBottom: 4,
+                  }}
+                >
+                  <span>خصم {discount}%</span>
+                  <span>- {discountAmt.toFixed(2)} ر.س</span>
                 </div>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontSize: 18, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 8, marginTop: 4 }}>
-                <span>الإجمالي</span><span>{total.toFixed(2)} ر.س</span>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: "#dde8ff",
+                  fontSize: 18,
+                  fontWeight: 800,
+                  borderTop: "1px solid #1d2d4a",
+                  paddingTop: 8,
+                  marginTop: 4,
+                }}
+              >
+                <span>الإجمالي</span>
+                <span>{total.toFixed(2)} ر.س</span>
               </div>
             </div>
-            <Btn size="lg" onClick={completeSale} style={{ width: "100%", justifyContent: "center" }}
-              variant={success ? "success" : "primary"} icon={success ? "check" : "money"}>
+            <Btn
+              size="lg"
+              onClick={completeSale}
+              style={{ width: "100%", justifyContent: "center" }}
+              variant={success ? "success" : "primary"}
+              icon={success ? "check" : "money"}
+            >
               {success ? "تمت العملية!" : "إتمام البيع"}
             </Btn>
           </div>
         </div>
+
+        {/* الأصناف السريعة - شمال */}
       </div>
 
-      {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />}
+      {showPrint && (
+        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />
+      )}
     </div>
   );
 }
+
 // ==================== PRINT RECEIPT ====================
 function PrintReceipt({ invoice, onClose }) {
   const printArea = useRef();
@@ -2509,334 +2909,189 @@ function PurchaseModule({
 }
 
 function ReturnsModule({
-  products, setProducts,
-  sales, setSales,
-  purchases, setPurchases,
-  customers, showToast,
+  products,
+  setProducts,
+  sales,
+  setSales,
+  purchases,
+  setPurchases,
+  customers,
+  showToast,
 }) {
   const [type, setType] = useState("sales");
-  const [searchMode, setSearchMode] = useState("invoice");
   const [search, setSearch] = useState("");
-  const [filteredSales, setFilteredSales] = useState([]);
   const [returnItems, setReturnItems] = useState([]);
   const [reason, setReason] = useState("");
   const [selCustomer, setSelCustomer] = useState("");
   const [selInvoice, setSelInvoice] = useState("");
 
-  // ── إعادة تعيين عند تغيير النوع ──
   useEffect(() => {
     setReturnItems([]);
     setSearch("");
     setSelCustomer("");
     setReason("");
     setSelInvoice("");
-    setFilteredSales([]);
-    setSearchMode("invoice");
   }, [type]);
 
-  // ── عند اختيار فاتورة شراء ──
+  // فاتورة الشراء المختارة
   const purchaseInvoice = purchases.find((p) => p.id === selInvoice);
+
   useEffect(() => {
     if (type === "purchases" && purchaseInvoice) {
-      setReturnItems(purchaseInvoice.items.map((i) => ({ ...i, returnQty: 0 })));
+      setReturnItems(
+        purchaseInvoice.items.map((i) => ({ ...i, returnQty: 0 }))
+      );
     }
   }, [selInvoice, type]);
 
-  // ── عند اختيار فاتورة بيع ──
-  const salesInvoice = sales?.find((s) => s.id === selInvoice);
-  useEffect(() => {
-    if (type === "sales" && salesInvoice) {
-      setReturnItems(salesInvoice.items.map((i) => ({ ...i, returnQty: 0 })));
-      setSelCustomer(salesInvoice.customer || "");
-    }
-  }, [selInvoice, type]);
-
-  // ── بحث في فواتير البيع ──
-  const handleSalesSearch = (val) => {
-    setSearch(val);
-    if (!val.trim()) { setFilteredSales([]); return; }
-
-    const results = (sales || []).filter((s) => {
-      if (s.returned) return false;
-      if (searchMode === "invoice")
-        return s.id.toLowerCase().includes(val.toLowerCase());
-      if (searchMode === "customer") {
-        const cust = customers?.find((c) => c.id === s.customer);
-        return cust?.name?.toLowerCase().includes(val.toLowerCase()) ||
-               s.customer_name?.toLowerCase().includes(val.toLowerCase());
-      }
-      if (searchMode === "product")
-        return s.items?.some((i) => i.name.toLowerCase().includes(val.toLowerCase()));
-      return false;
-    });
-
-    setFilteredSales(results);
-  };
-
-  // ── بحث يدوي بالباركود (بدون فاتورة) ──
-  const handleBarcodeSearch = (val) => {
+  // بحث للمبيعات فقط
+  const handleSearch = (val) => {
     setSearch(val);
     if (!val.trim()) return;
     const found = products.find(
-      (p) => p.barcode === val.trim() ||
+      (p) =>
+        p.barcode === val.trim() ||
         p.name.toLowerCase().includes(val.toLowerCase())
     );
     if (found) {
-      if (returnItems.find((i) => i.id === found.id)) {
-        showToast("الصنف موجود بالفعل", "error"); return;
+      const already = returnItems.find((i) => i.id === found.id);
+      if (already) {
+        showToast("الصنف موجود بالفعل", "error");
+        return;
       }
       setReturnItems((prev) => [...prev, { ...found, returnQty: 1 }]);
       setSearch("");
     }
   };
 
-  // ── حسابات المرتجع ──
   const returnSubtotal = returnItems.reduce(
-    (s, i) => s + (type === "purchases" ? (i.cost || i.price) : i.price) * i.returnQty, 0
+    (s, i) =>
+      s + (type === "purchases" ? i.cost || i.price : i.price) * i.returnQty,
+    0
   );
   const returnTax = returnItems.reduce(
-    (s, i) => i.taxable
-      ? s + (type === "purchases" ? (i.cost || i.price) : i.price) * i.returnQty * TAX_RATE
-      : s, 0
+    (s, i) =>
+      i.taxable
+        ? s +
+          (type === "purchases" ? i.cost || i.price : i.price) *
+            i.returnQty *
+            TAX_RATE
+        : s,
+    0
   );
   const returnTotal = returnSubtotal + returnTax;
 
-  // ── حفظ المرتجع ──
   const processReturn = async () => {
-    if (returnItems.length === 0 || returnItems.every((i) => i.returnQty === 0)) {
-      showToast("يرجى إدخال كمية للمرتجع", "error");
-      return;
-    }
-
-    // التحقق من الكميات
-    const invalidItem = returnItems.find((i) => {
-      const maxQty = type === "purchases"
-        ? i.qty
-        : selInvoice ? i.qty : i.stock;
-      return i.returnQty > maxQty;
-    });
-    if (invalidItem) {
-      showToast(`كمية المرتجع للصنف "${invalidItem.name}" تتجاوز الكمية المسموحة`, "error");
+    if (
+      returnItems.length === 0 ||
+      returnItems.every((i) => i.returnQty === 0)
+    ) {
+      showToast("يرجى إضافة أصناف للمرتجع", "error");
       return;
     }
 
     const returnId = `RET-${Date.now()}`;
     const customer = customers?.find((c) => c.id === selCustomer);
-    console.log("selCustomer:", selCustomer);
-console.log("customer found:", customer);
-console.log("customers list:", customers);
 
-    // ── حفظ في Supabase أولاً ──
-    const { error } = await supabase.from("returns").insert([{
-  id: returnId,
-  date: new Date().toISOString().split("T")[0],
-  type,
-  invoice_ref: selInvoice || null,
-  customer_id: selCustomer || null,
-  customer_name: customer?.name || "زبون عادي",
-  items: returnItems,
-  reason,
-  subtotal: returnSubtotal,
-  tax: returnTax,
-  return_total: returnTotal,   // ← غيّر هنا حسب اسم الـ column
-}]);
-
-    if (error) {
-      console.error("Return save error:", error);
-      console.log("Full error details:", JSON.stringify(error));
-      showToast("خطأ في حفظ المرتجع: " + error.message, "error");
-      return;
-    }
-
-    // ── بعد النجاح: تحديث المخزون ──
     setProducts((p) =>
       p.map((x) => {
         const ri = returnItems.find((i) => i.id === x.id);
-        if (!ri || ri.returnQty === 0) return x;
-        return {
-          ...x,
-          stock: type === "sales"
-            ? x.stock + ri.returnQty   // مرتجع مبيعات → يزيد المخزون
-            : x.stock - ri.returnQty,  // مرتجع مشتريات → ينقص المخزون
-        };
+        return ri && ri.returnQty > 0
+          ? { ...x, stock: x.stock + ri.returnQty }
+          : x;
       })
     );
 
-    // ── تحديث حالة الفاتورة الأصلية ──
     if (type === "purchases" && selInvoice) {
       setPurchases((p) =>
-        p.map((s) => s.id === selInvoice
-          ? { ...s, returned: true, returnReason: reason } : s)
+        p.map((s) =>
+          s.id === selInvoice
+            ? { ...s, returned: true, returnReason: reason }
+            : s
+        )
       );
     }
-    if (type === "sales" && selInvoice) {
-      setSales((p) =>
-        p.map((s) => s.id === selInvoice
-          ? { ...s, returned: true, returnReason: reason } : s)
-      );
+
+    const { error } = await supabase.from("returns").insert([
+      {
+        id: returnId,
+        date: new Date().toISOString().split("T")[0],
+        type,
+        customer: selCustomer || null,
+        customer_name: customer?.name || "زبون عادي",
+        items: returnItems,
+        reason,
+        subtotal: returnSubtotal,
+        tax: returnTax,
+        total: returnTotal,
+      },
+    ]);
+
+    if (error) {
+      showToast("خطأ في حفظ المرتجع", "error");
+      return;
     }
 
     setReturnItems([]);
     setReason("");
     setSelCustomer("");
     setSelInvoice("");
-    setSearch("");
-    setFilteredSales([]);
     showToast(`تم تسجيل المرتجع ✓ — ${returnTotal.toFixed(2)} ر.س`);
   };
 
-  // ─────────────────────────── UI ───────────────────────────
   return (
     <div>
-      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>المرتجعات</h2>
+      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
+        المرتجعات
+      </h2>
 
-      {/* نوع المرتجع */}
       <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
         {["sales", "purchases"].map((t) => (
-          <button key={t} onClick={() => setType(t)} style={{
-            padding: "9px 22px", borderRadius: 9, border: "1px solid",
-            borderColor: type === t ? "#2a6aef" : "#1d2d4a",
-            background: type === t ? "#142a5a" : "transparent",
-            color: type === t ? "#6aaeff" : "#4a6a8a",
-            fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 14,
-          }}>
+          <button
+            key={t}
+            onClick={() => setType(t)}
+            style={{
+              padding: "9px 22px",
+              borderRadius: 9,
+              border: "1px solid",
+              borderColor: type === t ? "#2a6aef" : "#1d2d4a",
+              background: type === t ? "#142a5a" : "transparent",
+              color: type === t ? "#6aaeff" : "#4a6a8a",
+              fontWeight: type === t ? 700 : 400,
+              cursor: "pointer",
+              fontSize: 14,
+            }}
+          >
             مرتجع {t === "sales" ? "مبيعات" : "مشتريات"}
           </button>
         ))}
       </div>
 
-      {/* ══ مرتجع المبيعات ══ */}
+      {/* مرتجع المبيعات: بحث */}
       {type === "sales" && (
         <>
-          {/* أزرار طريقة البحث */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            {[
-              { k: "invoice",  l: "🔢 رقم الفاتورة" },
-              { k: "customer", l: "👤 اسم العميل"   },
-              { k: "product",  l: "💊 اسم الصنف"    },
-            ].map(({ k, l }) => (
-              <button key={k} onClick={() => {
-                setSearchMode(k);
-                setSearch("");
-                setFilteredSales([]);
-                setSelInvoice("");
-                setReturnItems([]);
-                setSelCustomer("");
-              }} style={{
-                padding: "7px 14px", borderRadius: 8, border: "1px solid",
-                borderColor: searchMode === k ? "#2a6aef" : "#1d2d4a",
-                background: searchMode === k ? "#142a5a" : "transparent",
-                color: searchMode === k ? "#6aaeff" : "#4a6a8a",
-                fontSize: 13, cursor: "pointer",
-              }}>{l}</button>
-            ))}
+          <div style={{ marginBottom: 14 }}>
+            <input
+              placeholder="🔍 ابحث بالاسم أو الباركود..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch(search)}
+              style={{
+                width: "100%",
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 9,
+                padding: "11px 14px",
+                color: "#dde8ff",
+                fontSize: 14,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
           </div>
-
-          {/* حقل البحث بالفاتورة/العميل/الصنف */}
-          {!selInvoice && (
-            <div style={{ marginBottom: 14, position: "relative" }}>
-              <input
-                placeholder={
-                  searchMode === "invoice"  ? "🔍 ابحث برقم الفاتورة..." :
-                  searchMode === "customer" ? "🔍 ابحث باسم العميل..."   :
-                                              "🔍 ابحث باسم الصنف..."
-                }
-                value={search}
-                onChange={(e) => handleSalesSearch(e.target.value)}
-                style={{
-                  width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
-                  borderRadius: 9, padding: "11px 14px", color: "#dde8ff",
-                  fontSize: 14, outline: "none", boxSizing: "border-box",
-                }}
-              />
-
-              {/* نتائج البحث */}
-              {filteredSales.length > 0 && (
-                <div style={{
-                  position: "absolute", top: "100%", left: 0, right: 0,
-                  background: "#0f1623", border: "1px solid #1d2d4a",
-                  borderRadius: 9, zIndex: 99, maxHeight: 220, overflowY: "auto",
-                }}>
-                  {filteredSales.map((s) => {
-                    const cName = customers?.find((c) => c.id === s.customer)?.name
-                      || s.customer_name || "زبون عادي";
-                    return (
-                      <div key={s.id}
-                        onClick={() => {
-                          setSelInvoice(s.id);
-                          setSearch("");
-                          setFilteredSales([]);
-                        }}
-                        style={{
-                          padding: "10px 14px", cursor: "pointer",
-                          borderBottom: "1px solid #0a101a",
-                          color: "#c0d0f0", fontSize: 13,
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = "#142a5a"}
-                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                      >
-                        <span style={{ color: "#6aaeff", fontWeight: 700 }}>{s.id}</span>
-                        {"  ·  "}{cName}{"  ·  "}{s.date}{"  ·  "}
-                        <span style={{ color: "#88dd44" }}>{s.total?.toFixed(2)} ر.س</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* الفاتورة المختارة */}
-          {selInvoice && (
-            <div style={{
-              background: "#0a1a0a", border: "1px solid #1a3a1a",
-              borderRadius: 9, padding: "10px 14px", marginBottom: 14,
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-            }}>
-              <span style={{ color: "#44dd88", fontSize: 13 }}>
-                ✓ الفاتورة: <strong>{selInvoice}</strong>
-              </span>
-              <button onClick={() => {
-                setSelInvoice(""); setReturnItems([]); setSelCustomer("");
-              }} style={{
-                background: "transparent", border: "none",
-                color: "#ff6666", cursor: "pointer", fontSize: 13,
-              }}>✕ تغيير</button>
-            </div>
-          )}
-
-          {/* تحذير بدون فاتورة */}
-          {!selInvoice && returnItems.length > 0 && (
-            <div style={{
-              background: "#1a1000", border: "1px solid #3a2a00",
-              borderRadius: 8, padding: "10px 14px", marginBottom: 14,
-              color: "#ffaa44", fontSize: 13,
-            }}>
-              ⚠️ بدون فاتورة — الحد الأقصى للإرجاع هو المخزون الحالي
-            </div>
-          )}
-
-          {/* بحث يدوي بالباركود (بدون فاتورة) */}
-          {!selInvoice && (
-            <div style={{ marginBottom: 14 }}>
-              <input
-                placeholder="📦 أو أضف صنف بالباركود يدوياً..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleBarcodeSearch(search)}
-                style={{
-                  width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
-                  borderRadius: 9, padding: "11px 14px", color: "#dde8ff",
-                  fontSize: 14, outline: "none", boxSizing: "border-box",
-                }}
-              />
-            </div>
-          )}
-
-          {/* العميل */}
           <div style={{ marginBottom: 14 }}>
             <Select
-              label="العميل"
+              label="العميل (اختياري)"
               value={selCustomer}
               onChange={setSelCustomer}
               options={[
@@ -2848,7 +3103,7 @@ console.log("customers list:", customers);
         </>
       )}
 
-      {/* ══ مرتجع المشتريات ══ */}
+      {/* مرتجع الشراء: اختيار فاتورة */}
       {type === "purchases" && (
         <div style={{ marginBottom: 14 }}>
           <Select
@@ -2857,16 +3112,17 @@ console.log("customers list:", customers);
             onChange={setSelInvoice}
             options={[
               { v: "", l: "اختر الفاتورة..." },
-              ...purchases.filter((p) => !p.returned).map((x) => ({
-                v: x.id,
-                l: `${x.id} — ${x.date} — ${x.total.toFixed(2)} ر.س`,
-              })),
+              ...purchases
+                .filter((p) => !p.returned)
+                .map((x) => ({
+                  v: x.id,
+                  l: `${x.id} — ${x.date} — ${x.total.toFixed(2)} ر.س`,
+                })),
             ]}
           />
         </div>
       )}
 
-      {/* سبب الإرجاع */}
       <div style={{ marginBottom: 14 }}>
         <Input
           label="سبب الإرجاع"
@@ -2878,89 +3134,137 @@ console.log("customers list:", customers);
 
       {/* الأصناف */}
       {returnItems.length > 0 && (
-        <div style={{
-          background: "#0f1623", border: "1px solid #1d2d4a",
-          borderRadius: 12, padding: 16, marginBottom: 14,
-        }}>
-          {returnItems.map((item, i) => {
-            const maxQty = type === "purchases"
-              ? item.qty
-              : selInvoice ? item.qty : item.stock;
-            const unitPrice = type === "purchases"
-              ? (item.cost || item.price) : item.price;
-
-            return (
-              <div key={i} style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 0", borderBottom: "1px solid #0a101a",
-              }}>
-                <div style={{ flex: 1, fontSize: 13, color: "#c0d0f0" }}>{item.name}</div>
-                <div style={{ color: "#4a6a8a", fontSize: 12 }}>
-                  {unitPrice.toFixed(2)} ر.س
-                </div>
-
-                {/* حقل الكمية مع الحد الأقصى */}
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input
-                    type="number"
-                    min={0}
-                    max={maxQty}
-                    value={item.returnQty}
-                    onChange={(e) => {
-                      const val = Math.min(
-                        Math.max(0, parseInt(e.target.value) || 0),
-                        maxQty
-                      );
-                      setReturnItems((p) =>
-                        p.map((x, j) => j === i ? { ...x, returnQty: val } : x)
-                      );
-                    }}
-                    style={{
-                      width: 55, background: "#080e1a",
-                      border: `1px solid ${item.returnQty > maxQty ? "#ff4444" : "#1d2d4a"}`,
-                      borderRadius: 6, padding: "5px 8px",
-                      color: "#dde8ff", fontSize: 13, outline: "none",
-                    }}
-                  />
-                  <span style={{ color: "#4a6a8a", fontSize: 11 }}>/ {maxQty}</span>
-                </div>
-
-                {type === "sales" && !selInvoice && (
-                  <button
-                    onClick={() => setReturnItems((p) => p.filter((_, j) => j !== i))}
-                    style={{
-                      background: "transparent", border: "none",
-                      color: "#ff6666", cursor: "pointer", fontSize: 16,
-                    }}>✕</button>
-                )}
-
-                {item.taxable && (
-                  <Badge color="#0a2a00" text="#44dd88">15%</Badge>
-                )}
+        <div
+          style={{
+            background: "#0f1623",
+            border: "1px solid #1d2d4a",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 14,
+          }}
+        >
+          {returnItems.map((item, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 0",
+                borderBottom: "1px solid #0a101a",
+              }}
+            >
+              <div style={{ flex: 1, fontSize: 13, color: "#c0d0f0" }}>
+                {item.name}
               </div>
-            );
-          })}
+              <div style={{ color: "#4a6a8a", fontSize: 12 }}>
+                {(type === "purchases"
+                  ? item.cost || item.price
+                  : item.price
+                ).toFixed(2)}{" "}
+                ر.س
+              </div>
+              <input
+                type="number"
+                min={type === "purchases" ? 0 : 1}
+                max={type === "purchases" ? item.qty : undefined}
+                value={item.returnQty}
+                onChange={(e) =>
+                  setReturnItems((p) =>
+                    p.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            returnQty:
+                              type === "purchases"
+                                ? Math.min(+e.target.value, item.qty)
+                                : Math.max(1, +e.target.value),
+                          }
+                        : x
+                    )
+                  )
+                }
+                style={{
+                  width: 60,
+                  background: "#080e1a",
+                  border: "1px solid #1d2d4a",
+                  borderRadius: 6,
+                  padding: "5px 8px",
+                  color: "#dde8ff",
+                  fontSize: 13,
+                  outline: "none",
+                }}
+              />
+              {type === "sales" && (
+                <button
+                  onClick={() =>
+                    setReturnItems((p) => p.filter((_, j) => j !== i))
+                  }
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#ff6666",
+                    cursor: "pointer",
+                    fontSize: 16,
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+              {item.taxable && (
+                <Badge color="#0a2a00" text="#44dd88">
+                  15%
+                </Badge>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
-      {/* الإجمالي */}
       {returnTotal > 0 && (
-        <div style={{
-          background: "#080e1a", borderRadius: 10,
-          padding: 14, marginBottom: 14,
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", marginBottom: 5 }}>
-            <span>قبل الضريبة</span><span>{returnSubtotal.toFixed(2)} ر.س</span>
+        <div
+          style={{
+            background: "#080e1a",
+            borderRadius: 10,
+            padding: 14,
+            marginBottom: 14,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              color: "#4a6a8a",
+              marginBottom: 5,
+            }}
+          >
+            <span>قبل الضريبة</span>
+            <span>{returnSubtotal.toFixed(2)} ر.س</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", marginBottom: 5 }}>
-            <span>الضريبة المستردة 15%</span><span>{returnTax.toFixed(2)} ر.س</span>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              color: "#88dd44",
+              marginBottom: 5,
+            }}
+          >
+            <span>الضريبة المستردة 15%</span>
+            <span>{returnTax.toFixed(2)} ر.س</span>
           </div>
-          <div style={{
-            display: "flex", justifyContent: "space-between",
-            color: "#dde8ff", fontWeight: 800, fontSize: 16,
-            borderTop: "1px solid #1d2d4a", paddingTop: 8,
-          }}>
-            <span>إجمالي المرتجع</span><span>{returnTotal.toFixed(2)} ر.س</span>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              color: "#dde8ff",
+              fontWeight: 800,
+              fontSize: 16,
+              borderTop: "1px solid #1d2d4a",
+              paddingTop: 8,
+            }}
+          >
+            <span>إجمالي المرتجع</span>
+            <span>{returnTotal.toFixed(2)} ر.س</span>
           </div>
         </div>
       )}
@@ -3225,10 +3529,10 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     cost: "",
     taxable: true,
     minStock: "",
-    maxStock: "",          // ✅ جديد
+    maxStock: "", // ✅ جديد
     activeIngredient: "",
     concentration: "",
-    isEssential: false,    // ✅ جديد - دواء أساسي
+    isEssential: false, // ✅ جديد - دواء أساسي
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -3242,17 +3546,16 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   );
 
   const openEdit = (p) => {
-  setEditing(p.id);
-  setForm({
-    ...p,
-    price: String(p.price),
-    cost: String(p.cost),
-    minStock: String(p.min_stock || ""),
-    maxStock: String(p.max_stock || ""),
-    isEssential: p.is_essential || false,
-  });
-  setShowForm(true);
-};
+    setEditing(p.id);
+    setForm({
+      ...p,
+      price: String(p.price),
+      cost: String(p.cost),
+      minStock: String(p.minStock),
+      maxStock: String(p.maxStock || ""),
+    });
+    setShowForm(true);
+  };
 
   const openAdd = () => {
     setEditing(null);
@@ -3264,50 +3567,56 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   };
 
   const save = async () => {
-  if (!form.name || !form.price) {
-    showToast("يرجى ملء الحقول المطلوبة", "error");
-    return;
-  }
-  
-  const p = {
-    id: form.id,
-    name: form.name,
-    barcode: form.barcode,
-    category: form.category,
-    unit: form.unit,
-    price: +form.price,
-    cost: +form.cost,
-    taxable: form.taxable,
-    min_stock: +form.minStock,
-    max_stock: +form.maxStock,
-    active_ingredient: form.activeIngredient,
-    concentration: form.concentration,
-    is_essential: form.isEssential,
-  };
+    if (!form.name || !form.price) {
+      showToast("يرجى ملء الحقول المطلوبة", "error");
+      return;
+    }
 
-  if (editing) {
-    await supabase.from("products").update(p).eq("id", editing);
-    setProducts((prev) => prev.map((x) => (x.id === editing ? {
-  ...x, 
-  ...p,
-  isEssential: p.is_essential,
-  minStock: p.min_stock,
-  maxStock: p.max_stock,
-  activeIngredient: p.active_ingredient,
-} : x)));
-  } else {
-    await supabase.from("products").insert(p);
-    setProducts((prev) => [...prev, p]);
-  }
-  
-  setShowForm(false);
-  showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
-};
+    const p = {
+      id: form.id,
+      name: form.name,
+      barcode: form.barcode,
+      category: form.category,
+      unit: form.unit,
+      price: +form.price,
+      cost: +form.cost,
+      taxable: form.taxable,
+      min_stock: +form.minStock,
+      max_stock: +form.maxStock,
+      active_ingredient: form.activeIngredient,
+      concentration: form.concentration,
+      is_essential: form.isEssential,
+    };
+
+    if (editing) {
+      await supabase.from("products").update(p).eq("id", editing);
+      setProducts((prev) =>
+        prev.map((x) => (x.id === editing ? { ...x, ...p } : x))
+      );
+    } else {
+      await supabase.from("products").insert(p);
+      setProducts((prev) => [...prev, p]);
+    }
+
+    setShowForm(false);
+    showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
+  };
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الأصناف</h2>
-        <Btn icon="plus" onClick={openAdd}>إضافة صنف</Btn>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 18,
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
+          إدارة الأصناف
+        </h2>
+        <Btn icon="plus" onClick={openAdd}>
+          إضافة صنف
+        </Btn>
       </div>
 
       <input
@@ -3315,93 +3624,274 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
         onChange={(e) => setSearch(e.target.value)}
         placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
         style={{
-          width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
-          borderRadius: 8, padding: "9px 14px", color: "#dde8ff",
-          fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14,
+          width: "100%",
+          background: "#080e1a",
+          border: "1px solid #1d2d4a",
+          borderRadius: 8,
+          padding: "9px 14px",
+          color: "#dde8ff",
+          fontSize: 14,
+          outline: "none",
+          boxSizing: "border-box",
+          marginBottom: 14,
         }}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
-        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#3a9aff" />
-        <StatCard label="مخزون منخفض" value={products.filter((p) => p.stock <= p.minStock).length} icon="alert" color="#ffaa44" />
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4,1fr)",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <StatCard
+          label="إجمالي الأصناف"
+          value={products.length}
+          icon="inventory"
+          color="#3a9aff"
+        />
+        <StatCard
+          label="مخزون منخفض"
+          value={products.filter((p) => p.stock <= p.minStock).length}
+          icon="alert"
+          color="#ffaa44"
+        />
         {/* ✅ بطاقة جديدة للأدوية الأساسية */}
-        <StatCard label="أدوية أساسية" value={products.filter((p) => p.isEssential || p.is_essential).length} icon="star" color="#f59e0b" />
+        <StatCard
+          label="أدوية أساسية"
+          value={products.filter((p) => p.isEssential).length}
+          icon="star"
+          color="#f59e0b"
+        />
         <StatCard
           label="قيمة المخزون"
-          value={products.reduce((s, p) => s + p.cost * (p.stock || 0), 0).toFixed(0) + " ر.س"}
-          icon="money" color="#a78bfa"
+          value={
+            products
+              .reduce((s, p) => s + p.cost * (p.stock || 0), 0)
+              .toFixed(0) + " ر.س"
+          }
+          icon="money"
+          color="#a78bfa"
         />
       </div>
 
       <Table
         headers={[
-          "رمز", "الصنف", "الباركود", "الفئة",
-          "سعر البيع", "التكلفة", "الضريبة",
-          "الحد الأدنى", "الحد الأقصى", "أساسي", "إجراءات",  // ✅ تعديل الأعمدة
+          "رمز",
+          "الصنف",
+          "الباركود",
+          "الفئة",
+          "سعر البيع",
+          "التكلفة",
+          "الضريبة",
+          "الحد الأدنى",
+          "الحد الأقصى",
+          "أساسي",
+          "إجراءات", // ✅ تعديل الأعمدة
         ]}
         rows={filtered.map((p) => [
           <span style={{ color: "#4a6a8a", fontSize: 11 }}>{p.id}</span>,
           <div>
             <div style={{ fontWeight: 700, color: "#dde8ff" }}>{p.name}</div>
-            <div style={{ fontSize: 10, color: "#3a5a8a" }}>{p.activeIngredient} {p.concentration}</div>
+            <div style={{ fontSize: 10, color: "#3a5a8a" }}>
+              {p.activeIngredient} {p.concentration}
+            </div>
           </div>,
-          <span style={{ fontSize: 11, color: "#4a6a8a", fontFamily: "monospace" }}>{p.barcode}</span>,
+          <span
+            style={{ fontSize: 11, color: "#4a6a8a", fontFamily: "monospace" }}
+          >
+            {p.barcode}
+          </span>,
           <Badge>{p.category}</Badge>,
-          <span style={{ color: "#3a9aff", fontWeight: 700 }}>{p.price} ر.س</span>,
+          <span style={{ color: "#3a9aff", fontWeight: 700 }}>
+            {p.price} ر.س
+          </span>,
           <span style={{ color: "#4a6a8a" }}>{p.cost} ر.س</span>,
-          <Badge color={p.taxable ? "#0a2a00" : "#1a1a2a"} text={p.taxable ? "#44dd88" : "#4a6a8a"}>
+          <Badge
+            color={p.taxable ? "#0a2a00" : "#1a1a2a"}
+            text={p.taxable ? "#44dd88" : "#4a6a8a"}
+          >
             {p.taxable ? "15%" : "معفى"}
           </Badge>,
           p.minStock,
-          p.maxStock || "-",   // ✅ الحد الأقصى
+          p.maxStock || "-", // ✅ الحد الأقصى
           // ✅ أيقونة دواء أساسي
-          (p.isEssential || p.is_essential)
-  ? <Badge color="#2a1a00" text="#f59e0b">⭐ أساسي</Badge>
-  : <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>,
+          p.isEssential ? (
+            <Badge color="#2a1a00" text="#f59e0b">
+              ⭐ أساسي
+            </Badge>
+          ) : (
+            <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>
+          ),
           <div style={{ display: "flex", gap: 5 }}>
-            <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
-            <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
-              await supabase.from("products").delete().eq("id", p.id);
-              setProducts((prev) => prev.filter((x) => x.id !== p.id));
-              showToast("تم حذف الصنف");
-            }}>حذف</Btn>
+            <Btn
+              size="sm"
+              icon="edit"
+              variant="secondary"
+              onClick={() => openEdit(p)}
+            >
+              تعديل
+            </Btn>
+            <Btn
+              size="sm"
+              icon="trash"
+              variant="danger"
+              onClick={async () => {
+                await supabase.from("products").delete().eq("id", p.id);
+                setProducts((prev) => prev.filter((x) => x.id !== p.id));
+                showToast("تم حذف الصنف");
+              }}
+            >
+              حذف
+            </Btn>
           </div>,
         ])}
       />
 
-      <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? "تعديل الصنف" : "إضافة صنف جديد"} wide>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          <Input label="رمز الصنف" value={form.id} onChange={(v) => F("id", v)} placeholder="P001" />
-          <Input label="اسم الصنف *" value={form.name} onChange={(v) => F("name", v)} placeholder="اسم الدواء" style={{ gridColumn: "2/4" }} />
-          <Input label="الباركود (Barcode/QR)" value={form.barcode} onChange={(v) => F("barcode", v)} placeholder="رقم الباركود" />
-          <Select label="الفئة" value={form.category} onChange={(v) => F("category", v)} options={CATEGORIES} />
-          <Input label="وحدة القياس" value={form.unit} onChange={(v) => F("unit", v)} placeholder="قرص / كبسولة..." />
-          <Input label="سعر البيع *" value={form.price} onChange={(v) => F("price", v)} type="number" placeholder="0.00" />
-          <Input label="سعر التكلفة" value={form.cost} onChange={(v) => F("cost", v)} type="number" placeholder="0.00" />
-          
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title={editing ? "تعديل الصنف" : "إضافة صنف جديد"}
+        wide
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: 12,
+          }}
+        >
+          <Input
+            label="رمز الصنف"
+            value={form.id}
+            onChange={(v) => F("id", v)}
+            placeholder="P001"
+          />
+          <Input
+            label="اسم الصنف *"
+            value={form.name}
+            onChange={(v) => F("name", v)}
+            placeholder="اسم الدواء"
+            style={{ gridColumn: "2/4" }}
+          />
+          <Input
+            label="الباركود (Barcode/QR)"
+            value={form.barcode}
+            onChange={(v) => F("barcode", v)}
+            placeholder="رقم الباركود"
+          />
+          <Select
+            label="الفئة"
+            value={form.category}
+            onChange={(v) => F("category", v)}
+            options={CATEGORIES}
+          />
+          <Input
+            label="وحدة القياس"
+            value={form.unit}
+            onChange={(v) => F("unit", v)}
+            placeholder="قرص / كبسولة..."
+          />
+          <Input
+            label="سعر البيع *"
+            value={form.price}
+            onChange={(v) => F("price", v)}
+            type="number"
+            placeholder="0.00"
+          />
+          <Input
+            label="سعر التكلفة"
+            value={form.cost}
+            onChange={(v) => F("cost", v)}
+            type="number"
+            placeholder="0.00"
+          />
+
           {/* ✅ الحد الأدنى والأقصى بجانب بعض */}
-          <Input label="الحد الأدنى للمخزون" value={form.minStock} onChange={(v) => F("minStock", v)} type="number" placeholder="10" />
-          <Input label="الحد الأقصى للمخزون" value={form.maxStock} onChange={(v) => F("maxStock", v)} type="number" placeholder="100" />
-          
-          <Input label="المادة الفعالة" value={form.activeIngredient} onChange={(v) => F("activeIngredient", v)} placeholder="Paracetamol" />
-          <Input label="التركيز" value={form.concentration} onChange={(v) => F("concentration", v)} placeholder="500mg" />
+          <Input
+            label="الحد الأدنى للمخزون"
+            value={form.minStock}
+            onChange={(v) => F("minStock", v)}
+            type="number"
+            placeholder="10"
+          />
+          <Input
+            label="الحد الأقصى للمخزون"
+            value={form.maxStock}
+            onChange={(v) => F("maxStock", v)}
+            type="number"
+            placeholder="100"
+          />
+
+          <Input
+            label="المادة الفعالة"
+            value={form.activeIngredient}
+            onChange={(v) => F("activeIngredient", v)}
+            placeholder="Paracetamol"
+          />
+          <Input
+            label="التركيز"
+            value={form.concentration}
+            onChange={(v) => F("concentration", v)}
+            placeholder="500mg"
+          />
 
           {/* ✅ خاضع للضريبة */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
-            <label style={{ color: "#5a7aaa", fontSize: 13, fontWeight: 600 }}>خاضع لضريبة القيمة المضافة 15%</label>
-            <input type="checkbox" checked={form.taxable} onChange={(e) => F("taxable", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 0",
+            }}
+          >
+            <label style={{ color: "#5a7aaa", fontSize: 13, fontWeight: 600 }}>
+              خاضع لضريبة القيمة المضافة 15%
+            </label>
+            <input
+              type="checkbox"
+              checked={form.taxable}
+              onChange={(e) => F("taxable", e.target.checked)}
+              style={{ width: 16, height: 16, cursor: "pointer" }}
+            />
           </div>
 
           {/* ✅ دواء أساسي - جديد */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
-            <label style={{ color: "#f59e0b", fontSize: 13, fontWeight: 600 }}>⭐ دواء أساسي (قائمة هيئة الغذاء والدواء)</label>
-            <input type="checkbox" checked={form.isEssential} onChange={(e) => F("isEssential", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 0",
+            }}
+          >
+            <label style={{ color: "#f59e0b", fontSize: 13, fontWeight: 600 }}>
+              ⭐ دواء أساسي (قائمة هيئة الغذاء والدواء)
+            </label>
+            <input
+              type="checkbox"
+              checked={form.isEssential}
+              onChange={(e) => F("isEssential", e.target.checked)}
+              style={{ width: 16, height: 16, cursor: "pointer" }}
+            />
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setShowForm(false)}>إلغاء</Btn>
-          <Btn icon="check" onClick={save}>{editing ? "حفظ التعديل" : "إضافة الصنف"}</Btn>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            marginTop: 18,
+            justifyContent: "flex-end",
+          }}
+        >
+          <Btn variant="ghost" onClick={() => setShowForm(false)}>
+            إلغاء
+          </Btn>
+          <Btn icon="check" onClick={save}>
+            {editing ? "حفظ التعديل" : "إضافة الصنف"}
+          </Btn>
         </div>
       </Modal>
     </div>
@@ -3638,7 +4128,6 @@ function CustomersModule({ customers, setCustomers, showToast }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-
   const blank = {
     id: "",
     name: "",
@@ -3647,41 +4136,9 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     totalSpent: 0,
     visits: 0,
     lastVisit: "-",
-    category: "individual",       // فرد | family_with_kids | family_no_kids
-    childrenCount: "",
-    childrenAges: [],             // مصفوفة فئات عمرية مختارة
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-
-  // فئات عمرية
-  const AGE_GROUPS = [
-    { value: "infant", label: "رضيع (0–2)" },
-    { value: "toddler", label: "طفل صغير (3–5)" },
-    { value: "child", label: "طفل (6–12)" },
-    { value: "teen", label: "مراهق (13–17)" },
-  ];
-
-  const CATEGORY_LABELS = {
-    individual: "فرد",
-    family_with_kids: "أسرة بأطفال",
-    family_no_kids: "أسرة بدون أطفال",
-  };
-
-  const CATEGORY_COLORS = {
-    individual: { bg: "#1a1a3a", text: "#8888ff" },
-    family_with_kids: { bg: "#002a1a", text: "#44dd88" },
-    family_no_kids: { bg: "#1a2a00", text: "#aadd44" },
-  };
-
-  const toggleAgeGroup = (val) => {
-    setForm((p) => ({
-      ...p,
-      childrenAges: p.childrenAges.includes(val)
-        ? p.childrenAges.filter((x) => x !== val)
-        : [...p.childrenAges, val],
-    }));
-  };
 
   const openAdd = () => {
     setEditing(null);
@@ -3691,31 +4148,19 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     });
     setShowForm(true);
   };
-
   const openEdit = (c) => {
     setEditing(c.id);
-    setForm({ ...blank, ...c });
+    setForm(c);
     setShowForm(true);
   };
-
   const save = () => {
     if (!form.name || !form.phone) {
       showToast("يرجى ملء بيانات العميل", "error");
       return;
     }
-    if (form.category === "family_with_kids" && !form.childrenCount) {
-      showToast("يرجى إدخال عدد الأطفال", "error");
-      return;
-    }
-    const saved = {
-      ...form,
-      // لو مش أسرة بأطفال نمسح البيانات
-      childrenCount: form.category === "family_with_kids" ? form.childrenCount : "",
-      childrenAges: form.category === "family_with_kids" ? form.childrenAges : [],
-    };
     if (editing)
-      setCustomers((p) => p.map((x) => (x.id === editing ? saved : x)));
-    else setCustomers((p) => [...p, saved]);
+      setCustomers((p) => p.map((x) => (x.id === editing ? form : x)));
+    else setCustomers((p) => [...p, form]);
     setShowForm(false);
     showToast(editing ? "تم تعديل العميل" : "تمت إضافة العميل ✓");
   };
@@ -3744,7 +4189,6 @@ function CustomersModule({ customers, setCustomers, showToast }) {
           إضافة عميل
         </Btn>
       </div>
-
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -3762,7 +4206,6 @@ function CustomersModule({ customers, setCustomers, showToast }) {
           marginBottom: 14,
         }}
       />
-
       <div
         style={{
           display: "grid",
@@ -3770,134 +4213,133 @@ function CustomersModule({ customers, setCustomers, showToast }) {
           gap: 14,
         }}
       >
-        {filtered.map((c) => {
-          const catColor = CATEGORY_COLORS[c.category] || CATEGORY_COLORS.individual;
-          return (
+        {filtered.map((c) => (
+          <div
+            key={c.id}
+            style={{
+              background: "#0f1623",
+              border: "1px solid #1d2d4a",
+              borderRadius: 14,
+              padding: 18,
+            }}
+          >
             <div
-              key={c.id}
               style={{
-                background: "#0f1623",
-                border: "1px solid #1d2d4a",
-                borderRadius: 14,
-                padding: 18,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: "#1a2a5a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#5a9aff",
+                  }}
+                >
+                  <IC n="user" s={18} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, color: "#dde8ff" }}>
+                    {c.name}
+                  </div>
+                  <div style={{ color: "#3a6a9a", fontSize: 12 }}>
+                    {c.phone}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 5 }}>
+                <Btn
+                  size="sm"
+                  icon="edit"
+                  variant="secondary"
+                  onClick={() => openEdit(c)}
+                >
+                  تعديل
+                </Btn>
+                <Btn
+                  size="sm"
+                  icon="trash"
+                  variant="danger"
+                  onClick={() => {
+                    setCustomers((p) => p.filter((x) => x.id !== c.id));
+                    showToast("تم حذف العميل");
+                  }}
+                >
+                  حذف
+                </Btn>
+              </div>
+            </div>
+            {c.taxId && (
+              <div style={{ marginBottom: 8 }}>
+                <Badge color="#0a2a00" text="#44dd88">
+                  رقم ضريبي: {c.taxId}
+                </Badge>
+              </div>
+            )}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
               }}
             >
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  marginBottom: 12,
+                  background: "#080e1a",
+                  borderRadius: 8,
+                  padding: "9px 11px",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 10,
-                      background: "#1a2a5a",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#5a9aff",
-                    }}
-                  >
-                    <IC n="user" s={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, color: "#dde8ff" }}>
-                      {c.name}
-                    </div>
-                    <div style={{ color: "#3a6a9a", fontSize: 12 }}>
-                      {c.phone}
-                    </div>
-                  </div>
+                <div style={{ color: "#3a5a8a", fontSize: 10 }}>
+                  إجمالي المشتريات
                 </div>
-                <div style={{ display: "flex", gap: 5 }}>
-                  <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(c)}>
-                    تعديل
-                  </Btn>
-                  <Btn
-                    size="sm"
-                    icon="trash"
-                    variant="danger"
-                    onClick={() => {
-                      setCustomers((p) => p.filter((x) => x.id !== c.id));
-                      showToast("تم حذف العميل");
-                    }}
-                  >
-                    حذف
-                  </Btn>
+                <div
+                  style={{
+                    color: "#3a9aff",
+                    fontWeight: 700,
+                    fontSize: 15,
+                    marginTop: 2,
+                  }}
+                >
+                  {c.totalSpent.toFixed(2)} ر.س
                 </div>
               </div>
-
-              {/* التصنيف */}
-              <div style={{ marginBottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <Badge color={catColor.bg} text={catColor.text}>
-                  {CATEGORY_LABELS[c.category] || "فرد"}
-                </Badge>
-                {c.category === "family_with_kids" && c.childrenCount && (
-                  <Badge color="#002233" text="#33bbff">
-                    {c.childrenCount} أطفال
-                  </Badge>
-                )}
-                {c.taxId && (
-                  <Badge color="#0a2a00" text="#44dd88">
-                    رقم ضريبي: {c.taxId}
-                  </Badge>
-                )}
-              </div>
-
-              {/* فئات عمرية */}
-              {c.category === "family_with_kids" && c.childrenAges?.length > 0 && (
-                <div style={{ marginBottom: 8, display: "flex", gap: 5, flexWrap: "wrap" }}>
-                  {c.childrenAges.map((age) => (
-                    <span
-                      key={age}
-                      style={{
-                        background: "#001a2a",
-                        color: "#55aaff",
-                        borderRadius: 6,
-                        padding: "2px 8px",
-                        fontSize: 11,
-                      }}
-                    >
-                      {AGE_GROUPS.find((g) => g.value === age)?.label}
-                    </span>
-                  ))}
-                </div>
-              )}
-
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 8,
+                  background: "#080e1a",
+                  borderRadius: 8,
+                  padding: "9px 11px",
                 }}
               >
-                <div style={{ background: "#080e1a", borderRadius: 8, padding: "9px 11px" }}>
-                  <div style={{ color: "#3a5a8a", fontSize: 10 }}>إجمالي المشتريات</div>
-                  <div style={{ color: "#3a9aff", fontWeight: 700, fontSize: 15, marginTop: 2 }}>
-                    {c.totalSpent.toFixed(2)} ر.س
-                  </div>
+                <div style={{ color: "#3a5a8a", fontSize: 10 }}>
+                  عدد الزيارات
                 </div>
-                <div style={{ background: "#080e1a", borderRadius: 8, padding: "9px 11px" }}>
-                  <div style={{ color: "#3a5a8a", fontSize: 10 }}>عدد الزيارات</div>
-                  <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 15, marginTop: 2 }}>
-                    {c.visits}
-                  </div>
+                <div
+                  style={{
+                    color: "#44dd88",
+                    fontWeight: 700,
+                    fontSize: 15,
+                    marginTop: 2,
+                  }}
+                >
+                  {c.visits}
                 </div>
-              </div>
-              <div style={{ marginTop: 8, color: "#2a4a6a", fontSize: 11 }}>
-                آخر زيارة: {c.lastVisit}
               </div>
             </div>
-          );
-        })}
+            <div style={{ marginTop: 8, color: "#2a4a6a", fontSize: 11 }}>
+              آخر زيارة: {c.lastVisit}
+            </div>
+          </div>
+        ))}
       </div>
-
-      {/* ===== Modal ===== */}
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
@@ -3922,84 +4364,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
             onChange={(v) => F("taxId", v)}
             placeholder="310XXXXXXXXX003 (اختياري)"
           />
-
-          {/* ===== تصنيف العميل ===== */}
-          <div>
-            <div style={{ color: "#8aa0cc", fontSize: 13, marginBottom: 8 }}>
-              تصنيف العميل *
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {[
-                { value: "individual", label: "👤 فرد" },
-                { value: "family_with_kids", label: "👨‍👩‍👧 أسرة بأطفال" },
-                { value: "family_no_kids", label: "👫 أسرة بدون أطفال" },
-              ].map((opt) => (
-                <div
-                  key={opt.value}
-                  onClick={() => F("category", opt.value)}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 8,
-                    cursor: "pointer",
-                    fontSize: 13,
-                    border: "1px solid",
-                    transition: "all 0.2s",
-                    borderColor: form.category === opt.value ? "#4a8aff" : "#1d2d4a",
-                    background: form.category === opt.value ? "#0a1a3a" : "#080e1a",
-                    color: form.category === opt.value ? "#8abbff" : "#5a7aaa",
-                    fontWeight: form.category === opt.value ? 700 : 400,
-                  }}
-                >
-                  {opt.label}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ===== حقول الأطفال (تظهر فقط لو أسرة بأطفال) ===== */}
-          {form.category === "family_with_kids" && (
-            <>
-              <Input
-                label="عدد الأطفال *"
-                value={form.childrenCount}
-                onChange={(v) => F("childrenCount", v)}
-                placeholder="مثال: 3"
-                type="number"
-              />
-              <div>
-                <div style={{ color: "#8aa0cc", fontSize: 13, marginBottom: 8 }}>
-                  الفئات العمرية للأطفال
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {AGE_GROUPS.map((grp) => {
-                    const selected = form.childrenAges.includes(grp.value);
-                    return (
-                      <div
-                        key={grp.value}
-                        onClick={() => toggleAgeGroup(grp.value)}
-                        style={{
-                          padding: "7px 12px",
-                          borderRadius: 8,
-                          cursor: "pointer",
-                          fontSize: 12,
-                          border: "1px solid",
-                          transition: "all 0.2s",
-                          borderColor: selected ? "#33bbff" : "#1d2d4a",
-                          background: selected ? "#001a2a" : "#080e1a",
-                          color: selected ? "#55ddff" : "#4a6a8a",
-                          fontWeight: selected ? 700 : 400,
-                        }}
-                      >
-                        {grp.label}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
         </div>
-
         <div
           style={{
             display: "flex",
@@ -4379,11 +4744,14 @@ function TaxReport({ sales, purchases }) {
   );
 
   const salesSubtotal = filtSales.reduce((a, s) => a + (s.subtotal || 0), 0);
-const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
-const salesTotal = filtSales.reduce((a, s) => a + (s.total || 0), 0);
-const purchSubtotal = filtPurchases.reduce((a, p) => a + (p.subtotal || 0), 0);
-const purchTax = filtPurchases.reduce((a, p) => a + (p.tax_amount || 0), 0);
-const purchTotal = filtPurchases.reduce((a, p) => a + (p.total || 0), 0);
+  const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
+  const salesTotal = filtSales.reduce((a, s) => a + (s.total || 0), 0);
+  const purchSubtotal = filtPurchases.reduce(
+    (a, p) => a + (p.subtotal || 0),
+    0
+  );
+  const purchTax = filtPurchases.reduce((a, p) => a + (p.tax_amount || 0), 0);
+  const purchTotal = filtPurchases.reduce((a, p) => a + (p.total || 0), 0);
   const netTax = salesTax - purchTax;
 
   return (
