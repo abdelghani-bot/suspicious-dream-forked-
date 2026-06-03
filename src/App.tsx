@@ -1630,11 +1630,53 @@ function POS({
   currentShift,
   showToast,
 }) {
-  const [cart, setCart] = useState([]);
-  const [selCustomer, setSelCustomer] = useState(null);
-  const [payment, setPayment] = useState("نقدي");
-  const [discount, setDiscount] = useState(0);
-  const [prescriptionImg, setPrescriptionImg] = useState(null);
+  // ===== Tabs State =====
+  const newTab = () => ({
+    id: Date.now(),
+    label: "فاتورة",
+    cart: [],
+    selCustomer: null,
+    payment: "نقدي",
+    discount: 0,
+    prescriptionImg: null,
+  });
+
+  const [tabs, setTabs] = useState([newTab()]);
+  const [activeTab, setActiveTab] = useState(0);
+
+  const currentTab = tabs[activeTab];
+  const T = (k, v) =>
+    setTabs((prev) =>
+      prev.map((t, i) => (i === activeTab ? { ...t, [k]: v } : t))
+    );
+
+  // shortcuts
+  const cart = currentTab.cart;
+  const setCart = (v) =>
+    T("cart", typeof v === "function" ? v(currentTab.cart) : v);
+  const selCustomer = currentTab.selCustomer;
+  const setSelCustomer = (v) => T("selCustomer", v);
+  const payment = currentTab.payment;
+  const setPayment = (v) => T("payment", v);
+  const discount = currentTab.discount;
+  const setDiscount = (v) => T("discount", v);
+  const prescriptionImg = currentTab.prescriptionImg;
+  const setPrescriptionImg = (v) => T("prescriptionImg", v);
+
+  const addTab = () => {
+    const tab = newTab();
+    setTabs((p) => [...p, tab]);
+    setActiveTab(tabs.length);
+  };
+
+  const closeTab = (idx) => {
+    if (tabs[idx].cart.length > 0) {
+      if (!window.confirm("فيه أصناف في الفاتورة، تأكيد الحذف؟")) return;
+    }
+    setTabs((p) => p.filter((_, i) => i !== idx));
+    setActiveTab((prev) => Math.max(0, prev > idx ? prev - 1 : Math.min(prev, tabs.length - 2)));
+  };
+
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("الكل");
   const [success, setSuccess] = useState(false);
@@ -1650,17 +1692,11 @@ function POS({
   );
 
   const addToCart = (p) => {
-    if (p.stock <= 0) {
-      showToast("المخزون نفد!", "error");
-      return;
-    }
+    if (p.stock <= 0) { showToast("المخزون نفد!", "error"); return; }
     setCart((prev) => {
       const ex = prev.find((i) => i.id === p.id);
       if (ex) {
-        if (ex.qty >= p.stock) {
-          showToast("لا يوجد مخزون كافٍ", "error");
-          return prev;
-        }
+        if (ex.qty >= p.stock) { showToast("لا يوجد مخزون كافٍ", "error"); return prev; }
         return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
       }
       return [...prev, { ...p, qty: 1, dose: "" }];
@@ -1675,22 +1711,14 @@ function POS({
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const taxAmount = cart.reduce(
-    (s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s),
-    0
+    (s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s), 0
   );
-  const discountAmt =
-    Math.round((((subtotal + taxAmount) * discount) / 100) * 100) / 100;
+  const discountAmt = Math.round((((subtotal + taxAmount) * discount) / 100) * 100) / 100;
   const total = subtotal + taxAmount - discountAmt;
 
   const completeSale = async () => {
-    if (!currentShift) {
-      showToast("يرجى فتح شفت أولاً", "error");
-      return;
-    }
-    if (cart.length === 0) {
-      showToast("السلة فارغة!", "error");
-      return;
-    }
+    if (!currentShift) { showToast("يرجى فتح شفت أولاً", "error"); return; }
+    if (cart.length === 0) { showToast("السلة فارغة!", "error"); return; }
     const id = "INV-" + String(sales.length + 1).padStart(4, "0");
     const inv = {
       id,
@@ -1698,32 +1726,20 @@ function POS({
       customer: selCustomer?.id || null,
       customer_name: selCustomer?.name || "زبون عادي",
       items: cart.map((i) => ({
-        id: i.id,
-        name: i.name,
-        qty: i.qty,
-        price: i.price,
-        taxable: i.taxable,
-        dose: i.dose,
+        id: i.id, name: i.name, qty: i.qty,
+        price: i.price, taxable: i.taxable, dose: i.dose,
       })),
-      subtotal,
-      tax_amount: taxAmount,
-      discount_amt: discountAmt,
-      total,
-      payment,
-      shift: currentShift?.id,
-      returned: false,
+      subtotal, tax_amount: taxAmount,
+      discount_amt: discountAmt, total, payment,
+      shift: currentShift?.id, returned: false,
     };
 
     await supabase.from("sales").insert(inv);
-
-    // تحديث المخزون
     for (const ci of cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
-        await supabase
-          .from("products")
-          .update({ stock: prod.stock - ci.qty })
-          .eq("id", ci.id);
+        await supabase.from("products")
+          .update({ stock: prod.stock - ci.qty }).eq("id", ci.id);
       }
     }
 
@@ -1734,10 +1750,13 @@ function POS({
         return ci ? { ...x, stock: x.stock - ci.qty } : x;
       })
     );
-    setCart([]);
-    setDiscount(0);
-    setPrescriptionImg(null);
-    setSelCustomer(null);
+
+    // إغلاق التاب الحالي بعد البيع وفتح جديد لو مفيش تابات
+    setTabs((prev) => {
+      const updated = prev.filter((_, i) => i !== activeTab);
+      return updated.length === 0 ? [newTab()] : updated;
+    });
+    setActiveTab(0);
     setSuccess(true);
     setTimeout(() => setSuccess(false), 2000);
     setShowPrint(inv);
@@ -1755,149 +1774,98 @@ function POS({
   const CATS = ["الكل", ...new Set(products.map((p) => p.category))];
 
   return (
-    <div
-      style={{
-        height: "calc(100vh - 100px)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}
-    >
+    <div style={{ height: "calc(100vh - 100px)", display: "flex", flexDirection: "column", gap: 12 }}>
       <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>نقطة البيع</h2>
+
       {!currentShift && (
-        <div
-          style={{
-            background: "#3a1500",
-            border: "1px solid #7a3000",
-            borderRadius: 10,
-            padding: "12px 16px",
-            color: "#ffaa44",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
+        <div style={{ background: "#3a1500", border: "1px solid #7a3000", borderRadius: 10, padding: "12px 16px", color: "#ffaa44", fontSize: 14, fontWeight: 600 }}>
           ⚠ يرجى فتح شفت من قسم الشفتات قبل البيع
         </div>
       )}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr",
-          gap: 16,
-          flex: 1,
-          overflow: "hidden",
-        }}
-      >
-        {/* الفاتورة - يمين */}
-        <div
-          style={{
-            background: "#0f1623",
-            border: "1px solid #1d2d4a",
-            borderRadius: 16,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-        >
-          {/* بحث وباركود */}
+
+      {/* ===== Tabs Bar ===== */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        {tabs.map((tab, idx) => (
           <div
+            key={tab.id}
             style={{
-              padding: "12px 16px",
-              borderBottom: "1px solid #1d2d4a",
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 12px",
+              borderRadius: 8,
+              border: "1px solid",
+              borderColor: activeTab === idx ? "#4a8aff" : "#1d2d4a",
+              background: activeTab === idx ? "#0a1a3a" : "#080e1a",
+              cursor: "pointer",
+              fontSize: 13,
+              color: activeTab === idx ? "#8abbff" : "#4a6a8a",
+              fontWeight: activeTab === idx ? 700 : 400,
+              transition: "all 0.15s",
+            }}
+            onClick={() => setActiveTab(idx)}
+          >
+            🛒 {tab.label} {idx + 1}
+            {tab.cart.length > 0 && (
+              <span style={{ background: "#2a6aff", color: "#fff", borderRadius: 10, fontSize: 10, padding: "1px 6px" }}>
+                {tab.cart.length}
+              </span>
+            )}
+            {tabs.length > 1 && (
+              <span
+                onClick={(e) => { e.stopPropagation(); closeTab(idx); }}
+                style={{ color: "#5a3a3a", fontWeight: 900, fontSize: 14, marginLeft: 2, lineHeight: 1 }}
+              >
+                ×
+              </span>
+            )}
+          </div>
+        ))}
+        {tabs.length < 5 && (
+          <div
+            onClick={addTab}
+            style={{
+              padding: "6px 12px", borderRadius: 8,
+              border: "1px dashed #1d2d4a",
+              background: "transparent", cursor: "pointer",
+              color: "#4a6a8a", fontSize: 18, lineHeight: 1,
             }}
           >
-            <BarcodeScanner
-              onScan={scanBarcode}
-              placeholder="امسح باركود الصنف (Barcode/QR)..."
-            />
+            +
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, flex: 1, overflow: "hidden" }}>
+        {/* الفاتورة */}
+        <div style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* بحث وباركود */}
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid #1d2d4a", display: "flex", flexDirection: "column", gap: 8 }}>
+            <BarcodeScanner onScan={scanBarcode} placeholder="امسح باركود الصنف (Barcode/QR)..." />
             <div style={{ position: "relative" }}>
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="🔍 ابحث عن صنف بالاسم أو الباركود..."
-                style={{
-                  width: "100%",
-                  background: "#080e1a",
-                  border: "1px solid #1d2d4a",
-                  borderRadius: 8,
-                  padding: "9px 14px",
-                  color: "#dde8ff",
-                  fontSize: 14,
-                  outline: "none",
-                  boxSizing: "border-box",
-                }}
+                style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: "#dde8ff", fontSize: 14, outline: "none", boxSizing: "border-box" }}
               />
               {search && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "100%",
-                    right: 0,
-                    left: 0,
-                    background: "#0f1623",
-                    border: "1px solid #1d2d4a",
-                    borderRadius: 8,
-                    zIndex: 100,
-                    maxHeight: 200,
-                    overflowY: "auto",
-                    marginTop: 4,
-                  }}
-                >
+                <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 8, zIndex: 100, maxHeight: 200, overflowY: "auto", marginTop: 4 }}>
                   {filtered.slice(0, 8).map((p) => (
                     <div
                       key={p.id}
-                      onClick={() => {
-                        addToCart(p);
-                        setSearch("");
-                      }}
-                      style={{
-                        padding: "8px 14px",
-                        cursor: p.stock === 0 ? "not-allowed" : "pointer",
-                        opacity: p.stock === 0 ? 0.5 : 1,
-                        borderBottom: "1px solid #1a2a3a",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = "#1a2a3a")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = "transparent")
-                      }
+                      onClick={() => { addToCart(p); setSearch(""); }}
+                      style={{ padding: "8px 14px", cursor: p.stock === 0 ? "not-allowed" : "pointer", opacity: p.stock === 0 ? 0.5 : 1, borderBottom: "1px solid #1a2a3a", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#1a2a3a")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
                       <div>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#dde8ff",
-                          }}
-                        >
-                          {p.name}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>
-                          {p.category} | مخزون: {p.stock}
-                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{p.name}</div>
+                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>{p.category} | مخزون: {p.stock}</div>
                       </div>
-                      <span style={{ color: "#2a9aff", fontWeight: 700 }}>
-                        {p.price} ر.س
-                      </span>
+                      <span style={{ color: "#2a9aff", fontWeight: 700 }}>{p.price} ر.س</span>
                     </div>
                   ))}
                   {filtered.length === 0 && (
-                    <div
-                      style={{
-                        padding: 12,
-                        color: "#4a6a8a",
-                        textAlign: "center",
-                      }}
-                    >
-                      لا يوجد نتائج
-                    </div>
+                    <div style={{ padding: 12, color: "#4a6a8a", textAlign: "center" }}>لا يوجد نتائج</div>
                   )}
                 </div>
               )}
@@ -1905,278 +1873,68 @@ function POS({
           </div>
 
           {/* العميل والوصفة */}
-          <div
-            style={{
-              padding: "8px 16px",
-              borderBottom: "1px solid #1d2d4a",
-              display: "flex",
-              gap: 8,
-            }}
-          >
+          <div style={{ padding: "8px 16px", borderBottom: "1px solid #1d2d4a", display: "flex", gap: 8 }}>
             <select
               value={selCustomer?.id || ""}
-              onChange={(e) =>
-                setSelCustomer(
-                  customers.find((c) => c.id === e.target.value) || null
-                )
-              }
-              style={{
-                flex: 1,
-                background: "#080e1a",
-                border: "1px solid #1d2d4a",
-                borderRadius: 8,
-                padding: "7px 10px",
-                color: "#dde8ff",
-                fontSize: 13,
-                outline: "none",
-              }}
+              onChange={(e) => setSelCustomer(customers.find((c) => c.id === e.target.value) || null)}
+              style={{ flex: 1, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "7px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }}
             >
               <option value="">زبون عادي</option>
               {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.taxId ? ` — ${c.taxId}` : ""}
-                </option>
+                <option key={c.id} value={c.id}>{c.name}{c.taxId ? ` — ${c.taxId}` : ""}</option>
               ))}
             </select>
             <button
               onClick={() => fileRef.current.click()}
-              style={{
-                padding: "7px 12px",
-                background: "#0a1a2a",
-                border: "1px dashed #1d3a5a",
-                borderRadius: 8,
-                color: prescriptionImg ? "#44dd88" : "#4a6a8a",
-                cursor: "pointer",
-                fontSize: 12,
-              }}
+              style={{ padding: "7px 12px", background: "#0a1a2a", border: "1px dashed #1d3a5a", borderRadius: 8, color: prescriptionImg ? "#44dd88" : "#4a6a8a", cursor: "pointer", fontSize: 12 }}
             >
               {prescriptionImg ? "✓ وصفة" : "📎 وصفة"}
             </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              onChange={uploadPrescription}
-            />
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={uploadPrescription} />
           </div>
 
           {/* أصناف الفاتورة */}
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 16px" }}>
             {cart.length === 0 ? (
-              <div
-                style={{
-                  textAlign: "center",
-                  color: "#1a2a4a",
-                  padding: "60px 0",
-                  fontSize: 14,
-                }}
-              >
-                <IC n="cart" s={50} />
-                <br />
-                <br />
+              <div style={{ textAlign: "center", color: "#1a2a4a", padding: "60px 0", fontSize: 14 }}>
+                <IC n="cart" s={50} /><br /><br />
                 ابحث عن صنف أو امسح الباركود لإضافته
               </div>
             ) : (
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #1d2d4a" }}>
-                    <th
-                      style={{
-                        textAlign: "right",
-                        padding: "8px 4px",
-                        color: "#4a6a8a",
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                    >
-                      الصنف
-                    </th>
-                    <th
-                      style={{
-                        textAlign: "center",
-                        padding: "8px 4px",
-                        color: "#4a6a8a",
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                    >
-                      الكمية
-                    </th>
-                    <th
-                      style={{
-                        textAlign: "center",
-                        padding: "8px 4px",
-                        color: "#4a6a8a",
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                    >
-                      السعر
-                    </th>
-                    <th
-                      style={{
-                        textAlign: "center",
-                        padding: "8px 4px",
-                        color: "#4a6a8a",
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                    >
-                      الإجمالي
-                    </th>
-                    <th style={{ width: 30 }}></th>
+                    {["الصنف", "الكمية", "السعر", "الإجمالي", ""].map((h, i) => (
+                      <th key={i} style={{ textAlign: i === 0 ? "right" : "center", padding: "8px 4px", color: "#4a6a8a", fontSize: 12, fontWeight: 600 }}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {cart.map((item) => (
-                    <tr
-                      key={item.id}
-                      style={{ borderBottom: "1px solid #0a101a" }}
-                    >
+                    <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
                       <td style={{ padding: "8px 4px" }}>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#dde8ff",
-                          }}
-                        >
-                          {item.name}
-                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{item.name}</div>
                         <input
                           value={item.dose}
-                          onChange={(e) =>
-                            setCart((p) =>
-                              p.map((i) =>
-                                i.id === item.id
-                                  ? { ...i, dose: e.target.value }
-                                  : i
-                              )
-                            )
-                          }
+                          onChange={(e) => setCart((p) => p.map((i) => i.id === item.id ? { ...i, dose: e.target.value } : i))}
                           placeholder="الجرعة..."
-                          style={{
-                            width: "100%",
-                            background: "transparent",
-                            border: "none",
-                            borderBottom: "1px solid #1a2a4a",
-                            color: "#6a8aaa",
-                            fontSize: 11,
-                            outline: "none",
-                            padding: "2px 0",
-                          }}
+                          style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: "#6a8aaa", fontSize: 11, outline: "none", padding: "2px 0" }}
                         />
                       </td>
                       <td style={{ textAlign: "center", padding: "8px 4px" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: 4,
-                          }}
-                        >
-                          <button
-                            onClick={() =>
-                              setCart((p) =>
-                                p.map((i) =>
-                                  i.id === item.id
-                                    ? { ...i, qty: Math.max(1, i.qty - 1) }
-                                    : i
-                                )
-                              )
-                            }
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 4,
-                              background: "#1a2540",
-                              border: "none",
-                              color: "#5a9aff",
-                              cursor: "pointer",
-                            }}
-                          >
-                            -
-                          </button>
-                          <span
-                            style={{
-                              fontSize: 13,
-                              fontWeight: 700,
-                              color: "#dde8ff",
-                              minWidth: 20,
-                              textAlign: "center",
-                            }}
-                          >
-                            {item.qty}
-                          </span>
-                          <button
-                            onClick={() =>
-                              setCart((p) =>
-                                p.map((i) =>
-                                  i.id === item.id
-                                    ? {
-                                        ...i,
-                                        qty: Math.min(
-                                          i.qty + 1,
-                                          products.find((x) => x.id === i.id)
-                                            ?.stock || 99
-                                        ),
-                                      }
-                                    : i
-                                )
-                              )
-                            }
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 4,
-                              background: "#1a2540",
-                              border: "none",
-                              color: "#5a9aff",
-                              cursor: "pointer",
-                            }}
-                          >
-                            +
-                          </button>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                          <button onClick={() => setCart((p) => p.map((i) => i.id === item.id ? { ...i, qty: Math.max(1, i.qty - 1) } : i))}
+                            style={{ width: 20, height: 20, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer" }}>-</button>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff", minWidth: 20, textAlign: "center" }}>{item.qty}</span>
+                          <button onClick={() => setCart((p) => p.map((i) => i.id === item.id ? { ...i, qty: Math.min(i.qty + 1, products.find((x) => x.id === i.id)?.stock || 99) } : i))}
+                            style={{ width: 20, height: 20, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer" }}>+</button>
                         </div>
                       </td>
-                      <td
-                        style={{
-                          textAlign: "center",
-                          padding: "8px 4px",
-                          color: "#2a9aff",
-                          fontSize: 13,
-                        }}
-                      >
-                        {item.price}
-                      </td>
-                      <td
-                        style={{
-                          textAlign: "center",
-                          padding: "8px 4px",
-                          color: "#dde8ff",
-                          fontSize: 13,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {(item.price * item.qty).toFixed(2)}
-                      </td>
+                      <td style={{ textAlign: "center", padding: "8px 4px", color: "#2a9aff", fontSize: 13 }}>{item.price}</td>
+                      <td style={{ textAlign: "center", padding: "8px 4px", color: "#dde8ff", fontSize: 13, fontWeight: 700 }}>{(item.price * item.qty).toFixed(2)}</td>
                       <td style={{ textAlign: "center" }}>
-                        <button
-                          onClick={() =>
-                            setCart((p) => p.filter((i) => i.id !== item.id))
-                          }
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            color: "#5a2a2a",
-                            cursor: "pointer",
-                          }}
-                        >
-                          ✕
-                        </button>
+                        <button onClick={() => setCart((p) => p.filter((i) => i.id !== item.id))}
+                          style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}>✕</button>
                       </td>
                     </tr>
                   ))}
@@ -2186,161 +1944,54 @@ function POS({
           </div>
 
           {/* الإجمالي وإتمام البيع */}
-          <div
-            style={{
-              padding: "12px 16px",
-              borderTop: "1px solid #1d2d4a",
-              background: "#080e1a",
-            }}
-          >
+          <div style={{ padding: "12px 16px", borderTop: "1px solid #1d2d4a", background: "#080e1a" }}>
             <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
               {["نقدي", "بطاقة", "تحويل", "آجل"].map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setPayment(m)}
-                  style={{
-                    flex: 1,
-                    padding: "7px 0",
-                    borderRadius: 7,
-                    border: "1px solid",
-                    borderColor: payment === m ? "#2a6aef" : "#1d2d4a",
-                    background: payment === m ? "#142a5a" : "transparent",
-                    color: payment === m ? "#6aaeff" : "#4a6a8a",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
+                <button key={m} onClick={() => setPayment(m)}
+                  style={{ flex: 1, padding: "7px 0", borderRadius: 7, border: "1px solid", borderColor: payment === m ? "#2a6aef" : "#1d2d4a", background: payment === m ? "#142a5a" : "transparent", color: payment === m ? "#6aaeff" : "#4a6a8a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   {m}
                 </button>
               ))}
             </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 10,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <label style={{ color: "#4a6a8a", fontSize: 12 }}>خصم %</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={discount}
-                onChange={(e) => setDiscount(+e.target.value)}
-                style={{
-                  background: "#080e1a",
-                  border: "1px solid #1d2d4a",
-                  borderRadius: 7,
-                  padding: "6px 10px",
-                  color: "#dde8ff",
-                  fontSize: 13,
-                  outline: "none",
-                  width: 70,
-                }}
-              />
+              <input type="number" min="0" max="100" value={discount} onChange={(e) => setDiscount(+e.target.value)}
+                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 7, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none", width: 70 }} />
               {cart.length > 0 && (
-                <button
-                  onClick={() => setCart([])}
-                  style={{
-                    marginRight: "auto",
-                    background: "transparent",
-                    border: "none",
-                    color: "#5a2a2a",
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
-                >
+                <button onClick={() => setCart([])}
+                  style={{ marginRight: "auto", background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer", fontSize: 12 }}>
                   🗑 مسح الكل
                 </button>
               )}
             </div>
-            <div
-              style={{
-                background: "#0a1020",
-                borderRadius: 10,
-                padding: 10,
-                marginBottom: 10,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  color: "#4a6a8a",
-                  fontSize: 12,
-                  marginBottom: 4,
-                }}
-              >
-                <span>قبل الضريبة</span>
-                <span>{subtotal.toFixed(2)} ر.س</span>
+            <div style={{ background: "#0a1020", borderRadius: 10, padding: 10, marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>
+                <span>قبل الضريبة</span><span>{subtotal.toFixed(2)} ر.س</span>
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  color: "#88dd44",
-                  fontSize: 12,
-                  marginBottom: 4,
-                }}
-              >
-                <span>ضريبة 15%</span>
-                <span>{taxAmount.toFixed(2)} ر.س</span>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", fontSize: 12, marginBottom: 4 }}>
+                <span>ضريبة 15%</span><span>{taxAmount.toFixed(2)} ر.س</span>
               </div>
               {discount > 0 && (
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    color: "#ffaa44",
-                    fontSize: 12,
-                    marginBottom: 4,
-                  }}
-                >
-                  <span>خصم {discount}%</span>
-                  <span>- {discountAmt.toFixed(2)} ر.س</span>
+                <div style={{ display: "flex", justifyContent: "space-between", color: "#ffaa44", fontSize: 12, marginBottom: 4 }}>
+                  <span>خصم {discount}%</span><span>- {discountAmt.toFixed(2)} ر.س</span>
                 </div>
               )}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  color: "#dde8ff",
-                  fontSize: 18,
-                  fontWeight: 800,
-                  borderTop: "1px solid #1d2d4a",
-                  paddingTop: 8,
-                  marginTop: 4,
-                }}
-              >
-                <span>الإجمالي</span>
-                <span>{total.toFixed(2)} ر.س</span>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontSize: 18, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 8, marginTop: 4 }}>
+                <span>الإجمالي</span><span>{total.toFixed(2)} ر.س</span>
               </div>
             </div>
-            <Btn
-              size="lg"
-              onClick={completeSale}
-              style={{ width: "100%", justifyContent: "center" }}
-              variant={success ? "success" : "primary"}
-              icon={success ? "check" : "money"}
-            >
+            <Btn size="lg" onClick={completeSale} style={{ width: "100%", justifyContent: "center" }}
+              variant={success ? "success" : "primary"} icon={success ? "check" : "money"}>
               {success ? "تمت العملية!" : "إتمام البيع"}
             </Btn>
           </div>
         </div>
-
-        {/* الأصناف السريعة - شمال */}
       </div>
 
-      {showPrint && (
-        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />
-      )}
+      {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />}
     </div>
   );
 }
-
 // ==================== PRINT RECEIPT ====================
 function PrintReceipt({ invoice, onClose }) {
   const printArea = useRef();
