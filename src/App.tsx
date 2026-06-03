@@ -3350,16 +3350,17 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   );
 
   const openEdit = (p) => {
-    setEditing(p.id);
-    setForm({
-      ...p,
-      price: String(p.price),
-      cost: String(p.cost),
-      minStock: String(p.minStock),
-      maxStock: String(p.maxStock || ""),
-    });
-    setShowForm(true);
-  };
+  setEditing(p.id);
+  setForm({
+    ...p,
+    price: String(p.price),
+    cost: String(p.cost),
+    minStock: String(p.min_stock || ""),
+    maxStock: String(p.max_stock || ""),
+    isEssential: p.is_essential || false,
+  });
+  setShowForm(true);
+};
 
   const openAdd = () => {
     setEditing(null);
