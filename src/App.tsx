@@ -2084,14 +2084,13 @@ function POS({
         >
           <select
             value={inv.selCustomer?.id || ""}
-            onChange={(e) => {
-              const selected = customers.find((c) => c.id === e.target.value);
-              console.log("selected customer:", selected); // للتأكد
+            onChange={(e) =>
               setInv((p) => ({
                 ...p,
-                selCustomer: selected || null,
-              }));
-            }}
+                selCustomer:
+                  customers.find((c) => c.id === e.target.value) || null,
+              }))
+            }
             style={{
               flex: 1,
               background: "#080e1a",
