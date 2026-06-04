@@ -1954,7 +1954,6 @@ function POS({
         )}
       </div>
 
-      {/* باقي الـ UI نفسه بالضبط - فقط استخدم inv.cart بدل cart */}
       <div
         style={{
           background: "#0f1623",
@@ -2077,12 +2076,13 @@ function POS({
           }}
         >
           <select
-            value={inv.selCustomer?.id || ""}
+            value={inv.selCustomer ? String(inv.selCustomer.id) : ""}
             onChange={(e) =>
               setInv((p) => ({
                 ...p,
                 selCustomer:
-                  customers.find((c) => c.id === e.target.value) || null,
+                  customers.find((c) => String(c.id) === e.target.value) ||
+                  null,
               }))
             }
             style={{
@@ -2098,7 +2098,7 @@ function POS({
           >
             <option value="">زبون عادي</option>
             {customers.map((c) => (
-              <option key={c.id} value={c.id}>
+              <option key={c.id} value={String(c.id)}>
                 {c.name}
                 {c.taxId ? ` — ${c.taxId}` : ""}
               </option>
