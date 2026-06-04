@@ -1418,7 +1418,7 @@ function Dashboard({
   setTab,
 }) {
   const alerts = useEssentialAlerts(products);
-  const [showAlerts, setShowAlerts] = React.useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
   const today = new Date().toISOString().split("T")[0];
   const todaySales = sales.filter((s) => s.date === today && !s.returned);
   const todayRev = todaySales.reduce((a, s) => a + s.total, 0);
