@@ -1679,7 +1679,7 @@ function POS({
   currentUser,
   currentShift,
   showToast,
-});
+}) {
 const [cart, setCart] = useState([]);
 const [selCustomer, setSelCustomer] = useState(null);
 const [payment, setPayment] = useState("نقدي");
@@ -1801,7 +1801,7 @@ const uploadPrescription = (e) => {
   r.onload = (ev) => setPrescriptionImg(ev.target.result);
   r.readAsDataURL(file);
 };
-
+  }
 const CATS = ["الكل", ...new Set(products.map((p) => p.category))];
 
 return (
