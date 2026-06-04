@@ -1418,6 +1418,7 @@ function Dashboard({
   setTab,
 }) {
   const alerts = useEssentialAlerts(products);
+  const [showAlerts, setShowAlerts] = React.useState(false);
   const today = new Date().toISOString().split("T")[0];
   const todaySales = sales.filter((s) => s.date === today && !s.returned);
   const todayRev = todaySales.reduce((a, s) => a + s.total, 0);
@@ -1434,34 +1435,6 @@ function Dashboard({
 
   return (
     <div>
-      {alerts.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <h3 style={{ color: "#f59e0b", marginBottom: 10 }}>
-            ⚠️ تنبيهات الأدوية الأساسية
-          </h3>
-          {alerts.map((alert, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "12px 16px",
-                marginBottom: 8,
-                borderRadius: 8,
-                backgroundColor:
-                  alert.type === "danger" ? "#2a0a0a" : "#2a1a00",
-                borderRight: `4px solid ${
-                  alert.type === "danger" ? "#ef4444" : "#f59e0b"
-                }`,
-                color: alert.type === "danger" ? "#fca5a5" : "#fcd34d",
-                fontSize: 14,
-              }}
-            >
-              {alert.type === "danger"
-                ? `🔴 نفاذ المخزون: ${alert.name}`
-                : `🟡 قرب النفاذ: ${alert.name} (المخزون: ${alert.stock})`}
-            </div>
-          ))}
-        </div>
-      )}
       <div
         style={{
           display: "flex",
@@ -1573,6 +1546,7 @@ function Dashboard({
             ))}
           </div>
         )}
+
         {expiringSoon.length > 0 && (
           <div
             style={{
@@ -1614,6 +1588,83 @@ function Dashboard({
             ))}
           </div>
         )}
+
+        {/* كارت تنبيهات الأدوية الأساسية */}
+        {alerts.length > 0 && (
+          <div
+            onClick={() => setShowAlerts(!showAlerts)}
+            style={{
+              background: "#0f1623",
+              border: `1px solid ${showAlerts ? "#f59e0b" : "#3a2000"}`,
+              borderRadius: 14,
+              padding: 18,
+              cursor: "pointer",
+              transition: "border-color 0.2s",
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 6px",
+                fontSize: 14,
+                fontWeight: 700,
+                color: "#f59e0b",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                ⚠️ تنبيهات الأدوية الأساسية
+              </span>
+              <span
+                style={{
+                  background: "#f59e0b",
+                  color: "#000",
+                  borderRadius: "50%",
+                  width: 26,
+                  height: 26,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 13,
+                  fontWeight: 900,
+                }}
+              >
+                {alerts.length}
+              </span>
+            </h3>
+            <p style={{ margin: "0 0 10px", fontSize: 12, color: "#3a5a8a" }}>
+              {showAlerts ? "اضغط للإخفاء ▲" : "اضغط للتفاصيل ▼"}
+            </p>
+            {showAlerts && (
+              <div style={{ marginTop: 10 }}>
+                {alerts.map((alert, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: "10px 14px",
+                      marginBottom: 8,
+                      borderRadius: 8,
+                      backgroundColor:
+                        alert.type === "danger" ? "#2a0a0a" : "#2a1a00",
+                      borderRight: `4px solid ${
+                        alert.type === "danger" ? "#ef4444" : "#f59e0b"
+                      }`,
+                      color: alert.type === "danger" ? "#fca5a5" : "#fcd34d",
+                      fontSize: 13,
+                    }}
+                  >
+                    {alert.type === "danger"
+                      ? `🔴 نفاذ المخزون: ${alert.name}`
+                      : `🟡 قرب النفاذ: ${alert.name} (المخزون: ${alert.stock})`}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* آخر المبيعات */}
         <div
           style={{
             background: "#0f1623",
