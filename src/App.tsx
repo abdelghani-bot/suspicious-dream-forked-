@@ -1839,14 +1839,8 @@ function POS({
     const invoice = {
       id,
       date: new Date().toISOString().split("T")[0],
-      onChange={(e) => {
-  const selected = customers.find((c) => c.id === e.target.value);
-  console.log("selected customer:", selected); // للتأكد
-  setInv((p) => ({
-    ...p,
-    selCustomer: selected || null,
-  }));
-}}
+      customer: inv.selCustomer?.id || null,
+      customer_name: inv.selCustomer?.name || "زبون عادي",
       items: inv.cart.map((i) => ({
         id: i.id,
         name: i.name,
