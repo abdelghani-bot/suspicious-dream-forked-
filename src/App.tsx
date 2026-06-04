@@ -1835,7 +1835,13 @@ function POS({
       return;
     }
 
-    const id = "INV-" + String(sales.length + 1).padStart(4, "0");
+    const id =
+      "INV-" +
+      new Date()
+        .toISOString()
+        .replace(/[-:T.Z]/g, "")
+        .slice(0, 14);
+
     const invoice = {
       id,
       date: new Date().toISOString().split("T")[0],
@@ -1858,14 +1864,23 @@ function POS({
       returned: false,
     };
 
-    await supabase.from("sales").insert(invoice);
+    const { error: saleError } = await supabase.from("sales").insert(invoice);
+    if (saleError) {
+      showToast("فشل حفظ الفاتورة: " + saleError.message, "error");
+      return;
+    }
+
     for (const ci of inv.cart) {
       const prod = products.find((x) => x.id === ci.id);
-      if (prod)
-        await supabase
+      if (prod) {
+        const { error: stockError } = await supabase
           .from("products")
           .update({ stock: prod.stock - ci.qty })
           .eq("id", ci.id);
+        if (stockError) {
+          showToast("خطأ في تحديث المخزون: " + stockError.message, "error");
+        }
+      }
     }
 
     setSales((p) => [...p, invoice]);
