@@ -4231,8 +4231,8 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     visits: 0,
     lastVisit: "-",
     category: "individual",
-    childrenCount: "",
-    childrenAges: [],
+    children_count: "",
+    children_ages: [],
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -4256,7 +4256,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
       showToast("يرجى ملء بيانات العميل", "error");
       return;
     }
-    if (form.category === "family_with_kids" && !form.childrenCount) {
+    if (form.category === "family_with_kids" && !form.children_count) {
       showToast("يرجى إدخال عدد الأطفال", "error");
       return;
     }
@@ -4266,10 +4266,10 @@ function CustomersModule({ customers, setCustomers, showToast }) {
       totalSpent: form.totalSpent || 0,
       visits: form.visits || 0,
       lastVisit: form.lastVisit || "-",
-      childrenCount:
-        form.category === "family_with_kids" ? form.childrenCount : "",
-      childrenAges:
-        form.category === "family_with_kids" ? form.childrenAges : [],
+      children_count:
+        form.category === "family_with_kids" ? form.children_count : null,
+      children_ages:
+        form.category === "family_with_kids" ? form.children_ages : [],
     };
 
     if (editing) {
@@ -4308,7 +4308,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
   const categoryLabel = (c) => {
     if (c.category === "family_no_kids") return "أسرة بدون أطفال";
     if (c.category === "family_with_kids")
-      return `أسرة مع أطفال (${c.childrenCount})`;
+      return `أسرة مع أطفال (${c.children_count})`;
     return "فرد";
   };
 
@@ -4329,14 +4329,14 @@ function CustomersModule({ customers, setCustomers, showToast }) {
   ];
 
   const toggleAge = (age) => {
-    const current = form.childrenAges || [];
+    const current = form.children_ages || [];
     if (current.includes(age)) {
       F(
-        "childrenAges",
+        "children_ages",
         current.filter((a) => a !== age)
       );
     } else {
-      F("childrenAges", [...current, age]);
+      F("children_ages", [...current, age]);
     }
   };
 
@@ -4454,16 +4454,14 @@ function CustomersModule({ customers, setCustomers, showToast }) {
               </div>
             </div>
 
-            {/* نوع العميل */}
             <div style={{ marginBottom: 8 }}>
               <Badge color={categoryColor(c).bg} text={categoryColor(c).text}>
                 {categoryLabel(c)}
               </Badge>
             </div>
 
-            {/* الفئات العمرية للأطفال */}
             {c.category === "family_with_kids" &&
-              c.childrenAges?.length > 0 && (
+              c.children_ages?.length > 0 && (
                 <div
                   style={{
                     marginBottom: 8,
@@ -4472,7 +4470,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
                     gap: 4,
                   }}
                 >
-                  {c.childrenAges.map((age) => (
+                  {c.children_ages.map((age) => (
                     <Badge key={age} color="#0a1a2a" text="#3a9aff">
                       {age}
                     </Badge>
@@ -4569,7 +4567,6 @@ function CustomersModule({ customers, setCustomers, showToast }) {
             placeholder="310XXXXXXXXX003 (اختياري)"
           />
 
-          {/* نوع العميل */}
           <div>
             <div style={{ color: "#7a9aaa", fontSize: 12, marginBottom: 8 }}>
               نوع العميل *
@@ -4605,13 +4602,12 @@ function CustomersModule({ customers, setCustomers, showToast }) {
             </div>
           </div>
 
-          {/* عدد الأطفال والفئات العمرية */}
           {form.category === "family_with_kids" && (
             <>
               <Input
                 label="عدد الأطفال *"
-                value={form.childrenCount}
-                onChange={(v) => F("childrenCount", v)}
+                value={form.children_count}
+                onChange={(v) => F("children_count", v)}
                 placeholder="مثال: 2"
                 type="number"
               />
@@ -4623,7 +4619,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {ageRanges.map((age) => {
-                    const selected = (form.childrenAges || []).includes(age);
+                    const selected = (form.children_ages || []).includes(age);
                     return (
                       <div
                         key={age}
@@ -4671,7 +4667,6 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     </div>
   );
 }
-
 // ==================== REPORTS ====================
 function Reports({ sales, purchases, products, suppliers, customers }) {
   const [type, setType] = useState("sales");
