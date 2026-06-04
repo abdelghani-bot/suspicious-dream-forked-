@@ -2388,6 +2388,7 @@ return (
     )}
   </div>
 );
+}
 
 // ==================== PRINT RECEIPT ====================
 function PrintReceipt({ invoice, onClose }) {
