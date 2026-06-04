@@ -1801,7 +1801,6 @@ const uploadPrescription = (e) => {
   r.onload = (ev) => setPrescriptionImg(ev.target.result);
   r.readAsDataURL(file);
 };
-  }
 const CATS = ["الكل", ...new Set(products.map((p) => p.category))];
 
 return (
