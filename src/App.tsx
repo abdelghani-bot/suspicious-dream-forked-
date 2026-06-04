@@ -1839,8 +1839,14 @@ function POS({
     const invoice = {
       id,
       date: new Date().toISOString().split("T")[0],
-      customer: inv.selCustomer?.id || null,
-      customer_name: inv.selCustomer?.name || "زبون عادي",
+      onChange={(e) => {
+  const selected = customers.find((c) => c.id === e.target.value);
+  console.log("selected customer:", selected); // للتأكد
+  setInv((p) => ({
+    ...p,
+    selCustomer: selected || null,
+  }));
+}}
       items: inv.cart.map((i) => ({
         id: i.id,
         name: i.name,
@@ -2078,13 +2084,14 @@ function POS({
         >
           <select
             value={inv.selCustomer?.id || ""}
-            onChange={(e) =>
+            onChange={(e) => {
+              const selected = customers.find((c) => c.id === e.target.value);
+              console.log("selected customer:", selected); // للتأكد
               setInv((p) => ({
                 ...p,
-                selCustomer:
-                  customers.find((c) => c.id === e.target.value) || null,
-              }))
-            }
+                selCustomer: selected || null,
+              }));
+            }}
             style={{
               flex: 1,
               background: "#080e1a",
