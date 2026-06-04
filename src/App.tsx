@@ -5305,3 +5305,4 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
     </div>
   );
 }
+}
