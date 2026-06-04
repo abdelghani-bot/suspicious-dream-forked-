@@ -2540,8 +2540,9 @@ function PrintReceipt({ invoice, onClose }) {
           <div style={{ fontSize: 11, color: "#555" }}>
             التاريخ: {invoice.date} | الدفع: {invoice.payment}
           </div>
-          {invoice.customerName && (
-            <div style={{ fontSize: 11 }}>العميل: {invoice.customerName}</div>
+          // ✅
+          {invoice.customer_name && invoice.customer_name !== "زبون عادي" && (
+            <div style={{ fontSize: 11 }}>العميل: {invoice.customer_name}</div>
           )}
           <hr />
         </div>
