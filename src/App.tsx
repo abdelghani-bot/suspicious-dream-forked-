@@ -4218,7 +4218,6 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
   );
 }
 
-// ==================== CUSTOMERS ====================
 function CustomersModule({ customers, setCustomers, showToast }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -4231,6 +4230,9 @@ function CustomersModule({ customers, setCustomers, showToast }) {
     totalSpent: 0,
     visits: 0,
     lastVisit: "-",
+    category: "individual",
+    childrenCount: "",
+    childrenAges: [],
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -4245,9 +4247,10 @@ function CustomersModule({ customers, setCustomers, showToast }) {
   };
   const openEdit = (c) => {
     setEditing(c.id);
-    setForm(c);
+    setForm({ ...blank, ...c });
     setShowForm(true);
   };
+
   const save = async () => {
     if (!form.name || !form.phone) {
       showToast("يرجى ملء بيانات العميل", "error");
@@ -4260,6 +4263,9 @@ function CustomersModule({ customers, setCustomers, showToast }) {
 
     const saved = {
       ...form,
+      totalSpent: form.totalSpent || 0,
+      visits: form.visits || 0,
+      lastVisit: form.lastVisit || "-",
       childrenCount:
         form.category === "family_with_kids" ? form.childrenCount : "",
       childrenAges:
@@ -4277,23 +4283,62 @@ function CustomersModule({ customers, setCustomers, showToast }) {
       }
       setCustomers((p) => p.map((x) => (x.id === editing ? saved : x)));
     } else {
-      const { error } = await supabase.from("customers").insert(saved);
+      const { data, error } = await supabase
+        .from("customers")
+        .insert(saved)
+        .select();
       if (error) {
         showToast("خطأ في الحفظ: " + error.message, "error");
         return;
       }
-      setCustomers((p) => [...p, saved]);
+      setCustomers((p) => [...p, data ? data[0] : saved]);
     }
 
     setShowForm(false);
-    showToast(editing ? "تم تعديل العميل" : "تمت إضافة العميل ✓");
+    showToast(editing ? "تم تعديل العميل ✓" : "تمت إضافة العميل ✓");
   };
+
   const filtered = customers.filter(
     (c) =>
       c.name.includes(search) ||
       c.phone.includes(search) ||
       c.taxId?.includes(search)
   );
+
+  const categoryLabel = (c) => {
+    if (c.category === "family_no_kids") return "أسرة بدون أطفال";
+    if (c.category === "family_with_kids")
+      return `أسرة مع أطفال (${c.childrenCount})`;
+    return "فرد";
+  };
+
+  const categoryColor = (c) => {
+    if (c.category === "family_no_kids")
+      return { bg: "#0a1a3a", text: "#5a9aff" };
+    if (c.category === "family_with_kids")
+      return { bg: "#0a2a1a", text: "#44dd88" };
+    return { bg: "#1a1a3a", text: "#a78bfa" };
+  };
+
+  const ageRanges = [
+    "أقل من سنة",
+    "1-3 سنوات",
+    "4-6 سنوات",
+    "7-12 سنة",
+    "13-17 سنة",
+  ];
+
+  const toggleAge = (age) => {
+    const current = form.childrenAges || [];
+    if (current.includes(age)) {
+      F(
+        "childrenAges",
+        current.filter((a) => a !== age)
+      );
+    } else {
+      F("childrenAges", [...current, age]);
+    }
+  };
 
   return (
     <div>
@@ -4408,6 +4453,33 @@ function CustomersModule({ customers, setCustomers, showToast }) {
                 </Btn>
               </div>
             </div>
+
+            {/* نوع العميل */}
+            <div style={{ marginBottom: 8 }}>
+              <Badge color={categoryColor(c).bg} text={categoryColor(c).text}>
+                {categoryLabel(c)}
+              </Badge>
+            </div>
+
+            {/* الفئات العمرية للأطفال */}
+            {c.category === "family_with_kids" &&
+              c.childrenAges?.length > 0 && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 4,
+                  }}
+                >
+                  {c.childrenAges.map((age) => (
+                    <Badge key={age} color="#0a1a2a" text="#3a9aff">
+                      {age}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
             {c.taxId && (
               <div style={{ marginBottom: 8 }}>
                 <Badge color="#0a2a00" text="#44dd88">
@@ -4440,7 +4512,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
                     marginTop: 2,
                   }}
                 >
-                  {c.totalSpent.toFixed(2)} ر.س
+                  {(c.totalSpent || 0).toFixed(2)} ر.س
                 </div>
               </div>
               <div
@@ -4461,7 +4533,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
                     marginTop: 2,
                   }}
                 >
-                  {c.visits}
+                  {c.visits || 0}
                 </div>
               </div>
             </div>
@@ -4471,6 +4543,7 @@ function CustomersModule({ customers, setCustomers, showToast }) {
           </div>
         ))}
       </div>
+
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
@@ -4495,7 +4568,90 @@ function CustomersModule({ customers, setCustomers, showToast }) {
             onChange={(v) => F("taxId", v)}
             placeholder="310XXXXXXXXX003 (اختياري)"
           />
+
+          {/* نوع العميل */}
+          <div>
+            <div style={{ color: "#7a9aaa", fontSize: 12, marginBottom: 8 }}>
+              نوع العميل *
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[
+                { val: "individual", label: "👤 فرد" },
+                { val: "family_no_kids", label: "👫 أسرة بدون أطفال" },
+                { val: "family_with_kids", label: "👨‍👩‍👧 أسرة مع أطفال" },
+              ].map((opt) => (
+                <div
+                  key={opt.val}
+                  onClick={() => F("category", opt.val)}
+                  style={{
+                    flex: 1,
+                    padding: "10px 8px",
+                    borderRadius: 10,
+                    border: `2px solid ${
+                      form.category === opt.val ? "#3a9aff" : "#1d2d4a"
+                    }`,
+                    background:
+                      form.category === opt.val ? "#0a1a3a" : "#080e1a",
+                    color: form.category === opt.val ? "#3a9aff" : "#5a7a9a",
+                    fontSize: 12,
+                    textAlign: "center",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {opt.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* عدد الأطفال والفئات العمرية */}
+          {form.category === "family_with_kids" && (
+            <>
+              <Input
+                label="عدد الأطفال *"
+                value={form.childrenCount}
+                onChange={(v) => F("childrenCount", v)}
+                placeholder="مثال: 2"
+                type="number"
+              />
+              <div>
+                <div
+                  style={{ color: "#7a9aaa", fontSize: 12, marginBottom: 8 }}
+                >
+                  الفئات العمرية للأطفال
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ageRanges.map((age) => {
+                    const selected = (form.childrenAges || []).includes(age);
+                    return (
+                      <div
+                        key={age}
+                        onClick={() => toggleAge(age)}
+                        style={{
+                          padding: "7px 12px",
+                          borderRadius: 20,
+                          border: `1px solid ${
+                            selected ? "#44dd88" : "#1d2d4a"
+                          }`,
+                          background: selected ? "#0a2a1a" : "#080e1a",
+                          color: selected ? "#44dd88" : "#5a7a9a",
+                          fontSize: 12,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                        }}
+                      >
+                        {selected ? "✓ " : ""}
+                        {age}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
+
         <div
           style={{
             display: "flex",
