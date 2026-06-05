@@ -1023,6 +1023,7 @@ export default function PharmacyPro() {
   const [customers, setCustomers] = useStorage("ph_customers", INIT_CUSTOMERS);
   const [sales, setSales] = useStorage("ph_sales", INIT_SALES);
   const [purchases, setPurchases] = useStorage("ph_purchases", INIT_PURCHASES);
+  const [returnsData, setReturnsData] = useStorage("ph_returns"[]);
   const [inventoryLogs, setInventoryLogs] = useStorage(
     "ph_inventory",
     INIT_INVENTORY
@@ -1043,17 +1044,19 @@ export default function PharmacyPro() {
   );
   useEffect(() => {
     const loadData = async () => {
-      const [p, s, c, sa, pu] = await Promise.all([
+      const [p, s, c, sa, pu, ret] = await Promise.all([
         supabase.from("products").select("*"),
         supabase.from("suppliers").select("*"),
         supabase.from("customers").select("*"),
         supabase.from("sales").select("*"),
         supabase.from("purchases").select("*"),
+        supabase.from("returns").select("*"),
       ]);
       if (p.data?.length) setProducts(p.data);
       if (s.data?.length) setSuppliers(s.data);
       if (c.data?.length) setCustomers(c.data);
       if (sa.data?.length) setSales(sa.data);
+      if (ret.data?.length) setReturnsData(ret.data);
       if (pu.data?.length) setPurchases(pu.data);
     };
     loadData();
