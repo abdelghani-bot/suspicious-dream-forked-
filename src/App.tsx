@@ -4542,126 +4542,147 @@ function RasdSettings({ showToast }) {
   );
 }
 // ======================== Expiry Report ==========================
-function ExpiryReport({ products }) {
+function ExpiryReport({ products, onRemoveExpired }) {
   const today = new Date();
-  const [filterMonth, setFilterMonth] = useState("");
+  today.setHours(0, 0, 0, 0);
 
-  const filterByMonth = (items) => {
-    if (!filterMonth) return items;
-    return items.filter((p) => p.expiry && p.expiry.startsWith(filterMonth));
-  };
+  const [expandedMonth, setExpandedMonth] = useState(null);
+  const [showExpiredDetail, setShowExpiredDetail] = useState(false);
 
+  // ===== الأصناف المنتهية =====
   const expired = products.filter(
     (p) => p.expiry && new Date(p.expiry) < today
   );
 
-  const near30 = products.filter((p) => {
-    if (!p.expiry) return false;
-    const d = new Date(p.expiry);
-    const days = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
-    return days >= 0 && days <= 30;
+  // ===== 6 أشهر قادمة =====
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("ar-EG", {
+      month: "long",
+      year: "numeric",
+    });
+    return { key, label };
   });
 
-  const near90 = products.filter((p) => {
-    if (!p.expiry) return false;
-    const d = new Date(p.expiry);
-    const days = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
-    return days > 30 && days <= 90;
+  const getMonthItems = (key) =>
+    products.filter((p) => {
+      if (!p.expiry) return false;
+      if (new Date(p.expiry) < today) return false;
+      return p.expiry.startsWith(key);
+    });
+
+  const calcTotals = (items) => ({
+    count: items.length,
+    costTotal: items.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0),
+    sellTotal: items.reduce((s, p) => s + (p.price || 0) * (p.stock || 0), 0),
   });
 
-  const Section = ({ title, color, items, borderColor }) => (
-    <div
-      style={{
-        background: "#0f1623",
-        border: `1px solid ${borderColor}`,
-        borderRadius: 14,
-        padding: 18,
-        marginBottom: 16,
-      }}
-    >
-      <h3 style={{ margin: "0 0 14px", color, fontSize: 15, fontWeight: 700 }}>
-        {title} ({items.length} صنف)
-      </h3>
-      {items.length === 0 ? (
-        <div style={{ color: "#3a5a8a", fontSize: 13 }}>لا يوجد أصناف</div>
-      ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#080e1a" }}>
-              {["الصنف", "الباركود", "تاريخ الانتهاء", "المخزون", "الفئة"].map(
-                (h) => (
-                  <th
-                    key={h}
-                    style={{
-                      padding: "8px 12px",
-                      textAlign: "right",
-                      color: "#4a6a9a",
-                      fontSize: 12,
-                    }}
-                  >
-                    {h}
-                  </th>
-                )
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((p) => {
-              const days = Math.ceil(
-                (new Date(p.expiry) - today) / (1000 * 60 * 60 * 24)
-              );
-              return (
-                <tr key={p.id} style={{ borderBottom: "1px solid #0a101a" }}>
-                  <td
-                    style={{
-                      padding: "8px 12px",
-                      color: "#dde8ff",
-                      fontSize: 13,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {p.name}
-                  </td>
-                  <td
-                    style={{
-                      padding: "8px 12px",
-                      color: "#4a6a8a",
-                      fontSize: 11,
-                    }}
-                  >
-                    {p.barcode}
-                  </td>
-                  <td style={{ padding: "8px 12px" }}>
-                    <span style={{ color, fontWeight: 700, fontSize: 13 }}>
-                      {p.expiry}
-                    </span>
-                    <span
-                      style={{ color: "#4a6a8a", fontSize: 11, marginRight: 6 }}
-                    >
-                      {days < 0
-                        ? `منذ ${Math.abs(days)} يوم`
-                        : `بعد ${days} يوم`}
-                    </span>
-                  </td>
-                  <td
-                    style={{
-                      padding: "8px 12px",
-                      color: "#dde8ff",
-                      fontSize: 13,
-                    }}
-                  >
-                    {p.stock}
-                  </td>
-                  <td style={{ padding: "8px 12px" }}>
-                    <Badge>{p.category}</Badge>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </div>
+  // ===== طباعة =====
+  const handlePrint = (label, items) => {
+    const { costTotal, sellTotal } = calcTotals(items);
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>تقرير صلاحيات - ${label}</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+  h2 { text-align: center; margin-bottom: 4px; }
+  .sub { text-align: center; color: #666; font-size: 13px; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: right; font-size: 13px; }
+  th { background: #f0f0f0; font-weight: 700; }
+  tr:nth-child(even) { background: #fafafa; }
+  .totals { margin-top: 16px; display: flex; gap: 16px; justify-content: flex-end; }
+  .tot { background: #f0f4ff; border-radius: 8px; padding: 8px 16px; font-weight: 700; font-size: 14px; }
+  @media print { * { -webkit-print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<h2>تقرير الصلاحيات</h2>
+<div class="sub">${label} — ${items.length} صنف</div>
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>اسم الصنف</th><th>الباركود</th>
+      <th>تاريخ الانتهاء</th><th>المخزون</th>
+      <th>سعر التكلفة</th><th>سعر البيع</th>
+      <th>إجمالي التكلفة</th><th>إجمالي البيع</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${items
+      .map(
+        (p, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${p.name || "-"}</td>
+        <td>${p.barcode || "-"}</td>
+        <td>${p.expiry || "-"}</td>
+        <td>${p.stock || 0}</td>
+        <td>${(p.cost || 0).toFixed(2)}</td>
+        <td>${(p.price || 0).toFixed(2)}</td>
+        <td>${((p.cost || 0) * (p.stock || 0)).toFixed(2)}</td>
+        <td>${((p.price || 0) * (p.stock || 0)).toFixed(2)}</td>
+      </tr>`
+      )
+      .join("")}
+  </tbody>
+</table>
+<div class="totals">
+  <div class="tot">إجمالي التكلفة: ${costTotal.toFixed(2)}</div>
+  <div class="tot">إجمالي البيع: ${sellTotal.toFixed(2)}</div>
+</div>
+<script>window.onload = () => window.print();</script>
+</body></html>`);
+    win.document.close();
+  };
+
+  // ===== Styles =====
+  const card = (borderColor = "#1d2d4a") => ({
+    background: "#0f1623",
+    border: `1px solid ${borderColor}`,
+    borderRadius: 14,
+    padding: 16,
+  });
+
+  const btn = (bg = "#1d2d4a") => ({
+    background: bg,
+    border: "none",
+    borderRadius: 8,
+    padding: "7px 14px",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 700,
+  });
+
+  const ItemsTable = ({ items }) => (
+    <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
+      <thead>
+        <tr style={{ background: "#080e1a" }}>
+          {["الصنف", "الباركود", "تاريخ الانتهاء", "المخزون", "التكلفة", "البيع"].map((h) => (
+            <th key={h} style={{ padding: "8px 12px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((p) => (
+          <tr key={p.id} style={{ borderBottom: "1px solid #0a101a" }}>
+            <td style={{ padding: "8px 12px", color: "#dde8ff", fontWeight: 700, fontSize: 13 }}>{p.name}</td>
+            <td style={{ padding: "8px 12px", color: "#4a6a8a", fontSize: 11 }}>{p.barcode || "-"}</td>
+            <td style={{ padding: "8px 12px", color: "#ff7744", fontSize: 13 }}>{p.expiry}</td>
+            <td style={{ padding: "8px 12px", color: "#dde8ff", fontSize: 13 }}>{p.stock}</td>
+            <td style={{ padding: "8px 12px", color: "#ffaa44", fontSize: 13 }}>{(p.cost || 0).toFixed(2)}</td>
+            <td style={{ padding: "8px 12px", color: "#44cc88", fontSize: 13 }}>{(p.price || 0).toFixed(2)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 
   return (
@@ -4670,68 +4691,116 @@ function ExpiryReport({ products }) {
         تقرير الصلاحيات
       </h2>
 
-      {/* فلتر الشهر */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 20,
-        }}
-      >
-        <input
-          type="month"
-          value={filterMonth}
-          onChange={(e) => setFilterMonth(e.target.value)}
-          style={{
-            background: "#080e1a",
-            border: "1px solid #1d2d4a",
-            borderRadius: 8,
-            padding: "9px 14px",
-            color: "#dde8ff",
-            fontSize: 14,
-            outline: "none",
-          }}
-        />
-        {filterMonth && (
-          <button
-            onClick={() => setFilterMonth("")}
-            style={{
-              background: "transparent",
-              border: "1px solid #3a1010",
-              borderRadius: 8,
-              padding: "9px 14px",
-              color: "#ff4444",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-            مسح الفلتر
-          </button>
-        )}
-        <span style={{ color: "#4a6a8a", fontSize: 13 }}>
-          {filterMonth ? `عرض صلاحيات شهر: ${filterMonth}` : "عرض الكل"}
-        </span>
+      {/* ===== قسم المنتهية ===== */}
+      <div style={{ ...card("#3a1010"), marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0, color: "#ff4444", fontSize: 15, fontWeight: 700 }}>
+            🔴 منتهية الصلاحية ({expired.length} صنف)
+          </h3>
+          <div style={{ display: "flex", gap: 8 }}>
+            {expired.length > 0 ? (
+              <>
+                <button
+                  style={btn("#1d2d4a")}
+                  onClick={() => setShowExpiredDetail(!showExpiredDetail)}
+                >
+                  {showExpiredDetail ? "▲ إخفاء" : "▼ عرض الأصناف"}
+                </button>
+                <button
+                  style={btn("#6b1010")}
+                  onClick={() => onRemoveExpired && onRemoveExpired(expired)}
+                >
+                  📤 إخراج من المخزون
+                </button>
+              </>
+            ) : (
+              <span style={{ color: "#3a5a8a", fontSize: 13 }}>لا يوجد أصناف منتهية</span>
+            )}
+          </div>
+        </div>
+        {showExpiredDetail && expired.length > 0 && <ItemsTable items={expired} />}
       </div>
 
-      <Section
-        title="🔴 منتهية الصلاحية"
-        color="#ff4444"
-        borderColor="#3a1010"
-        items={filterByMonth(expired)}
-      />
-      <Section
-        title="🟡 تنتهي خلال 30 يوم"
-        color="#ffaa44"
-        borderColor="#3a2000"
-        items={filterByMonth(near30)}
-      />
-      <Section
-        title="🟠 تنتهي خلال 90 يوم"
-        color="#ff7744"
-        borderColor="#2a1500"
-        items={filterByMonth(near90)}
-      />
+      {/* ===== 6 أشهر ===== */}
+      <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#7a9adf" }}>
+        📅 قريبة الانتهاء — الأشهر القادمة
+      </h3>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+        {months.map(({ key, label }) => {
+          const items = getMonthItems(key);
+          const { count, costTotal, sellTotal } = calcTotals(items);
+          const isExpanded = expandedMonth === key;
+          const hasItems = count > 0;
+
+          return (
+            <div
+              key={key}
+              onClick={() => hasItems && setExpandedMonth(isExpanded ? null : key)}
+              style={{
+                ...card(isExpanded ? "#2a4a8a" : hasItems ? "#1d3a6a" : "#1a2030"),
+                cursor: hasItems ? "pointer" : "default",
+                opacity: hasItems ? 1 : 0.45,
+                transition: "border-color 0.2s",
+              }}
+            >
+              <div style={{ fontWeight: 700, color: "#dde8ff", fontSize: 14, marginBottom: 12 }}>
+                {label}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>عدد الأصناف</span>
+                  <span style={{ color: "#5a8adf", fontWeight: 800, fontSize: 15 }}>{count}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>قيمة التكلفة</span>
+                  <span style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13 }}>{costTotal.toFixed(2)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>قيمة البيع</span>
+                  <span style={{ color: "#44cc88", fontWeight: 700, fontSize: 13 }}>{sellTotal.toFixed(2)}</span>
+                </div>
+              </div>
+              {hasItems && (
+                <div style={{ marginTop: 10, textAlign: "center", color: "#4a6a8a", fontSize: 11 }}>
+                  {isExpanded ? "▲ إخفاء" : "▼ عرض الأصناف"}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ===== تفاصيل الشهر المفتوح ===== */}
+      {expandedMonth && (() => {
+        const items = getMonthItems(expandedMonth);
+        const { costTotal, sellTotal } = calcTotals(items);
+        const monthLabel = months.find((m) => m.key === expandedMonth)?.label;
+        return (
+          <div style={card("#2a4a8a")}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <h4 style={{ margin: 0, color: "#dde8ff", fontSize: 14 }}>
+                📋 أصناف {monthLabel}
+              </h4>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700 }}>
+                  تكلفة: {costTotal.toFixed(2)}
+                </span>
+                <span style={{ color: "#44cc88", fontSize: 12, fontWeight: 700 }}>
+                  بيع: {sellTotal.toFixed(2)}
+                </span>
+                <button
+                  style={btn("#1a3a7a")}
+                  onClick={() => handlePrint(monthLabel, items)}
+                >
+                  🖨️ طباعة
+                </button>
+              </div>
+            </div>
+            <ItemsTable items={items} />
+          </div>
+        );
+      })()}
     </div>
   );
 }
