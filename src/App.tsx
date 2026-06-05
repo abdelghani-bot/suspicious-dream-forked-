@@ -852,12 +852,30 @@ const BarcodeScanner = ({
 }) => {
   const [val, setVal] = useState("");
   const ref = useRef();
-  const handleKey = (e) => {
-    if (e.key === "Enter" && val.trim()) {
-      onScan(val.trim());
-      setVal("");
+
+  const handleScan = (raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+
+    // كشف إذا كان GS1 2D باركود
+    const isGS1 =
+      trimmed.includes("(01)") ||
+      trimmed.includes(")01(") ||
+      /^01\d{14}/.test(trimmed);
+
+    if (isGS1) {
+      const parsed = parseGS1Barcode(trimmed);
+      onScan({ type: "gs1", ...parsed });
+    } else {
+      onScan({ type: "simple", code: trimmed, raw: trimmed });
     }
+    setVal("");
   };
+
+  const handleKey = (e) => {
+    if (e.key === "Enter" && val.trim()) handleScan(val);
+  };
+
   return (
     <div
       style={{
@@ -890,22 +908,12 @@ const BarcodeScanner = ({
           boxSizing: "border-box",
         }}
       />
-      <Btn
-        size="sm"
-        onClick={() => {
-          if (val.trim()) {
-            onScan(val.trim());
-            setVal("");
-          }
-        }}
-        icon="search"
-      >
+      <Btn size="sm" onClick={() => handleScan(val)} icon="search">
         بحث
       </Btn>
     </div>
   );
 };
-
 // ==================== LOGIN ====================
 const Login = ({ users, onLogin }) => {
   const [u, setU] = useState("");
@@ -1015,7 +1023,135 @@ const Login = ({ users, onLogin }) => {
     </div>
   );
 };
+// ==================== RASSD BARCODE PARSER ====================
 
+function parseGS1Barcode(raw) {
+  const result = {
+    gtin: null,
+    expiry: null,
+    batch: null,
+    serial: null,
+    raw,
+  };
+
+  try {
+    // إزالة الأقواس وتحويل لـ standard GS1 format
+    const cleaned = raw
+      .replace(/\)(\d{2})\(/g, "$1") // )(01)( → 01
+      .replace(/^\(/, "") // إزالة أول قوس
+      .replace(/\)/, ""); // إزالة آخر قوس
+
+    let i = 0;
+    while (i < cleaned.length) {
+      const ai = cleaned.substring(i, i + 2);
+
+      if (ai === "01") {
+        result.gtin = cleaned.substring(i + 2, i + 16);
+        i += 16;
+      } else if (ai === "17") {
+        const raw = cleaned.substring(i + 2, i + 8); // YYMMDD
+        result.expiry = `20${raw.slice(0, 2)}-${raw.slice(2, 4)}-${raw.slice(
+          4,
+          6
+        )}`;
+        i += 8;
+      } else if (ai === "10") {
+        // batch - variable length, ends at next AI or end
+        const rest = cleaned.substring(i + 2);
+        const nextAI = rest.search(/(?:17|21)\d/);
+        if (nextAI === -1) {
+          result.batch = rest;
+          i = cleaned.length;
+        } else {
+          result.batch = rest.substring(0, nextAI);
+          i += 2 + nextAI;
+        }
+      } else if (ai === "21") {
+        result.serial = cleaned.substring(i + 2);
+        i = cleaned.length;
+      } else {
+        i++;
+      }
+    }
+  } catch (e) {
+    console.error("GS1 parse error:", e);
+  }
+
+  return result;
+}
+
+// ==================== RASSD SERVICE ====================
+
+const RasdService = {
+  baseUrl: "https://rsd.sfda.gov.sa/api", // غير للـ URL الصح من رصد
+  token: null,
+
+  // تسجيل الدخول والحصول على token
+  async login(username, password) {
+    try {
+      const res = await fetch(`${this.baseUrl}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      this.token = data.token;
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // إرسال حركة لرصد
+  async sendTransaction(type, items, glnFrom, glnTo) {
+    // type: "receipt" | "dispense" | "return"
+    try {
+      const payload = {
+        transactionType: type,
+        fromGLN: glnFrom,
+        toGLN: glnTo,
+        date: new Date().toISOString(),
+        items: items.map((i) => ({
+          gtin: i.gtin,
+          serial: i.serial,
+          batch: i.batch,
+          expiry: i.expiry,
+          qty: i.qty,
+        })),
+      };
+
+      const res = await fetch(`${this.baseUrl}/transactions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      return { success: res.ok, data };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // التحقق من صلاحية الدواء
+  async verifyProduct(gtin, serial) {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/products/verify?gtin=${gtin}&serial=${serial}`,
+        {
+          headers: { Authorization: `Bearer ${this.token}` },
+        }
+      );
+      const data = await res.json();
+      return { success: res.ok, data };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+};
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
@@ -1816,10 +1952,36 @@ function POS({
     });
   };
 
-  const scanBarcode = (code) => {
-    const p = products.find((x) => x.barcode === code || x.id === code);
-    if (p) addToCart(p);
-    else showToast("الصنف غير موجود: " + code, "error");
+  const scanBarcode = (scan) => {
+    let product = null;
+
+    if (scan.type === "gs1") {
+      // بحث بالـ GTIN
+      product = products.find(
+        (x) => x.barcode === scan.gtin || x.gtin === scan.gtin
+      );
+      if (product) {
+        // إضافة بيانات الـ batch والـ serial للمنتج
+        addToCart({
+          ...product,
+          batch: scan.batch,
+          serial: scan.serial,
+          expiry: scan.expiry,
+        });
+        return;
+      }
+    } else {
+      // باركود عادي
+      product = products.find(
+        (x) => x.barcode === scan.code || x.id === scan.code
+      );
+      if (product) {
+        addToCart(product);
+        return;
+      }
+    }
+
+    showToast("الصنف غير موجود: " + (scan.gtin || scan.code), "error");
   };
 
   const filtered = products.filter(
