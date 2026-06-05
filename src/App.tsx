@@ -3391,6 +3391,27 @@ function ReturnsModule({
     setSelCustomer("");
     setSelInvoice("");
     showToast(`تم تسجيل المرتجع ✓ — ${returnTotal.toFixed(2)} ر.س`);
+    // إرسال حركة المرتجع لرصد
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    const gs1Items = returnItems.filter((i) => i.serial && i.returnQty > 0);
+
+    if (rasdConfig.enabled && gs1Items.length > 0) {
+      RasdService.sendTransaction(
+        "return",
+        gs1Items.map((i) => ({
+          gtin: i.gtin || i.barcode,
+          serial: i.serial,
+          batch: i.batch,
+          expiry: i.expiry,
+          qty: i.returnQty,
+        })),
+        rasdConfig.gln,
+        null
+      ).then((result) => {
+        if (!result.success)
+          showToast("تحذير: فشل إرسال بيانات المرتجع لرصد", "error");
+      });
+    }
   };
 
   return (
