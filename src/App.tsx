@@ -1939,29 +1939,20 @@ function POS({
       showToast("المخزون نفد!", "error");
       return;
     }
-    const addToCart = (p) => {
-      if (p.stock <= 0) {
-        showToast("المخزون نفد!", "error");
-        return;
+    // ← ضيف هنا تحذير الصلاحية
+    if (p.expiry) {
+      const expDate = new Date(p.expiry);
+      const today = new Date();
+      if (expDate < today) {
+        showToast(`⚠️ ${p.name} - منتهي الصلاحية! (${p.expiry})`, "error");
+        return; // يمنع الإضافة
       }
-      
-      // ← ضيف هنا تحذير الصلاحية
-      if (p.expiry) {
-        const expDate = new Date(p.expiry);
-        const today = new Date();
-        if (expDate < today) {
-          showToast(`⚠️ ${p.name} - منتهي الصلاحية! (${p.expiry})`, "error");
-          return; // يمنع الإضافة
-        }
-        const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-        if (daysLeft <= 90) {
-          showToast(`⚠️ ${p.name} - ينتهي خلال ${daysLeft} يوم`, "warning");
-          // مش بيمنع الإضافة، بس بيحذر
-        }
+      const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+      if (daysLeft <= 90) {
+        showToast(`⚠️ ${p.name} - ينتهي خلال ${daysLeft} يوم`, "warning");
+        // مش بيمنع الإضافة، بس بيحذر
       }
-      
-      setInv((prev) => {
-      // ... باقي الكود
+    }
     setInv((prev) => {
       const ex = prev.cart.find((i) => i.id === p.id);
       if (ex) {
@@ -3066,26 +3057,26 @@ function PurchaseModule({
           />
         </div>
         <input
-  placeholder="🔍 ابحث بالاسم..."
-  onKeyDown={(e) => {
-    if (e.key === "Enter") {
-      scanItem(e.target.value);
-      e.target.value = "";
-    }
-  }}
-  style={{
-    width: "100%",
-    background: "#080e1a",
-    border: "1px solid #1d2d4a",
-    borderRadius: 8,
-    padding: "9px 14px",
-    color: "#dde8ff",
-    fontSize: 14,
-    outline: "none",
-    boxSizing: "border-box",
-    marginBottom: 10,
-  }}
-/>
+          placeholder="🔍 ابحث بالاسم..."
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              scanItem(e.target.value);
+              e.target.value = "";
+            }
+          }}
+          style={{
+            width: "100%",
+            background: "#080e1a",
+            border: "1px solid #1d2d4a",
+            borderRadius: 8,
+            padding: "9px 14px",
+            color: "#dde8ff",
+            fontSize: 14,
+            outline: "none",
+            boxSizing: "border-box",
+            marginBottom: 10,
+          }}
+        />
         <BarcodeScanner
           onScan={scanItem}
           placeholder="امسح باركود الصنف لإضافته..."
