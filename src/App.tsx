@@ -1700,7 +1700,7 @@ function Dashboard({
                 <div>
                   <div style={{ fontSize: 13, color: "#c0d0f0" }}>{s.id}</div>
                   <div style={{ fontSize: 11, color: "#3a5a8a" }}>
-                    {s.customerName || "زبون عادي"}
+                    {s.customer_name || "زبون عادي"}
                   </div>
                 </div>
                 <div style={{ textAlign: "left" }}>
