@@ -1316,6 +1316,7 @@ export default function PharmacyPro() {
             setSales={setSales}
             purchases={purchases}
             setPurchases={setPurchases}
+            customers={customers}
             showToast={showToast}
           />
         )}
