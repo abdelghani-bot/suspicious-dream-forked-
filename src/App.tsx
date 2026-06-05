@@ -1941,18 +1941,16 @@ function POS({
       showToast("المخزون نفد!", "error");
       return;
     }
-    // ← ضيف هنا تحذير الصلاحية
     if (p.expiry) {
       const expDate = new Date(p.expiry);
       const today = new Date();
       if (expDate < today) {
         showToast(`⚠️ ${p.name} - منتهي الصلاحية! (${p.expiry})`, "error");
-        return; // يمنع الإضافة
+        return;
       }
       const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
       if (daysLeft <= 90) {
         showToast(`⚠️ ${p.name} - ينتهي خلال ${daysLeft} يوم`, "warning");
-        // مش بيمنع الإضافة، بس بيحذر
       }
     }
     setInv((prev) => {
@@ -1975,14 +1973,11 @@ function POS({
 
   const scanBarcode = (scan) => {
     let product = null;
-
     if (scan.type === "gs1") {
-      // بحث بالـ GTIN
       product = products.find(
         (x) => x.barcode === scan.gtin || x.gtin === scan.gtin
       );
       if (product) {
-        // إضافة بيانات الـ batch والـ serial للمنتج
         addToCart({
           ...product,
           batch: scan.batch,
@@ -1992,7 +1987,6 @@ function POS({
         return;
       }
     } else {
-      // باركود عادي
       product = products.find(
         (x) => x.barcode === scan.code || x.id === scan.code
       );
@@ -2001,7 +1995,6 @@ function POS({
         return;
       }
     }
-
     showToast("الصنف غير موجود: " + (scan.gtin || scan.code), "error");
   };
 
@@ -2038,6 +2031,15 @@ function POS({
         .replace(/[-:T.Z]/g, "")
         .slice(0, 14);
 
+    // ← احسب FIFO لكل صنف قبل بناء الفاتورة
+    const fifoResults = {};
+    for (const ci of inv.cart) {
+      const prod = products.find((x) => x.id === ci.id);
+      if (prod) {
+        fifoResults[ci.id] = sellFromBatches(prod, ci.qty);
+      }
+    }
+
     const invoice = {
       id,
       date: new Date().toISOString().split("T")[0],
@@ -2047,7 +2049,8 @@ function POS({
         id: i.id,
         name: i.name,
         qty: i.qty,
-        price: i.price,
+        // ← سعر البيع من الدفعة الأقدم (FIFO)
+        price: fifoResults[i.id]?.salePrice ?? i.price,
         taxable: i.taxable,
         dose: i.dose,
         gtin: i.gtin || i.barcode,
@@ -2070,13 +2073,20 @@ function POS({
       return;
     }
 
-    // تحديث المخزون في Supabase
+    // تحديث المخزون في Supabase مع batches
     for (const ci of inv.cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
+        const { updatedBatches } = fifoResults[ci.id] || {};
         const { error: stockError } = await supabase
           .from("products")
-          .update({ stock: prod.stock - ci.qty })
+          .update({
+            stock: prod.stock - ci.qty,
+            // ← حفظ الدفعات المحدثة
+            batches: updatedBatches ?? prod.batches ?? [],
+            // ← سعر البيع يصبح سعر الدفعة التالية المتاحة
+            price: updatedBatches?.[0]?.salePrice ?? prod.price,
+          })
           .eq("id", ci.id);
         if (stockError) {
           showToast("خطأ في تحديث المخزون: " + stockError.message, "error");
@@ -2087,7 +2097,6 @@ function POS({
     // إرسال حركة البيع لرصد
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = inv.cart.filter((i) => i.serial);
-
     if (rasdConfig.enabled && gs1Items.length > 0) {
       const rasdResult = await RasdService.sendTransaction(
         "dispense",
@@ -2101,7 +2110,6 @@ function POS({
         rasdConfig.gln || PHARMACY_GLN,
         null
       );
-
       if (!rasdResult.success) {
         showToast("تحذير: فشل إرسال البيانات لرصد", "error");
         console.error("Rasd error:", rasdResult.error);
@@ -2109,12 +2117,22 @@ function POS({
     }
 
     setSales((p) => [...p, invoice]);
+
+    // ← تحديث الـ state مع batches وسعر البيع الجديد
     setProducts((p) =>
       p.map((x) => {
         const ci = inv.cart.find((i) => i.id === x.id);
-        return ci ? { ...x, stock: x.stock - ci.qty } : x;
+        if (!ci) return x;
+        const { updatedBatches } = fifoResults[x.id] || {};
+        return {
+          ...x,
+          stock: x.stock - ci.qty,
+          batches: updatedBatches ?? x.batches ?? [],
+          price: updatedBatches?.[0]?.salePrice ?? x.price,
+        };
       })
     );
+
     setInv({ ...emptyInvoice(), success: true });
     setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
     setShowPrint(invoice);
@@ -2534,7 +2552,10 @@ function POS({
                         fontSize: 13,
                       }}
                     >
-                      {item.price}
+                      {/* ← عرض سعر البيع من الدفعة الأقدم */}
+                      {(
+                        fifoResults?.[item.id]?.salePrice ?? item.price
+                      ).toFixed(2)}
                     </td>
                     <td
                       style={{
@@ -2545,7 +2566,10 @@ function POS({
                         fontWeight: 700,
                       }}
                     >
-                      {(item.price * item.qty).toFixed(2)}
+                      {(
+                        (fifoResults?.[item.id]?.salePrice ?? item.price) *
+                        item.qty
+                      ).toFixed(2)}
                     </td>
                     <td style={{ textAlign: "center" }}>
                       <button
@@ -2891,6 +2915,38 @@ function PrintReceipt({ invoice, onClose }) {
   );
 }
 
+// ==================== FIFO Helper ====================
+function sellFromBatches(product, qtyToSell) {
+  const batches = product.batches?.length
+    ? [...product.batches]
+    : product.stock > 0
+    ? [
+        {
+          qty: product.stock,
+          cost: product.cost,
+          salePrice: product.price,
+          date: "قديم",
+        },
+      ]
+    : [];
+
+  let remaining = qtyToSell;
+  const soldBatches = [];
+
+  for (let i = 0; i < batches.length && remaining > 0; i++) {
+    const take = Math.min(batches[i].qty, remaining);
+    soldBatches.push({ ...batches[i], qtySold: take });
+    batches[i] = { ...batches[i], qty: batches[i].qty - take };
+    remaining -= take;
+  }
+
+  const updatedBatches = batches.filter((b) => b.qty > 0);
+  const salePrice = soldBatches[0]?.salePrice ?? product.price;
+
+  return { updatedBatches, salePrice, soldBatches };
+}
+
+// ==================== PURCHASE MODULE ====================
 function PurchaseModule({
   products,
   setProducts,
@@ -2907,7 +2963,6 @@ function PurchaseModule({
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef(null);
 
-  // البحث الفوري عند الكتابة
   const handleSearchChange = (val) => {
     setSearchText(val);
     if (val.trim().length < 1) {
@@ -2941,6 +2996,7 @@ function PurchaseModule({
               discount1: 0,
               discount2: 0,
               receivedCost: p.cost,
+              newSalePrice: p.price,
               expiry_date: "",
             },
           ];
@@ -2967,12 +3023,9 @@ function PurchaseModule({
       }
       e.preventDefault();
     }
-    if (e.key === "Escape") {
-      setShowDropdown(false);
-    }
+    if (e.key === "Escape") setShowDropdown(false);
   };
 
-  // احتساب التكلفة بعد الخصومات
   const calcCostAfterDiscount = (baseCost, disc1, disc2) => {
     const afterDisc1 = baseCost * (1 - (disc1 || 0) / 100);
     const afterDisc2 = afterDisc1 * (1 - (disc2 || 0) / 100);
@@ -2984,7 +3037,6 @@ function PurchaseModule({
       prev.map((i) => {
         if (i.id !== id) return i;
         const updated = { ...i, [field]: value };
-        // إعادة احتساب التكلفة عند تغيير أي خصم
         if (["discount1", "discount2"].includes(field)) {
           updated.receivedCost = calcCostAfterDiscount(
             i.cost,
@@ -2997,18 +3049,19 @@ function PurchaseModule({
     );
   };
 
-  // التنقل بـ Enter بين الخلايا
+  const cols = [
+    "qty",
+    "discount1",
+    "discount2",
+    "receivedCost",
+    "newSalePrice",
+    "bonusQty",
+    "expiry_date",
+  ];
+
   const handleCellKeyDown = (e, rowIndex, colName) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    const cols = [
-      "qty",
-      "discount1",
-      "discount2",
-      "receivedCost",
-      "bonusQty",
-      "expiry_date",
-    ];
     const currentCol = cols.indexOf(colName);
     let nextCol = currentCol + 1;
     let nextRow = rowIndex;
@@ -3016,8 +3069,7 @@ function PurchaseModule({
       nextCol = 0;
       nextRow = rowIndex + 1;
     }
-    const nextId = `cell-${nextRow}-${cols[nextCol]}`;
-    document.getElementById(nextId)?.focus();
+    document.getElementById(`cell-${nextRow}-${cols[nextCol]}`)?.focus();
   };
 
   const cellStyle = {
@@ -3057,6 +3109,7 @@ function PurchaseModule({
         cost: i.receivedCost,
         discount1: i.discount1,
         discount2: i.discount2,
+        salePrice: i.newSalePrice,
         taxable: i.taxable,
         expiry_date: i.expiry_date || null,
       })),
@@ -3066,19 +3119,36 @@ function PurchaseModule({
       status: "مستلمة",
     };
     setPurchases((p) => [...p, po]);
-    setProducts((p) =>
-      p.map((x) => {
+
+    setProducts((prev) =>
+      prev.map((x) => {
         const ci = items.find((i) => i.id === x.id);
-        return ci
-          ? {
-              ...x,
-              // الكمية الفعلية + البونص تضاف للمخزون
-              stock: x.stock + ci.qty + (ci.bonusQty || 0),
-              cost: ci.receivedCost,
-            }
-          : x;
+        if (!ci) return x;
+
+        const newBatch = {
+          qty: ci.qty + (ci.bonusQty || 0),
+          cost: ci.receivedCost,
+          salePrice: ci.newSalePrice,
+          expiry_date: ci.expiry_date || null,
+          date: new Date().toISOString().split("T")[0],
+        };
+
+        const existingBatches = x.batches?.length
+          ? x.batches
+          : x.stock > 0
+          ? [{ qty: x.stock, cost: x.cost, salePrice: x.price, date: "قديم" }]
+          : [];
+
+        return {
+          ...x,
+          stock: x.stock + ci.qty + (ci.bonusQty || 0),
+          cost: ci.receivedCost,
+          price: ci.newSalePrice,
+          batches: [...existingBatches, newBatch],
+        };
       })
     );
+
     setItems([]);
     setSelSupplier("");
     setShowNew(false);
@@ -3264,6 +3334,7 @@ function PurchaseModule({
                   "خ. أساسي %",
                   "خ. إضافي %",
                   "تكلفة الوحدة",
+                  "سعر البيع",
                   "بونص",
                   "تاريخ الصلاحية",
                   "ضريبة",
@@ -3348,14 +3419,14 @@ function PurchaseModule({
                       style={{ ...cellStyle, width: 65 }}
                     />
                   </td>
-                  {/* تكلفة الوحدة بعد الخصم */}
+                  {/* تكلفة الوحدة */}
                   <td style={{ padding: "8px 4px" }}>
                     <input
                       id={`cell-${rowIndex}-receivedCost`}
                       type="number"
                       min="0"
                       step="0.01"
-                      value={item.receivedCost.toFixed(4)}
+                      value={+item.receivedCost.toFixed(4)}
                       onChange={(e) =>
                         updateItem(item.id, "receivedCost", +e.target.value)
                       }
@@ -3365,7 +3436,35 @@ function PurchaseModule({
                       style={{ ...cellStyle, width: 85 }}
                     />
                   </td>
-                  {/* البونص */}
+                  {/* سعر البيع */}
+                  <td style={{ padding: "8px 4px" }}>
+                    <input
+                      id={`cell-${rowIndex}-newSalePrice`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={item.newSalePrice}
+                      onChange={(e) =>
+                        updateItem(item.id, "newSalePrice", +e.target.value)
+                      }
+                      onKeyDown={(e) =>
+                        handleCellKeyDown(e, rowIndex, "newSalePrice")
+                      }
+                      style={{
+                        ...cellStyle,
+                        width: 85,
+                        borderColor:
+                          item.newSalePrice !== item.price
+                            ? "#f0a030"
+                            : "#1d2d4a",
+                        color:
+                          item.newSalePrice !== item.price
+                            ? "#f0c060"
+                            : "#dde8ff",
+                      }}
+                    />
+                  </td>
+                  {/* بونص */}
                   <td style={{ padding: "8px 4px" }}>
                     <input
                       id={`cell-${rowIndex}-bonusQty`}
@@ -3514,7 +3613,6 @@ function PurchaseModule({
     </div>
   );
 }
-
 function ReturnsModule({
   products,
   setProducts,
