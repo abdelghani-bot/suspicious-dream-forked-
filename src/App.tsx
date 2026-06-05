@@ -2083,7 +2083,7 @@ setFifoResults(newFifoResults);
         name: i.name,
         qty: i.qty,
         // ← سعر البيع من الدفعة الأقدم (FIFO)
-        price: fifoResults[i.id]?.salePrice ?? i.price,
+        price: newfifoResults[i.id]?.salePrice ?? i.price,
         taxable: i.taxable,
         dose: i.dose,
         gtin: i.gtin || i.barcode,
@@ -2110,7 +2110,7 @@ setFifoResults(newFifoResults);
     for (const ci of inv.cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
-        const { updatedBatches } = fifoResults[ci.id] || {};
+        const { updatedBatches } = newfifoResults[ci.id] || {};
         const { error: stockError } = await supabase
           .from("products")
           .update({
@@ -2156,7 +2156,7 @@ setFifoResults(newFifoResults);
       p.map((x) => {
         const ci = inv.cart.find((i) => i.id === x.id);
         if (!ci) return x;
-        const { updatedBatches } = fifoResults[x.id] || {};
+        const { updatedBatches } = newfifoResults[x.id] || {};
         return {
           ...x,
           stock: x.stock - ci.qty,
@@ -2782,7 +2782,6 @@ setFifoResults(newFifoResults);
     </div>
   );
 }
-
 // ==================== PRINT RECEIPT ====================
 function PrintReceipt({ invoice, onClose }) {
   const printArea = useRef();
