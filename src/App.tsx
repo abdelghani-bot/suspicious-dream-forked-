@@ -1933,7 +1933,7 @@ function POS({
   const [activeTab, setActiveTab] = useState(0);
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
-
+  const [fifoResults, setFifoResults] = useState({});
   const inv = invoices[activeTab] || emptyInvoice();
   const setInv = (updater) => {
     setInvoices((prev) =>
@@ -2062,11 +2062,14 @@ function POS({
         .slice(0, 14);
 
     // ← احسب FIFO لكل صنف قبل بناء الفاتورة
-    const fifoResults = {};
-    for (const ci of inv.cart) {
-      const prod = products.find((x) => x.id === ci.id);
-      if (prod) {
-        fifoResults[ci.id] = sellFromBatches(prod, ci.qty);
+    const newFifoResults = {};
+for (const ci of inv.cart) {
+  const prod = products.find((x) => x.id === ci.id);
+  if (prod) {
+    newFifoResults[ci.id] = sellFromBatches(prod, ci.qty);
+  }
+}
+setFifoResults(newFifoResults);
       }
     }
 
