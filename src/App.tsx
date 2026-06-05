@@ -3183,7 +3183,6 @@ function PurchaseModule({
                       }}
                     />
                   </td>
-                  </td>
           {/* ← أضف هنا */}
           <td style={{ padding: "8px 12px" }}>
             <input
