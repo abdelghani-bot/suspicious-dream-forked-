@@ -1327,7 +1327,7 @@ export default function PharmacyPro() {
         {tab === "sales_history" && (
           <SalesHistory
             sales={sales}
-            returns={returns}
+            returns={returnsData}
             customers={customers}
             products={products}
           />
