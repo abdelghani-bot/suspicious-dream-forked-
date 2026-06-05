@@ -1023,63 +1023,6 @@ const Login = ({ users, onLogin }) => {
     </div>
   );
 };
-// ==================== RASSD BARCODE PARSER ====================
-
-function parseGS1Barcode(raw) {
-  const result = {
-    gtin: null,
-    expiry: null,
-    batch: null,
-    serial: null,
-    raw,
-  };
-
-  try {
-    // إزالة الأقواس وتحويل لـ standard GS1 format
-    const cleaned = raw
-      .replace(/\)(\d{2})\(/g, "$1") // )(01)( → 01
-      .replace(/^\(/, "") // إزالة أول قوس
-      .replace(/\)/, ""); // إزالة آخر قوس
-
-    let i = 0;
-    while (i < cleaned.length) {
-      const ai = cleaned.substring(i, i + 2);
-
-      if (ai === "01") {
-        result.gtin = cleaned.substring(i + 2, i + 16);
-        i += 16;
-      } else if (ai === "17") {
-        const raw = cleaned.substring(i + 2, i + 8); // YYMMDD
-        result.expiry = `20${raw.slice(0, 2)}-${raw.slice(2, 4)}-${raw.slice(
-          4,
-          6
-        )}`;
-        i += 8;
-      } else if (ai === "10") {
-        // batch - variable length, ends at next AI or end
-        const rest = cleaned.substring(i + 2);
-        const nextAI = rest.search(/(?:17|21)\d/);
-        if (nextAI === -1) {
-          result.batch = rest;
-          i = cleaned.length;
-        } else {
-          result.batch = rest.substring(0, nextAI);
-          i += 2 + nextAI;
-        }
-      } else if (ai === "21") {
-        result.serial = cleaned.substring(i + 2);
-        i = cleaned.length;
-      } else {
-        i++;
-      }
-    }
-  } catch (e) {
-    console.error("GS1 parse error:", e);
-  }
-
-  return result;
-}
-
 // ==================== RASSD SERVICE ====================
 
 const RasdService = {
@@ -1152,6 +1095,62 @@ const RasdService = {
     }
   },
 };
+// ==================== RASSD BARCODE PARSER ====================
+
+function parseGS1Barcode(raw) {
+  const result = {
+    gtin: null,
+    expiry: null,
+    batch: null,
+    serial: null,
+    raw,
+  };
+
+  try {
+    // إزالة الأقواس وتحويل لـ standard GS1 format
+    const cleaned = raw
+      .replace(/\)(\d{2})\(/g, "$1") // )(01)( → 01
+      .replace(/^\(/, "") // إزالة أول قوس
+      .replace(/\)/, ""); // إزالة آخر قوس
+
+    let i = 0;
+    while (i < cleaned.length) {
+      const ai = cleaned.substring(i, i + 2);
+
+      if (ai === "01") {
+        result.gtin = cleaned.substring(i + 2, i + 16);
+        i += 16;
+      } else if (ai === "17") {
+        const raw = cleaned.substring(i + 2, i + 8); // YYMMDD
+        result.expiry = `20${raw.slice(0, 2)}-${raw.slice(2, 4)}-${raw.slice(
+          4,
+          6
+        )}`;
+        i += 8;
+      } else if (ai === "10") {
+        // batch - variable length, ends at next AI or end
+        const rest = cleaned.substring(i + 2);
+        const nextAI = rest.search(/(?:17|21)\d/);
+        if (nextAI === -1) {
+          result.batch = rest;
+          i = cleaned.length;
+        } else {
+          result.batch = rest.substring(0, nextAI);
+          i += 2 + nextAI;
+        }
+      } else if (ai === "21") {
+        result.serial = cleaned.substring(i + 2);
+        i = cleaned.length;
+      } else {
+        i++;
+      }
+    }
+  } catch (e) {
+    console.error("GS1 parse error:", e);
+  }
+
+  return result;
+}
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
@@ -1214,6 +1213,7 @@ export default function PharmacyPro() {
     { id: "purchase", label: "فواتير الشراء", icon: "purchase" },
     { id: "returns", label: "المرتجعات", icon: "returns" },
     { id: "sales_history", label: "سجل الفواتير", icon: "reports" },
+    { id: "rasd_settings", label: "إعدادات رصد", icon: "settings" },
     { id: "inventory_count", label: "الجرد", icon: "count" },
     { id: "products", label: "الأصناف", icon: "inventory" },
     { id: "suppliers", label: "الموردون", icon: "suppliers" },
@@ -1468,6 +1468,7 @@ export default function PharmacyPro() {
             products={products}
           />
         )}
+        {tab === "rasd_settings" && <RasdSettings showToast={showToast} />}
         {tab === "inventory_count" && (
           <InventoryCount
             products={products}
@@ -2029,6 +2030,10 @@ function POS({
         price: i.price,
         taxable: i.taxable,
         dose: i.dose,
+        gtin: i.gtin || i.barcode,
+        batch: i.batch || null,
+        serial: i.serial || null,
+        expiry: i.expiry || null,
       })),
       subtotal,
       tax_amount: taxAmount,
@@ -2045,6 +2050,7 @@ function POS({
       return;
     }
 
+    // تحديث المخزون في Supabase
     for (const ci of inv.cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
@@ -2055,6 +2061,30 @@ function POS({
         if (stockError) {
           showToast("خطأ في تحديث المخزون: " + stockError.message, "error");
         }
+      }
+    }
+
+    // إرسال حركة البيع لرصد
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    const gs1Items = inv.cart.filter((i) => i.serial);
+
+    if (rasdConfig.enabled && gs1Items.length > 0) {
+      const rasdResult = await RasdService.sendTransaction(
+        "dispense",
+        gs1Items.map((i) => ({
+          gtin: i.gtin || i.barcode,
+          serial: i.serial,
+          batch: i.batch,
+          expiry: i.expiry,
+          qty: i.qty,
+        })),
+        rasdConfig.gln || PHARMACY_GLN,
+        null
+      );
+
+      if (!rasdResult.success) {
+        showToast("تحذير: فشل إرسال البيانات لرصد", "error");
+        console.error("Rasd error:", rasdResult.error);
       }
     }
 
@@ -4109,6 +4139,317 @@ function SalesHistory({ sales, returns = [], customers, products }) {
     </div>
   );
 }
+// ==================== RASSD SETTINGS ====================
+function RasdSettings({ showToast }) {
+  const [config, setConfig] = useState(() => {
+    const saved = localStorage.getItem("rasd_config");
+    return saved
+      ? JSON.parse(saved)
+      : {
+          enabled: false,
+          gln: "",
+          username: "",
+          password: "",
+          apiUrl: "https://rsd.sfda.gov.sa/api",
+        };
+  });
+  const [testing, setTesting] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const save = () => {
+    localStorage.setItem("rasd_config", JSON.stringify(config));
+    showToast("تم حفظ إعدادات رصد ✓");
+  };
+
+  const testConnection = async () => {
+    if (!config.username || !config.password) {
+      showToast("يرجى إدخال اسم المستخدم وكلمة المرور", "error");
+      return;
+    }
+    setTesting(true);
+    RasdService.baseUrl = config.apiUrl;
+    const result = await RasdService.login(config.username, config.password);
+    setTesting(false);
+    if (result.success) {
+      setConnected(true);
+      showToast("تم الاتصال برصد بنجاح ✓");
+    } else {
+      setConnected(false);
+      showToast("فشل الاتصال: " + result.error, "error");
+    }
+  };
+
+  const Field = ({ label, value, onChange, type = "text", placeholder }) => (
+    <div style={{ marginBottom: 16 }}>
+      <label
+        style={{
+          display: "block",
+          fontSize: 12,
+          color: "#4a6a8a",
+          marginBottom: 6,
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          width: "100%",
+          background: "#080e1a",
+          border: "1px solid #1d2d4a",
+          borderRadius: 8,
+          padding: "10px 14px",
+          color: "#dde8ff",
+          fontSize: 14,
+          outline: "none",
+          boxSizing: "border-box",
+        }}
+      />
+    </div>
+  );
+
+  return (
+    <div>
+      <h2
+        style={{
+          margin: "0 0 6px",
+          fontSize: 20,
+          fontWeight: 800,
+          color: "#dde8ff",
+        }}
+      >
+        إعدادات نظام رصد
+      </h2>
+      <p style={{ margin: "0 0 24px", fontSize: 13, color: "#3a5a8a" }}>
+        نظام التتبع الإلكتروني للمستحضرات الصيدلانية — هيئة الغذاء والدواء
+      </p>
+
+      {/* Status Card */}
+      <div
+        style={{
+          background: config.enabled && connected ? "#0a2010" : "#1a0a00",
+          border: `1px solid ${
+            config.enabled && connected ? "#1a5020" : "#4a2a00"
+          }`,
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 24,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: config.enabled && connected ? "#44dd88" : "#ffaa44",
+            }}
+          />
+          <span
+            style={{
+              color: config.enabled && connected ? "#44dd88" : "#ffaa44",
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            {config.enabled && connected
+              ? "رصد مفعّل ومتصل"
+              : config.enabled
+              ? "مفعّل — غير متصل"
+              : "رصد غير مفعّل"}
+          </span>
+        </div>
+        {/* Toggle */}
+        <div
+          onClick={() => setConfig((p) => ({ ...p, enabled: !p.enabled }))}
+          style={{
+            width: 48,
+            height: 26,
+            borderRadius: 13,
+            background: config.enabled ? "#2a6aef" : "#1d2d4a",
+            cursor: "pointer",
+            position: "relative",
+            transition: "background 0.2s",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: 3,
+              right: config.enabled ? 3 : 22,
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: "#fff",
+              transition: "right 0.2s",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Form */}
+      <div
+        style={{
+          background: "#0f1623",
+          border: "1px solid #1d2d4a",
+          borderRadius: 14,
+          padding: 24,
+          marginBottom: 16,
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 20px",
+            fontSize: 14,
+            fontWeight: 700,
+            color: "#6aaeff",
+          }}
+        >
+          بيانات الصيدلية
+        </h3>
+
+        <Field
+          label="رقم GLN (Global Location Number)"
+          value={config.gln}
+          onChange={(v) => setConfig((p) => ({ ...p, gln: v }))}
+          placeholder="مثال: 6281234567890"
+        />
+
+        <Field
+          label="اسم المستخدم في رصد"
+          value={config.username}
+          onChange={(v) => setConfig((p) => ({ ...p, username: v }))}
+          placeholder="اسم المستخدم"
+        />
+
+        <div style={{ marginBottom: 16, position: "relative" }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              color: "#4a6a8a",
+              marginBottom: 6,
+              fontWeight: 600,
+            }}
+          >
+            كلمة المرور
+          </label>
+          <div style={{ position: "relative" }}>
+            <input
+              type={showPassword ? "text" : "password"}
+              value={config.password}
+              onChange={(e) =>
+                setConfig((p) => ({ ...p, password: e.target.value }))
+              }
+              placeholder="كلمة المرور"
+              style={{
+                width: "100%",
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                padding: "10px 44px 10px 14px",
+                color: "#dde8ff",
+                fontSize: 14,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <button
+              onClick={() => setShowPassword((p) => !p)}
+              style={{
+                position: "absolute",
+                left: 10,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "transparent",
+                border: "none",
+                color: "#4a6a8a",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              {showPassword ? "إخفاء" : "إظهار"}
+            </button>
+          </div>
+        </div>
+
+        <Field
+          label="رابط الـ API"
+          value={config.apiUrl}
+          onChange={(v) => setConfig((p) => ({ ...p, apiUrl: v }))}
+          placeholder="https://rsd.sfda.gov.sa/api"
+        />
+      </div>
+
+      {/* Buttons */}
+      <div style={{ display: "flex", gap: 10 }}>
+        <Btn
+          onClick={testConnection}
+          variant="ghost"
+          icon={testing ? "loading" : "check"}
+          style={{ flex: 1 }}
+        >
+          {testing ? "جارٍ الاختبار..." : "اختبار الاتصال"}
+        </Btn>
+        <Btn onClick={save} icon="check" style={{ flex: 1 }}>
+          حفظ الإعدادات
+        </Btn>
+      </div>
+
+      {/* Instructions */}
+      <div
+        style={{
+          background: "#080e1a",
+          border: "1px solid #1d2d4a",
+          borderRadius: 12,
+          padding: 16,
+          marginTop: 20,
+        }}
+      >
+        <h4
+          style={{
+            margin: "0 0 12px",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "#ffaa44",
+          }}
+        >
+          ⚠️ متطلبات التفعيل
+        </h4>
+        {[
+          "التسجيل في بوابة رصد على rsd.sfda.gov.sa",
+          "الحصول على رقم GLN من GS1 السعودية",
+          "ماسح ضوئي يقرأ الباركود ثنائي الأبعاد (2D DataMatrix)",
+          "التأكد من أن جميع المنتجات لها GTIN مسجل في رصد",
+        ].map((item, i) => (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              marginBottom: 8,
+              fontSize: 12,
+              color: "#6a8aaa",
+            }}
+          >
+            <span style={{ color: "#2a6aef", marginTop: 1 }}>•</span>
+            {item}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ==================== INVENTORY COUNT ====================
 function InventoryCount({
   products,
