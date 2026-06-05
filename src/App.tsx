@@ -2942,8 +2942,29 @@ function PurchaseModule({
     setSelSupplier("");
     setShowNew(false);
     showToast("تم حفظ فاتورة الشراء ✓");
-  };
+    // إرسال حركة الشراء لرصد
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    const gs1Items = items.filter((i) => i.serial);
 
+    if (rasdConfig.enabled && gs1Items.length > 0) {
+      RasdService.sendTransaction(
+        "receipt",
+        gs1Items.map((i) => ({
+          gtin: i.gtin || i.barcode,
+          serial: i.serial,
+          batch: i.batch,
+          expiry: i.expiry,
+          qty: i.qty,
+        })),
+        rasdConfig.gln,
+        null
+      ).then((result) => {
+        if (!result.success) {
+          showToast("تحذير: فشل إرسال بيانات الشراء لرصد", "error");
+        }
+      });
+    }
+  };
   return (
     <div>
       <div
