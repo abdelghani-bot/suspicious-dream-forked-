@@ -2891,7 +2891,6 @@ function PrintReceipt({ invoice, onClose }) {
   );
 }
 
-// ==================== PURCHASE MODULE ====================
 function PurchaseModule({
   products,
   setProducts,
@@ -2903,22 +2902,133 @@ function PurchaseModule({
   const [showNew, setShowNew] = useState(false);
   const [items, setItems] = useState([]);
   const [selSupplier, setSelSupplier] = useState("");
-  const [barcodeInput, setBarcodeInput] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchRef = useRef(null);
 
-  const scanItem = (code) => {
-    const p = products.find(
-      (x) => x.barcode === code || x.id === code || x.name.includes(code)
-    );
-    if (!p) {
-      showToast("الصنف غير موجود", "error");
+  // البحث الفوري عند الكتابة
+  const handleSearchChange = (val) => {
+    setSearchText(val);
+    if (val.trim().length < 1) {
+      setSearchResults([]);
+      setShowDropdown(false);
       return;
     }
+    const results = products
+      .filter(
+        (p) =>
+          p.name.includes(val) ||
+          p.barcode?.includes(val) ||
+          p.id?.includes(val)
+      )
+      .slice(0, 8);
+    setSearchResults(results);
+    setShowDropdown(results.length > 0);
+  };
+
+  const addItem = (p) => {
     setItems((prev) => {
       const ex = prev.find((i) => i.id === p.id);
       return ex
         ? prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i))
-        : [...prev, { ...p, qty: 1, receivedCost: p.cost, expiry_date: "" }];
+        : [
+            ...prev,
+            {
+              ...p,
+              qty: 1,
+              bonusQty: 0,
+              discount1: 0,
+              discount2: 0,
+              receivedCost: p.cost,
+              expiry_date: "",
+            },
+          ];
     });
+    setSearchText("");
+    setSearchResults([]);
+    setShowDropdown(false);
+    searchRef.current?.focus();
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === "Enter") {
+      if (searchResults.length > 0) {
+        addItem(searchResults[0]);
+      } else if (searchText.trim()) {
+        const p = products.find(
+          (x) =>
+            x.barcode === searchText ||
+            x.id === searchText ||
+            x.name.includes(searchText)
+        );
+        if (p) addItem(p);
+        else showToast("الصنف غير موجود", "error");
+      }
+      e.preventDefault();
+    }
+    if (e.key === "Escape") {
+      setShowDropdown(false);
+    }
+  };
+
+  // احتساب التكلفة بعد الخصومات
+  const calcCostAfterDiscount = (baseCost, disc1, disc2) => {
+    const afterDisc1 = baseCost * (1 - (disc1 || 0) / 100);
+    const afterDisc2 = afterDisc1 * (1 - (disc2 || 0) / 100);
+    return afterDisc2;
+  };
+
+  const updateItem = (id, field, value) => {
+    setItems((prev) =>
+      prev.map((i) => {
+        if (i.id !== id) return i;
+        const updated = { ...i, [field]: value };
+        // إعادة احتساب التكلفة عند تغيير أي خصم
+        if (["discount1", "discount2"].includes(field)) {
+          updated.receivedCost = calcCostAfterDiscount(
+            i.cost,
+            field === "discount1" ? value : i.discount1,
+            field === "discount2" ? value : i.discount2
+          );
+        }
+        return updated;
+      })
+    );
+  };
+
+  // التنقل بـ Enter بين الخلايا
+  const handleCellKeyDown = (e, rowIndex, colName) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const cols = [
+      "qty",
+      "discount1",
+      "discount2",
+      "receivedCost",
+      "bonusQty",
+      "expiry_date",
+    ];
+    const currentCol = cols.indexOf(colName);
+    let nextCol = currentCol + 1;
+    let nextRow = rowIndex;
+    if (nextCol >= cols.length) {
+      nextCol = 0;
+      nextRow = rowIndex + 1;
+    }
+    const nextId = `cell-${nextRow}-${cols[nextCol]}`;
+    document.getElementById(nextId)?.focus();
+  };
+
+  const cellStyle = {
+    width: "100%",
+    background: "#080e1a",
+    border: "1px solid #1d2d4a",
+    borderRadius: 6,
+    padding: "4px 8px",
+    color: "#dde8ff",
+    fontSize: 13,
+    outline: "none",
   };
 
   const subtotal = items.reduce((s, i) => s + i.receivedCost * i.qty, 0);
@@ -2943,16 +3053,12 @@ function PurchaseModule({
         id: i.id,
         name: i.name,
         qty: i.qty,
+        bonusQty: i.bonusQty || 0,
         cost: i.receivedCost,
+        discount1: i.discount1,
+        discount2: i.discount2,
         taxable: i.taxable,
-        items: items.map((i) => ({
-          id: i.id,
-          name: i.name,
-          qty: i.qty,
-          cost: i.receivedCost,
-          taxable: i.taxable,
-          expiry_date: i.expiry_date || null, // ← أضف هذا
-        })),
+        expiry_date: i.expiry_date || null,
       })),
       subtotal,
       taxAmount: taxAmt,
@@ -2964,7 +3070,12 @@ function PurchaseModule({
       p.map((x) => {
         const ci = items.find((i) => i.id === x.id);
         return ci
-          ? { ...x, stock: x.stock + ci.qty, cost: ci.receivedCost }
+          ? {
+              ...x,
+              // الكمية الفعلية + البونص تضاف للمخزون
+              stock: x.stock + ci.qty + (ci.bonusQty || 0),
+              cost: ci.receivedCost,
+            }
           : x;
       })
     );
@@ -2972,10 +3083,9 @@ function PurchaseModule({
     setSelSupplier("");
     setShowNew(false);
     showToast("تم حفظ فاتورة الشراء ✓");
-    // إرسال حركة الشراء لرصد
+
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = items.filter((i) => i.serial);
-
     if (rasdConfig.enabled && gs1Items.length > 0) {
       RasdService.sendTransaction(
         "receipt",
@@ -2989,12 +3099,12 @@ function PurchaseModule({
         rasdConfig.gln,
         null
       ).then((result) => {
-        if (!result.success) {
+        if (!result.success)
           showToast("تحذير: فشل إرسال بيانات الشراء لرصد", "error");
-        }
       });
     }
   };
+
   return (
     <div>
       <div
@@ -3012,6 +3122,7 @@ function PurchaseModule({
           فاتورة شراء جديدة
         </Btn>
       </div>
+
       <Table
         headers={[
           "رقم الفاتورة",
@@ -3036,6 +3147,7 @@ function PurchaseModule({
           </Badge>,
         ])}
       />
+
       <Modal
         open={showNew}
         onClose={() => {
@@ -3066,31 +3178,82 @@ function PurchaseModule({
             ]}
           />
         </div>
-        <input
-          placeholder="🔍 ابحث بالاسم..."
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              scanItem(e.target.value);
-              e.target.value = "";
-            }
-          }}
-          style={{
-            width: "100%",
-            background: "#080e1a",
-            border: "1px solid #1d2d4a",
-            borderRadius: 8,
-            padding: "9px 14px",
-            color: "#dde8ff",
-            fontSize: 14,
-            outline: "none",
-            boxSizing: "border-box",
-            marginBottom: 10,
-          }}
-        />
+
+        {/* حقل البحث مع Dropdown */}
+        <div style={{ position: "relative", marginBottom: 10 }}>
+          <input
+            ref={searchRef}
+            placeholder="🔍 ابحث بالاسم أو الباركود..."
+            value={searchText}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+            style={{
+              width: "100%",
+              background: "#080e1a",
+              border: "1px solid #1d2d4a",
+              borderRadius: 8,
+              padding: "9px 14px",
+              color: "#dde8ff",
+              fontSize: 14,
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
+          {showDropdown && (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                left: 0,
+                background: "#0d1829",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                zIndex: 100,
+                maxHeight: 240,
+                overflowY: "auto",
+              }}
+            >
+              {searchResults.map((p) => (
+                <div
+                  key={p.id}
+                  onMouseDown={() => addItem(p)}
+                  style={{
+                    padding: "9px 14px",
+                    cursor: "pointer",
+                    color: "#dde8ff",
+                    fontSize: 13,
+                    borderBottom: "1px solid #111a2a",
+                    display: "flex",
+                    justifyContent: "space-between",
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "#152238")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <span>{p.name}</span>
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                    {p.barcode} | مخزون: {p.stock}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <BarcodeScanner
-          onScan={scanItem}
+          onScan={(code) => {
+            const p = products.find((x) => x.barcode === code);
+            if (p) addItem(p);
+            else showToast("الصنف غير موجود", "error");
+          }}
           placeholder="امسح باركود الصنف لإضافته..."
         />
+
         <div style={{ marginTop: 14, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -3098,7 +3261,10 @@ function PurchaseModule({
                 {[
                   "الصنف",
                   "الكمية",
+                  "خ. أساسي %",
+                  "خ. إضافي %",
                   "تكلفة الوحدة",
+                  "بونص",
                   "تاريخ الصلاحية",
                   "ضريبة",
                   "الإجمالي",
@@ -3119,94 +3285,118 @@ function PurchaseModule({
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {items.map((item, rowIndex) => (
                 <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
+                  {/* اسم الصنف */}
                   <td
                     style={{
                       padding: "8px 12px",
                       fontSize: 13,
                       color: "#c0d0f0",
+                      minWidth: 130,
                     }}
                   >
                     {item.name}
                   </td>
-                  <td style={{ padding: "8px 12px" }}>
+                  {/* الكمية */}
+                  <td style={{ padding: "8px 4px" }}>
                     <input
+                      id={`cell-${rowIndex}-qty`}
                       type="number"
                       min="1"
                       value={item.qty}
                       onChange={(e) =>
-                        setItems((p) =>
-                          p.map((i) =>
-                            i.id === item.id
-                              ? { ...i, qty: +e.target.value }
-                              : i
-                          )
-                        )
+                        updateItem(item.id, "qty", +e.target.value)
                       }
-                      style={{
-                        width: 60,
-                        background: "#080e1a",
-                        border: "1px solid #1d2d4a",
-                        borderRadius: 6,
-                        padding: "4px 8px",
-                        color: "#dde8ff",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
+                      onKeyDown={(e) => handleCellKeyDown(e, rowIndex, "qty")}
+                      style={{ ...cellStyle, width: 60 }}
                     />
                   </td>
-                  <td style={{ padding: "8px 12px" }}>
+                  {/* خصم أساسي */}
+                  <td style={{ padding: "8px 4px" }}>
                     <input
+                      id={`cell-${rowIndex}-discount1`}
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={item.discount1}
+                      onChange={(e) =>
+                        updateItem(item.id, "discount1", +e.target.value)
+                      }
+                      onKeyDown={(e) =>
+                        handleCellKeyDown(e, rowIndex, "discount1")
+                      }
+                      style={{ ...cellStyle, width: 65 }}
+                    />
+                  </td>
+                  {/* خصم إضافي */}
+                  <td style={{ padding: "8px 4px" }}>
+                    <input
+                      id={`cell-${rowIndex}-discount2`}
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={item.discount2}
+                      onChange={(e) =>
+                        updateItem(item.id, "discount2", +e.target.value)
+                      }
+                      onKeyDown={(e) =>
+                        handleCellKeyDown(e, rowIndex, "discount2")
+                      }
+                      style={{ ...cellStyle, width: 65 }}
+                    />
+                  </td>
+                  {/* تكلفة الوحدة بعد الخصم */}
+                  <td style={{ padding: "8px 4px" }}>
+                    <input
+                      id={`cell-${rowIndex}-receivedCost`}
                       type="number"
                       min="0"
                       step="0.01"
-                      value={item.receivedCost}
+                      value={item.receivedCost.toFixed(4)}
                       onChange={(e) =>
-                        setItems((p) =>
-                          p.map((i) =>
-                            i.id === item.id
-                              ? { ...i, receivedCost: +e.target.value }
-                              : i
-                          )
-                        )
+                        updateItem(item.id, "receivedCost", +e.target.value)
                       }
-                      style={{
-                        width: 80,
-                        background: "#080e1a",
-                        border: "1px solid #1d2d4a",
-                        borderRadius: 6,
-                        padding: "4px 8px",
-                        color: "#dde8ff",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
+                      onKeyDown={(e) =>
+                        handleCellKeyDown(e, rowIndex, "receivedCost")
+                      }
+                      style={{ ...cellStyle, width: 85 }}
                     />
                   </td>
-                  <td style={{ padding: "8px 12px" }}>
+                  {/* البونص */}
+                  <td style={{ padding: "8px 4px" }}>
                     <input
+                      id={`cell-${rowIndex}-bonusQty`}
+                      type="number"
+                      min="0"
+                      value={item.bonusQty}
+                      onChange={(e) =>
+                        updateItem(item.id, "bonusQty", +e.target.value)
+                      }
+                      onKeyDown={(e) =>
+                        handleCellKeyDown(e, rowIndex, "bonusQty")
+                      }
+                      style={{ ...cellStyle, width: 60 }}
+                    />
+                  </td>
+                  {/* تاريخ الصلاحية */}
+                  <td style={{ padding: "8px 4px" }}>
+                    <input
+                      id={`cell-${rowIndex}-expiry_date`}
                       type="month"
                       value={item.expiry_date || ""}
                       onChange={(e) =>
-                        setItems((p) =>
-                          p.map((i) =>
-                            i.id === item.id
-                              ? { ...i, expiry_date: e.target.value }
-                              : i
-                          )
-                        )
+                        updateItem(item.id, "expiry_date", e.target.value)
                       }
-                      style={{
-                        background: "#080e1a",
-                        border: "1px solid #1d2d4a",
-                        borderRadius: 6,
-                        padding: "4px 8px",
-                        color: "#dde8ff",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
+                      onKeyDown={(e) =>
+                        handleCellKeyDown(e, rowIndex, "expiry_date")
+                      }
+                      style={{ ...cellStyle, width: 130 }}
                     />
                   </td>
+                  {/* ضريبة */}
                   <td style={{ padding: "8px 12px" }}>
                     <Badge
                       color={item.taxable ? "#0a2a00" : "#1a1a2a"}
@@ -3215,6 +3405,7 @@ function PurchaseModule({
                       {item.taxable ? "15%" : "معفى"}
                     </Badge>
                   </td>
+                  {/* الإجمالي */}
                   <td
                     style={{
                       padding: "8px 12px",
@@ -3228,6 +3419,7 @@ function PurchaseModule({
                       (item.taxable ? 1 + TAX_RATE : 1)
                     ).toFixed(2)}
                   </td>
+                  {/* حذف */}
                   <td style={{ padding: "8px 12px" }}>
                     <button
                       onClick={() =>
@@ -3248,6 +3440,7 @@ function PurchaseModule({
             </tbody>
           </table>
         </div>
+
         {items.length > 0 && (
           <div
             style={{
@@ -3295,6 +3488,7 @@ function PurchaseModule({
             </div>
           </div>
         )}
+
         <div
           style={{
             display: "flex",
