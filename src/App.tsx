@@ -1074,6 +1074,7 @@ export default function PharmacyPro() {
     { id: "pos", label: "نقطة البيع", icon: "pos" },
     { id: "purchase", label: "فواتير الشراء", icon: "purchase" },
     { id: "returns", label: "المرتجعات", icon: "returns" },
+    { id: "sales_history", label: "سجل الفواتير", icon: "reports" },
     { id: "inventory_count", label: "الجرد", icon: "count" },
     { id: "products", label: "الأصناف", icon: "inventory" },
     { id: "suppliers", label: "الموردون", icon: "suppliers" },
@@ -1318,6 +1319,14 @@ export default function PharmacyPro() {
             setPurchases={setPurchases}
             customers={customers}
             showToast={showToast}
+          />
+        )}
+        {tab === "sales_history" && (
+          <SalesHistory
+            sales={sales}
+            returns={returns}
+            customers={customers}
+            products={products}
           />
         )}
         {tab === "inventory_count" && (
@@ -3412,6 +3421,526 @@ function ReturnsModule({
       <Btn icon="returns" onClick={processReturn} variant="danger">
         تأكيد الإرجاع
       </Btn>
+    </div>
+  );
+}
+// ==================== Sales History ======================
+function SalesHistory({ sales, returns = [], customers, products }) {
+  const [tab, setTab] = useState("sales");
+  const [search, setSearch] = useState("");
+  const [filterCustomer, setFilterCustomer] = useState("");
+  const [filterPayment, setFilterPayment] = useState("");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [selected, setSelected] = useState(null);
+
+  const paymentMethods = ["نقدي", "بطاقة", "تحويل", "آجل"];
+
+  const data = tab === "sales" ? [...sales].reverse() : [...returns].reverse();
+
+  const filtered = data.filter((s) => {
+    const matchSearch =
+      !search ||
+      s.id?.includes(search) ||
+      (s.customer_name || "").includes(search);
+    const matchCustomer =
+      !filterCustomer || String(s.customer) === filterCustomer;
+    const matchPayment = !filterPayment || s.payment === filterPayment;
+    const matchFrom = !filterFrom || s.date >= filterFrom;
+    const matchTo = !filterTo || s.date <= filterTo;
+    return matchSearch && matchCustomer && matchPayment && matchFrom && matchTo;
+  });
+
+  const totalAmount = filtered.reduce((s, i) => s + (i.total || 0), 0);
+
+  const resetFilters = () => {
+    setSearch("");
+    setFilterCustomer("");
+    setFilterPayment("");
+    setFilterFrom("");
+    setFilterTo("");
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 18,
+        }}
+      >
+        <h2
+          style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#dde8ff" }}
+        >
+          سجل الفواتير
+        </h2>
+        <div
+          style={{
+            background: "#142a5a",
+            border: "1px solid #2a6aef",
+            borderRadius: 10,
+            padding: "6px 16px",
+            color: "#6aaeff",
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {filtered.length} فاتورة | {totalAmount.toFixed(2)} ر.س
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+        {[
+          { k: "sales", l: "فواتير البيع" },
+          { k: "returns", l: "المرتجعات" },
+        ].map((t) => (
+          <button
+            key={t.k}
+            onClick={() => {
+              setTab(t.k);
+              setSelected(null);
+            }}
+            style={{
+              padding: "9px 22px",
+              borderRadius: 9,
+              border: "1px solid",
+              borderColor: tab === t.k ? "#2a6aef" : "#1d2d4a",
+              background: tab === t.k ? "#142a5a" : "transparent",
+              color: tab === t.k ? "#6aaeff" : "#4a6a8a",
+              fontWeight: tab === t.k ? 700 : 400,
+              cursor: "pointer",
+              fontSize: 14,
+            }}
+          >
+            {t.l}
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div
+        style={{
+          background: "#0f1623",
+          border: "1px solid #1d2d4a",
+          borderRadius: 12,
+          padding: 14,
+          marginBottom: 16,
+          display: "flex",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+        }}
+      >
+        <input
+          placeholder="🔍 بحث باسم العميل أو رقم الفاتورة"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{
+            flex: 2,
+            minWidth: 180,
+            background: "#080e1a",
+            border: "1px solid #1d2d4a",
+            borderRadius: 8,
+            padding: "8px 12px",
+            color: "#dde8ff",
+            fontSize: 13,
+            outline: "none",
+          }}
+        />
+
+        <select
+          value={filterCustomer}
+          onChange={(e) => setFilterCustomer(e.target.value)}
+          style={{
+            flex: 1,
+            minWidth: 140,
+            background: "#080e1a",
+            border: "1px solid #1d2d4a",
+            borderRadius: 8,
+            padding: "8px 12px",
+            color: "#dde8ff",
+            fontSize: 13,
+            outline: "none",
+          }}
+        >
+          <option value="">كل العملاء</option>
+          {(customers || []).map((c) => (
+            <option key={c.id} value={String(c.id)}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+
+        {tab === "sales" && (
+          <select
+            value={filterPayment}
+            onChange={(e) => setFilterPayment(e.target.value)}
+            style={{
+              flex: 1,
+              minWidth: 120,
+              background: "#080e1a",
+              border: "1px solid #1d2d4a",
+              borderRadius: 8,
+              padding: "8px 12px",
+              color: "#dde8ff",
+              fontSize: 13,
+              outline: "none",
+            }}
+          >
+            <option value="">كل طرق الدفع</option>
+            {paymentMethods.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="date"
+            value={filterFrom}
+            onChange={(e) => setFilterFrom(e.target.value)}
+            style={{
+              background: "#080e1a",
+              border: "1px solid #1d2d4a",
+              borderRadius: 8,
+              padding: "8px 10px",
+              color: "#dde8ff",
+              fontSize: 13,
+              outline: "none",
+            }}
+          />
+          <span style={{ color: "#3a5a8a", fontSize: 12 }}>→</span>
+          <input
+            type="date"
+            value={filterTo}
+            onChange={(e) => setFilterTo(e.target.value)}
+            style={{
+              background: "#080e1a",
+              border: "1px solid #1d2d4a",
+              borderRadius: 8,
+              padding: "8px 10px",
+              color: "#dde8ff",
+              fontSize: 13,
+              outline: "none",
+            }}
+          />
+        </div>
+
+        {(search ||
+          filterCustomer ||
+          filterPayment ||
+          filterFrom ||
+          filterTo) && (
+          <button
+            onClick={resetFilters}
+            style={{
+              background: "transparent",
+              border: "1px solid #3a1a1a",
+              borderRadius: 8,
+              padding: "8px 14px",
+              color: "#ff6666",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            ✕ مسح الفلاتر
+          </button>
+        )}
+      </div>
+
+      {/* List + Detail */}
+      <div style={{ display: "flex", gap: 14 }}>
+        {/* List */}
+        <div
+          style={{
+            flex: selected ? "0 0 45%" : "1",
+            background: "#0f1623",
+            border: "1px solid #1d2d4a",
+            borderRadius: 14,
+            overflow: "hidden",
+            maxHeight: "calc(100vh - 320px)",
+            overflowY: "auto",
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div
+              style={{
+                padding: 40,
+                textAlign: "center",
+                color: "#3a5a8a",
+                fontSize: 14,
+              }}
+            >
+              لا توجد فواتير
+            </div>
+          ) : (
+            filtered.map((s) => (
+              <div
+                key={s.id}
+                onClick={() => setSelected(selected?.id === s.id ? null : s)}
+                style={{
+                  padding: "12px 16px",
+                  borderBottom: "1px solid #0a101a",
+                  cursor: "pointer",
+                  background: selected?.id === s.id ? "#142a5a" : "transparent",
+                  transition: "background 0.15s",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: selected?.id === s.id ? "#6aaeff" : "#c0d0f0",
+                    }}
+                  >
+                    {s.id}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#3a5a8a", marginTop: 2 }}>
+                    {s.customer_name || "زبون عادي"}
+                    {s.payment ? ` • ${s.payment}` : ""}
+                    {s.reason ? ` • ${s.reason}` : ""}
+                  </div>
+                </div>
+                <div style={{ textAlign: "left" }}>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: tab === "returns" ? "#ff7744" : "#3a9aff",
+                    }}
+                  >
+                    {(s.total || 0).toFixed(2)} ر.س
+                  </div>
+                  <div style={{ fontSize: 11, color: "#3a5a8a" }}>{s.date}</div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Detail Panel */}
+        {selected && (
+          <div
+            style={{
+              flex: "1",
+              background: "#0f1623",
+              border: "1px solid #1d2d4a",
+              borderRadius: 14,
+              padding: 18,
+              maxHeight: "calc(100vh - 320px)",
+              overflowY: "auto",
+            }}
+          >
+            {/* Detail Header */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                marginBottom: 16,
+              }}
+            >
+              <div>
+                <div
+                  style={{ fontSize: 15, fontWeight: 800, color: "#dde8ff" }}
+                >
+                  {selected.id}
+                </div>
+                <div style={{ fontSize: 12, color: "#3a5a8a", marginTop: 3 }}>
+                  {selected.date}
+                  {selected.payment ? ` • ${selected.payment}` : ""}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#6aaeff",
+                    marginTop: 3,
+                    fontWeight: 600,
+                  }}
+                >
+                  {selected.customer_name || "زبون عادي"}
+                </div>
+                {selected.reason && (
+                  <div style={{ fontSize: 12, color: "#ffaa44", marginTop: 3 }}>
+                    السبب: {selected.reason}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setSelected(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#3a5a8a",
+                  cursor: "pointer",
+                  fontSize: 18,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Items Table */}
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                marginBottom: 14,
+              }}
+            >
+              <thead>
+                <tr style={{ borderBottom: "1px solid #1d2d4a" }}>
+                  {["الصنف", "الكمية", "السعر", "الإجمالي"].map((h, i) => (
+                    <th
+                      key={i}
+                      style={{
+                        textAlign: i === 0 ? "right" : "center",
+                        padding: "6px 4px",
+                        color: "#4a6a8a",
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(selected.items || []).map((item, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #0a101a" }}>
+                    <td style={{ padding: "8px 4px" }}>
+                      <div style={{ fontSize: 13, color: "#dde8ff" }}>
+                        {item.name}
+                      </div>
+                      {item.dose && (
+                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                          ▸ {item.dose}
+                        </div>
+                      )}
+                    </td>
+                    <td
+                      style={{
+                        textAlign: "center",
+                        fontSize: 13,
+                        color: "#dde8ff",
+                        padding: "8px 4px",
+                      }}
+                    >
+                      {item.qty || item.returnQty}
+                    </td>
+                    <td
+                      style={{
+                        textAlign: "center",
+                        fontSize: 13,
+                        color: "#2a9aff",
+                        padding: "8px 4px",
+                      }}
+                    >
+                      {(item.price || item.cost || 0).toFixed(2)}
+                    </td>
+                    <td
+                      style={{
+                        textAlign: "center",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: "#dde8ff",
+                        padding: "8px 4px",
+                      }}
+                    >
+                      {(
+                        (item.price || item.cost || 0) *
+                        (item.qty || item.returnQty || 0)
+                      ).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Totals */}
+            <div
+              style={{
+                background: "#080e1a",
+                borderRadius: 10,
+                padding: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: "#4a6a8a",
+                  fontSize: 12,
+                  marginBottom: 5,
+                }}
+              >
+                <span>قبل الضريبة</span>
+                <span>{(selected.subtotal || 0).toFixed(2)} ر.س</span>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: "#88dd44",
+                  fontSize: 12,
+                  marginBottom: 5,
+                }}
+              >
+                <span>ضريبة 15%</span>
+                <span>
+                  {(selected.tax_amount || selected.tax || 0).toFixed(2)} ر.س
+                </span>
+              </div>
+              {selected.discount_amt > 0 && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    color: "#ffaa44",
+                    fontSize: 12,
+                    marginBottom: 5,
+                  }}
+                >
+                  <span>خصم</span>
+                  <span>- {(selected.discount_amt || 0).toFixed(2)} ر.س</span>
+                </div>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: "#dde8ff",
+                  fontWeight: 800,
+                  fontSize: 16,
+                  borderTop: "1px solid #1d2d4a",
+                  paddingTop: 8,
+                  marginTop: 4,
+                }}
+              >
+                <span>الإجمالي</span>
+                <span
+                  style={{
+                    color: tab === "returns" ? "#ff7744" : "#3a9aff",
+                  }}
+                >
+                  {(selected.total || 0).toFixed(2)} ر.س
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
