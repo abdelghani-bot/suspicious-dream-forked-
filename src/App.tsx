@@ -2061,17 +2061,14 @@ function POS({
         .replace(/[-:T.Z]/g, "")
         .slice(0, 14);
 
-    // ← احسب FIFO لكل صنف قبل بناء الفاتورة
     const newFifoResults = {};
-for (const ci of inv.cart) {
-  const prod = products.find((x) => x.id === ci.id);
-  if (prod) {
-    newFifoResults[ci.id] = sellFromBatches(prod, ci.qty);
-  }
-}
-setFifoResults(newFifoResults);
+    for (const ci of inv.cart) {
+      const prod = products.find((x) => x.id === ci.id);
+      if (prod) {
+        newFifoResults[ci.id] = sellFromBatches(prod, ci.qty);
       }
     }
+    setFifoResults(newFifoResults);
 
     const invoice = {
       id,
@@ -2082,8 +2079,7 @@ setFifoResults(newFifoResults);
         id: i.id,
         name: i.name,
         qty: i.qty,
-        // ← سعر البيع من الدفعة الأقدم (FIFO)
-        price: newfifoResults[i.id]?.salePrice ?? i.price,
+        price: newFifoResults[i.id]?.salePrice ?? i.price,
         taxable: i.taxable,
         dose: i.dose,
         gtin: i.gtin || i.barcode,
@@ -2106,18 +2102,15 @@ setFifoResults(newFifoResults);
       return;
     }
 
-    // تحديث المخزون في Supabase مع batches
     for (const ci of inv.cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
-        const { updatedBatches } = newfifoResults[ci.id] || {};
+        const { updatedBatches } = newFifoResults[ci.id] || {};
         const { error: stockError } = await supabase
           .from("products")
           .update({
             stock: prod.stock - ci.qty,
-            // ← حفظ الدفعات المحدثة
             batches: updatedBatches ?? prod.batches ?? [],
-            // ← سعر البيع يصبح سعر الدفعة التالية المتاحة
             price: updatedBatches?.[0]?.salePrice ?? prod.price,
           })
           .eq("id", ci.id);
@@ -2127,7 +2120,6 @@ setFifoResults(newFifoResults);
       }
     }
 
-    // إرسال حركة البيع لرصد
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = inv.cart.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
@@ -2151,12 +2143,11 @@ setFifoResults(newFifoResults);
 
     setSales((p) => [...p, invoice]);
 
-    // ← تحديث الـ state مع batches وسعر البيع الجديد
     setProducts((p) =>
       p.map((x) => {
         const ci = inv.cart.find((i) => i.id === x.id);
         if (!ci) return x;
-        const { updatedBatches } = newfifoResults[x.id] || {};
+        const { updatedBatches } = newFifoResults[x.id] || {};
         return {
           ...x,
           stock: x.stock - ci.qty,
@@ -2171,6 +2162,7 @@ setFifoResults(newFifoResults);
     setShowPrint(invoice);
     showToast("تمت عملية البيع ✓");
   };
+
   return (
     <div
       style={{
