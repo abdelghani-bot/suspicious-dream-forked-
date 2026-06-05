@@ -2951,7 +2951,7 @@ function PurchaseModule({
           qty: i.qty,
           cost: i.receivedCost,
           taxable: i.taxable,
-          expiry_date: i.expiry_date || null,  // ← أضف هذا
+          expiry_date: i.expiry_date || null, // ← أضف هذا
         })),
       })),
       subtotal,
@@ -3183,33 +3183,30 @@ function PurchaseModule({
                       }}
                     />
                   </td>
-          <td style={{ padding: "8px 12px" }}>
-            <input
-              type="month"
-              value={item.expiry_date || ""}
-              onChange={(e) =>
-                setItems((p) =>
-                  p.map((i) =>
-                    i.id === item.id
-                      ? { ...i, expiry_date: e.target.value }
-                      : i
-                  )
-                )
-              }
-              style={{
-                background: "#080e1a",
-                border: "1px solid #1d2d4a",
-                borderRadius: 6,
-                padding: "4px 8px",
-                color: "#dde8ff",
-                fontSize: 13,
-                outline: "none",
-              }}
-            />
-          </td>
-          {/* السطر 3178 الأصلي */}
-          <td style={{ padding: "8px 12px" }}>
-            <Badge
+                  <td style={{ padding: "8px 12px" }}>
+                    <input
+                      type="month"
+                      value={item.expiry_date || ""}
+                      onChange={(e) =>
+                        setItems((p) =>
+                          p.map((i) =>
+                            i.id === item.id
+                              ? { ...i, expiry_date: e.target.value }
+                              : i
+                          )
+                        )
+                      }
+                      style={{
+                        background: "#080e1a",
+                        border: "1px solid #1d2d4a",
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        color: "#dde8ff",
+                        fontSize: 13,
+                        outline: "none",
+                      }}
+                    />
+                  </td>
                   <td style={{ padding: "8px 12px" }}>
                     <Badge
                       color={item.taxable ? "#0a2a00" : "#1a1a2a"}
