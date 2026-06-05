@@ -4909,7 +4909,7 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
             rows={filteredSales.map((s) => [
               <span style={{ color: "#6aaeff", fontWeight: 700 }}>{s.id}</span>,
               s.date,
-              s.customerName || "زبون عادي",
+              s.customer_name || "زبون عادي",
               (s.subtotal || 0).toFixed(2) + " ر.س",
               <span style={{ color: "#88dd44" }}>
                 {(s.taxAmount || s.tax_amount || 0).toFixed(2)} ر.س
