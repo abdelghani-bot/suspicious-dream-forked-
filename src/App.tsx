@@ -1049,6 +1049,10 @@ const RasdService = {
   async sendTransaction(type, items, glnFrom, glnTo) {
     // type: "receipt" | "dispense" | "return"
     try {
+      if (!this.token) {
+        const cfg = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+        this.token = cfg.token;
+      }
       const payload = {
         transactionType: type,
         fromGLN: glnFrom,
@@ -4200,7 +4204,12 @@ function RasdSettings({ showToast }) {
   const [showPassword, setShowPassword] = useState(false);
 
   const save = () => {
-    localStorage.setItem("rasd_config", JSON.stringify(config));
+    // احفظ التوكن الحالي مع الإعدادات
+    const configToSave = {
+      ...config,
+      token: RasdService.token || null,
+    };
+    localStorage.setItem("rasd_config", JSON.stringify(configToSave));
     showToast("تم حفظ إعدادات رصد ✓");
   };
 
@@ -4215,6 +4224,8 @@ function RasdSettings({ showToast }) {
     setTesting(false);
     if (result.success) {
       setConnected(true);
+      // احفظ التوكن في config
+      setConfig((p) => ({ ...p, token: RasdService.token }));
       showToast("تم الاتصال برصد بنجاح ✓");
     } else {
       setConnected(false);
