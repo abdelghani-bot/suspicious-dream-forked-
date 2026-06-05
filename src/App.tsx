@@ -2917,7 +2917,7 @@ function PurchaseModule({
       const ex = prev.find((i) => i.id === p.id);
       return ex
         ? prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i))
-        : [...prev, { ...p, qty: 1, receivedCost: p.cost }];
+        : [...prev, { ...p, qty: 1, receivedCost: p.cost, expiry_date: "" }];
     });
   };
 
@@ -2945,6 +2945,14 @@ function PurchaseModule({
         qty: i.qty,
         cost: i.receivedCost,
         taxable: i.taxable,
+        items: items.map((i) => ({
+          id: i.id,
+          name: i.name,
+          qty: i.qty,
+          cost: i.receivedCost,
+          taxable: i.taxable,
+          expiry_date: i.expiry_date || null,  // ← أضف هذا
+        })),
       })),
       subtotal,
       taxAmount: taxAmt,
@@ -3091,6 +3099,7 @@ function PurchaseModule({
                   "الصنف",
                   "الكمية",
                   "تكلفة الوحدة",
+                  "تاريخ الصلاحية",
                   "ضريبة",
                   "الإجمالي",
                   "",
@@ -3174,6 +3183,35 @@ function PurchaseModule({
                       }}
                     />
                   </td>
+                  </td>
+          {/* ← أضف هنا */}
+          <td style={{ padding: "8px 12px" }}>
+            <input
+              type="month"
+              value={item.expiry_date || ""}
+              onChange={(e) =>
+                setItems((p) =>
+                  p.map((i) =>
+                    i.id === item.id
+                      ? { ...i, expiry_date: e.target.value }
+                      : i
+                  )
+                )
+              }
+              style={{
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 6,
+                padding: "4px 8px",
+                color: "#dde8ff",
+                fontSize: 13,
+                outline: "none",
+              }}
+            />
+          </td>
+          {/* السطر 3178 الأصلي */}
+          <td style={{ padding: "8px 12px" }}>
+            <Badge
                   <td style={{ padding: "8px 12px" }}>
                     <Badge
                       color={item.taxable ? "#0a2a00" : "#1a1a2a"}
@@ -4557,7 +4595,10 @@ function ExpiryReport({ products, onRemoveExpired }) {
   // ===== 6 أشهر قادمة =====
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}`;
     const label = d.toLocaleDateString("ar-EG", {
       month: "long",
       year: "numeric",
@@ -4663,8 +4704,23 @@ function ExpiryReport({ products, onRemoveExpired }) {
     <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
       <thead>
         <tr style={{ background: "#080e1a" }}>
-          {["الصنف", "الباركود", "تاريخ الانتهاء", "المخزون", "التكلفة", "البيع"].map((h) => (
-            <th key={h} style={{ padding: "8px 12px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>
+          {[
+            "الصنف",
+            "الباركود",
+            "تاريخ الانتهاء",
+            "المخزون",
+            "التكلفة",
+            "البيع",
+          ].map((h) => (
+            <th
+              key={h}
+              style={{
+                padding: "8px 12px",
+                textAlign: "right",
+                color: "#4a6a9a",
+                fontSize: 12,
+              }}
+            >
               {h}
             </th>
           ))}
@@ -4673,12 +4729,31 @@ function ExpiryReport({ products, onRemoveExpired }) {
       <tbody>
         {items.map((p) => (
           <tr key={p.id} style={{ borderBottom: "1px solid #0a101a" }}>
-            <td style={{ padding: "8px 12px", color: "#dde8ff", fontWeight: 700, fontSize: 13 }}>{p.name}</td>
-            <td style={{ padding: "8px 12px", color: "#4a6a8a", fontSize: 11 }}>{p.barcode || "-"}</td>
-            <td style={{ padding: "8px 12px", color: "#ff7744", fontSize: 13 }}>{p.expiry}</td>
-            <td style={{ padding: "8px 12px", color: "#dde8ff", fontSize: 13 }}>{p.stock}</td>
-            <td style={{ padding: "8px 12px", color: "#ffaa44", fontSize: 13 }}>{(p.cost || 0).toFixed(2)}</td>
-            <td style={{ padding: "8px 12px", color: "#44cc88", fontSize: 13 }}>{(p.price || 0).toFixed(2)}</td>
+            <td
+              style={{
+                padding: "8px 12px",
+                color: "#dde8ff",
+                fontWeight: 700,
+                fontSize: 13,
+              }}
+            >
+              {p.name}
+            </td>
+            <td style={{ padding: "8px 12px", color: "#4a6a8a", fontSize: 11 }}>
+              {p.barcode || "-"}
+            </td>
+            <td style={{ padding: "8px 12px", color: "#ff7744", fontSize: 13 }}>
+              {p.expiry}
+            </td>
+            <td style={{ padding: "8px 12px", color: "#dde8ff", fontSize: 13 }}>
+              {p.stock}
+            </td>
+            <td style={{ padding: "8px 12px", color: "#ffaa44", fontSize: 13 }}>
+              {(p.cost || 0).toFixed(2)}
+            </td>
+            <td style={{ padding: "8px 12px", color: "#44cc88", fontSize: 13 }}>
+              {(p.price || 0).toFixed(2)}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -4693,8 +4768,21 @@ function ExpiryReport({ products, onRemoveExpired }) {
 
       {/* ===== قسم المنتهية ===== */}
       <div style={{ ...card("#3a1010"), marginBottom: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0, color: "#ff4444", fontSize: 15, fontWeight: 700 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              color: "#ff4444",
+              fontSize: 15,
+              fontWeight: 700,
+            }}
+          >
             🔴 منتهية الصلاحية ({expired.length} صنف)
           </h3>
           <div style={{ display: "flex", gap: 8 }}>
@@ -4714,19 +4802,37 @@ function ExpiryReport({ products, onRemoveExpired }) {
                 </button>
               </>
             ) : (
-              <span style={{ color: "#3a5a8a", fontSize: 13 }}>لا يوجد أصناف منتهية</span>
+              <span style={{ color: "#3a5a8a", fontSize: 13 }}>
+                لا يوجد أصناف منتهية
+              </span>
             )}
           </div>
         </div>
-        {showExpiredDetail && expired.length > 0 && <ItemsTable items={expired} />}
+        {showExpiredDetail && expired.length > 0 && (
+          <ItemsTable items={expired} />
+        )}
       </div>
 
       {/* ===== 6 أشهر ===== */}
-      <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#7a9adf" }}>
+      <h3
+        style={{
+          margin: "0 0 14px",
+          fontSize: 15,
+          fontWeight: 700,
+          color: "#7a9adf",
+        }}
+      >
         📅 قريبة الانتهاء — الأشهر القادمة
       </h3>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
         {months.map(({ key, label }) => {
           const items = getMonthItems(key);
           const { count, costTotal, sellTotal } = calcTotals(items);
@@ -4736,33 +4842,75 @@ function ExpiryReport({ products, onRemoveExpired }) {
           return (
             <div
               key={key}
-              onClick={() => hasItems && setExpandedMonth(isExpanded ? null : key)}
+              onClick={() =>
+                hasItems && setExpandedMonth(isExpanded ? null : key)
+              }
               style={{
-                ...card(isExpanded ? "#2a4a8a" : hasItems ? "#1d3a6a" : "#1a2030"),
+                ...card(
+                  isExpanded ? "#2a4a8a" : hasItems ? "#1d3a6a" : "#1a2030"
+                ),
                 cursor: hasItems ? "pointer" : "default",
                 opacity: hasItems ? 1 : 0.45,
                 transition: "border-color 0.2s",
               }}
             >
-              <div style={{ fontWeight: 700, color: "#dde8ff", fontSize: 14, marginBottom: 12 }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  color: "#dde8ff",
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+              >
                 {label}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>عدد الأصناف</span>
-                  <span style={{ color: "#5a8adf", fontWeight: 800, fontSize: 15 }}>{count}</span>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                    عدد الأصناف
+                  </span>
+                  <span
+                    style={{ color: "#5a8adf", fontWeight: 800, fontSize: 15 }}
+                  >
+                    {count}
+                  </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>قيمة التكلفة</span>
-                  <span style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13 }}>{costTotal.toFixed(2)}</span>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                    قيمة التكلفة
+                  </span>
+                  <span
+                    style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13 }}
+                  >
+                    {costTotal.toFixed(2)}
+                  </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>قيمة البيع</span>
-                  <span style={{ color: "#44cc88", fontWeight: 700, fontSize: 13 }}>{sellTotal.toFixed(2)}</span>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                    قيمة البيع
+                  </span>
+                  <span
+                    style={{ color: "#44cc88", fontWeight: 700, fontSize: 13 }}
+                  >
+                    {sellTotal.toFixed(2)}
+                  </span>
                 </div>
               </div>
               {hasItems && (
-                <div style={{ marginTop: 10, textAlign: "center", color: "#4a6a8a", fontSize: 11 }}>
+                <div
+                  style={{
+                    marginTop: 10,
+                    textAlign: "center",
+                    color: "#4a6a8a",
+                    fontSize: 11,
+                  }}
+                >
                   {isExpanded ? "▲ إخفاء" : "▼ عرض الأصناف"}
                 </div>
               )}
@@ -4772,35 +4920,47 @@ function ExpiryReport({ products, onRemoveExpired }) {
       </div>
 
       {/* ===== تفاصيل الشهر المفتوح ===== */}
-      {expandedMonth && (() => {
-        const items = getMonthItems(expandedMonth);
-        const { costTotal, sellTotal } = calcTotals(items);
-        const monthLabel = months.find((m) => m.key === expandedMonth)?.label;
-        return (
-          <div style={card("#2a4a8a")}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <h4 style={{ margin: 0, color: "#dde8ff", fontSize: 14 }}>
-                📋 أصناف {monthLabel}
-              </h4>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <span style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700 }}>
-                  تكلفة: {costTotal.toFixed(2)}
-                </span>
-                <span style={{ color: "#44cc88", fontSize: 12, fontWeight: 700 }}>
-                  بيع: {sellTotal.toFixed(2)}
-                </span>
-                <button
-                  style={btn("#1a3a7a")}
-                  onClick={() => handlePrint(monthLabel, items)}
-                >
-                  🖨️ طباعة
-                </button>
+      {expandedMonth &&
+        (() => {
+          const items = getMonthItems(expandedMonth);
+          const { costTotal, sellTotal } = calcTotals(items);
+          const monthLabel = months.find((m) => m.key === expandedMonth)?.label;
+          return (
+            <div style={card("#2a4a8a")}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
+                <h4 style={{ margin: 0, color: "#dde8ff", fontSize: 14 }}>
+                  📋 أصناف {monthLabel}
+                </h4>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span
+                    style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700 }}
+                  >
+                    تكلفة: {costTotal.toFixed(2)}
+                  </span>
+                  <span
+                    style={{ color: "#44cc88", fontSize: 12, fontWeight: 700 }}
+                  >
+                    بيع: {sellTotal.toFixed(2)}
+                  </span>
+                  <button
+                    style={btn("#1a3a7a")}
+                    onClick={() => handlePrint(monthLabel, items)}
+                  >
+                    🖨️ طباعة
+                  </button>
+                </div>
               </div>
+              <ItemsTable items={items} />
             </div>
-            <ItemsTable items={items} />
-          </div>
-        );
-      })()}
+          );
+        })()}
     </div>
   );
 }
