@@ -2944,38 +2944,6 @@ function PrintReceipt({ invoice, onClose }) {
     </Modal>
   );
 }
-
-// ==================== FIFO Helper ====================
-function sellFromBatches(product, qtyToSell) {
-  const batches = product.batches?.length
-    ? [...product.batches]
-    : product.stock > 0
-    ? [
-        {
-          qty: product.stock,
-          cost: product.cost,
-          salePrice: product.price,
-          date: "قديم",
-        },
-      ]
-    : [];
-
-  let remaining = qtyToSell;
-  const soldBatches = [];
-
-  for (let i = 0; i < batches.length && remaining > 0; i++) {
-    const take = Math.min(batches[i].qty, remaining);
-    soldBatches.push({ ...batches[i], qtySold: take });
-    batches[i] = { ...batches[i], qty: batches[i].qty - take };
-    remaining -= take;
-  }
-
-  const updatedBatches = batches.filter((b) => b.qty > 0);
-  const salePrice = soldBatches[0]?.salePrice ?? product.price;
-
-  return { updatedBatches, salePrice, soldBatches };
-}
-
 // ==================== PURCHASE MODULE ====================
 function PurchaseModule({
   products,
