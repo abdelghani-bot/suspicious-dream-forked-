@@ -2890,7 +2890,9 @@ function PurchaseModule({
   const [barcodeInput, setBarcodeInput] = useState("");
 
   const scanItem = (code) => {
-    const p = products.find((x) => x.barcode === code || x.id === code);
+    const p = products.find(
+      (x) => x.barcode === code || x.id === code || x.name.includes(code)
+    );
     if (!p) {
       showToast("الصنف غير موجود", "error");
       return;
@@ -3040,6 +3042,27 @@ function PurchaseModule({
             ]}
           />
         </div>
+        <input
+  placeholder="🔍 ابحث بالاسم..."
+  onKeyDown={(e) => {
+    if (e.key === "Enter") {
+      scanItem(e.target.value);
+      e.target.value = "";
+    }
+  }}
+  style={{
+    width: "100%",
+    background: "#080e1a",
+    border: "1px solid #1d2d4a",
+    borderRadius: 8,
+    padding: "9px 14px",
+    color: "#dde8ff",
+    fontSize: 14,
+    outline: "none",
+    boxSizing: "border-box",
+    marginBottom: 10,
+  }}
+/>
         <BarcodeScanner
           onScan={scanItem}
           placeholder="امسح باركود الصنف لإضافته..."
@@ -4813,7 +4836,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       max_stock: +form.maxStock,
       active_ingredient: form.activeIngredient,
       concentration: form.concentration,
-      is_essential: form.isEssential,
+      isEssential: form.isEssential,
     };
 
     if (editing) {
