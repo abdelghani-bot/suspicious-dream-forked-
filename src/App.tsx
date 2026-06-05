@@ -2170,7 +2170,6 @@ setFifoResults(newFifoResults);
     setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
     setShowPrint(invoice);
     showToast("تمت عملية البيع ✓");
-  };
 
   return (
     <div
