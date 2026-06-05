@@ -3044,7 +3044,6 @@ function ReturnsModule({
     setSelInvoice("");
   }, [type]);
 
-  // فاتورة الشراء المختارة
   const purchaseInvoice = purchases.find((p) => p.id === selInvoice);
 
   useEffect(() => {
@@ -3055,7 +3054,6 @@ function ReturnsModule({
     }
   }, [selInvoice, type]);
 
-  // بحث للمبيعات فقط
   const handleSearch = (val) => {
     setSearch(val);
     if (!val.trim()) return;
@@ -3102,8 +3100,27 @@ function ReturnsModule({
     }
 
     const returnId = `RET-${Date.now()}`;
-    const customer = customers?.find((c) => c.id === selCustomer);
 
+    // ✅ Fix: String comparison للعميل
+    const customer = customers?.find((c) => String(c.id) === selCustomer);
+
+    // ✅ Fix: تحديث المخزون في Supabase
+    for (const ri of returnItems) {
+      if (ri.returnQty > 0) {
+        const prod = products.find((x) => x.id === ri.id);
+        if (prod) {
+          const { error: stockError } = await supabase
+            .from("products")
+            .update({ stock: prod.stock + ri.returnQty })
+            .eq("id", ri.id);
+          if (stockError) {
+            showToast("خطأ في تحديث المخزون: " + stockError.message, "error");
+          }
+        }
+      }
+    }
+
+    // تحديث المخزون محلياً
     setProducts((p) =>
       p.map((x) => {
         const ri = returnItems.find((i) => i.id === x.id);
@@ -3139,7 +3156,7 @@ function ReturnsModule({
     ]);
 
     if (error) {
-      showToast("خطأ في حفظ المرتجع", "error");
+      showToast("خطأ في حفظ المرتجع: " + error.message, "error");
       return;
     }
 
@@ -3178,7 +3195,6 @@ function ReturnsModule({
         ))}
       </div>
 
-      {/* مرتجع المبيعات: بحث */}
       {type === "sales" && (
         <>
           <div style={{ marginBottom: 14 }}>
@@ -3200,21 +3216,34 @@ function ReturnsModule({
               }}
             />
           </div>
+
+          {/* ✅ Fix: native select بدل custom Select */}
           <div style={{ marginBottom: 14 }}>
-            <Select
-              label="العميل (اختياري)"
+            <select
               value={selCustomer}
-              onChange={setSelCustomer}
-              options={[
-                { v: "", l: "زبون عادي" },
-                ...(customers || []).map((c) => ({ v: c.id, l: c.name })),
-              ]}
-            />
+              onChange={(e) => setSelCustomer(e.target.value)}
+              style={{
+                width: "100%",
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 9,
+                padding: "11px 14px",
+                color: "#dde8ff",
+                fontSize: 14,
+                outline: "none",
+              }}
+            >
+              <option value="">زبون عادي</option>
+              {(customers || []).map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </div>
         </>
       )}
 
-      {/* مرتجع الشراء: اختيار فاتورة */}
       {type === "purchases" && (
         <div style={{ marginBottom: 14 }}>
           <Select
@@ -3243,7 +3272,6 @@ function ReturnsModule({
         />
       </div>
 
-      {/* الأصناف */}
       {returnItems.length > 0 && (
         <div
           style={{
