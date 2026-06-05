@@ -1023,7 +1023,7 @@ export default function PharmacyPro() {
   const [customers, setCustomers] = useStorage("ph_customers", INIT_CUSTOMERS);
   const [sales, setSales] = useStorage("ph_sales", INIT_SALES);
   const [purchases, setPurchases] = useStorage("ph_purchases", INIT_PURCHASES);
-  const [returnsData, setReturnsData] = useStorage("ph_returns"[]);
+  const [returnsData, setReturnsData] = useStorage("ph_returns", []);
   const [inventoryLogs, setInventoryLogs] = useStorage(
     "ph_inventory",
     INIT_INVENTORY
