@@ -7,8 +7,3 @@ export default defineConfig({
     allowedHosts: "all",
   },
 });
-export default defineConfig({
-  server: {
-    allowedHosts: ["fd2kwy-5173.csb.app"],
-  },
-});
