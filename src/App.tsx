@@ -2035,15 +2035,36 @@ function POS({
       p.id.includes(inv.search)
   );
 
-  const subtotal = inv.cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const taxAmount = inv.cart.reduce(
-    (s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s),
-    0
-  );
+  const subtotal = inv.cart
+    .filter((i) => !i.isMissed)
+    .reduce((s, i) => s + i.price * i.qty, 0);
+
+  const taxAmount = inv.cart
+    .filter((i) => !i.isMissed)
+    .reduce((s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s), 0);
+
+  const missedTotal = inv.cart
+    .filter((i) => i.isMissed)
+    .reduce((s, i) => s + i.price * i.qty, 0);
   const discountAmt =
     Math.round((((subtotal + taxAmount) * inv.discount) / 100) * 100) / 100;
   const total = subtotal + taxAmount - discountAmt;
-
+  {
+    missedTotal > 0 && (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          color: "#ffaa44",
+          fontSize: 12,
+          marginBottom: 4,
+        }}
+      >
+        <span>⚠ فرص ضائعة</span>
+        <span>{missedTotal.toFixed(2)} ر.س</span>
+      </div>
+    );
+  }
   const completeSale = async () => {
     if (!currentShift) {
       showToast("يرجى فتح شفت أولاً", "error");
@@ -2156,7 +2177,23 @@ function POS({
         };
       })
     );
-
+    // تسجيل الفرص الضائعة
+    const missedItems = inv.cart.filter((i) => i.isMissed);
+    if (missedItems.length > 0) {
+      const missedRecords = missedItems.map((i) => ({
+        id: "MS-" + Date.now() + "-" + i.id,
+        date: new Date().toISOString().split("T")[0],
+        product_id: i.id,
+        product_name: i.nameAr || i.name,
+        price: i.price,
+        qty: i.qty,
+        reason: i.missedReason || "غير محدد",
+        notes: i.notes || "",
+        shift: currentShift?.id,
+        cashier: currentUser?.name,
+      }));
+      await supabase.from("missed_sales").insert(missedRecords);
+    }
     setInv({ ...emptyInvoice(), success: true });
     setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
     setShowPrint(invoice);
@@ -2299,37 +2336,158 @@ function POS({
                 {filtered.slice(0, 8).map((p) => (
                   <div
                     key={p.id}
-                    onClick={() => {
-                      addToCart(p);
-                      setInv((x) => ({ ...x, search: "" }));
-                    }}
                     style={{
                       padding: "8px 14px",
-                      cursor: p.stock === 0 ? "not-allowed" : "pointer",
-                      opacity: p.stock === 0 ? 0.5 : 1,
+                      opacity: p.stock === 0 ? 0.6 : 1,
                       borderBottom: "1px solid #1a2a3a",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
                     }}
                   >
-                    <div>
+                    {/* الصف الأول: اسم الصنف والأزرار */}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: item.isMissed ? "#ffaa44" : "#dde8ff",
+                            textDecoration: item.isMissed
+                              ? "line-through"
+                              : "none",
+                          }}
+                        >
+                          {item.nameAr || item.name}
+                          {item.isPartial && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "#44dd88",
+                                marginRight: 6,
+                              }}
+                            >
+                              ({item.partialLabel})
+                            </span>
+                          )}
+                          {item.isMissed && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "#ffaa44",
+                                marginRight: 6,
+                              }}
+                            >
+                              ⚠ فرصة ضائعة
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                          {p.mainCategory || p.category} | مخزون: {p.stock}
+                          {p.unitDivision > 1 && (
+                            <span style={{ color: "#f59e0b", marginRight: 6 }}>
+                              ÷{p.unitDivision}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
                       <div
                         style={{
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: "#dde8ff",
+                          display: "flex",
+                          gap: 5,
+                          alignItems: "center",
                         }}
                       >
-                        {p.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#4a6a8a" }}>
-                        {p.category} | مخزون: {p.stock}
+                        {/* زر وحدة كاملة */}
+                        <button
+                          onClick={() => {
+                            if (p.stock > 0) {
+                              addToCart({ ...p, isPartial: false });
+                              setInv((x) => ({ ...x, search: "" }));
+                            }
+                          }}
+                          disabled={p.stock === 0}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 6,
+                            background: "#142a5a",
+                            border: "1px solid #2a6aef",
+                            color: "#6aaeff",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: p.stock === 0 ? "not-allowed" : "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {p.price?.toFixed(2)} ر.س
+                        </button>
+
+                        {/* زر جزء - لو unitDivision > 1 */}
+                        {p.unitDivision > 1 && (
+                          <button
+                            onClick={() => {
+                              if (p.stock > 0) {
+                                const partialQty =
+                                  Math.round((1 / p.unitDivision) * 10000) /
+                                  10000;
+                                const partialPrice =
+                                  Math.round((p.price / p.unitDivision) * 100) /
+                                  100;
+                                addToCart({
+                                  ...p,
+                                  qty: partialQty,
+                                  price: partialPrice,
+                                  isPartial: true,
+                                  partialLabel: `1/${p.unitDivision}`,
+                                });
+                                setInv((x) => ({ ...x, search: "" }));
+                              }
+                            }}
+                            disabled={p.stock === 0}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 6,
+                              background: "#0a2a10",
+                              border: "1px solid #2a6a2a",
+                              color: "#44dd88",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: p.stock === 0 ? "not-allowed" : "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            1/{p.unitDivision} —{" "}
+                            {(p.price / p.unitDivision).toFixed(2)} ر.س
+                          </button>
+                        )}
+
+                        {/* زر فرصة ضائعة */}
+                        <button
+                          onClick={() => {
+                            addToCart({ ...p, isMissed: true, qty: 1 });
+                            setInv((x) => ({ ...x, search: "" }));
+                          }}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            background: "#2a1a00",
+                            border: "1px solid #7a4a00",
+                            color: "#ffaa44",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                          title="تسجيل كفرصة ضائعة"
+                        >
+                          ⚠ فائت
+                        </button>
                       </div>
                     </div>
-                    <span style={{ color: "#2a9aff", fontWeight: 700 }}>
-                      {p.price} ر.س
-                    </span>
                   </div>
                 ))}
                 {filtered.length === 0 && (
