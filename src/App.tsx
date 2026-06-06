@@ -2796,7 +2796,7 @@ function POS({
                             ),
                           }))
                         }
-                        )}placeholder="الجرعة..."
+                        placeholder="الجرعة..."
                         style={{
                           width: "100%",
                           background: "transparent",
@@ -2809,9 +2809,16 @@ function POS({
                         }}
                       />
                       {item.expiry && (
-                          <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>
-                            ينتهي: {item.expiry}
-                          </div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: "#ffaa44",
+                            marginTop: 2,
+                          }}
+                        >
+                          ينتهي: {item.expiry}
+                        </div>
+                      )}
                     </td>
                     <td style={{ textAlign: "center", padding: "8px 4px" }}>
                       <div
@@ -2865,10 +2872,18 @@ function POS({
                                   ? {
                                       ...i,
                                       qty: Math.min(
-                                        Math.round((i.qty + (i.isPartial ? 1/i.unitDivision : 1)) * 10000) / 10000,
+                                        Math.round(
+                                          (i.qty +
+                                            (i.isPartial
+                                              ? 1 / i.unitDivision
+                                              : 1)) *
+                                            10000
+                                        ) / 10000,
                                         i.isPartial && i.unitDivision > 1
-                                          ? (products.find((x) => x.id === i.id)?.stock * i.unitDivision) || 99
-                                          : products.find((x) => x.id === i.id)?.stock || 99
+                                          ? products.find((x) => x.id === i.id)
+                                              ?.stock * i.unitDivision || 99
+                                          : products.find((x) => x.id === i.id)
+                                              ?.stock || 99
                                       ),
                                     }
                                   : i
