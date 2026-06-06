@@ -2796,10 +2796,6 @@ function POS({
                             ),
                           }))
                         }
-                        {item.expiry && (
-                          <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>
-                            ينتهي: {item.expiry}
-                          </div>
                         )}placeholder="الجرعة..."
                         style={{
                           width: "100%",
@@ -2812,6 +2808,10 @@ function POS({
                           padding: "2px 0",
                         }}
                       />
+                      {item.expiry && (
+                          <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>
+                            ينتهي: {item.expiry}
+                          </div>
                     </td>
                     <td style={{ textAlign: "center", padding: "8px 4px" }}>
                       <div
