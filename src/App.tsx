@@ -1970,37 +1970,62 @@ function POS({
   };
 
   const addToCart = (p) => {
-    if (p.stock <= 0) {
-      showToast("المخزون نفد!", "error");
-      return;
-    }
-    if (p.expiry) {
-      const expDate = new Date(p.expiry);
-      const today = new Date();
-      if (expDate < today) {
-        showToast(`⚠️ ${p.name} - منتهي الصلاحية! (${p.expiry})`, "error");
+    // للجوكر والفرص الضائعة — تجاوز فحص المخزون
+    if (!p.isMissed && !p.isJoker) {
+      // حساب الـ stock الفعلي بالوحدة المطلوبة
+      const effectiveStock =
+        p.isPartial && p.unitDivision > 1 ? p.stock * p.unitDivision : p.stock;
+
+      if (effectiveStock <= 0) {
+        showToast("المخزون نفد!", "error");
         return;
       }
-      const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-      if (daysLeft <= 90) {
-        showToast(`⚠️ ${p.name} - ينتهي خلال ${daysLeft} يوم`, "warning");
+
+      if (p.expiry) {
+        const expDate = new Date(p.expiry);
+        const today = new Date();
+        if (expDate < today) {
+          showToast(`⚠️ ${p.name} - منتهي الصلاحية! (${p.expiry})`, "error");
+          return;
+        }
+        const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+        if (daysLeft <= 90) {
+          showToast(`⚠️ ${p.name} - ينتهي خلال ${daysLeft} يوم`, "warning");
+        }
       }
     }
+
     setInv((prev) => {
       const ex = prev.cart.find((i) => i.id === p.id);
       if (ex) {
-        if (ex.qty >= p.stock) {
+        // حساب الحد الأقصى
+        const prod = products.find((x) => x.id === p.id);
+        const maxQty =
+          p.isPartial && p.unitDivision > 1
+            ? prod?.stock * p.unitDivision // 1 علبة × 100 = 100 حبة
+            : prod?.stock || 99;
+        const step = p.isPartial ? 1 / p.unitDivision : 1;
+
+        if (ex.qty + step > maxQty) {
           showToast("لا يوجد مخزون كافٍ", "error");
           return prev;
         }
         return {
           ...prev,
           cart: prev.cart.map((i) =>
-            i.id === p.id ? { ...i, qty: i.qty + 1 } : i
+            i.id === p.id
+              ? { ...i, qty: Math.round((i.qty + step) * 10000) / 10000 }
+              : i
           ),
         };
       }
-      return { ...prev, cart: [...prev.cart, { ...p, qty: 1, dose: "" }] };
+      const initQty = p.isPartial
+        ? Math.round((1 / p.unitDivision) * 10000) / 10000
+        : 1;
+      return {
+        ...prev,
+        cart: [...prev.cart, { ...p, qty: initQty, dose: "" }],
+      };
     });
   };
 
@@ -2771,7 +2796,11 @@ function POS({
                             ),
                           }))
                         }
-                        placeholder="الجرعة..."
+                        {item.expiry && (
+                          <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>
+                            ينتهي: {item.expiry}
+                          </div>
+                        )}placeholder="الجرعة..."
                         style={{
                           width: "100%",
                           background: "transparent",
@@ -2836,9 +2865,10 @@ function POS({
                                   ? {
                                       ...i,
                                       qty: Math.min(
-                                        i.qty + 1,
-                                        products.find((x) => x.id === i.id)
-                                          ?.stock || 99
+                                        Math.round((i.qty + (i.isPartial ? 1/i.unitDivision : 1)) * 10000) / 10000,
+                                        i.isPartial && i.unitDivision > 1
+                                          ? (products.find((x) => x.id === i.id)?.stock * i.unitDivision) || 99
+                                          : products.find((x) => x.id === i.id)?.stock || 99
                                       ),
                                     }
                                   : i
