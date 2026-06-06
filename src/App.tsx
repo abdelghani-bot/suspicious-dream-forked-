@@ -5635,44 +5635,94 @@ function InventoryCount({
   );
 }
 
+// ==================== CATEGORIES ====================
+const MAIN_CATEGORIES = {
+  دواء: {
+    sub1: ["مستورد", "محلي"],
+    sub2: ["فموي", "موضعي", "أمبول"],
+  },
+  "كوزمتك عادي": {
+    sub1: [],
+    sub2: ["عناية بالشعر", "عناية بالجلد"],
+  },
+  "كوزمتك طبي": {
+    sub1: [],
+    sub2: ["عناية بالشعر", "عناية بالجلد"],
+  },
+  "مستلزمات أطفال": {
+    sub1: [],
+    sub2: ["حفاضات", "حليب", "رضاعة", "عناية بالشعر", "عناية بالجلد"],
+  },
+  "مستلزمات طبية": {
+    sub1: [],
+    sub2: ["جهاز طبي", "عناية بالجروح", "وقاية"],
+  },
+};
+
 function ProductsModule({ products, setProducts, suppliers, showToast }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+
   const blank = {
     id: "",
-    name: "",
+    nameAr: "",
+    nameEn: "",
     barcode: "",
-    category: "مسكنات",
+    mainCategory: "دواء",
+    subCategory1: "مستورد",
+    subCategory2: "فموي",
     unit: "قرص",
+    unitDivision: 1,
     price: "",
     cost: "",
     taxable: true,
     minStock: "",
-    maxStock: "", // ✅ جديد
+    maxStock: "",
     activeIngredient: "",
     concentration: "",
-    isEssential: false, // ✅ جديد - دواء أساسي
+    isEssential: false,
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  const filtered = products.filter(
-    (p) =>
-      p.name.includes(search) ||
-      p.barcode.includes(search) ||
-      p.id.includes(search) ||
-      p.category.includes(search)
-  );
+  // لما تتغير الفئة الرئيسية، صفّر الفرعية
+  const handleMainCategoryChange = (val) => {
+    const cat = MAIN_CATEGORIES[val];
+    setForm((p) => ({
+      ...p,
+      mainCategory: val,
+      subCategory1: cat.sub1[0] || "",
+      subCategory2: cat.sub2[0] || "",
+    }));
+  };
+
+  const filtered = products.filter((p) => {
+    const s = search.toLowerCase();
+    return (
+      (p.nameAr || p.name || "").includes(search) ||
+      (p.nameEn || "").toLowerCase().includes(s) ||
+      (p.barcode || "").includes(search) ||
+      (p.id || "").includes(search) ||
+      (p.mainCategory || p.category || "").includes(search)
+    );
+  });
 
   const openEdit = (p) => {
     setEditing(p.id);
     setForm({
+      ...blank,
       ...p,
+      nameAr: p.nameAr || p.name || "",
+      nameEn: p.nameEn || "",
       price: String(p.price),
       cost: String(p.cost),
-      minStock: String(p.minStock),
+      minStock: String(p.minStock || ""),
       maxStock: String(p.maxStock || ""),
+      unitDivision: p.unitDivision || 1,
+      mainCategory: p.mainCategory || "دواء",
+      subCategory1: p.subCategory1 || "",
+      subCategory2: p.subCategory2 || "",
     });
     setShowForm(true);
   };
@@ -5687,25 +5737,34 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   };
 
   const save = async () => {
-    if (!form.name || !form.price) {
+    if (!form.nameAr || !form.price) {
       showToast("يرجى ملء الحقول المطلوبة", "error");
       return;
     }
-
     const p = {
       id: form.id,
-      name: form.name,
+      name: form.nameAr,
+      nameAr: form.nameAr,
+      nameEn: form.nameEn,
       barcode: form.barcode,
-      category: form.category,
+      mainCategory: form.mainCategory,
+      subCategory1: form.subCategory1,
+      subCategory2: form.subCategory2,
+      category: form.mainCategory, // للتوافق مع الكود القديم
       unit: form.unit,
+      unitDivision: +form.unitDivision || 1,
       price: +form.price,
       cost: +form.cost,
       taxable: form.taxable,
+      minStock: +form.minStock,
       min_stock: +form.minStock,
+      maxStock: +form.maxStock,
       max_stock: +form.maxStock,
+      activeIngredient: form.activeIngredient,
       active_ingredient: form.activeIngredient,
       concentration: form.concentration,
       isEssential: form.isEssential,
+      is_essential: form.isEssential,
     };
 
     if (editing) {
@@ -5715,12 +5774,17 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       );
     } else {
       await supabase.from("products").insert(p);
-      setProducts((prev) => [...prev, p]);
+      setProducts((prev) => [...prev, { ...p, stock: 0 }]);
     }
-
     setShowForm(false);
     showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
   };
+
+  const currentCat = MAIN_CATEGORIES[form.mainCategory] || {
+    sub1: [],
+    sub2: [],
+  };
+
   return (
     <div>
       <div
@@ -5742,7 +5806,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
+        placeholder="🔍 بحث بالاسم عربي أو إنجليزي أو الباركود أو الفئة..."
         style={{
           width: "100%",
           background: "#080e1a",
@@ -5773,22 +5837,21 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
         />
         <StatCard
           label="مخزون منخفض"
-          value={products.filter((p) => p.stock <= p.minStock).length}
+          value={products.filter((p) => p.stock <= (p.minStock || 0)).length}
           icon="alert"
           color="#ffaa44"
         />
-        {/* ✅ بطاقة جديدة للأدوية الأساسية */}
         <StatCard
           label="أدوية أساسية"
           value={products.filter((p) => p.isEssential).length}
-          icon="star"
+          icon="pill"
           color="#f59e0b"
         />
         <StatCard
           label="قيمة المخزون"
           value={
             products
-              .reduce((s, p) => s + p.cost * (p.stock || 0), 0)
+              .reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0)
               .toFixed(0) + " ر.س"
           }
           icon="money"
@@ -5804,16 +5867,20 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
           "الفئة",
           "سعر البيع",
           "التكلفة",
+          "الوحدة",
           "الضريبة",
-          "الحد الأدنى",
-          "الحد الأقصى",
           "أساسي",
-          "إجراءات", // ✅ تعديل الأعمدة
+          "إجراءات",
         ]}
         rows={filtered.map((p) => [
           <span style={{ color: "#4a6a8a", fontSize: 11 }}>{p.id}</span>,
           <div>
-            <div style={{ fontWeight: 700, color: "#dde8ff" }}>{p.name}</div>
+            <div style={{ fontWeight: 700, color: "#dde8ff" }}>
+              {p.nameAr || p.name}
+            </div>
+            {p.nameEn && (
+              <div style={{ fontSize: 11, color: "#4a6a8a" }}>{p.nameEn}</div>
+            )}
             <div style={{ fontSize: 10, color: "#3a5a8a" }}>
               {p.activeIngredient} {p.concentration}
             </div>
@@ -5823,20 +5890,33 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
           >
             {p.barcode}
           </span>,
-          <Badge>{p.category}</Badge>,
+          <div>
+            <Badge>{p.mainCategory || p.category}</Badge>
+            {p.subCategory2 && (
+              <div style={{ fontSize: 10, color: "#3a5a8a", marginTop: 3 }}>
+                {p.subCategory1 && p.subCategory1 + " · "}
+                {p.subCategory2}
+              </div>
+            )}
+          </div>,
           <span style={{ color: "#3a9aff", fontWeight: 700 }}>
             {p.price} ر.س
           </span>,
           <span style={{ color: "#4a6a8a" }}>{p.cost} ر.س</span>,
+          <div style={{ fontSize: 12, color: "#6a8aaa" }}>
+            {p.unit}
+            {p.unitDivision > 1 && (
+              <span style={{ color: "#f59e0b", marginRight: 4 }}>
+                ÷{p.unitDivision}
+              </span>
+            )}
+          </div>,
           <Badge
             color={p.taxable ? "#0a2a00" : "#1a1a2a"}
             text={p.taxable ? "#44dd88" : "#4a6a8a"}
           >
             {p.taxable ? "15%" : "معفى"}
           </Badge>,
-          p.minStock,
-          p.maxStock || "-", // ✅ الحد الأقصى
-          // ✅ أيقونة دواء أساسي
           p.isEssential ? (
             <Badge color="#2a1a00" text="#f59e0b">
               ⭐ أساسي
@@ -5882,37 +5962,102 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
             gap: 12,
           }}
         >
+          {/* الرمز */}
           <Input
             label="رمز الصنف"
             value={form.id}
             onChange={(v) => F("id", v)}
             placeholder="P001"
           />
+
+          {/* الاسم العربي */}
           <Input
-            label="اسم الصنف *"
-            value={form.name}
-            onChange={(v) => F("name", v)}
-            placeholder="اسم الدواء"
-            style={{ gridColumn: "2/4" }}
+            label="الاسم بالعربي *"
+            value={form.nameAr}
+            onChange={(v) => F("nameAr", v)}
+            placeholder="باراسيتامول"
           />
+
+          {/* الاسم الإنجليزي */}
           <Input
-            label="الباركود (Barcode/QR)"
+            label="الاسم بالإنجليزي"
+            value={form.nameEn}
+            onChange={(v) => F("nameEn", v)}
+            placeholder="Paracetamol"
+          />
+
+          {/* الباركود */}
+          <Input
+            label="الباركود"
             value={form.barcode}
             onChange={(v) => F("barcode", v)}
             placeholder="رقم الباركود"
           />
+
+          {/* الفئة الرئيسية */}
           <Select
-            label="الفئة"
-            value={form.category}
-            onChange={(v) => F("category", v)}
-            options={CATEGORIES}
+            label="الفئة الرئيسية"
+            value={form.mainCategory}
+            onChange={handleMainCategoryChange}
+            options={Object.keys(MAIN_CATEGORIES)}
           />
+
+          {/* الفئة الفرعية 1 - تظهر فقط للدواء */}
+          {currentCat.sub1.length > 0 && (
+            <Select
+              label="المصدر"
+              value={form.subCategory1}
+              onChange={(v) => F("subCategory1", v)}
+              options={currentCat.sub1}
+            />
+          )}
+
+          {/* الفئة الفرعية 2 */}
+          {currentCat.sub2.length > 0 && (
+            <Select
+              label="الشكل الصيدلاني"
+              value={form.subCategory2}
+              onChange={(v) => F("subCategory2", v)}
+              options={currentCat.sub2}
+            />
+          )}
+
+          {/* وحدة القياس */}
           <Input
-            label="وحدة القياس"
+            label="وحدة البيع"
             value={form.unit}
             onChange={(v) => F("unit", v)}
             placeholder="قرص / كبسولة..."
           />
+
+          {/* تقسيم الوحدة */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label style={{ color: "#5a7aaa", fontSize: 12, fontWeight: 600 }}>
+              تقسيم الوحدة
+            </label>
+            <select
+              value={form.unitDivision}
+              onChange={(e) => F("unitDivision", +e.target.value)}
+              style={{
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                padding: "9px 12px",
+                color: "#dde8ff",
+                fontSize: 14,
+                outline: "none",
+              }}
+            >
+              <option value={1}>بدون تقسيم</option>
+              {[2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 24, 30].map((n) => (
+                <option key={n} value={n}>
+                  ÷{n} ({form.unit || "وحدة"} → {n} أجزاء)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* السعر والتكلفة */}
           <Input
             label="سعر البيع *"
             value={form.price}
@@ -5928,7 +6073,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
             placeholder="0.00"
           />
 
-          {/* ✅ الحد الأدنى والأقصى بجانب بعض */}
+          {/* الحد الأدنى والأقصى */}
           <Input
             label="الحد الأدنى للمخزون"
             value={form.minStock}
@@ -5944,6 +6089,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
             placeholder="100"
           />
 
+          {/* المادة الفعالة والتركيز */}
           <Input
             label="المادة الفعالة"
             value={form.activeIngredient}
@@ -5957,7 +6103,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
             placeholder="500mg"
           />
 
-          {/* ✅ خاضع للضريبة */}
+          {/* الضريبة */}
           <div
             style={{
               display: "flex",
@@ -5977,7 +6123,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
             />
           </div>
 
-          {/* ✅ دواء أساسي - جديد */}
+          {/* دواء أساسي */}
           <div
             style={{
               display: "flex",
