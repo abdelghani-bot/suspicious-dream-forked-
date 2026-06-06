@@ -2937,7 +2937,6 @@ function PrintReceipt({ invoice, onClose }) {
     </Modal>
   );
 }
-// ==================== PURCHASE MODULE ====================
 function PurchaseModule({
   products,
   setProducts,
@@ -2952,11 +2951,14 @@ function PurchaseModule({
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [manualSubtotal, setManualSubtotal] = useState("");
+  const [manualTax, setManualTax] = useState("");
+  const [showProductCard, setShowProductCard] = useState(null);
   const searchRef = useRef(null);
 
   const handleSearchChange = (val) => {
     setSearchText(val);
-    if (val.trim().length < 1) {
+    if (!val.trim()) {
       setSearchResults([]);
       setShowDropdown(false);
       return;
@@ -2976,33 +2978,33 @@ function PurchaseModule({
   const addItem = (p) => {
     setItems((prev) => {
       const ex = prev.find((i) => i.id === p.id);
-      return ex
-        ? prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i))
-        : [
-            ...prev,
-            {
-              ...p,
-              qty: 1,
-              bonusQty: 0,
-              discount1: 0,
-              discount2: 0,
-              receivedCost: p.cost,
-              newSalePrice: p.price,
-              expiry_date: "",
-            },
-          ];
+      if (ex)
+        return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
+      return [
+        ...prev,
+        {
+          ...p,
+          qty: 1,
+          bonusQty: 0,
+          discount1: 0,
+          discount2: 0,
+          receivedCost: p.cost,
+          newSalePrice: p.price,
+          expiry_date: "",
+        },
+      ];
     });
     setSearchText("");
     setSearchResults([]);
     setShowDropdown(false);
-    searchRef.current?.focus();
+    setTimeout(() => searchRef.current?.focus(), 50);
   };
 
   const handleSearchKeyDown = (e) => {
     if (e.key === "Enter") {
-      if (searchResults.length > 0) {
-        addItem(searchResults[0]);
-      } else if (searchText.trim()) {
+      e.preventDefault();
+      if (searchResults.length > 0) addItem(searchResults[0]);
+      else if (searchText.trim()) {
         const p = products.find(
           (x) =>
             x.barcode === searchText ||
@@ -3012,15 +3014,15 @@ function PurchaseModule({
         if (p) addItem(p);
         else showToast("الصنف غير موجود", "error");
       }
-      e.preventDefault();
     }
     if (e.key === "Escape") setShowDropdown(false);
   };
 
-  const calcCostAfterDiscount = (baseCost, disc1, disc2) => {
-    const afterDisc1 = baseCost * (1 - (disc1 || 0) / 100);
+  // ✅ الإصلاح: الخصم يُحسب على receivedCost وليس cost الأصلي
+  const calcCostAfterDiscount = (basePrice, disc1, disc2) => {
+    const afterDisc1 = basePrice * (1 - (disc1 || 0) / 100);
     const afterDisc2 = afterDisc1 * (1 - (disc2 || 0) / 100);
-    return afterDisc2;
+    return Math.round(afterDisc2 * 10000) / 10000;
   };
 
   const updateItem = (id, field, value) => {
@@ -3028,13 +3030,30 @@ function PurchaseModule({
       prev.map((i) => {
         if (i.id !== id) return i;
         const updated = { ...i, [field]: value };
-        if (["discount1", "discount2"].includes(field)) {
+
+        // ✅ لما يتغير الخصم، احسب التكلفة من receivedCost الحالية
+        if (field === "discount1") {
           updated.receivedCost = calcCostAfterDiscount(
-            i.cost,
-            field === "discount1" ? value : i.discount1,
-            field === "discount2" ? value : i.discount2
+            i.newSalePrice,
+            value,
+            i.discount2
+          );
+        } else if (field === "discount2") {
+          updated.receivedCost = calcCostAfterDiscount(
+            i.newSalePrice,
+            i.discount1,
+            value
           );
         }
+        // ✅ لما يتغير سعر البيع، أعد احتساب التكلفة تلقائياً في نفس الصف
+        else if (field === "newSalePrice") {
+          updated.receivedCost = calcCostAfterDiscount(
+            value,
+            i.discount1,
+            i.discount2
+          );
+        }
+
         return updated;
       })
     );
@@ -3059,6 +3078,11 @@ function PurchaseModule({
     if (nextCol >= cols.length) {
       nextCol = 0;
       nextRow = rowIndex + 1;
+      // ✅ لو وصل لآخر عمود في آخر صف، ابدأ صف جديد بالفوكس على البحث
+      if (nextRow >= items.length) {
+        searchRef.current?.focus();
+        return;
+      }
     }
     document.getElementById(`cell-${nextRow}-${cols[nextCol]}`)?.focus();
   };
@@ -3074,11 +3098,14 @@ function PurchaseModule({
     outline: "none",
   };
 
-  const subtotal = items.reduce((s, i) => s + i.receivedCost * i.qty, 0);
-  const taxAmt = items.reduce(
+  const calcSubtotal = items.reduce((s, i) => s + i.receivedCost * i.qty, 0);
+  const calcTax = items.reduce(
     (s, i) => (i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s),
     0
   );
+  // ✅ يسمح بتعديل الإجمالي والضريبة يدوياً
+  const subtotal = manualSubtotal !== "" ? +manualSubtotal : calcSubtotal;
+  const taxAmt = manualTax !== "" ? +manualTax : calcTax;
   const total = subtotal + taxAmt;
 
   const savePurchase = () => {
@@ -3109,13 +3136,13 @@ function PurchaseModule({
       total,
       status: "مستلمة",
     };
+
     setPurchases((p) => [...p, po]);
 
     setProducts((prev) =>
       prev.map((x) => {
         const ci = items.find((i) => i.id === x.id);
         if (!ci) return x;
-
         const newBatch = {
           qty: ci.qty + (ci.bonusQty || 0),
           cost: ci.receivedCost,
@@ -3123,13 +3150,11 @@ function PurchaseModule({
           expiry_date: ci.expiry_date || null,
           date: new Date().toISOString().split("T")[0],
         };
-
         const existingBatches = x.batches?.length
           ? x.batches
           : x.stock > 0
           ? [{ qty: x.stock, cost: x.cost, salePrice: x.price, date: "قديم" }]
           : [];
-
         return {
           ...x,
           stock: x.stock + ci.qty + (ci.bonusQty || 0),
@@ -3142,9 +3167,12 @@ function PurchaseModule({
 
     setItems([]);
     setSelSupplier("");
+    setManualSubtotal("");
+    setManualTax("");
     setShowNew(false);
     showToast("تم حفظ فاتورة الشراء ✓");
 
+    // ==================== رصد ====================
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = items.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
@@ -3189,7 +3217,7 @@ function PurchaseModule({
           "رقم الفاتورة",
           "التاريخ",
           "المورد",
-          "المجموع قبل الضريبة",
+          "قبل الضريبة",
           "الضريبة",
           "الإجمالي",
           "الحالة",
@@ -3214,6 +3242,8 @@ function PurchaseModule({
         onClose={() => {
           setShowNew(false);
           setItems([]);
+          setManualSubtotal("");
+          setManualTax("");
         }}
         title="فاتورة شراء جديدة"
         wide
@@ -3240,11 +3270,11 @@ function PurchaseModule({
           />
         </div>
 
-        {/* حقل البحث مع Dropdown */}
-        <div style={{ position: "relative", marginBottom: 10 }}>
+        {/* ✅ حقل البحث */}
+        <div style={{ position: "relative", marginBottom: 14 }}>
           <input
             ref={searchRef}
-            placeholder="🔍 ابحث بالاسم أو الباركود..."
+            placeholder="🔍 ابحث بالاسم أو الباركود أو امسح الباركود..."
             value={searchText}
             onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={handleSearchKeyDown}
@@ -3252,9 +3282,9 @@ function PurchaseModule({
             style={{
               width: "100%",
               background: "#080e1a",
-              border: "1px solid #1d2d4a",
+              border: "1px solid #2a5a9a",
               borderRadius: 8,
-              padding: "9px 14px",
+              padding: "10px 14px",
               color: "#dde8ff",
               fontSize: 14,
               outline: "none",
@@ -3306,28 +3336,21 @@ function PurchaseModule({
           )}
         </div>
 
-        <BarcodeScanner
-          onScan={(code) => {
-            const p = products.find((x) => x.barcode === code);
-            if (p) addItem(p);
-            else showToast("الصنف غير موجود", "error");
-          }}
-          placeholder="امسح باركود الصنف لإضافته..."
-        />
-
-        <div style={{ marginTop: 14, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div style={{ marginTop: 4, overflowX: "auto" }}>
+          <table
+            style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}
+          >
             <thead>
               <tr style={{ background: "#080e1a" }}>
                 {[
                   "الصنف",
                   "الكمية",
-                  "خ. أساسي %",
-                  "خ. إضافي %",
+                  "خ.أساسي%",
+                  "خ.إضافي%",
                   "تكلفة الوحدة",
                   "سعر البيع",
                   "بونص",
-                  "تاريخ الصلاحية",
+                  "الصلاحية",
                   "ضريبة",
                   "الإجمالي",
                   "",
@@ -3335,10 +3358,11 @@ function PurchaseModule({
                   <th
                     key={h}
                     style={{
-                      padding: "9px 12px",
+                      padding: "9px 8px",
                       textAlign: "right",
                       color: "#4a6a9a",
                       fontSize: 12,
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {h}
@@ -3349,19 +3373,36 @@ function PurchaseModule({
             <tbody>
               {items.map((item, rowIndex) => (
                 <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
-                  {/* اسم الصنف */}
                   <td
                     style={{
-                      padding: "8px 12px",
+                      padding: "6px 8px",
                       fontSize: 13,
                       color: "#c0d0f0",
-                      minWidth: 130,
+                      minWidth: 120,
                     }}
                   >
-                    {item.name}
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      {item.name}
+                      {/* ✅ أيقونة كارت الصنف */}
+                      <button
+                        onClick={() => setShowProductCard(item)}
+                        title="عرض بيانات الصنف"
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "#3a6aaa",
+                          cursor: "pointer",
+                          padding: 2,
+                          lineHeight: 1,
+                        }}
+                      >
+                        <IC n="eye" s={13} />
+                      </button>
+                    </div>
                   </td>
-                  {/* الكمية */}
-                  <td style={{ padding: "8px 4px" }}>
+                  <td style={{ padding: "4px" }}>
                     <input
                       id={`cell-${rowIndex}-qty`}
                       type="number"
@@ -3371,17 +3412,16 @@ function PurchaseModule({
                         updateItem(item.id, "qty", +e.target.value)
                       }
                       onKeyDown={(e) => handleCellKeyDown(e, rowIndex, "qty")}
-                      style={{ ...cellStyle, width: 60 }}
+                      style={{ ...cellStyle, width: 55 }}
                     />
                   </td>
-                  {/* خصم أساسي */}
-                  <td style={{ padding: "8px 4px" }}>
+                  <td style={{ padding: "4px" }}>
                     <input
                       id={`cell-${rowIndex}-discount1`}
                       type="number"
                       min="0"
                       max="100"
-                      step="0.1"
+                      step="0.01"
                       value={item.discount1}
                       onChange={(e) =>
                         updateItem(item.id, "discount1", +e.target.value)
@@ -3389,17 +3429,16 @@ function PurchaseModule({
                       onKeyDown={(e) =>
                         handleCellKeyDown(e, rowIndex, "discount1")
                       }
-                      style={{ ...cellStyle, width: 65 }}
+                      style={{ ...cellStyle, width: 60 }}
                     />
                   </td>
-                  {/* خصم إضافي */}
-                  <td style={{ padding: "8px 4px" }}>
+                  <td style={{ padding: "4px" }}>
                     <input
                       id={`cell-${rowIndex}-discount2`}
                       type="number"
                       min="0"
                       max="100"
-                      step="0.1"
+                      step="0.01"
                       value={item.discount2}
                       onChange={(e) =>
                         updateItem(item.id, "discount2", +e.target.value)
@@ -3407,16 +3446,15 @@ function PurchaseModule({
                       onKeyDown={(e) =>
                         handleCellKeyDown(e, rowIndex, "discount2")
                       }
-                      style={{ ...cellStyle, width: 65 }}
+                      style={{ ...cellStyle, width: 60 }}
                     />
                   </td>
-                  {/* تكلفة الوحدة */}
-                  <td style={{ padding: "8px 4px" }}>
+                  <td style={{ padding: "4px" }}>
                     <input
                       id={`cell-${rowIndex}-receivedCost`}
                       type="number"
                       min="0"
-                      step="0.01"
+                      step="0.0001"
                       value={+item.receivedCost.toFixed(4)}
                       onChange={(e) =>
                         updateItem(item.id, "receivedCost", +e.target.value)
@@ -3427,8 +3465,8 @@ function PurchaseModule({
                       style={{ ...cellStyle, width: 85 }}
                     />
                   </td>
-                  {/* سعر البيع */}
-                  <td style={{ padding: "8px 4px" }}>
+                  <td style={{ padding: "4px" }}>
+                    {/* ✅ لما يتغير سعر البيع تتحدث التكلفة تلقائياً */}
                     <input
                       id={`cell-${rowIndex}-newSalePrice`}
                       type="number"
@@ -3455,8 +3493,7 @@ function PurchaseModule({
                       }}
                     />
                   </td>
-                  {/* بونص */}
-                  <td style={{ padding: "8px 4px" }}>
+                  <td style={{ padding: "4px" }}>
                     <input
                       id={`cell-${rowIndex}-bonusQty`}
                       type="number"
@@ -3468,11 +3505,10 @@ function PurchaseModule({
                       onKeyDown={(e) =>
                         handleCellKeyDown(e, rowIndex, "bonusQty")
                       }
-                      style={{ ...cellStyle, width: 60 }}
+                      style={{ ...cellStyle, width: 55 }}
                     />
                   </td>
-                  {/* تاريخ الصلاحية */}
-                  <td style={{ padding: "8px 4px" }}>
+                  <td style={{ padding: "4px" }}>
                     <input
                       id={`cell-${rowIndex}-expiry_date`}
                       type="month"
@@ -3483,11 +3519,10 @@ function PurchaseModule({
                       onKeyDown={(e) =>
                         handleCellKeyDown(e, rowIndex, "expiry_date")
                       }
-                      style={{ ...cellStyle, width: 130 }}
+                      style={{ ...cellStyle, width: 125 }}
                     />
                   </td>
-                  {/* ضريبة */}
-                  <td style={{ padding: "8px 12px" }}>
+                  <td style={{ padding: "6px 8px" }}>
                     <Badge
                       color={item.taxable ? "#0a2a00" : "#1a1a2a"}
                       text={item.taxable ? "#44dd88" : "#4a6a8a"}
@@ -3495,12 +3530,12 @@ function PurchaseModule({
                       {item.taxable ? "15%" : "معفى"}
                     </Badge>
                   </td>
-                  {/* الإجمالي */}
                   <td
                     style={{
-                      padding: "8px 12px",
+                      padding: "6px 8px",
                       color: "#3a9aff",
                       fontWeight: 700,
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {(
@@ -3509,8 +3544,7 @@ function PurchaseModule({
                       (item.taxable ? 1 + TAX_RATE : 1)
                     ).toFixed(2)}
                   </td>
-                  {/* حذف */}
-                  <td style={{ padding: "8px 12px" }}>
+                  <td style={{ padding: "6px 8px" }}>
                     <button
                       onClick={() =>
                         setItems((p) => p.filter((i) => i.id !== item.id))
@@ -3531,6 +3565,7 @@ function PurchaseModule({
           </table>
         </div>
 
+        {/* ✅ الإجماليات مع إمكانية التعديل اليدوي */}
         {items.length > 0 && (
           <div
             style={{
@@ -3544,24 +3579,90 @@ function PurchaseModule({
               style={{
                 display: "flex",
                 justifyContent: "space-between",
+                alignItems: "center",
                 color: "#4a6a8a",
-                marginBottom: 5,
+                marginBottom: 8,
               }}
             >
               <span>المجموع قبل الضريبة</span>
-              <span>{subtotal.toFixed(2)} ر.س</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "#6a8aaa", fontSize: 11 }}>
+                  (محسوب: {calcSubtotal.toFixed(2)})
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder={calcSubtotal.toFixed(2)}
+                  value={manualSubtotal}
+                  onChange={(e) => setManualSubtotal(e.target.value)}
+                  style={{
+                    width: 110,
+                    background: "#0a1020",
+                    border: "1px solid #1d3a6a",
+                    borderRadius: 6,
+                    padding: "4px 8px",
+                    color: "#dde8ff",
+                    fontSize: 13,
+                    outline: "none",
+                    textAlign: "left",
+                  }}
+                />
+                <span style={{ color: "#4a6a8a" }}>ر.س</span>
+              </div>
             </div>
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
+                alignItems: "center",
                 color: "#88dd44",
-                marginBottom: 5,
+                marginBottom: 8,
               }}
             >
               <span>ضريبة القيمة المضافة 15%</span>
-              <span>{taxAmt.toFixed(2)} ر.س</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "#6a8aaa", fontSize: 11 }}>
+                  (محسوب: {calcTax.toFixed(2)})
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder={calcTax.toFixed(2)}
+                  value={manualTax}
+                  onChange={(e) => setManualTax(e.target.value)}
+                  style={{
+                    width: 110,
+                    background: "#0a1020",
+                    border: "1px solid #1d3a6a",
+                    borderRadius: 6,
+                    padding: "4px 8px",
+                    color: "#dde8ff",
+                    fontSize: 13,
+                    outline: "none",
+                    textAlign: "left",
+                  }}
+                />
+                <span style={{ color: "#88dd44" }}>ر.س</span>
+              </div>
             </div>
+            {(manualSubtotal !== "" || manualTax !== "") && (
+              <button
+                onClick={() => {
+                  setManualSubtotal("");
+                  setManualTax("");
+                }}
+                style={{
+                  fontSize: 11,
+                  color: "#4a6a8a",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  marginBottom: 8,
+                }}
+              >
+                ↺ إعادة الحساب التلقائي
+              </button>
+            )}
             <div
               style={{
                 display: "flex",
@@ -3592,6 +3693,8 @@ function PurchaseModule({
             onClick={() => {
               setShowNew(false);
               setItems([]);
+              setManualSubtotal("");
+              setManualTax("");
             }}
           >
             إلغاء
@@ -3601,6 +3704,56 @@ function PurchaseModule({
           </Btn>
         </div>
       </Modal>
+
+      {/* ✅ كارت الصنف */}
+      {showProductCard && (
+        <Modal
+          open
+          title={`بيانات الصنف: ${showProductCard.name}`}
+          onClose={() => setShowProductCard(null)}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[
+              ["الرمز", showProductCard.id],
+              ["الباركود", showProductCard.barcode],
+              ["الفئة", showProductCard.category],
+              ["المادة الفعالة", showProductCard.activeIngredient],
+              ["التركيز", showProductCard.concentration],
+              ["المخزون الحالي", showProductCard.stock],
+              ["سعر البيع الحالي", showProductCard.price + " ر.س"],
+              ["التكلفة الحالية", showProductCard.cost + " ر.س"],
+              ["الحد الأدنى", showProductCard.minStock],
+              ["خاضع للضريبة", showProductCard.taxable ? "نعم 15%" : "معفى"],
+            ].map(
+              ([label, val]) =>
+                val && (
+                  <div
+                    key={label}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "8px 0",
+                      borderBottom: "1px solid #1a2a3a",
+                    }}
+                  >
+                    <span style={{ color: "#4a6a8a", fontSize: 13 }}>
+                      {label}
+                    </span>
+                    <span
+                      style={{
+                        color: "#dde8ff",
+                        fontSize: 13,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {val}
+                    </span>
+                  </div>
+                )
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
