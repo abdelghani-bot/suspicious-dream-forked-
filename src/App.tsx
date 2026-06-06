@@ -6031,31 +6031,13 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
           />
 
           {/* تقسيم الوحدة */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <label style={{ color: "#5a7aaa", fontSize: 12, fontWeight: 600 }}>
-              تقسيم الوحدة
-            </label>
-            <select
-              value={form.unitDivision}
-              onChange={(e) => F("unitDivision", +e.target.value)}
-              style={{
-                background: "#080e1a",
-                border: "1px solid #1d2d4a",
-                borderRadius: 8,
-                padding: "9px 12px",
-                color: "#dde8ff",
-                fontSize: 14,
-                outline: "none",
-              }}
-            >
-              <option value={1}>بدون تقسيم</option>
-              {[2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 24, 30].map((n) => (
-                <option key={n} value={n}>
-                  ÷{n} ({form.unit || "وحدة"} → {n} أجزاء)
-                </option>
-              ))}
-            </select>
-          </div>
+          <Input
+            label="تقسيم الوحدة (عدد الأجزاء)"
+            value={form.unitDivision === 1 ? "" : String(form.unitDivision)}
+            onChange={(v) => F("unitDivision", v ? +v : 1)}
+            type="number"
+            placeholder="مثال: 50 (اتركه فارغاً = بدون تقسيم)"
+          />
 
           {/* السعر والتكلفة */}
           <Input
