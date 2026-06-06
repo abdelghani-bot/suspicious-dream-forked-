@@ -2355,14 +2355,14 @@ function POS({
                           style={{
                             fontSize: 13,
                             fontWeight: 700,
-                            color: item.isMissed ? "#ffaa44" : "#dde8ff",
-                            textDecoration: item.isMissed
+                            color: p.isMissed ? "#ffaa44" : "#dde8ff",
+                            textDecoration: p.isMissed
                               ? "line-through"
                               : "none",
                           }}
                         >
-                          {item.nameAr || item.name}
-                          {item.isPartial && (
+                          {p.nameAr || p.name}
+                          {p.isPartial && (
                             <span
                               style={{
                                 fontSize: 10,
@@ -2370,10 +2370,10 @@ function POS({
                                 marginRight: 6,
                               }}
                             >
-                              ({item.partialLabel})
+                              ({p.partialLabel})
                             </span>
                           )}
-                          {item.isMissed && (
+                          {p.isMissed && (
                             <span
                               style={{
                                 fontSize: 10,
