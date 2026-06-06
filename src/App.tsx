@@ -1915,6 +1915,9 @@ const emptyInvoice = () => ({
   prescriptionImg: null,
   search: "",
   success: false,
+  showJoker: false,
+  jokerName: "",
+  jokerPrice: "",
 });
 
 function POS({
@@ -2317,6 +2320,136 @@ function POS({
                 boxSizing: "border-box",
               }}
             />
+            <button
+              onClick={() => setInv((p) => ({ ...p, showJoker: true }))}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: "#2a1a00",
+                border: "1px solid #7a4a00",
+                color: "#ffaa44",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              + جوكر
+            </button>
+            {inv.showJoker && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  right: 0,
+                  left: 0,
+                  zIndex: 200,
+                  background: "#0d1829",
+                  border: "1px solid #7a4a00",
+                  borderRadius: 10,
+                  padding: 14,
+                  marginTop: 4,
+                }}
+              >
+                <div
+                  style={{
+                    color: "#ffaa44",
+                    fontWeight: 700,
+                    marginBottom: 10,
+                  }}
+                >
+                  ⚠ صنف جوكر (فرصة ضائعة)
+                </div>
+                <input
+                  placeholder="اسم الصنف..."
+                  value={inv.jokerName}
+                  onChange={(e) =>
+                    setInv((p) => ({ ...p, jokerName: e.target.value }))
+                  }
+                  style={{
+                    width: "100%",
+                    background: "#080e1a",
+                    border: "1px solid #1d2d4a",
+                    borderRadius: 7,
+                    padding: "7px 10px",
+                    color: "#dde8ff",
+                    fontSize: 13,
+                    outline: "none",
+                    boxSizing: "border-box",
+                    marginBottom: 8,
+                  }}
+                />
+                <input
+                  type="number"
+                  placeholder="السعر..."
+                  value={inv.jokerPrice}
+                  onChange={(e) =>
+                    setInv((p) => ({ ...p, jokerPrice: e.target.value }))
+                  }
+                  style={{
+                    width: "100%",
+                    background: "#080e1a",
+                    border: "1px solid #1d2d4a",
+                    borderRadius: 7,
+                    padding: "7px 10px",
+                    color: "#dde8ff",
+                    fontSize: 13,
+                    outline: "none",
+                    boxSizing: "border-box",
+                    marginBottom: 10,
+                  }}
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      if (!inv.jokerName || !inv.jokerPrice) return;
+                      addToCart({
+                        id: "JOKER-" + Date.now(),
+                        name: inv.jokerName,
+                        nameAr: inv.jokerName,
+                        price: +inv.jokerPrice,
+                        stock: 99,
+                        taxable: false,
+                        isMissed: true,
+                        isJoker: true,
+                        qty: 1,
+                        category: "جوكر",
+                      });
+                      setInv((p) => ({
+                        ...p,
+                        showJoker: false,
+                        jokerName: "",
+                        jokerPrice: "",
+                      }));
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: "7px 0",
+                      background: "#2a1a00",
+                      border: "1px solid #7a4a00",
+                      borderRadius: 7,
+                      color: "#ffaa44",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    إضافة
+                  </button>
+                  <button
+                    onClick={() => setInv((p) => ({ ...p, showJoker: false }))}
+                    style={{
+                      padding: "7px 14px",
+                      background: "transparent",
+                      border: "1px solid #1d2d4a",
+                      borderRadius: 7,
+                      color: "#4a6a8a",
+                      cursor: "pointer",
+                    }}
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            )}
             {inv.search && (
               <div
                 style={{
