@@ -4705,7 +4705,17 @@ function PurchaseModule({
                 };
                 const { error } = await supabase
                   .from("purchases")
-                  .update(updated)
+                  .update({
+                    supplier: editSupplier,
+                    supplier_name:
+                      sup?.name ||
+                      showDetail.supplier_name ||
+                      showDetail.supplierName,
+                    items: updated.items,
+                    subtotal: editSubtotal,
+                    tax_amount: editTaxAmt,
+                    total: editSubtotal + editTaxAmt,
+                  })
                   .eq("id", showDetail.id);
                 if (error) {
                   showToast("فشل التعديل: " + error.message, "error");
