@@ -7186,7 +7186,9 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
       }
       setSuppliers((p) => p.map((x) => (x.id === editing ? form : x)));
     } else {
-      const { error } = await supabase.from("suppliers").insert(form);
+      console.log("inserting supplier:", form);
+const { data, error } = await supabase.from("suppliers").insert(form).select();
+console.log("result:", data, error);
       if (error) {
         showToast("فشل الإضافة: " + error.message, "error");
         return;
