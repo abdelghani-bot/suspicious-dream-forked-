@@ -7161,7 +7161,7 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
     setEditing(null);
     setForm({
       ...blank,
-      id: "S" + String(suppliers.length + 1).padStart(3, "0"),
+      id: "S" + Date.now(),
     });
     setShowForm(true);
   };
@@ -7205,11 +7205,13 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
           contact: form.contact,
         })
         .select();
+
       if (error) {
         showToast("فشل الإضافة: " + error.message, "error");
         return;
       }
-      setSuppliers((p) => [...p, form]);
+
+      setSuppliers((p) => [...p, data[0]]);
     }
     setShowForm(false);
     showToast(editing ? "تم تعديل المورد" : "تمت إضافة المورد ✓");
