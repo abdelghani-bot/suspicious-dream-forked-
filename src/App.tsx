@@ -7178,7 +7178,14 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
     if (editing) {
       const { error } = await supabase
         .from("suppliers")
-        .update(form)
+        .update({
+          name: form.name,
+          tax_id: form.taxId,
+          phone: form.phone,
+          email: form.email,
+          address: form.address,
+          contact: form.contact,
+        })
         .eq("id", editing);
       if (error) {
         showToast("فشل التعديل: " + error.message, "error");
@@ -7186,9 +7193,18 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
       }
       setSuppliers((p) => p.map((x) => (x.id === editing ? form : x)));
     } else {
-      console.log("inserting supplier:", form);
-const { data, error } = await supabase.from("suppliers").insert(form).select();
-console.log("result:", data, error);
+      const { data, error } = await supabase
+        .from("suppliers")
+        .insert({
+          id: form.id,
+          name: form.name,
+          tax_id: form.taxId,
+          phone: form.phone,
+          email: form.email,
+          address: form.address,
+          contact: form.contact,
+        })
+        .select();
       if (error) {
         showToast("فشل الإضافة: " + error.message, "error");
         return;
