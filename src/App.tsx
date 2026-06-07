@@ -4215,180 +4215,515 @@ function PurchaseModule({
           </div>
         </Modal>
       )}
-    {/* Modal تفاصيل وتعديل الفاتورة */}
-{showDetail && (
-  <Modal
-    open
-    title={`تفاصيل الفاتورة: ${showDetail.id}`}
-    onClose={() => setShowDetail(null)}
-    wide
-  >
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-      <Select
-        label="المورد"
-        value={editSupplier}
-        onChange={setEditSupplier}
-        options={[
-          { v: "", l: "اختر المورد" },
-          ...suppliers.map((s) => ({ v: s.id, l: `${s.name} — ${s.taxId}` })),
-        ]}
-      />
-      <div style={{ color: "#4a6a8a", fontSize: 12, alignSelf: "flex-end", paddingBottom: 8 }}>
-        التاريخ: {showDetail.date}
-      </div>
-    </div>
-
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
-        <thead>
-          <tr style={{ background: "#080e1a" }}>
-            {["الصنف", "الكمية", "خ.أساسي%", "خ.إضافي%", "تكلفة الوحدة", "سعر البيع", "بونص", "الصلاحية", "الإجمالي", ""].map((h) => (
-              <th key={h} style={{ padding: "9px 8px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {editItems.map((item, rowIndex) => (
-            <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
-              <td style={{ padding: "6px 8px", fontSize: 13, color: "#c0d0f0", minWidth: 120 }}>
-                {item.name}
-              </td>
-              <td style={{ padding: "4px" }}>
-                <input type="number" min="1" value={item.qty}
-                  onChange={(e) => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, qty: +e.target.value } : i))}
-                  style={{ width: 55, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-                />
-              </td>
-              <td style={{ padding: "4px" }}>
-                <input type="number" min="0" max="100" value={item.discount1}
-                  onChange={(e) => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, discount1: +e.target.value, receivedCost: calcCostAfterDiscount(i.newSalePrice, +e.target.value, i.discount2) } : i))}
-                  style={{ width: 60, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-                />
-              </td>
-              <td style={{ padding: "4px" }}>
-                <input type="number" min="0" max="100" value={item.discount2}
-                  onChange={(e) => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, discount2: +e.target.value, receivedCost: calcCostAfterDiscount(i.newSalePrice, i.discount1, +e.target.value) } : i))}
-                  style={{ width: 60, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-                />
-              </td>
-              <td style={{ padding: "4px" }}>
-                <input type="number" min="0" step="0.0001" value={+item.receivedCost.toFixed(4)}
-                  onChange={(e) => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, receivedCost: +e.target.value } : i))}
-                  style={{ width: 85, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-                />
-              </td>
-              <td style={{ padding: "4px" }}>
-                <input type="number" min="0" step="0.01" value={item.newSalePrice}
-                  onChange={(e) => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, newSalePrice: +e.target.value, receivedCost: calcCostAfterDiscount(+e.target.value, i.discount1, i.discount2) } : i))}
-                  style={{ width: 85, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-                />
-              </td>
-              <td style={{ padding: "4px" }}>
-                <input type="number" min="0" value={item.bonusQty}
-                  onChange={(e) => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, bonusQty: +e.target.value } : i))}
-                  style={{ width: 55, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-                />
-              </td>
-              <td style={{ padding: "4px" }}>
-                <input type="month" value={item.expiry_date || ""}
-                  onChange={(e) => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, expiry_date: e.target.value } : i))}
-                  style={{ width: 125, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-                />
-              </td>
-              <td style={{ padding: "6px 8px", color: "#3a9aff", fontWeight: 700 }}>
-                {(item.receivedCost * item.qty * (item.taxable ? 1 + TAX_RATE : 1)).toFixed(2)}
-              </td>
-              <td style={{ padding: "6px 8px" }}>
-                <button
-                  onClick={() => setEditItems(prev => prev.filter(i => i.id !== item.id))}
-                  style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}
-                >
-                  <IC n="trash" s={14} />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-
-    {/* الإجماليات */}
-    <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, marginTop: 14 }}>
-      {(() => {
-        const editCalcSubtotal = editItems.reduce((s, i) => s + i.receivedCost * i.qty, 0);
-        const editCalcTax = editItems.reduce((s, i) => i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s, 0);
-        const editSubtotal = editManualSubtotal !== "" ? +editManualSubtotal : editCalcSubtotal;
-        const editTaxAmt = editManualTax !== "" ? +editManualTax : editCalcTax;
-        const editTotal = editSubtotal + editTaxAmt;
-        return (
-          <>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", marginBottom: 8 }}>
-              <span>قبل الضريبة</span>
-              <input type="number" step="0.01" placeholder={editCalcSubtotal.toFixed(2)}
-                value={editManualSubtotal}
-                onChange={(e) => setEditManualSubtotal(e.target.value)}
-                style={{ width: 110, background: "#0a1020", border: "1px solid #1d3a6a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-              />
+      {/* Modal تفاصيل وتعديل الفاتورة */}
+      {showDetail && (
+        <Modal
+          open
+          title={`تفاصيل الفاتورة: ${showDetail.id}`}
+          onClose={() => setShowDetail(null)}
+          wide
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <Select
+              label="المورد"
+              value={editSupplier}
+              onChange={setEditSupplier}
+              options={[
+                { v: "", l: "اختر المورد" },
+                ...suppliers.map((s) => ({
+                  v: s.id,
+                  l: `${s.name} — ${s.taxId}`,
+                })),
+              ]}
+            />
+            <div
+              style={{
+                color: "#4a6a8a",
+                fontSize: 12,
+                alignSelf: "flex-end",
+                paddingBottom: 8,
+              }}
+            >
+              التاريخ: {showDetail.date}
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", marginBottom: 8 }}>
-              <span>ضريبة 15%</span>
-              <input type="number" step="0.01" placeholder={editCalcTax.toFixed(2)}
-                value={editManualTax}
-                onChange={(e) => setEditManualTax(e.target.value)}
-                style={{ width: 110, background: "#0a1020", border: "1px solid #1d3a6a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
-              />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
-              <span>الإجمالي</span>
-              <span>{editTotal.toFixed(2)} ر.س</span>
-            </div>
-          </>
-        );
-      })()}
-    </div>
+          </div>
 
-    <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-      <Btn variant="ghost" onClick={() => setShowDetail(null)}>إلغاء</Btn>
-      <Btn icon="check" onClick={async () => {
-        const editCalcSubtotal = editItems.reduce((s, i) => s + i.receivedCost * i.qty, 0);
-        const editCalcTax = editItems.reduce((s, i) => i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s, 0);
-        const editSubtotal = editManualSubtotal !== "" ? +editManualSubtotal : editCalcSubtotal;
-        const editTaxAmt = editManualTax !== "" ? +editManualTax : editCalcTax;
-        const sup = suppliers.find((s) => s.id === editSupplier);
-        const updated = {
-          ...showDetail,
-          supplier: editSupplier,
-          supplierName: sup?.name || showDetail.supplierName,
-          items: editItems.map(i => ({
-            id: i.id, name: i.name, qty: i.qty,
-            bonusQty: i.bonusQty || 0,
-            cost: i.receivedCost,
-            discount1: i.discount1,
-            discount2: i.discount2,
-            salePrice: i.newSalePrice,
-            taxable: i.taxable,
-            expiry_date: i.expiry_date || null,
-          })),
-          subtotal: editSubtotal,
-          taxAmount: editTaxAmt,
-          total: editSubtotal + editTaxAmt,
-        };
-        const { error } = await supabase.from("purchases").update(updated).eq("id", showDetail.id);
-        if (error) {
-          showToast("فشل التعديل: " + error.message, "error");
-          return;
-        }
-        setPurchases(prev => prev.map(p => p.id === showDetail.id ? updated : p));
-        setShowDetail(null);
-        showToast("تم التعديل ✓");
-      }}>
-        حفظ التعديل
-      </Btn>
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                minWidth: 900,
+              }}
+            >
+              <thead>
+                <tr style={{ background: "#080e1a" }}>
+                  {[
+                    "الصنف",
+                    "الكمية",
+                    "خ.أساسي%",
+                    "خ.إضافي%",
+                    "تكلفة الوحدة",
+                    "سعر البيع",
+                    "بونص",
+                    "الصلاحية",
+                    "الإجمالي",
+                    "",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "9px 8px",
+                        textAlign: "right",
+                        color: "#4a6a9a",
+                        fontSize: 12,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {editItems.map((item, rowIndex) => (
+                  <tr
+                    key={item.id}
+                    style={{ borderBottom: "1px solid #0a101a" }}
+                  >
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        fontSize: 13,
+                        color: "#c0d0f0",
+                        minWidth: 120,
+                      }}
+                    >
+                      {item.name}
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      <input
+                        type="number"
+                        min="1"
+                        value={item.qty}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id
+                                ? { ...i, qty: +e.target.value }
+                                : i
+                            )
+                          )
+                        }
+                        style={{
+                          width: 55,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={item.discount1}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id
+                                ? {
+                                    ...i,
+                                    discount1: +e.target.value,
+                                    receivedCost: calcCostAfterDiscount(
+                                      i.newSalePrice,
+                                      +e.target.value,
+                                      i.discount2
+                                    ),
+                                  }
+                                : i
+                            )
+                          )
+                        }
+                        style={{
+                          width: 60,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={item.discount2}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id
+                                ? {
+                                    ...i,
+                                    discount2: +e.target.value,
+                                    receivedCost: calcCostAfterDiscount(
+                                      i.newSalePrice,
+                                      i.discount1,
+                                      +e.target.value
+                                    ),
+                                  }
+                                : i
+                            )
+                          )
+                        }
+                        style={{
+                          width: 60,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        value={+item.receivedCost.toFixed(4)}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id
+                                ? { ...i, receivedCost: +e.target.value }
+                                : i
+                            )
+                          )
+                        }
+                        style={{
+                          width: 85,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.newSalePrice}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id
+                                ? {
+                                    ...i,
+                                    newSalePrice: +e.target.value,
+                                    receivedCost: calcCostAfterDiscount(
+                                      +e.target.value,
+                                      i.discount1,
+                                      i.discount2
+                                    ),
+                                  }
+                                : i
+                            )
+                          )
+                        }
+                        style={{
+                          width: 85,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      <input
+                        type="number"
+                        min="0"
+                        value={item.bonusQty}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id
+                                ? { ...i, bonusQty: +e.target.value }
+                                : i
+                            )
+                          )
+                        }
+                        style={{
+                          width: 55,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      <input
+                        type="month"
+                        value={item.expiry_date || ""}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id
+                                ? { ...i, expiry_date: e.target.value }
+                                : i
+                            )
+                          )
+                        }
+                        style={{
+                          width: 125,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        color: "#3a9aff",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {(
+                        item.receivedCost *
+                        item.qty *
+                        (item.taxable ? 1 + TAX_RATE : 1)
+                      ).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "6px 8px" }}>
+                      <button
+                        onClick={() =>
+                          setEditItems((prev) =>
+                            prev.filter((i) => i.id !== item.id)
+                          )
+                        }
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "#5a2a2a",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <IC n="trash" s={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* الإجماليات */}
+          <div
+            style={{
+              background: "#080e1a",
+              borderRadius: 10,
+              padding: 14,
+              marginTop: 14,
+            }}
+          >
+            {(() => {
+              const editCalcSubtotal = editItems.reduce(
+                (s, i) => s + i.receivedCost * i.qty,
+                0
+              );
+              const editCalcTax = editItems.reduce(
+                (s, i) =>
+                  i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s,
+                0
+              );
+              const editSubtotal =
+                editManualSubtotal !== ""
+                  ? +editManualSubtotal
+                  : editCalcSubtotal;
+              const editTaxAmt =
+                editManualTax !== "" ? +editManualTax : editCalcTax;
+              const editTotal = editSubtotal + editTaxAmt;
+              return (
+                <>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      color: "#4a6a8a",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <span>قبل الضريبة</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={editCalcSubtotal.toFixed(2)}
+                      value={editManualSubtotal}
+                      onChange={(e) => setEditManualSubtotal(e.target.value)}
+                      style={{
+                        width: 110,
+                        background: "#0a1020",
+                        border: "1px solid #1d3a6a",
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        color: "#dde8ff",
+                        fontSize: 13,
+                        outline: "none",
+                      }}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      color: "#88dd44",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <span>ضريبة 15%</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={editCalcTax.toFixed(2)}
+                      value={editManualTax}
+                      onChange={(e) => setEditManualTax(e.target.value)}
+                      style={{
+                        width: 110,
+                        background: "#0a1020",
+                        border: "1px solid #1d3a6a",
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        color: "#dde8ff",
+                        fontSize: 13,
+                        outline: "none",
+                      }}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      color: "#dde8ff",
+                      fontWeight: 800,
+                      fontSize: 16,
+                      borderTop: "1px solid #1d2d4a",
+                      paddingTop: 8,
+                    }}
+                  >
+                    <span>الإجمالي</span>
+                    <span>{editTotal.toFixed(2)} ر.س</span>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginTop: 16,
+              justifyContent: "flex-end",
+            }}
+          >
+            <Btn variant="ghost" onClick={() => setShowDetail(null)}>
+              إلغاء
+            </Btn>
+            <Btn
+              icon="check"
+              onClick={async () => {
+                const editCalcSubtotal = editItems.reduce(
+                  (s, i) => s + i.receivedCost * i.qty,
+                  0
+                );
+                const editCalcTax = editItems.reduce(
+                  (s, i) =>
+                    i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s,
+                  0
+                );
+                const editSubtotal =
+                  editManualSubtotal !== ""
+                    ? +editManualSubtotal
+                    : editCalcSubtotal;
+                const editTaxAmt =
+                  editManualTax !== "" ? +editManualTax : editCalcTax;
+                const sup = suppliers.find((s) => s.id === editSupplier);
+                const updated = {
+                  ...showDetail,
+                  supplier: editSupplier,
+                  supplier_name: sup?.name || showDetail.supplier_name,
+                  items: editItems.map((i) => ({
+                    id: i.id,
+                    name: i.name,
+                    qty: i.qty,
+                    bonusQty: i.bonusQty || 0,
+                    cost: i.receivedCost,
+                    discount1: i.discount1,
+                    discount2: i.discount2,
+                    salePrice: i.newSalePrice,
+                    taxable: i.taxable,
+                    expiry_date: i.expiry_date || null,
+                  })),
+                  subtotal: editSubtotal,
+                  taxAmount: editTaxAmt,
+                  total: editSubtotal + editTaxAmt,
+                };
+                const { error } = await supabase
+                  .from("purchases")
+                  .update(updated)
+                  .eq("id", showDetail.id);
+                if (error) {
+                  showToast("فشل التعديل: " + error.message, "error");
+                  return;
+                }
+                setPurchases((prev) =>
+                  prev.map((p) => (p.id === showDetail.id ? updated : p))
+                );
+                setShowDetail(null);
+                showToast("تم التعديل ✓");
+              }}
+            >
+              حفظ التعديل
+            </Btn>
+          </div>
+        </Modal>
+      )}
     </div>
-  </Modal>
-)}</div>
   );
 }
 function ReturnsModule({
