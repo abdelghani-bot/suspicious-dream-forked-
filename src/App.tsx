@@ -3282,6 +3282,90 @@ function PrintReceipt({ invoice, onClose }) {
     </Modal>
   );
 }
+// ==================== Pharmacy Settings ====================
+const getPharmacySettings = () => {
+  try {
+    return JSON.parse(localStorage.getItem("pharmacy_settings") || "{}");
+  } catch {
+    return {};
+  }
+};
+
+function PharmacySettings({ showToast }) {
+  const [settings, setSettings] = useState(() => getPharmacySettings());
+
+  const fields = [
+    { key: "nameAr", label: "اسم الصيدلية (عربي)" },
+    { key: "nameEn", label: "Pharmacy Name (English)" },
+    { key: "phone", label: "رقم الهاتف" },
+    { key: "address", label: "العنوان" },
+    { key: "vatNumber", label: "الرقم الضريبي" },
+    { key: "licenseNumber", label: "رقم الترخيص" },
+  ];
+
+  const save = () => {
+    localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
+    showToast("تم حفظ بيانات الصيدلية ✓");
+  };
+
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
+        بيانات الصيدلية
+      </h2>
+      <div
+        style={{
+          background: "#0f1623",
+          border: "1px solid #1d2d4a",
+          borderRadius: 16,
+          padding: 24,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 16,
+        }}
+      >
+        {fields.map(({ key, label }) => (
+          <div key={key}>
+            <label
+              style={{
+                color: "#4a6a8a",
+                fontSize: 12,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              {label}
+            </label>
+            <input
+              value={settings[key] || ""}
+              onChange={(e) =>
+                setSettings((p) => ({ ...p, [key]: e.target.value }))
+              }
+              style={{
+                width: "100%",
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                padding: "8px 12px",
+                color: "#dde8ff",
+                fontSize: 13,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div
+        style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}
+      >
+        <Btn icon="check" onClick={save}>
+          حفظ البيانات
+        </Btn>
+      </div>
+    </div>
+  );
+}
 function PurchaseModule({
   products,
   setProducts,
