@@ -1162,6 +1162,15 @@ export default function PharmacyPro() {
   const [customers, setCustomers] = useStorage("ph_customers", INIT_CUSTOMERS);
   const [sales, setSales] = useStorage("ph_sales", INIT_SALES);
   const [purchases, setPurchases] = useStorage("ph_purchases", INIT_PURCHASES);
+  useEffect(() => {
+    supabase
+      .from("purchases")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (data?.length) setPurchases(data);
+      });
+  }, []);
   const [returnsData, setReturnsData] = useStorage("ph_returns", []);
   const [inventoryLogs, setInventoryLogs] = useStorage(
     "ph_inventory",
@@ -3444,7 +3453,7 @@ function PurchaseModule({
   const taxAmt = manualTax !== "" ? +manualTax : calcTax;
   const total = subtotal + taxAmt;
 
-  const savePurchase = () => {
+  const savePurchase = async () => {
     if (!selSupplier || items.length === 0) {
       showToast("يرجى اختيار المورد وإضافة أصناف", "error");
       return;
@@ -3474,7 +3483,10 @@ function PurchaseModule({
     };
 
     setPurchases((p) => [...p, po]);
-
+    const { error } = await supabase.from("purchases").insert(po);
+    if (error) {
+      showToast("فشل الحفظ في السيرفر: " + error.message, "error");
+    }
     setProducts((prev) =>
       prev.map((x) => {
         const ci = items.find((i) => i.id === x.id);
