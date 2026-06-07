@@ -1235,6 +1235,7 @@ export default function PharmacyPro() {
     { id: "reports", label: "التقارير", icon: "reports" },
     { id: "tax_report", label: "تقرير ضريبي", icon: "tax" },
     { id: "shift", label: "الشفتات", icon: "shift" },
+    { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
   ];
 
   return (
@@ -1424,6 +1425,9 @@ export default function PharmacyPro() {
       </nav>
 
       {/* MAIN CONTENT */}
+      {tab === "pharmacy_settings" && (
+        <PharmacySettings showToast={showToast} />
+      )}
       <main
         style={{ flex: 1, overflow: "auto", padding: 24, minHeight: "100vh" }}
       >
