@@ -3388,7 +3388,11 @@ function PurchaseModule({
   const [manualTax, setManualTax] = useState("");
   const [showProductCard, setShowProductCard] = useState(null);
   const searchRef = useRef(null);
-
+  const [showDetail, setShowDetail] = useState(null); // الفاتورة المفتوحة
+  const [editItems, setEditItems] = useState([]);
+  const [editSupplier, setEditSupplier] = useState("");
+  const [editManualSubtotal, setEditManualSubtotal] = useState("");
+  const [editManualTax, setEditManualTax] = useState("");
   const handleSearchChange = (val) => {
     setSearchText(val);
     if (!val.trim()) {
@@ -3659,7 +3663,28 @@ function PurchaseModule({
           "الحالة",
         ]}
         rows={purchases.map((p) => [
-          <span style={{ color: "#6aaeff", fontWeight: 700 }}>{p.id}</span>,
+          <span
+            style={{ color: "#6aaeff", fontWeight: 700, cursor: "pointer" }}
+            onClick={() => {
+              setShowDetail(p);
+              setEditItems(
+                p.items.map((i) => ({
+                  ...i,
+                  receivedCost: i.cost,
+                  newSalePrice: i.salePrice,
+                  discount1: i.discount1 || 0,
+                  discount2: i.discount2 || 0,
+                  bonusQty: i.bonusQty || 0,
+                  expiry_date: i.expiry_date || "",
+                }))
+              );
+              setEditSupplier(p.supplier);
+              setEditManualSubtotal("");
+              setEditManualTax("");
+            }}
+          >
+            {p.id}
+          </span>,
           p.date,
           p.supplierName,
           p.subtotal.toFixed(2) + " ر.س",
