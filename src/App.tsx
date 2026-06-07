@@ -7170,14 +7170,29 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
     setForm(s);
     setShowForm(true);
   };
-  const save = () => {
+  const save = async () => {
     if (!form.name) {
       showToast("يرجى إدخال اسم المورد", "error");
       return;
     }
-    if (editing)
+    if (editing) {
+      const { error } = await supabase
+        .from("suppliers")
+        .update(form)
+        .eq("id", editing);
+      if (error) {
+        showToast("فشل التعديل: " + error.message, "error");
+        return;
+      }
       setSuppliers((p) => p.map((x) => (x.id === editing ? form : x)));
-    else setSuppliers((p) => [...p, form]);
+    } else {
+      const { error } = await supabase.from("suppliers").insert(form);
+      if (error) {
+        showToast("فشل الإضافة: " + error.message, "error");
+        return;
+      }
+      setSuppliers((p) => [...p, form]);
+    }
     setShowForm(false);
     showToast(editing ? "تم تعديل المورد" : "تمت إضافة المورد ✓");
   };
