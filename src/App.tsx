@@ -5997,8 +5997,24 @@ function ExpiryReport({ products, onRemoveExpired }) {
   const [expandedMonth, setExpandedMonth] = useState(null);
   const [showExpiredDetail, setShowExpiredDetail] = useState(false);
 
+  // ===== flatten الأصناف مع batches =====
+  const allItems = products.flatMap((p) => {
+    if (p.batches?.length) {
+      return p.batches
+        .filter((b) => b.expiry_date)
+        .map((b) => ({
+          ...p,
+          expiry: b.expiry_date,
+          stock: b.qty,
+          cost: b.cost,
+          price: b.salePrice,
+        }));
+    }
+    return p.expiry ? [p] : [];
+  });
+
   // ===== الأصناف المنتهية =====
-  const expired = products.filter(
+  const expired = allItems.filter(
     (p) => p.expiry && new Date(p.expiry) < today
   );
 
@@ -6017,7 +6033,7 @@ function ExpiryReport({ products, onRemoveExpired }) {
   });
 
   const getMonthItems = (key) =>
-    products.filter((p) => {
+    allItems.filter((p) => {
       if (!p.expiry) return false;
       if (new Date(p.expiry) < today) return false;
       return p.expiry.startsWith(key);
