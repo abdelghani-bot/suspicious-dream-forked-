@@ -3563,7 +3563,7 @@ function PurchaseModule({
     }
     const sup = suppliers.find((s) => s.id === selSupplier);
     const po = {
-      id: "PO-" + String(purchases.length + 1).padStart(4, "0"),
+      id: "PO-" + Date.now(),
       date: new Date().toISOString().split("T")[0],
       supplier: selSupplier,
       supplierName: sup.name,
