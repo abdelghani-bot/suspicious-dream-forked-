@@ -3600,6 +3600,19 @@ function PurchaseModule({
     if (error) {
       showToast("فشل الحفظ في السيرفر: " + error.message, "error");
     }
+    for (const ci of items) {
+      const product = products.find((x) => x.id === ci.id);
+      if (!product) continue;
+      const newStock = product.stock + ci.qty + (ci.bonusQty || 0);
+      await supabase
+        .from("products")
+        .update({
+          stock: newStock,
+          cost: ci.receivedCost,
+          price: ci.newSalePrice,
+        })
+        .eq("id", ci.id);
+    }
     setProducts((prev) =>
       prev.map((x) => {
         const ci = items.find((i) => i.id === x.id);
