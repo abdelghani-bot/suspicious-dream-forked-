@@ -2158,7 +2158,10 @@ function POS({
         gtin: i.gtin || i.barcode,
         batch: i.batch || null,
         serial: i.serial || null,
-        expiry: i.expiry || null,
+        expiry:
+          i.expiry ||
+          newFifoResults[i.id]?.soldBatches?.[0]?.expiry_date ||
+          null,
       })),
       subtotal,
       tax_amount: taxAmount,
