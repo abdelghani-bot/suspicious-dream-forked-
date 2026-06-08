@@ -1205,7 +1205,17 @@ export default function PharmacyPro() {
       if (c.data?.length) setCustomers(c.data);
       if (sa.data?.length) setSales(sa.data);
       if (ret.data?.length) setReturnsData(ret.data);
-      if (pu.data?.length) setPurchases(pu.data);
+      if (pu.data?.length)
+        setPurchases(
+          pu.data.map((p) => ({
+            ...p,
+            supplierName: p.supplier_name,
+            taxAmount: p.tax_amount ?? 0,
+            subtotal: p.subtotal ?? 0,
+            total: p.total ?? 0,
+            items: p.items ?? [],
+          }))
+        );
     };
     loadData();
   }, []);
