@@ -5005,7 +5005,7 @@ function ReturnsModule({
                 .filter((p) => !p.returned)
                 .map((x) => ({
                   v: x.id,
-                  l: `${x.id} — ${x.date} — ${x.total.toFixed(2)} ر.س`,
+                  l: `${x.id} — ${x.date} — ${(x.total ?? 0).toFixed(2)} ر.س`,
                 })),
             ]}
           />
