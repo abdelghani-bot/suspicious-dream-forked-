@@ -3577,9 +3577,15 @@ function PurchaseModule({
 
     setPurchases((p) => [...p, po]);
     const { error } = await supabase.from("purchases").insert({
-      ...po,
+      id: po.id,
+      date: po.date,
+      supplier: po.supplier,
       supplier_name: po.supplierName,
+      items: po.items,
+      subtotal: po.subtotal,
       tax_amount: po.taxAmount,
+      total: po.total,
+      status: po.status,
     });
     if (error) {
       showToast("فشل الحفظ في السيرفر: " + error.message, "error");
