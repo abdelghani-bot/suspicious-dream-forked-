@@ -7188,12 +7188,29 @@ function SuppliersModule({
   suppliers,
   setSuppliers,
   purchases,
+  setPurchases,
+  products,
+  sales,
   showToast,
   onCreateOrder,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [payments, setPayments] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [showDetail, setShowDetail] = useState(null); // كارت تفاصيل المورد
+  const [showPayForm, setShowPayForm] = useState(null); // فورم الدفع
+  const [showOrderForm, setShowOrderForm] = useState(null); // فورم الأوردر
+  const [showStatements, setShowStatements] = useState(null); // كشف الحساب
+  const [coverageDays, setCoverageDays] = useState(30);
+  const [orderItems, setOrderItems] = useState([]);
+  const [payForm, setPayForm] = useState({
+    amount: "",
+    note: "",
+    receipt: null,
+    receiptUrl: "",
+  });
 
   const blank = {
     id: "",
@@ -7210,23 +7227,38 @@ function SuppliersModule({
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  // ========== حساب حالة المورد ==========
+  // تحميل الدفعات والأوردرات من Supabase
+  useEffect(() => {
+    supabase
+      .from("payments")
+      .select("*")
+      .order("date", { ascending: true })
+      .then(({ data }) => {
+        if (data) setPayments(data);
+      });
+    supabase
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (data) setOrders(data);
+      });
+  }, []);
+
+  // ========== حالة المورد ==========
   const getSupplierStatus = (supplier) => {
     const supPurchases = purchases.filter(
-      (p) => p.supplier === supplier.id && p.status !== "مسددة"
+      (p) => p.supplier === supplier.id && p.payment_status !== "مسددة"
     );
     if (supPurchases.length === 0) return "green";
-
     const today = new Date();
     let maxDelay = 0;
-
     for (const po of supPurchases) {
       const dueDate = new Date(po.date);
       dueDate.setDate(dueDate.getDate() + (supplier.payment_terms || 30));
-      const delayDays = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
-      if (delayDays > maxDelay) maxDelay = delayDays;
+      const delay = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+      if (delay > maxDelay) maxDelay = delay;
     }
-
     if (maxDelay <= 0) return "green";
     if (maxDelay <= 30) return "orange";
     return "red";
@@ -7248,18 +7280,256 @@ function SuppliersModule({
     red: { bg: "#1a0a0a", border: "#4a1010", text: "#ff5555", label: "متأخر" },
   };
 
-  // ========== حساب المستحقات ==========
+  // ========== المستحقات ==========
   const getSupplierDebt = (supplierId) => {
     return purchases
-      .filter((p) => p.supplier === supplierId && p.status !== "مسددة")
+      .filter((p) => p.supplier === supplierId && p.payment_status !== "مسددة")
       .reduce((s, p) => s + (p.total - (p.paid || 0)), 0);
+  };
+
+  // ========== أيام الاستحقاق لكل فاتورة ==========
+  const getDueDays = (po, supplier) => {
+    const sup = suppliers.find((s) => s.id === (supplier || po.supplier));
+    const terms = sup?.payment_terms || 30;
+    const due = new Date(po.date);
+    due.setDate(due.getDate() + terms);
+    const today = new Date();
+    return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+  };
+
+  // ========== FIFO للسداد ==========
+  const processPaymentFIFO = async (supplierId, totalAmount) => {
+    const unpaid = purchases
+      .filter((p) => p.supplier === supplierId && p.payment_status !== "مسددة")
+      .sort((a, b) => new Date(a.date) - new Date(b.date)); // الأقدم أولاً
+
+    let remaining = totalAmount;
+    const updates = [];
+
+    for (const po of unpaid) {
+      if (remaining <= 0) break;
+      const balance = po.total - (po.paid || 0);
+      const payment = Math.min(remaining, balance);
+      const newPaid = (po.paid || 0) + payment;
+      const newStatus = newPaid >= po.total ? "مسددة" : "مسددة جزئياً";
+      updates.push({ id: po.id, paid: newPaid, payment_status: newStatus });
+      remaining -= payment;
+    }
+
+    // تحديث Supabase
+    for (const u of updates) {
+      await supabase
+        .from("purchases")
+        .update({
+          paid: u.paid,
+          payment_status: u.payment_status,
+        })
+        .eq("id", u.id);
+    }
+
+    // تحديث الـ state
+    setPurchases((prev) =>
+      prev.map((p) => {
+        const u = updates.find((x) => x.id === p.id);
+        return u ? { ...p, paid: u.paid, payment_status: u.payment_status } : p;
+      })
+    );
+
+    return updates;
+  };
+
+  // ========== حفظ الدفعة ==========
+  const savePayment = async (supplier) => {
+    const amount = +payForm.amount;
+    if (!amount || amount <= 0) {
+      showToast("يرجى إدخال مبلغ صحيح", "error");
+      return;
+    }
+
+    // رفع السند لو موجود
+    let receiptUrl = "";
+    if (payForm.receipt) {
+      const fileName = `receipts/${supplier.id}_${Date.now()}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("attachments")
+        .upload(fileName, payForm.receipt);
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage
+          .from("attachments")
+          .getPublicUrl(fileName);
+        receiptUrl = urlData.publicUrl;
+      }
+    }
+
+    const payId = `PAY-${Date.now()}`;
+    const { error } = await supabase.from("payments").insert({
+      id: payId,
+      supplier_id: supplier.id,
+      date: new Date().toISOString().split("T")[0],
+      amount,
+      notes: payForm.note,
+      attachment_url: receiptUrl,
+    });
+
+    if (error) {
+      showToast("فشل حفظ الدفعة: " + error.message, "error");
+      return;
+    }
+
+    setPayments((p) => [
+      ...p,
+      {
+        id: payId,
+        supplier_id: supplier.id,
+        date: new Date().toISOString().split("T")[0],
+        amount,
+        notes: payForm.note,
+        attachment_url: receiptUrl,
+      },
+    ]);
+
+    // تطبيق FIFO
+    await processPaymentFIFO(supplier.id, amount);
+
+    setShowPayForm(null);
+    setPayForm({ amount: "", note: "", receipt: null, receiptUrl: "" });
+    showToast(`تم تسجيل الدفعة ✓ — ${amount.toFixed(2)} ر.س`);
+  };
+
+  // ========== تصنيف حركة الصنف ==========
+  const getMovementClass = (productId) => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const recentSales = (sales || []).filter((s) => {
+      const saleDate = new Date(s.date);
+      return (
+        saleDate >= thirtyDaysAgo && s.items?.some((i) => i.id === productId)
+      );
+    });
+    const salesDays = new Set(recentSales.map((s) => s.date)).size;
+    const salesCount = recentSales.length;
+
+    if (salesDays >= 21)
+      return { class: "fast", label: "سريع جداً", color: "#44dd88" };
+    if (salesDays >= 10)
+      return { class: "regular", label: "منتظم", color: "#3a9aff" };
+    if (salesCount >= 5)
+      return { class: "normal", label: "عادي", color: "#aaaaaa" };
+    if (salesCount >= 1)
+      return { class: "slow", label: "بطيء", color: "#ffaa44" };
+    return { class: "very_slow", label: "بطيء جداً", color: "#ff5555" };
+  };
+
+  // ========== توليد أوردر تلقائي ==========
+  const generateOrder = (supplier) => {
+    const status = getSupplierStatus(supplier);
+
+    // لو المورد أحمر، دور على بديل
+    let targetSupplier = supplier;
+    if (status === "red") {
+      const alternative = suppliers.find(
+        (s) => s.id !== supplier.id && getSupplierStatus(s) !== "red"
+      );
+      if (alternative) {
+        showToast(
+          `المورد متأخر - سيتم الطلب من: ${alternative.name}`,
+          "warning"
+        );
+        targetSupplier = alternative;
+      }
+    }
+
+    // الأصناف الناقصة
+    const lowStock = (products || []).filter(
+      (p) => p.stock <= (p.min_stock || p.minStock || 0)
+    );
+
+    // احسب الكمية المطلوبة لكل صنف بناءً على معدل الحركة
+    const items = lowStock
+      .map((p) => {
+        const mv = getMovementClass(p.id);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const monthlySales = (sales || [])
+          .filter((s) => new Date(s.date) >= thirtyDaysAgo)
+          .reduce((sum, s) => {
+            const si = s.items?.find((i) => i.id === p.id);
+            return sum + (si?.qty || 0);
+          }, 0);
+
+        const dailyRate = monthlySales / 30;
+        const neededQty = Math.ceil(dailyRate * coverageDays) - p.stock;
+        const orderQty = Math.max(neededQty, p.min_stock || 1);
+
+        return {
+          id: p.id,
+          name: p.name,
+          currentStock: p.stock,
+          minStock: p.min_stock || p.minStock || 0,
+          orderQty,
+          cost: p.cost,
+          movement: mv,
+          editable: true,
+        };
+      })
+      .filter((i) => i.orderQty > 0)
+      .sort((a, b) => {
+        const order = ["fast", "regular", "normal", "slow", "very_slow"];
+        return (
+          order.indexOf(a.movement.class) - order.indexOf(b.movement.class)
+        );
+      });
+
+    setOrderItems(items);
+    setShowOrderForm(targetSupplier);
+  };
+
+  // ========== حفظ الأوردر ==========
+  const saveOrder = async () => {
+    if (!showOrderForm || orderItems.length === 0) {
+      showToast("لا توجد أصناف للطلب", "error");
+      return;
+    }
+    const orderId = `ORD-${Date.now()}`;
+    const order = {
+      id: orderId,
+      supplier_id: showOrderForm.id,
+      supplier_name: showOrderForm.name,
+      date: new Date().toISOString().split("T")[0],
+      coverage_days: coverageDays,
+      items: orderItems,
+      status: "مسودة",
+    };
+
+    const { error } = await supabase.from("orders").insert(order);
+    if (error) {
+      showToast("فشل حفظ الأوردر: " + error.message, "error");
+      return;
+    }
+
+    setOrders((p) => [order, ...p]);
+    setShowOrderForm(null);
+    setOrderItems([]);
+    showToast("تم حفظ الأوردر ✓");
+
+    // إرسال على واتساب لو موجود
+    if (showOrderForm.whatsapp) {
+      const msg =
+        `طلب شراء - ${order.date}\n` +
+        orderItems.map((i) => `• ${i.name}: ${i.orderQty} وحدة`).join("\n");
+      window.open(
+        `https://wa.me/${showOrderForm.whatsapp}?text=${encodeURIComponent(
+          msg
+        )}`,
+        "_blank"
+      );
+    }
   };
 
   // ========== تقييم المورد ==========
   const getSupplierRating = (supplierId) => {
     const supPurchases = purchases.filter((p) => p.supplier === supplierId);
     if (supPurchases.length === 0) return null;
-
     const totalOrdered = supPurchases.reduce(
       (s, p) => s + p.items.reduce((ss, i) => ss + i.qty, 0),
       0
@@ -7267,11 +7537,31 @@ function SuppliersModule({
     const totalReceived = supPurchases
       .filter((p) => p.status === "مستلمة" || p.status === "مستلمة جزئياً")
       .reduce((s, p) => s + p.items.reduce((ss, i) => ss + i.qty, 0), 0);
-
     const fulfillmentRate =
       totalOrdered > 0 ? Math.round((totalReceived / totalOrdered) * 100) : 100;
-
     return { fulfillmentRate, totalInvoices: supPurchases.length };
+  };
+
+  // ========== بيانات الرسم البياني ==========
+  const getMonthlyChart = (supplierId) => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}`;
+      const label = d.toLocaleDateString("ar", { month: "short" });
+      const purchases_ = purchases
+        .filter((p) => p.supplier === supplierId && p.date?.startsWith(key))
+        .reduce((s, p) => s + p.total, 0);
+      const paid_ = payments
+        .filter((p) => p.supplier_id === supplierId && p.date?.startsWith(key))
+        .reduce((s, p) => s + p.amount, 0);
+      months.push({ label, purchases: purchases_, paid: paid_ });
+    }
+    return months;
   };
 
   const openAdd = () => {
@@ -7308,7 +7598,6 @@ function SuppliersModule({
       payment_terms: +form.payment_terms || 30,
       whatsapp: form.whatsapp,
     };
-
     if (editing) {
       const { error } = await supabase
         .from("suppliers")
@@ -7336,11 +7625,17 @@ function SuppliersModule({
     showToast(editing ? "تم تعديل المورد ✓" : "تمت إضافة المورد ✓");
   };
 
-  const filteredSuppliers = suppliers.filter((s) => {
-    if (filterStatus === "all") return true;
-    return getSupplierStatus(s) === filterStatus;
-  });
+  const filteredSuppliers = suppliers.filter((s) =>
+    filterStatus === "all" ? true : getSupplierStatus(s) === filterStatus
+  );
 
+  // أصناف بطيئة تحتاج تنشيط
+  const slowProducts = (products || [])
+    .filter((p) => {
+      const mv = getMovementClass(p.id);
+      return (mv.class === "slow" || mv.class === "very_slow") && p.stock > 0;
+    })
+    .sort((a, b) => (b.cost || 0) - (a.cost || 0));
   return (
     <div>
       {/* Header */}
@@ -7361,7 +7656,9 @@ function SuppliersModule({
       </div>
 
       {/* فلتر الحالة */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+      <div
+        style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}
+      >
         {[
           { k: "all", l: "الكل", color: "#4a6a8a" },
           { k: "green", l: "🟢 منتظم", color: "#44dd88" },
@@ -7388,6 +7685,56 @@ function SuppliersModule({
         ))}
       </div>
 
+      {/* أصناف بطيئة تحتاج تنشيط */}
+      {slowProducts.length > 0 && (
+        <div
+          style={{
+            background: "#1a0a00",
+            border: "1px solid #4a2a00",
+            borderRadius: 12,
+            padding: 14,
+            marginBottom: 18,
+          }}
+        >
+          <div
+            style={{
+              color: "#ffaa44",
+              fontWeight: 700,
+              marginBottom: 10,
+              fontSize: 14,
+            }}
+          >
+            ⚠️ أصناف بطيئة تحتاج تنشيط ({slowProducts.length})
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {slowProducts.slice(0, 10).map((p) => {
+              const mv = getMovementClass(p.id);
+              return (
+                <div
+                  key={p.id}
+                  style={{
+                    background: "#0a0800",
+                    border: "1px solid #3a2000",
+                    borderRadius: 8,
+                    padding: "6px 12px",
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ color: "#dde8ff" }}>{p.name}</span>
+                  <span style={{ color: mv.color, marginRight: 8 }}>
+                    {mv.label}
+                  </span>
+                  <span style={{ color: "#4a6a8a", marginRight: 8 }}>
+                    مخزون: {p.stock}
+                  </span>
+                  <span style={{ color: "#ffaa44" }}>تكلفة: {p.cost} ر.س</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* كروت الموردين */}
       <div
         style={{
@@ -7404,6 +7751,7 @@ function SuppliersModule({
           const creditLimit = s.credit_limit || 0;
           const creditUsedPct =
             creditLimit > 0 ? Math.min((debt / creditLimit) * 100, 100) : 0;
+          const supPurchases = purchases.filter((p) => p.supplier === s.id);
 
           return (
             <div
@@ -7501,6 +7849,68 @@ function SuppliersModule({
                 </div>
               )}
 
+              {/* فواتير مستحقة مع عداد الأيام */}
+              {supPurchases.filter((p) => p.payment_status !== "مسددة").length >
+                0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div
+                    style={{ fontSize: 11, color: "#4a6a8a", marginBottom: 6 }}
+                  >
+                    الفواتير المستحقة:
+                  </div>
+                  {supPurchases
+                    .filter((p) => p.payment_status !== "مسددة")
+                    .sort((a, b) => new Date(a.date) - new Date(b.date))
+                    .slice(0, 3)
+                    .map((po) => {
+                      const dueDays = getDueDays(po, s);
+                      const balance = po.total - (po.paid || 0);
+                      return (
+                        <div
+                          key={po.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "4px 8px",
+                            background: "#080e1a",
+                            borderRadius: 6,
+                            marginBottom: 4,
+                          }}
+                        >
+                          <span style={{ fontSize: 11, color: "#6a8aaa" }}>
+                            {po.id}
+                          </span>
+                          <span style={{ fontSize: 11, color: "#dde8ff" }}>
+                            {balance.toFixed(0)} ر.س
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color:
+                                dueDays < 0
+                                  ? "#ff5555"
+                                  : dueDays <= 7
+                                  ? "#ffaa44"
+                                  : "#44dd88",
+                            }}
+                          >
+                            {dueDays < 0
+                              ? `متأخر ${Math.abs(dueDays)} يوم`
+                              : `باقي ${dueDays} يوم`}
+                          </span>
+                          {po.payment_status === "مسددة جزئياً" && (
+                            <Badge color="#1a1000" text="#ffaa44">
+                              جزئي
+                            </Badge>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+
               {/* بيانات الاتصال */}
               <div
                 style={{
@@ -7552,15 +7962,39 @@ function SuppliersModule({
               </div>
 
               {/* أزرار */}
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <Btn
                   size="sm"
                   icon="purchase"
-                  onClick={() => onCreateOrder && onCreateOrder(s)}
+                  onClick={() => generateOrder(s)}
                   style={{ flex: 1, justifyContent: "center" }}
                   variant={status === "red" ? "danger" : "primary"}
                 >
                   طلب شراء
+                </Btn>
+                <Btn
+                  size="sm"
+                  icon="money"
+                  onClick={() => {
+                    setShowPayForm(s);
+                    setPayForm({
+                      amount: "",
+                      note: "",
+                      receipt: null,
+                      receiptUrl: "",
+                    });
+                  }}
+                  variant="success"
+                >
+                  سداد
+                </Btn>
+                <Btn
+                  size="sm"
+                  icon="chart"
+                  onClick={() => setShowDetail(s)}
+                  variant="secondary"
+                >
+                  تفاصيل
                 </Btn>
                 {s.whatsapp && (
                   <button
@@ -7606,7 +8040,554 @@ function SuppliersModule({
         })}
       </div>
 
-      {/* فورم الإضافة/التعديل */}
+      {/* ===== Modal فورم الأوردر ===== */}
+      {showOrderForm && (
+        <Modal
+          open
+          title={`طلب شراء — ${showOrderForm.name}`}
+          onClose={() => setShowOrderForm(null)}
+          wide
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <label style={{ color: "#4a6a8a", fontSize: 13 }}>
+              تغطية لمدة:
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={coverageDays}
+              onChange={(e) => {
+                setCoverageDays(+e.target.value);
+                generateOrder(showOrderForm);
+              }}
+              style={{
+                width: 70,
+                background: "#080e1a",
+                border: "1px solid #1d2d4a",
+                borderRadius: 6,
+                padding: "6px 10px",
+                color: "#dde8ff",
+                fontSize: 13,
+                outline: "none",
+              }}
+            />
+            <span style={{ color: "#4a6a8a", fontSize: 13 }}>يوم</span>
+          </div>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#080e1a" }}>
+                  {[
+                    "الصنف",
+                    "الحركة",
+                    "المخزون",
+                    "الحد الأدنى",
+                    "الكمية المطلوبة",
+                    "",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "9px 10px",
+                        textAlign: "right",
+                        color: "#4a6a9a",
+                        fontSize: 12,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orderItems.map((item, i) => (
+                  <tr
+                    key={item.id}
+                    style={{ borderBottom: "1px solid #0a101a" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        color: "#c0d0f0",
+                        fontSize: 13,
+                      }}
+                    >
+                      {item.name}
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: item.movement.color,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {item.movement.label}
+                      </span>
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        color: "#4a6a8a",
+                        fontSize: 13,
+                      }}
+                    >
+                      {item.currentStock}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        color: "#4a6a8a",
+                        fontSize: 13,
+                      }}
+                    >
+                      {item.minStock}
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      <input
+                        type="number"
+                        min="0"
+                        value={item.orderQty}
+                        onChange={(e) =>
+                          setOrderItems((prev) =>
+                            prev.map((x, j) =>
+                              j === i ? { ...x, orderQty: +e.target.value } : x
+                            )
+                          )
+                        }
+                        style={{
+                          width: 70,
+                          background: "#080e1a",
+                          border: "1px solid #1d2d4a",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          color: "#dde8ff",
+                          fontSize: 13,
+                          outline: "none",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      <button
+                        onClick={() =>
+                          setOrderItems((p) => p.filter((_, j) => j !== i))
+                        }
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "#5a2a2a",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <IC n="trash" s={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {orderItems.length === 0 && (
+            <div style={{ textAlign: "center", color: "#4a6a8a", padding: 20 }}>
+              لا توجد أصناف ناقصة
+            </div>
+          )}
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginTop: 16,
+              justifyContent: "flex-end",
+            }}
+          >
+            <Btn variant="ghost" onClick={() => setShowOrderForm(null)}>
+              إلغاء
+            </Btn>
+            <Btn icon="check" onClick={saveOrder}>
+              حفظ الأوردر
+            </Btn>
+            {showOrderForm.whatsapp && (
+              <Btn
+                icon="whatsapp"
+                onClick={() => {
+                  const msg =
+                    `طلب شراء - ${new Date().toLocaleDateString("ar")}\n` +
+                    orderItems
+                      .map((i) => `• ${i.name}: ${i.orderQty} وحدة`)
+                      .join("\n");
+                  window.open(
+                    `https://wa.me/${
+                      showOrderForm.whatsapp
+                    }?text=${encodeURIComponent(msg)}`,
+                    "_blank"
+                  );
+                }}
+              >
+                إرسال واتساب
+              </Btn>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* ===== Modal السداد ===== */}
+      {showPayForm && (
+        <Modal
+          open
+          title={`تسجيل دفعة — ${showPayForm.name}`}
+          onClose={() => setShowPayForm(null)}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div
+              style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}
+            >
+              <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4 }}>
+                إجمالي المستحقات
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#ff5555" }}>
+                {getSupplierDebt(showPayForm.id).toFixed(2)} ر.س
+              </div>
+            </div>
+
+            {/* فواتير مرتبة FIFO */}
+            <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4 }}>
+              ترتيب السداد (الأقدم أولاً):
+            </div>
+            {purchases
+              .filter(
+                (p) =>
+                  p.supplier === showPayForm.id && p.payment_status !== "مسددة"
+              )
+              .sort((a, b) => new Date(a.date) - new Date(b.date))
+              .map((po) => {
+                const balance = po.total - (po.paid || 0);
+                const dueDays = getDueDays(po, showPayForm);
+                return (
+                  <div
+                    key={po.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "8px 12px",
+                      background: "#080e1a",
+                      borderRadius: 8,
+                      border: "1px solid #1d2d4a",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 12, color: "#6aaeff" }}>
+                        {po.id}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                        {po.date}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "left" }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: "#dde8ff",
+                        }}
+                      >
+                        {balance.toFixed(2)} ر.س
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: dueDays < 0 ? "#ff5555" : "#ffaa44",
+                        }}
+                      >
+                        {dueDays < 0
+                          ? `متأخر ${Math.abs(dueDays)} يوم`
+                          : `باقي ${dueDays} يوم`}
+                      </div>
+                    </div>
+                    <Badge
+                      color={
+                        po.payment_status === "مسددة جزئياً"
+                          ? "#1a1000"
+                          : "#0a0a1a"
+                      }
+                      text={
+                        po.payment_status === "مسددة جزئياً"
+                          ? "#ffaa44"
+                          : "#4a6a8a"
+                      }
+                    >
+                      {po.payment_status || "غير مسددة"}
+                    </Badge>
+                  </div>
+                );
+              })}
+
+            <Input
+              label="مبلغ الدفعة (ر.س)"
+              value={payForm.amount}
+              onChange={(v) => setPayForm((p) => ({ ...p, amount: v }))}
+              placeholder="0.00"
+            />
+            <Input
+              label="ملاحظة"
+              value={payForm.note}
+              onChange={(v) => setPayForm((p) => ({ ...p, note: v }))}
+              placeholder="اختياري"
+            />
+
+            {/* رفع سند الدفع */}
+            <div>
+              <label
+                style={{
+                  fontSize: 12,
+                  color: "#4a6a8a",
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                سند الدفع (اختياري)
+              </label>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) setPayForm((p) => ({ ...p, receipt: file }));
+                }}
+                style={{ color: "#dde8ff", fontSize: 12 }}
+              />
+              {payForm.receipt && (
+                <div style={{ fontSize: 11, color: "#44dd88", marginTop: 4 }}>
+                  ✓ {payForm.receipt.name}
+                </div>
+              )}
+            </div>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginTop: 16,
+              justifyContent: "flex-end",
+            }}
+          >
+            <Btn variant="ghost" onClick={() => setShowPayForm(null)}>
+              إلغاء
+            </Btn>
+            <Btn icon="check" onClick={() => savePayment(showPayForm)}>
+              تأكيد الدفعة
+            </Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* ===== Modal تفاصيل المورد ===== */}
+      {showDetail &&
+        (() => {
+          const chartData = getMonthlyChart(showDetail.id);
+          const maxVal = Math.max(
+            ...chartData.map((d) => Math.max(d.purchases, d.paid)),
+            1
+          );
+          const supPayments = payments.filter(
+            (p) => p.supplier_id === showDetail.id
+          );
+
+          return (
+            <Modal
+              open
+              title={`تفاصيل — ${showDetail.name}`}
+              onClose={() => setShowDetail(null)}
+              wide
+            >
+              {/* رسم بياني */}
+              <div style={{ marginBottom: 18 }}>
+                <div
+                  style={{ fontSize: 13, color: "#4a6a8a", marginBottom: 10 }}
+                >
+                  المشتريات والمدفوعات (6 أشهر)
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-end",
+                    gap: 8,
+                    height: 100,
+                  }}
+                >
+                  {chartData.map((d, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        flex: 1,
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 3,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          gap: 2,
+                          alignItems: "flex-end",
+                          height: 80,
+                        }}
+                      >
+                        <div
+                          style={{
+                            flex: 1,
+                            background: "#3a6aff",
+                            height: `${(d.purchases / maxVal) * 80}px`,
+                            borderRadius: "3px 3px 0 0",
+                            minHeight: 2,
+                          }}
+                          title={`مشتريات: ${d.purchases.toFixed(0)}`}
+                        />
+                        <div
+                          style={{
+                            flex: 1,
+                            background: "#44dd88",
+                            height: `${(d.paid / maxVal) * 80}px`,
+                            borderRadius: "3px 3px 0 0",
+                            minHeight: 2,
+                          }}
+                          title={`مدفوعات: ${d.paid.toFixed(0)}`}
+                        />
+                      </div>
+                      <span style={{ fontSize: 9, color: "#4a6a8a" }}>
+                        {d.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: "#3a6aff" }}>
+                    ■ مشتريات
+                  </span>
+                  <span style={{ fontSize: 11, color: "#44dd88" }}>
+                    ■ مدفوعات
+                  </span>
+                </div>
+              </div>
+
+              {/* سجل الدفعات */}
+              <div style={{ fontSize: 13, color: "#4a6a8a", marginBottom: 8 }}>
+                سجل الدفعات
+              </div>
+              {supPayments.length === 0 ? (
+                <div
+                  style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 14 }}
+                >
+                  لا توجد دفعات مسجلة
+                </div>
+              ) : (
+                <div
+                  style={{
+                    maxHeight: 200,
+                    overflowY: "auto",
+                    marginBottom: 14,
+                  }}
+                >
+                  {supPayments
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .map((pay) => (
+                      <div
+                        key={pay.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "8px 12px",
+                          borderBottom: "1px solid #0a101a",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 12, color: "#dde8ff" }}>
+                            {pay.date}
+                          </div>
+                          {pay.notes && (
+                            <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                              {pay.notes}
+                            </div>
+                          )}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: "#44dd88",
+                            }}
+                          >
+                            {pay.amount.toFixed(2)} ر.س
+                          </span>
+                          {pay.attachment_url && (
+                            <a
+                              href={pay.attachment_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ fontSize: 11, color: "#3a9aff" }}
+                            >
+                              📎 سند
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* رفع كشف حساب */}
+              <div
+                style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}
+              >
+                <div
+                  style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 8 }}
+                >
+                  رفع كشف حساب المورد
+                </div>
+                <input
+                  type="file"
+                  accept=".pdf,.xlsx,.xls,.csv,image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const fileName = `statements/${
+                      showDetail.id
+                    }_${Date.now()}_${file.name}`;
+                    const { error } = await supabase.storage
+                      .from("attachments")
+                      .upload(fileName, file);
+                    if (error) {
+                      showToast("فشل الرفع: " + error.message, "error");
+                      return;
+                    }
+                    showToast("تم رفع الكشف ✓");
+                  }}
+                  style={{ color: "#dde8ff", fontSize: 12 }}
+                />
+              </div>
+            </Modal>
+          );
+        })()}
+
+      {/* ===== Modal فورم الإضافة/التعديل ===== */}
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
@@ -7617,10 +8598,10 @@ function SuppliersModule({
             label="اسم المورد *"
             value={form.name}
             onChange={(v) => F("name", v)}
-            placeholder="اسم الشركة أو المورد"
+            placeholder="اسم الشركة"
           />
           <Input
-            label="الرقم الضريبي (VAT)"
+            label="الرقم الضريبي"
             value={form.taxId}
             onChange={(v) => F("taxId", v)}
             placeholder="300XXXXXXXXX00003"
@@ -7632,7 +8613,7 @@ function SuppliersModule({
             placeholder="011XXXXXXX"
           />
           <Input
-            label="واتساب (للأوردرات)"
+            label="واتساب"
             value={form.whatsapp}
             onChange={(v) => F("whatsapp", v)}
             placeholder="9665XXXXXXXX"
@@ -7647,15 +8628,12 @@ function SuppliersModule({
             label="العنوان"
             value={form.address}
             onChange={(v) => F("address", v)}
-            placeholder="المدينة، الحي..."
           />
           <Input
             label="مسؤول التواصل"
             value={form.contact}
             onChange={(v) => F("contact", v)}
-            placeholder="اسم المسؤول"
           />
-
           <div
             style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
           >
@@ -7719,7 +8697,6 @@ function SuppliersModule({
             </div>
           </div>
         </div>
-
         <div
           style={{
             display: "flex",
