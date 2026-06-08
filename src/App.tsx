@@ -1497,7 +1497,7 @@ export default function PharmacyPro() {
           />
         )}
         {tab === "rasd_settings" && <RasdSettings showToast={showToast} />}
-        {tab === "expiry_report" && <ExpiryReport products={products} />}
+        {tab === "expiry_report" && <ExpiryReport purchases={purchases} />}
         {tab === "inventory_count" && (
           <InventoryCount
             products={products}
@@ -6011,7 +6011,7 @@ function RasdSettings({ showToast }) {
   );
 }
 // ======================== Expiry Report ==========================
-function ExpiryReport({ products, onRemoveExpired }) {
+function ExpiryReport({ purchases, onRemoveExpired }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -6019,20 +6019,20 @@ function ExpiryReport({ products, onRemoveExpired }) {
   const [showExpiredDetail, setShowExpiredDetail] = useState(false);
 
   // ===== flatten الأصناف مع batches =====
-  const allItems = products.flatMap((p) => {
-    if (p.batches?.length) {
-      return p.batches
-        .filter((b) => b.expiry_date)
-        .map((b) => ({
-          ...p,
-          expiry: b.expiry_date,
-          stock: b.qty,
-          cost: b.cost,
-          price: b.salePrice,
-        }));
-    }
-    return p.expiry ? [p] : [];
-  });
+  const allItems = (purchases ?? []).flatMap((po) =>
+    (po.items ?? [])
+      .filter((i) => i.expiry_date)
+      .map((i) => ({
+        id: i.id,
+        name: i.name,
+        barcode: i.barcode ?? "-",
+        expiry: i.expiry_date,
+        stock: (i.qty ?? 0) + (i.bonusQty ?? 0),
+        cost: i.cost ?? 0,
+        price: i.salePrice ?? 0,
+        invoiceId: po.id,
+      }))
+  );
 
   // ===== الأصناف المنتهية =====
   const expired = allItems.filter(
