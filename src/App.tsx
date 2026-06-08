@@ -1510,6 +1510,7 @@ export default function PharmacyPro() {
           <SuppliersModule
             suppliers={suppliers}
             setSuppliers={setSuppliers}
+            purchases={purchases}
             showToast={showToast}
           />
         )}
