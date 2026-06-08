@@ -7372,7 +7372,7 @@ function SuppliersModule({
       date: new Date().toISOString().split("T")[0],
       amount,
       notes: payForm.note,
-      payment_reports_url: receiptUrl,
+      attachment_url: receiptUrl,
     });
 
     if (error) {
@@ -7388,7 +7388,7 @@ function SuppliersModule({
         date: new Date().toISOString().split("T")[0],
         amount,
         notes: payForm.note,
-        payment_reports_url: receiptUrl,
+        attachment_url: receiptUrl,
       },
     ]);
 
@@ -8541,9 +8541,9 @@ function SuppliersModule({
                           >
                             {pay.amount.toFixed(2)} ر.س
                           </span>
-                          {pay.payment_reports_url && (
+                          {pay.attachment_url && (
                             <a
-                              href={pay.payment_reports_url}
+                              href={pay.attachment_url_url}
                               target="_blank"
                               rel="noreferrer"
                               style={{ fontSize: 11, color: "#3a9aff" }}
