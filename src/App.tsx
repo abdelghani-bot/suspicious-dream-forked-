@@ -3723,11 +3723,11 @@ function PurchaseModule({
             {p.id}
           </span>,
           p.date,
-          p.supplierName,
-          p.subtotal.toFixed(2) + " ر.س",
-          p.taxAmount.toFixed(2) + " ر.س",
+          p.supplierName || p.supplier_name,
+          (p.subtotal || 0).toFixed(2) + " ر.س",
+          (p.taxAmount ?? p.tax_amount ?? 0).toFixed(2) + " ر.س",
           <span style={{ color: "#44dd88", fontWeight: 700 }}>
-            {p.total.toFixed(2)} ر.س
+            {(p.total || 0).toFixed(2)} ر.س
           </span>,
           <Badge color="#0a2a10" text="#44dd88">
             {p.status}
@@ -4845,14 +4845,17 @@ function ReturnsModule({
   const returnTotal = returnSubtotal + returnTax;
 
   const processReturn = async () => {
-    if (returnItems.length === 0 || returnItems.every((i) => i.returnQty === 0)) {
+    if (
+      returnItems.length === 0 ||
+      returnItems.every((i) => i.returnQty === 0)
+    ) {
       showToast("يرجى إضافة أصناف للمرتجع", "error");
       return;
     }
-  
+
     const returnId = `RET-${Date.now()}`;
     const customer = customers?.find((c) => String(c.id) === selCustomer);
-  
+
     // تحديث المخزون في Supabase
     for (const ri of returnItems) {
       if (ri.returnQty > 0) {
@@ -4863,9 +4866,10 @@ function ReturnsModule({
             .update({
               // مرتجع مبيعات ← الكمية ترجع للمخزون (زيادة)
               // مرتجع مشتريات ← الكمية تخرج من المخزون (نقص)
-              stock: type === "sales"
-                ? prod.stock + ri.returnQty
-                : prod.stock - ri.returnQty,
+              stock:
+                type === "sales"
+                  ? prod.stock + ri.returnQty
+                  : prod.stock - ri.returnQty,
             })
             .eq("id", ri.id);
           if (stockError) {
@@ -4874,7 +4878,7 @@ function ReturnsModule({
         }
       }
     }
-  
+
     // تحديث المخزون محلياً
     setProducts((p) =>
       p.map((x) => {
@@ -4882,13 +4886,12 @@ function ReturnsModule({
         if (!ri || ri.returnQty === 0) return x;
         return {
           ...x,
-          stock: type === "sales"
-            ? x.stock + ri.returnQty
-            : x.stock - ri.returnQty,
+          stock:
+            type === "sales" ? x.stock + ri.returnQty : x.stock - ri.returnQty,
         };
       })
     );
-  
+
     if (type === "purchases" && selInvoice) {
       setPurchases((p) =>
         p.map((s) =>
@@ -4898,7 +4901,7 @@ function ReturnsModule({
         )
       );
     }
-  
+
     const { error } = await supabase.from("returns").insert([
       {
         id: returnId,
@@ -4913,18 +4916,18 @@ function ReturnsModule({
         total: returnTotal,
       },
     ]);
-  
+
     if (error) {
       showToast("خطأ في حفظ المرتجع: " + error.message, "error");
       return;
     }
-  
+
     setReturnItems([]);
     setReason("");
     setSelCustomer("");
     setSelInvoice("");
     showToast(`تم تسجيل المرتجع ✓ — ${returnTotal.toFixed(2)} ر.س`);
-  
+
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = returnItems.filter((i) => i.serial && i.returnQty > 0);
     if (rasdConfig.enabled && gs1Items.length > 0) {
