@@ -7141,10 +7141,17 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   );
 }
 
-// ==================== SUPPLIERS ====================
-function SuppliersModule({ suppliers, setSuppliers, showToast }) {
+function SuppliersModule({
+  suppliers,
+  setSuppliers,
+  purchases,
+  showToast,
+  onCreateOrder,
+}) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [filterStatus, setFilterStatus] = useState("all");
+
   const blank = {
     id: "",
     name: "",
@@ -7153,72 +7160,147 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
     email: "",
     address: "",
     contact: "",
+    credit_limit: 0,
+    payment_terms: 30,
+    whatsapp: "",
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
+  // ========== حساب حالة المورد ==========
+  const getSupplierStatus = (supplier) => {
+    const supPurchases = purchases.filter(
+      (p) => p.supplier === supplier.id && p.status !== "مسددة"
+    );
+    if (supPurchases.length === 0) return "green";
+
+    const today = new Date();
+    let maxDelay = 0;
+
+    for (const po of supPurchases) {
+      const dueDate = new Date(po.date);
+      dueDate.setDate(dueDate.getDate() + (supplier.payment_terms || 30));
+      const delayDays = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+      if (delayDays > maxDelay) maxDelay = delayDays;
+    }
+
+    if (maxDelay <= 0) return "green";
+    if (maxDelay <= 30) return "orange";
+    return "red";
+  };
+
+  const statusColor = {
+    green: {
+      bg: "#0a2010",
+      border: "#1a5020",
+      text: "#44dd88",
+      label: "منتظم",
+    },
+    orange: {
+      bg: "#1a1000",
+      border: "#4a3000",
+      text: "#ffaa44",
+      label: "تأخير بسيط",
+    },
+    red: { bg: "#1a0a0a", border: "#4a1010", text: "#ff5555", label: "متأخر" },
+  };
+
+  // ========== حساب المستحقات ==========
+  const getSupplierDebt = (supplierId) => {
+    return purchases
+      .filter((p) => p.supplier === supplierId && p.status !== "مسددة")
+      .reduce((s, p) => s + (p.total - (p.paid || 0)), 0);
+  };
+
+  // ========== تقييم المورد ==========
+  const getSupplierRating = (supplierId) => {
+    const supPurchases = purchases.filter((p) => p.supplier === supplierId);
+    if (supPurchases.length === 0) return null;
+
+    const totalOrdered = supPurchases.reduce(
+      (s, p) => s + p.items.reduce((ss, i) => ss + i.qty, 0),
+      0
+    );
+    const totalReceived = supPurchases
+      .filter((p) => p.status === "مستلمة" || p.status === "مستلمة جزئياً")
+      .reduce((s, p) => s + p.items.reduce((ss, i) => ss + i.qty, 0), 0);
+
+    const fulfillmentRate =
+      totalOrdered > 0 ? Math.round((totalReceived / totalOrdered) * 100) : 100;
+
+    return { fulfillmentRate, totalInvoices: supPurchases.length };
+  };
+
   const openAdd = () => {
     setEditing(null);
+    setForm({ ...blank, id: "S" + Date.now() });
+    setShowForm(true);
+  };
+
+  const openEdit = (s) => {
+    setEditing(s.id);
     setForm({
       ...blank,
-      id: "S" + Date.now(),
+      ...s,
+      credit_limit: s.credit_limit || 0,
+      payment_terms: s.payment_terms || 30,
+      whatsapp: s.whatsapp || "",
     });
     setShowForm(true);
   };
-  const openEdit = (s) => {
-    setEditing(s.id);
-    setForm(s);
-    setShowForm(true);
-  };
+
   const save = async () => {
     if (!form.name) {
       showToast("يرجى إدخال اسم المورد", "error");
       return;
     }
+    const payload = {
+      name: form.name,
+      tax_id: form.taxId,
+      phone: form.phone,
+      email: form.email,
+      address: form.address,
+      contact: form.contact,
+      credit_limit: +form.credit_limit || 0,
+      payment_terms: +form.payment_terms || 30,
+      whatsapp: form.whatsapp,
+    };
+
     if (editing) {
       const { error } = await supabase
         .from("suppliers")
-        .update({
-          name: form.name,
-          tax_id: form.taxId,
-          phone: form.phone,
-          email: form.email,
-          address: form.address,
-          contact: form.contact,
-        })
+        .update(payload)
         .eq("id", editing);
       if (error) {
         showToast("فشل التعديل: " + error.message, "error");
         return;
       }
-      setSuppliers((p) => p.map((x) => (x.id === editing ? form : x)));
+      setSuppliers((p) =>
+        p.map((x) => (x.id === editing ? { ...x, ...form } : x))
+      );
     } else {
       const { data, error } = await supabase
         .from("suppliers")
-        .insert({
-          id: form.id,
-          name: form.name,
-          tax_id: form.taxId,
-          phone: form.phone,
-          email: form.email,
-          address: form.address,
-          contact: form.contact,
-        })
+        .insert({ id: form.id, ...payload })
         .select();
-
       if (error) {
         showToast("فشل الإضافة: " + error.message, "error");
         return;
       }
-
       setSuppliers((p) => [...p, data[0]]);
     }
     setShowForm(false);
-    showToast(editing ? "تم تعديل المورد" : "تمت إضافة المورد ✓");
+    showToast(editing ? "تم تعديل المورد ✓" : "تمت إضافة المورد ✓");
   };
+
+  const filteredSuppliers = suppliers.filter((s) => {
+    if (filterStatus === "all") return true;
+    return getSupplierStatus(s) === filterStatus;
+  });
 
   return (
     <div>
+      {/* Header */}
       <div
         style={{
           display: "flex",
@@ -7234,42 +7316,227 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
           إضافة مورد
         </Btn>
       </div>
+
+      {/* فلتر الحالة */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+        {[
+          { k: "all", l: "الكل", color: "#4a6a8a" },
+          { k: "green", l: "🟢 منتظم", color: "#44dd88" },
+          { k: "orange", l: "🟠 تأخير بسيط", color: "#ffaa44" },
+          { k: "red", l: "🔴 متأخر", color: "#ff5555" },
+        ].map((f) => (
+          <button
+            key={f.k}
+            onClick={() => setFilterStatus(f.k)}
+            style={{
+              padding: "7px 16px",
+              borderRadius: 8,
+              border: "1px solid",
+              borderColor: filterStatus === f.k ? f.color : "#1d2d4a",
+              background: filterStatus === f.k ? "#0a1020" : "transparent",
+              color: filterStatus === f.k ? f.color : "#4a6a8a",
+              fontSize: 13,
+              fontWeight: filterStatus === f.k ? 700 : 400,
+              cursor: "pointer",
+            }}
+          >
+            {f.l}
+          </button>
+        ))}
+      </div>
+
+      {/* كروت الموردين */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+          gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))",
           gap: 14,
         }}
       >
-        {suppliers.map((s) => (
-          <div
-            key={s.id}
-            style={{
-              background: "#0f1623",
-              border: "1px solid #1d2d4a",
-              borderRadius: 14,
-              padding: 18,
-            }}
-          >
+        {filteredSuppliers.map((s) => {
+          const status = getSupplierStatus(s);
+          const sc = statusColor[status];
+          const debt = getSupplierDebt(s.id);
+          const rating = getSupplierRating(s.id);
+          const creditLimit = s.credit_limit || 0;
+          const creditUsedPct =
+            creditLimit > 0 ? Math.min((debt / creditLimit) * 100, 100) : 0;
+
+          return (
             <div
+              key={s.id}
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                marginBottom: 12,
+                background: "#0f1623",
+                border: `1px solid ${sc.border}`,
+                borderRadius: 14,
+                padding: 18,
+                borderTop: `3px solid ${sc.text}`,
               }}
             >
-              <div>
-                <div
-                  style={{ fontWeight: 700, color: "#dde8ff", fontSize: 15 }}
-                >
-                  {s.name}
+              {/* اسم المورد والحالة */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  marginBottom: 12,
+                }}
+              >
+                <div>
+                  <div
+                    style={{ fontWeight: 700, color: "#dde8ff", fontSize: 15 }}
+                  >
+                    {s.name}
+                  </div>
+                  <div style={{ color: "#3a6a9a", fontSize: 11, marginTop: 2 }}>
+                    رمز: {s.id}
+                  </div>
                 </div>
-                <div style={{ color: "#3a6a9a", fontSize: 12, marginTop: 2 }}>
-                  رمز: {s.id}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-end",
+                    gap: 4,
+                  }}
+                >
+                  <Badge color={sc.bg} text={sc.text}>
+                    {sc.label}
+                  </Badge>
+                  {rating && (
+                    <span style={{ fontSize: 11, color: "#4a6a8a" }}>
+                      تنفيذ: {rating.fulfillmentRate}%
+                    </span>
+                  )}
                 </div>
               </div>
+
+              {/* الكريدت */}
+              {creditLimit > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: 11,
+                      color: "#4a6a8a",
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span>الكريدت المستخدم</span>
+                    <span
+                      style={{
+                        color: debt > creditLimit * 0.8 ? "#ff5555" : "#44dd88",
+                      }}
+                    >
+                      {debt.toFixed(0)} / {creditLimit.toFixed(0)} ر.س
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      background: "#0a1020",
+                      borderRadius: 4,
+                      height: 6,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${creditUsedPct}%`,
+                        background:
+                          creditUsedPct > 80
+                            ? "#ff5555"
+                            : creditUsedPct > 50
+                            ? "#ffaa44"
+                            : "#44dd88",
+                        borderRadius: 4,
+                        transition: "width 0.3s",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* بيانات الاتصال */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 5,
+                  marginBottom: 14,
+                }}
+              >
+                {s.taxId && (
+                  <div
+                    style={{ display: "flex", gap: 8, alignItems: "center" }}
+                  >
+                    <span
+                      style={{
+                        color: "#3a6a9a",
+                        fontSize: 11,
+                        width: 90,
+                        flexShrink: 0,
+                      }}
+                    >
+                      الرقم الضريبي:
+                    </span>
+                    <Badge color="#0a2a00" text="#44dd88">
+                      {s.taxId}
+                    </Badge>
+                  </div>
+                )}
+                {s.payment_terms && (
+                  <div style={{ fontSize: 11, color: "#5a7a9a" }}>
+                    ⏱ شروط الدفع: {s.payment_terms} يوم
+                  </div>
+                )}
+                {s.phone && (
+                  <div style={{ fontSize: 11, color: "#5a7a9a" }}>
+                    📞 {s.phone}
+                  </div>
+                )}
+                {s.email && (
+                  <div style={{ fontSize: 11, color: "#5a7a9a" }}>
+                    ✉ {s.email}
+                  </div>
+                )}
+                {s.contact && (
+                  <div style={{ fontSize: 11, color: "#5a7a9a" }}>
+                    👤 {s.contact}
+                  </div>
+                )}
+              </div>
+
+              {/* أزرار */}
               <div style={{ display: "flex", gap: 6 }}>
+                <Btn
+                  size="sm"
+                  icon="purchase"
+                  onClick={() => onCreateOrder && onCreateOrder(s)}
+                  style={{ flex: 1, justifyContent: "center" }}
+                  variant={status === "red" ? "danger" : "primary"}
+                >
+                  طلب شراء
+                </Btn>
+                {s.whatsapp && (
+                  <button
+                    onClick={() =>
+                      window.open(`https://wa.me/${s.whatsapp}`, "_blank")
+                    }
+                    style={{
+                      padding: "6px 10px",
+                      background: "#0a2a10",
+                      border: "1px solid #1a5020",
+                      borderRadius: 7,
+                      color: "#44dd88",
+                      cursor: "pointer",
+                      fontSize: 14,
+                    }}
+                  >
+                    💬
+                  </button>
+                )}
                 <Btn
                   size="sm"
                   icon="edit"
@@ -7292,52 +7559,11 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
                 </Btn>
               </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {s.taxId && (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span
-                    style={{
-                      color: "#3a6a9a",
-                      fontSize: 11,
-                      width: 100,
-                      flexShrink: 0,
-                    }}
-                  >
-                    الرقم الضريبي:
-                  </span>
-                  <Badge color="#0a2a00" text="#44dd88">
-                    {s.taxId}
-                  </Badge>
-                </div>
-              )}
-              {s.phone && (
-                <div style={{ fontSize: 12, color: "#5a7a9a" }}>
-                  <span style={{ color: "#3a5a7a" }}>📞 </span>
-                  {s.phone}
-                </div>
-              )}
-              {s.email && (
-                <div style={{ fontSize: 12, color: "#5a7a9a" }}>
-                  <span style={{ color: "#3a5a7a" }}>✉ </span>
-                  {s.email}
-                </div>
-              )}
-              {s.address && (
-                <div style={{ fontSize: 12, color: "#5a7a9a" }}>
-                  <span style={{ color: "#3a5a7a" }}>📍 </span>
-                  {s.address}
-                </div>
-              )}
-              {s.contact && (
-                <div style={{ fontSize: 12, color: "#5a7a9a" }}>
-                  <span style={{ color: "#3a5a7a" }}>👤 </span>
-                  {s.contact}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {/* فورم الإضافة/التعديل */}
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
@@ -7363,6 +7589,12 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
             placeholder="011XXXXXXX"
           />
           <Input
+            label="واتساب (للأوردرات)"
+            value={form.whatsapp}
+            onChange={(v) => F("whatsapp", v)}
+            placeholder="9665XXXXXXXX"
+          />
+          <Input
             label="البريد الإلكتروني"
             value={form.email}
             onChange={(v) => F("email", v)}
@@ -7380,7 +7612,71 @@ function SuppliersModule({ suppliers, setSuppliers, showToast }) {
             onChange={(v) => F("contact", v)}
             placeholder="اسم المسؤول"
           />
+
+          <div
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+          >
+            <div>
+              <label
+                style={{
+                  fontSize: 12,
+                  color: "#4a6a8a",
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                حد الكريدت (ر.س)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={form.credit_limit}
+                onChange={(e) => F("credit_limit", +e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#080e1a",
+                  border: "1px solid #1d2d4a",
+                  borderRadius: 8,
+                  padding: "9px 12px",
+                  color: "#dde8ff",
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  fontSize: 12,
+                  color: "#4a6a8a",
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                شروط الدفع (يوم)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={form.payment_terms}
+                onChange={(e) => F("payment_terms", +e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#080e1a",
+                  border: "1px solid #1d2d4a",
+                  borderRadius: 8,
+                  padding: "9px 12px",
+                  color: "#dde8ff",
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          </div>
         </div>
+
         <div
           style={{
             display: "flex",
