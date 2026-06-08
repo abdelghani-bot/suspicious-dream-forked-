@@ -7289,7 +7289,11 @@ function SuppliersModule({
 
   // ========== أيام الاستحقاق لكل فاتورة ==========
   const getDueDays = (po, supplier) => {
-    const sup = suppliers.find((s) => s.id === (supplier || po.supplier));
+    const sup =
+      typeof supplier === "object" && supplier !== null
+        ? supplier
+        : suppliers.find((s) => s.id === (supplier || po.supplier));
+
     const terms = sup?.payment_terms || 30;
     const due = new Date(po.date);
     due.setDate(due.getDate() + terms);
