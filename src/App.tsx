@@ -7355,11 +7355,11 @@ function SuppliersModule({
     if (payForm.receipt) {
       const fileName = `receipts/${supplier.id}_${Date.now()}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("attachments")
+        .from("payment_reports")
         .upload(fileName, payForm.receipt);
       if (!uploadError) {
         const { data: urlData } = supabase.storage
-          .from("attachments")
+          .from("payment_reports")
           .getPublicUrl(fileName);
         receiptUrl = urlData.publicUrl;
       }
@@ -7372,7 +7372,7 @@ function SuppliersModule({
       date: new Date().toISOString().split("T")[0],
       amount,
       notes: payForm.note,
-      attachment_url: receiptUrl,
+      payment_reports_url: receiptUrl,
     });
 
     if (error) {
@@ -7388,7 +7388,7 @@ function SuppliersModule({
         date: new Date().toISOString().split("T")[0],
         amount,
         notes: payForm.note,
-        attachment_url: receiptUrl,
+        payment_reports_url: receiptUrl,
       },
     ]);
 
@@ -8541,9 +8541,9 @@ function SuppliersModule({
                           >
                             {pay.amount.toFixed(2)} ر.س
                           </span>
-                          {pay.attachment_url && (
+                          {pay.payment_reports_url && (
                             <a
-                              href={pay.attachment_url}
+                              href={pay.payment_reports_url}
                               target="_blank"
                               rel="noreferrer"
                               style={{ fontSize: 11, color: "#3a9aff" }}
@@ -8576,7 +8576,7 @@ function SuppliersModule({
                       showDetail.id
                     }_${Date.now()}_${file.name}`;
                     const { error } = await supabase.storage
-                      .from("attachments")
+                      .from("payment_reports")
                       .upload(fileName, file);
                     if (error) {
                       showToast("فشل الرفع: " + error.message, "error");
