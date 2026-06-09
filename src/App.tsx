@@ -8756,10 +8756,11 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
     if (cSales.length === 0) return null;
 
     const sorted = [...cSales].sort(
-      (a, b) => new Date(b.created_at) - new Date(a.created_at)
+      (a, b) =>
+        new Date(b.created_at || b.date) - new Date(a.created_at || a.date)
     );
     const lastSale = sorted[0];
-    const lastVisitDate = new Date(lastSale.created_at);
+    const lastVisitDate = new Date(lastSale.created_at || lastSale.date);
     const daysSinceLast = Math.floor(
       (now - lastVisitDate) / (1000 * 60 * 60 * 24)
     );
@@ -8776,7 +8777,7 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
 
     // RFM — آخر 3 شهور
     const recent = cSales.filter(
-      (s) => new Date(s.created_at) >= threeMonthsAgo
+      (s) => new Date(s.created_at || s.date) >= threeMonthsAgo
     );
     const freq3 = recent.length;
     const monetary3 = recent.reduce((s, sale) => s + (sale.subtotal || 0), 0);
