@@ -9252,7 +9252,7 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
     setEditing(null);
     setForm({
       ...blank,
-      id: "C" + String(customers.length + 1).padStart(3, "0"),
+      id: "C" + Date.now(),
     });
     setShowForm(true);
   };
