@@ -2359,16 +2359,40 @@ function POS({
             + فاتورة جديدة
           </button>
         )}
-      </div>{autoSaveWarning && (
-  <div style={{
-    background: "#2a1500", border: "1px solid #f59e0b", borderRadius: 10,
-    padding: "10px 16px", display: "flex", justifyContent: "space-between",
-    alignItems: "center", color: "#fcd34d", fontSize: 13,
-  }}>
-    <span>⚠️ الفاتورة مفتوحة أكثر من 10 دقائق — سيتم التنبيه خلال {Math.floor(autoSaveCountdown / 60)}:{String(autoSaveCountdown % 60).padStart(2, "0")}</span>
-    <button onClick={() => setAutoSaveWarning(false)} style={{ background: "transparent", border: "none", color: "#fcd34d", cursor: "pointer", fontSize: 16 }}>✕</button>
-  </div>
-)}
+      </div>
+      {autoSaveWarning && (
+        <div
+          style={{
+            background: "#2a1500",
+            border: "1px solid #f59e0b",
+            borderRadius: 10,
+            padding: "10px 16px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            color: "#fcd34d",
+            fontSize: 13,
+          }}
+        >
+          <span>
+            ⚠️ الفاتورة مفتوحة أكثر من 10 دقائق — سيتم التنبيه خلال{" "}
+            {Math.floor(autoSaveCountdown / 60)}:
+            {String(autoSaveCountdown % 60).padStart(2, "0")}
+          </span>
+          <button
+            onClick={() => setAutoSaveWarning(false)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#fcd34d",
+              cursor: "pointer",
+              fontSize: 16,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div
         style={{
@@ -2599,15 +2623,16 @@ function POS({
                     key={p.id}
                     style={{
                       padding: "8px 14px",
-                      cursor:p.stock === 0 ? "not-allowed" : "pointer."
+                      cursor: p.stock === 0 ? "not-allowed" : "pointer",
                       opacity: p.stock === 0 ? 0.5 : 1,
                       borderBottom: "1px solid #1a2a3a",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
-                      background: idx === highlightedIdx ? "#1a2a4a" : "transparent",
+                      background:
+                        idx === highlightedIdx ? "#1a2a4a" : "transparent",
                     }}
-                    onMouseEnter={() => setHighlightedIdx(idx)}  
+                    onMouseEnter={() => setHighlightedIdx(idx)}
                     onMouseLeave={() => setHighlightedIdx(-1)}
                   >
                     {/* الصف الأول: اسم الصنف والأزرار */}
