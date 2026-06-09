@@ -1943,6 +1943,7 @@ const emptyInvoice = () => ({
   showJoker: false,
   jokerName: "",
   jokerPrice: "",
+  openedAt: Date.now(),
 });
 
 function POS({
@@ -1962,6 +1963,11 @@ function POS({
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
   const [fifoResults, setFifoResults] = useState({});
+  const [highlightedIdx, setHighlightedIdx] = useState(-1);
+  const [autoSaveWarning, setAutoSaveWarning] = useState(false);
+  const [autoSaveCountdown, setAutoSaveCountdown] = useState(180);
+  const autoSaveTimerRef = useRef(null);
+  const autoSaveCountdownRef = useRef(null);
   const inv = invoices[activeTab] || emptyInvoice();
   const setInv = (updater) => {
     setInvoices((prev) =>
@@ -1974,7 +1980,33 @@ function POS({
       )
     );
   };
-
+  useEffect(() => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    if (autoSaveCountdownRef.current)
+      clearInterval(autoSaveCountdownRef.current);
+    setAutoSaveWarning(false);
+    if (inv.cart.length === 0) return;
+    const elapsed = Date.now() - (inv.openedAt || Date.now());
+    const remaining = 10 * 60 * 1000 - elapsed;
+    if (remaining <= 0) return;
+    autoSaveTimerRef.current = setTimeout(() => {
+      setAutoSaveWarning(true);
+      setAutoSaveCountdown(180);
+      autoSaveCountdownRef.current = setInterval(() => {
+        setAutoSaveCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(autoSaveCountdownRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }, remaining);
+    return () => {
+      clearTimeout(autoSaveTimerRef.current);
+      clearInterval(autoSaveCountdownRef.current);
+    };
+  }, [activeTab, inv.cart.length]);
   const addTab = () => {
     if (invoices.length >= MAX_INVOICES) {
       showToast(`الحد الأقصى ${MAX_INVOICES} فواتير`, "error");
@@ -2327,7 +2359,16 @@ function POS({
             + فاتورة جديدة
           </button>
         )}
-      </div>
+      </div>{autoSaveWarning && (
+  <div style={{
+    background: "#2a1500", border: "1px solid #f59e0b", borderRadius: 10,
+    padding: "10px 16px", display: "flex", justifyContent: "space-between",
+    alignItems: "center", color: "#fcd34d", fontSize: 13,
+  }}>
+    <span>⚠️ الفاتورة مفتوحة أكثر من 10 دقائق — سيتم التنبيه خلال {Math.floor(autoSaveCountdown / 60)}:{String(autoSaveCountdown % 60).padStart(2, "0")}</span>
+    <button onClick={() => setAutoSaveWarning(false)} style={{ background: "transparent", border: "none", color: "#fcd34d", cursor: "pointer", fontSize: 16 }}>✕</button>
+  </div>
+)}
 
       <div
         style={{
@@ -2435,9 +2476,43 @@ function POS({
                   type="number"
                   placeholder="السعر..."
                   value={inv.jokerPrice}
-                  onChange={(e) =>
-                    setInv((p) => ({ ...p, jokerPrice: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setInv((p) => ({ ...p, search: e.target.value }));
+                    setHighlightedIdx(-1);
+                  }}
+                  onKeyDown={(e) => {
+                    const list = filtered.slice(0, 8);
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setHighlightedIdx((prev) =>
+                        Math.min(prev + 1, list.length - 1)
+                      );
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setHighlightedIdx((prev) => Math.max(prev - 1, 0));
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      const target =
+                        highlightedIdx >= 0 ? list[highlightedIdx] : list[0];
+                      if (target) {
+                        addToCart({ ...target, isPartial: false });
+                        setInv((p) => ({ ...p, search: "" }));
+                        setHighlightedIdx(-1);
+                      }
+                    } else if (e.key === "ArrowLeft") {
+                      e.preventDefault();
+                      const target =
+                        highlightedIdx >= 0 ? list[highlightedIdx] : list[0];
+                      if (target) {
+                        addToCart({ ...target, isMissed: true, qty: 1 });
+                        setInv((p) => ({ ...p, search: "" }));
+                        setHighlightedIdx(-1);
+                      }
+                    } else if (e.key === "Escape") {
+                      setInv((p) => ({ ...p, search: "" }));
+                      setHighlightedIdx(-1);
+                    }
+                  }}
                   style={{
                     width: "100%",
                     background: "#080e1a",
@@ -2519,14 +2594,21 @@ function POS({
                   marginTop: 4,
                 }}
               >
-                {filtered.slice(0, 8).map((p) => (
+                {filtered.slice(0, 8).map((p, idx) => (
                   <div
                     key={p.id}
                     style={{
                       padding: "8px 14px",
-                      opacity: p.stock === 0 ? 0.6 : 1,
+                      cursor:p.stock === 0 ? "not-allowed" : "pointer."
+                      opacity: p.stock === 0 ? 0.5 : 1,
                       borderBottom: "1px solid #1a2a3a",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      background: idx === highlightedIdx ? "#1a2a4a" : "transparent",
                     }}
+                    onMouseEnter={() => setHighlightedIdx(idx)}  
+                    onMouseLeave={() => setHighlightedIdx(-1)}
                   >
                     {/* الصف الأول: اسم الصنف والأزرار */}
                     <div
@@ -2881,13 +2963,64 @@ function POS({
                           -
                         </button>
                         <span
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === "ArrowRight") {
+                              e.preventDefault();
+                              setInv((p) => ({
+                                ...p,
+                                cart: p.cart.map((i) => {
+                                  if (i.id !== item.id) return i;
+                                  const prod = products.find(
+                                    (x) => x.id === i.id
+                                  );
+                                  const maxQty =
+                                    i.isPartial && i.unitDivision > 1
+                                      ? prod?.stock * i.unitDivision
+                                      : prod?.stock || 99;
+                                  const step = i.isPartial
+                                    ? 1 / i.unitDivision
+                                    : 1;
+                                  return {
+                                    ...i,
+                                    qty: Math.min(
+                                      Math.round((i.qty + step) * 10000) /
+                                        10000,
+                                      maxQty
+                                    ),
+                                  };
+                                }),
+                              }));
+                            } else if (e.key === "ArrowLeft") {
+                              e.preventDefault();
+                              setInv((p) => ({
+                                ...p,
+                                cart: p.cart.map((i) => {
+                                  if (i.id !== item.id) return i;
+                                  const step = i.isPartial
+                                    ? 1 / i.unitDivision
+                                    : 1;
+                                  return {
+                                    ...i,
+                                    qty: Math.max(
+                                      step,
+                                      Math.round((i.qty - step) * 10000) / 10000
+                                    ),
+                                  };
+                                }),
+                              }));
+                            }
+                          }}
                           style={{
                             fontSize: 13,
                             fontWeight: 700,
                             color: "#dde8ff",
                             minWidth: 20,
                             textAlign: "center",
+                            outline: "none",
+                            cursor: "default",
                           }}
+                          title="← → لتغيير الكمية"
                         >
                           {item.qty}
                         </span>
