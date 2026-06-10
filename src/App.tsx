@@ -1181,7 +1181,8 @@ export default function PharmacyPro() {
   const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
   const [toast, setToast] = useState(null);
-
+  const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
+  const [posActiveTab, setPosActiveTab] = useState(0);
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
@@ -1464,6 +1465,10 @@ export default function PharmacyPro() {
             currentUser={currentUser}
             currentShift={currentShift}
             showToast={showToast}
+            invoices={posInvoices}
+            setInvoices={setPosInvoices}
+            activeTab={posActiveTab}
+            setActiveTab={setPosActiveTab}
           />
         )}
         {tab === "purchase" && (
