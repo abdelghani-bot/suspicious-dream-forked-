@@ -2534,10 +2534,9 @@ function POS({
                   type="number"
                   placeholder="السعر..."
                   value={inv.jokerPrice}
-                  onChange={(e) => {
-                    setInv((p) => ({ ...p, search: e.target.value }));
-                    setHighlightedIdx(-1);
-                  }}
+                  onChange={(e) =>
+                    setInv((p) => ({ ...p, jokerPrice: e.target.value }))
+                  }
                   style={{
                     width: "100%",
                     background: "#080e1a",
