@@ -2291,7 +2291,7 @@ function POS({
   return (
     <div
       style={{
-        height: "calc(100vh - 100px)",
+        height: "calc(100vh - 60px)",
         display: "flex",
         flexDirection: "column",
         gap: 8,
@@ -2422,9 +2422,43 @@ function POS({
           <div style={{ position: "relative" }}>
             <input
               value={inv.search}
-              onChange={(e) =>
-                setInv((p) => ({ ...p, search: e.target.value }))
-              }
+              onChange={(e) => {
+                setInv((p) => ({ ...p, search: e.target.value }));
+                setHighlightedIdx(-1);
+              }}
+              onKeyDown={(e) => {
+                const list = filtered.slice(0, 8);
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setHighlightedIdx((prev) =>
+                    Math.min(prev + 1, list.length - 1)
+                  );
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setHighlightedIdx((prev) => Math.max(prev - 1, 0));
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  const target =
+                    highlightedIdx >= 0 ? list[highlightedIdx] : list[0];
+                  if (target) {
+                    addToCart({ ...target, isPartial: false });
+                    setInv((p) => ({ ...p, search: "" }));
+                    setHighlightedIdx(-1);
+                  }
+                } else if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  const target =
+                    highlightedIdx >= 0 ? list[highlightedIdx] : list[0];
+                  if (target) {
+                    addToCart({ ...target, isMissed: true, qty: 1 });
+                    setInv((p) => ({ ...p, search: "" }));
+                    setHighlightedIdx(-1);
+                  }
+                } else if (e.key === "Escape") {
+                  setInv((p) => ({ ...p, search: "" }));
+                  setHighlightedIdx(-1);
+                }
+              }}
               placeholder="🔍 ابحث عن صنف بالاسم أو الباركود..."
               style={{
                 width: "100%",
@@ -2503,39 +2537,6 @@ function POS({
                   onChange={(e) => {
                     setInv((p) => ({ ...p, search: e.target.value }));
                     setHighlightedIdx(-1);
-                  }}
-                  onKeyDown={(e) => {
-                    const list = filtered.slice(0, 8);
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      setHighlightedIdx((prev) =>
-                        Math.min(prev + 1, list.length - 1)
-                      );
-                    } else if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      setHighlightedIdx((prev) => Math.max(prev - 1, 0));
-                    } else if (e.key === "Enter") {
-                      e.preventDefault();
-                      const target =
-                        highlightedIdx >= 0 ? list[highlightedIdx] : list[0];
-                      if (target) {
-                        addToCart({ ...target, isPartial: false });
-                        setInv((p) => ({ ...p, search: "" }));
-                        setHighlightedIdx(-1);
-                      }
-                    } else if (e.key === "ArrowLeft") {
-                      e.preventDefault();
-                      const target =
-                        highlightedIdx >= 0 ? list[highlightedIdx] : list[0];
-                      if (target) {
-                        addToCart({ ...target, isMissed: true, qty: 1 });
-                        setInv((p) => ({ ...p, search: "" }));
-                        setHighlightedIdx(-1);
-                      }
-                    } else if (e.key === "Escape") {
-                      setInv((p) => ({ ...p, search: "" }));
-                      setHighlightedIdx(-1);
-                    }
                   }}
                   style={{
                     width: "100%",
@@ -2868,7 +2869,7 @@ function POS({
         </div>
 
         {/* السلة */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "6px 16px" }}>
+        <div style={{ flex: 2, overflowY: "auto", padding: "6px 16px" }}>
           {inv.cart.length === 0 ? (
             <div
               style={{
