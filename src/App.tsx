@@ -6599,7 +6599,6 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
     </div>
   );
 }
-// ==================== INVENTORY COUNT ====================
 function InventoryCount({
   products,
   setProducts,
@@ -6612,6 +6611,7 @@ function InventoryCount({
   const [countItems, setCountItems] = useState([]);
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedLog, setSelectedLog] = useState(null); // ✅ جديد
 
   const startCount = () => {
     setCountItems(
@@ -6628,7 +6628,6 @@ function InventoryCount({
   };
 
   const saveCount = async () => {
-    // 1️⃣ حفظ سجل الجرد
     const logData = {
       id: "INV-ADJ-" + String(inventoryLogs.length + 1).padStart(3, "0"),
       date: new Date().toISOString().split("T")[0],
@@ -6653,11 +6652,9 @@ function InventoryCount({
       return;
     }
 
-    // 2️⃣ حفظ التسويات وتحديث الـ stock
     const changedItems = countItems.filter((i) => i.actualQty !== i.systemQty);
 
     if (changedItems.length > 0) {
-      // حفظ في inventory_adjustments
       const adjustments = changedItems.map((i) => ({
         inventory_log_id: logData.id,
         product_id: i.id,
@@ -6675,7 +6672,6 @@ function InventoryCount({
         return;
       }
 
-      // تحديث الـ stock في products
       await Promise.all(
         changedItems.map((i) =>
           supabase
@@ -6686,7 +6682,6 @@ function InventoryCount({
       );
     }
 
-    // 3️⃣ تحديث الـ state
     setInventoryLogs((p) => [...p, logData]);
     setProducts((p) =>
       p.map((x) => {
@@ -6719,10 +6714,22 @@ function InventoryCount({
           بدء جرد جديد
         </Btn>
       </div>
+
       <Table
         headers={["رقم الجرد", "التاريخ", "بواسطة", "ملاحظات", "الفروقات"]}
         rows={inventoryLogs.map((l) => [
-          <span style={{ color: "#6aaeff", fontWeight: 700 }}>{l.id}</span>,
+          // ✅ رقم الجرد قابل للضغط
+          <span
+            style={{
+              color: "#6aaeff",
+              fontWeight: 700,
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+            onClick={() => setSelectedLog(l)}
+          >
+            {l.id}
+          </span>,
           l.date,
           l.by,
           l.notes || "-",
@@ -6735,6 +6742,138 @@ function InventoryCount({
           </span>,
         ])}
       />
+
+      {/* ✅ Modal عرض تفاصيل الجرد */}
+      <Modal
+        open={!!selectedLog}
+        onClose={() => setSelectedLog(null)}
+        title={`تفاصيل الجرد - ${selectedLog?.id}`}
+        wide
+      >
+        {selectedLog && (
+          <div>
+            <div
+              style={{
+                display: "flex",
+                gap: 24,
+                marginBottom: 16,
+                color: "#4a6a9a",
+                fontSize: 13,
+              }}
+            >
+              <span>📅 {selectedLog.date}</span>
+              <span>👤 {selectedLog.by}</span>
+              {selectedLog.notes && <span>📝 {selectedLog.notes}</span>}
+            </div>
+            <div
+              style={{
+                overflowX: "auto",
+                maxHeight: "55vh",
+                overflowY: "auto",
+              }}
+            >
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr
+                    style={{
+                      background: "#080e1a",
+                      position: "sticky",
+                      top: 0,
+                    }}
+                  >
+                    {["الصنف", "كمية النظام", "الكمية الفعلية", "الفرق"].map(
+                      (h) => (
+                        <th
+                          key={h}
+                          style={{
+                            padding: "9px 14px",
+                            textAlign: "right",
+                            color: "#4a6a9a",
+                            fontSize: 12,
+                          }}
+                        >
+                          {h}
+                        </th>
+                      )
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedLog.items.map((item, i) => {
+                    const changed = item.diff !== 0;
+                    return (
+                      <tr
+                        key={item.id}
+                        style={{
+                          borderBottom: "1px solid #0a101a",
+                          // ✅ الأصناف المتغيرة بخلفية مميزة
+                          background: changed
+                            ? item.diff < 0
+                              ? "rgba(255,100,100,0.08)"
+                              : "rgba(68,221,136,0.08)"
+                            : i % 2 === 0
+                            ? "transparent"
+                            : "#080e14",
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding: "8px 14px",
+                            fontSize: 13,
+                            color: changed ? "#dde8ff" : "#6a8aaa",
+                            fontWeight: changed ? 700 : 400,
+                          }}
+                        >
+                          {item.name}
+                          {changed && (
+                            <span
+                              style={{
+                                marginRight: 8,
+                                fontSize: 11,
+                                color: item.diff < 0 ? "#ff7777" : "#44dd88",
+                              }}
+                            >
+                              {item.diff < 0 ? "▼ نقص" : "▲ زيادة"}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "8px 14px", color: "#4a6a8a" }}>
+                          {item.systemQty}
+                        </td>
+                        <td style={{ padding: "8px 14px", color: "#dde8ff" }}>
+                          {item.actualQty}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 14px",
+                            fontWeight: 700,
+                            color:
+                              item.diff < 0
+                                ? "#ff7777"
+                                : item.diff > 0
+                                ? "#44dd88"
+                                : "#4a6a8a",
+                          }}
+                        >
+                          {item.diff > 0 ? "+" : ""}
+                          {item.diff}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop: 12, textAlign: "left" }}>
+              <Btn variant="ghost" onClick={() => setSelectedLog(null)}>
+                إغلاق
+              </Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal الجرد الجديد - بدون تغيير */}
       <Modal
         open={showNew}
         onClose={() => setShowNew(false)}
