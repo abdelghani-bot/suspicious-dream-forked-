@@ -6627,13 +6627,15 @@ function InventoryCount({
     setShowNew(true);
   };
 
-  const saveCount = () => {
-    const log = {
+  const saveCount = async () => {
+    // 1️⃣ حفظ سجل الجرد
+    const logData = {
       id: "INV-ADJ-" + String(inventoryLogs.length + 1).padStart(3, "0"),
       date: new Date().toISOString().split("T")[0],
       type: "جرد",
       items: countItems.map((i) => ({
         id: i.id,
+        name: i.name,
         systemQty: i.systemQty,
         actualQty: i.actualQty,
         diff: i.actualQty - i.systemQty,
@@ -6641,13 +6643,58 @@ function InventoryCount({
       notes,
       by: currentUser.name,
     };
-    setInventoryLogs((p) => [...p, log]);
+
+    const { error: logError } = await supabase
+      .from("inventory_logs")
+      .insert([logData]);
+
+    if (logError) {
+      showToast("❌ خطأ في حفظ الجرد: " + logError.message);
+      return;
+    }
+
+    // 2️⃣ حفظ التسويات وتحديث الـ stock
+    const changedItems = countItems.filter((i) => i.actualQty !== i.systemQty);
+
+    if (changedItems.length > 0) {
+      // حفظ في inventory_adjustments
+      const adjustments = changedItems.map((i) => ({
+        inventory_log_id: logData.id,
+        product_id: i.id,
+        quantity: i.actualQty - i.systemQty,
+        date: logData.date,
+        created_by: currentUser.name,
+      }));
+
+      const { error: adjError } = await supabase
+        .from("inventory_adjustments")
+        .insert(adjustments);
+
+      if (adjError) {
+        showToast("❌ خطأ في حفظ التسويات: " + adjError.message);
+        return;
+      }
+
+      // تحديث الـ stock في products
+      await Promise.all(
+        changedItems.map((i) =>
+          supabase
+            .from("products")
+            .update({ stock: i.actualQty })
+            .eq("id", i.id)
+        )
+      );
+    }
+
+    // 3️⃣ تحديث الـ state
+    setInventoryLogs((p) => [...p, logData]);
     setProducts((p) =>
       p.map((x) => {
-        const ci = countItems.find((i) => i.id === x.id);
+        const ci = changedItems.find((i) => i.id === x.id);
         return ci ? { ...x, stock: ci.actualQty } : x;
       })
     );
+
     setShowNew(false);
     setNotes("");
     showToast("تم حفظ الجرد وتحديث المخزون ✓");
