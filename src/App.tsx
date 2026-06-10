@@ -1962,9 +1962,11 @@ function POS({
   currentUser,
   currentShift,
   showToast,
+  invoices,
+  setInvoices,
+  activeTab,
+  setActiveTab,
 }) {
-  const [invoices, setInvoices] = useState([emptyInvoice()]);
-  const [activeTab, setActiveTab] = useState(0);
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
   const [fifoResults, setFifoResults] = useState({});
