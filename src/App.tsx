@@ -6629,7 +6629,7 @@ function InventoryCount({
 
   const saveCount = async () => {
     const logData = {
-      id: "INV-ADJ-" + String(inventoryLogs.length + 1).padStart(3, "0"),
+      id: "INV-ADJ-" + Date.now(),
       date: new Date().toISOString().split("T")[0],
       type: "جرد",
       items: countItems.map((i) => ({
