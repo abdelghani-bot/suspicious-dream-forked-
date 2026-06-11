@@ -1162,6 +1162,7 @@ export default function PharmacyPro() {
   const [customers, setCustomers] = useStorage("ph_customers", INIT_CUSTOMERS);
   const [sales, setSales] = useStorage("ph_sales", INIT_SALES);
   const [purchases, setPurchases] = useStorage("ph_purchases", INIT_PURCHASES);
+  const [creditPayments, setCreditPayments] = useState([]);
   useEffect(() => {
     supabase
       .from("purchases")
@@ -1187,7 +1188,7 @@ export default function PharmacyPro() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
-
+  const [creditPayments, setCreditPayments] = useState([]);
   const currentShift = shifts.find(
     (s) => !s.end && s.user === currentUser?.name
   );
@@ -1200,12 +1201,14 @@ export default function PharmacyPro() {
         supabase.from("sales").select("*"),
         supabase.from("purchases").select("*"),
         supabase.from("returns").select("*"),
+        supabase.from("credit_payments").select("*"),
       ]);
       if (p.data?.length) setProducts(p.data);
       if (s.data?.length) setSuppliers(s.data);
       if (c.data?.length) setCustomers(c.data);
       if (sa.data?.length) setSales(sa.data);
       if (ret.data?.length) setReturnsData(ret.data);
+      if (cp.data?.length) setCreditPayments(cp.data);
       if (pu.data?.length)
         setPurchases(
           pu.data.map((p) => ({
@@ -1602,11 +1605,16 @@ function Dashboard({
   shifts,
   currentUser,
   setTab,
+  creditPayments = [],
 }) {
   const alerts = useEssentialAlerts(products);
   const [showAlerts, setShowAlerts] = useState(false);
   const today = new Date().toISOString().split("T")[0];
   const todaySales = sales.filter((s) => s.date === today && !s.returned);
+  const todayCashSales = todaySales.filter((s) => s.payment !== "آجل");
+  const todayCreditPaid = creditPayments
+    .filter((p) => p.date === today)
+    .reduce((a, p) => a + p.amount, 0);
   const todayRev = todaySales.reduce((a, s) => a + s.total, 0);
   const lowStock = products.filter((p) => p.stock <= p.minStock);
   const expiringSoon = products.filter((p) => {
@@ -1664,10 +1672,16 @@ function Dashboard({
       >
         <StatCard
           label="مبيعات اليوم"
-          value={todayRev.toFixed(2) + " ر.س"}
+          value={todayRevWithCredit.toFixed(2) + " ر.س"}
           icon="money"
           color="#3a9aff"
-          sub={`${todaySales.length} فاتورة`}
+          sub={
+            todayCreditPaid > 0
+              ? `${todayCashSales.length} فاتورة + ${todayCreditPaid.toFixed(
+                  2
+                )} ر.س سداد آجل`
+              : `${todayCashSales.length} فاتورة`
+          }
         />
         <StatCard
           label="مبيعات الشهر"
@@ -9181,7 +9195,15 @@ function CreditTab({ customers, onPay }) {
     </div>
   );
 }
-function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
+function CustomersModule({
+  customers,
+  setCustomers,
+  showToast,
+  sales = [],
+  creditPayments,
+  setCreditPayments,
+  currentUser,
+}) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
