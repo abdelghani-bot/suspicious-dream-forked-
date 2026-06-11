@@ -1615,6 +1615,7 @@ function Dashboard({
     .filter((p) => p.date === today)
     .reduce((a, p) => a + p.amount, 0);
   const todayRev = todaySales.reduce((a, s) => a + s.total, 0);
+  const todayRevWithCredit = todayRev + todayCreditPaid;
   const lowStock = products.filter((p) => p.stock <= p.minStock);
   const expiringSoon = products.filter((p) => {
     const d = new Date(p.expiry);
