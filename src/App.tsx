@@ -2235,7 +2235,32 @@ function POS({
         }
       }
     }
-
+    // لو الدفع آجل، حفظ في credit_payments برصيد = 0
+    if (inv.payment === "آجل") {
+      await supabase.from("credit_payments").insert({
+        invoice_id: id,
+        customer_id: inv.selCustomer?.id || null,
+        amount: 0, // لسه ما اتدفعش
+        date: new Date().toISOString().split("T")[0],
+        notes: "فاتورة آجل",
+        created_by: currentUser.name,
+      });
+    }
+    if (inv.payment === "آجل") {
+      const { error: creditError } = await supabase
+        .from("credit_payments")
+        .insert({
+          invoice_id: id,
+          customer_id: inv.selCustomer?.id || null,
+          amount: 0,
+          date: new Date().toISOString().split("T")[0],
+          notes: "فاتورة آجل",
+          created_by: currentUser.name,
+        });
+      if (creditError) {
+        showToast("خطأ في حفظ الآجل: " + creditError.message, "error");
+      }
+    }
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = inv.cart.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
@@ -9073,6 +9098,90 @@ function SuppliersModule({
   );
 }
 
+function CreditTab({ customers, onPay }) {
+  const [creditData, setCreditData] = useState([]);
+
+  useEffect(() => {
+    const fetchCredit = async () => {
+      const { data: ajilSales } = await supabase
+        .from("sales")
+        .select("*")
+        .eq("payment", "آجل");
+
+      const { data: paid } = await supabase
+        .from("credit_payments")
+        .select("*");
+
+      const byCustomer = customers.map((c) => {
+        const cSales = ajilSales?.filter((s) => s.customer === c.id) || [];
+        const totalDebt = cSales.reduce((s, inv) => {
+          const totalPaid = paid
+            ?.filter((p) => p.invoice_id === inv.id)
+            .reduce((x, p) => x + p.amount, 0) || 0;
+          return s + (inv.total - totalPaid);
+        }, 0);
+        return { ...c, totalDebt, invoiceCount: cSales.length };
+      }).filter((c) => c.totalDebt > 0);
+
+      setCreditData(byCustomer);
+    };
+    fetchCredit();
+  }, []);
+
+  return (
+    <div>
+      <h3 style={{ color: "#dde8ff", marginBottom: 14 }}>
+        💳 مديونية العملاء
+      </h3>
+      {creditData.length === 0 ? (
+        <div style={{ color: "#3a5a8a", textAlign: "center", padding: 40 }}>
+          لا توجد مديونيات
+        </div>
+      ) : (
+        creditData.map((c) => (
+          <div
+            key={c.id}
+            style={{
+              background: "#0f1623",
+              border: "1px solid #2a1010",
+              borderRadius: 12,
+              padding: "12px 16px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, color: "#dde8ff" }}>{c.name}</div>
+              <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+                {c.invoiceCount} فاتورة آجل •{" "}
+                <span style={{ color: "#ff7777" }}>
+                  متبقي: {c.totalDebt.toFixed(2)} ر.س
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => onPay(c)}
+              style={{
+                background: "#0a2a1a",
+                border: "1px solid #1a4a2a",
+                borderRadius: 8,
+                padding: "6px 14px",
+                color: "#44dd88",
+                fontSize: 12,
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+            >
+              💰 سداد
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
 function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -9081,6 +9190,11 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
   const [filterVip, setFilterVip] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [expandedCard, setExpandedCard] = useState(null);
+  const [creditInvoices, setCreditInvoices] = useState([]);
+  const [showCredit, setShowCredit] = useState(false);
+  const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
 
   const blank = {
     id: "",
@@ -9096,6 +9210,83 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+  const openCreditModal = async (customer) => {
+    setSelectedCreditCustomer(customer);
+
+    // جلب كل فواتير الآجل بتاعة العميل
+    const { data: ajilSales } = await supabase
+      .from("sales")
+      .select("*")
+      .eq("customer", customer.id)
+      .eq("payment", "آجل");
+
+    // جلب المدفوع منها
+    const { data: paid } = await supabase
+      .from("credit_payments")
+      .select("*")
+      .eq("customer_id", customer.id);
+
+    // حساب الباقي لكل فاتورة
+    const invoicesWithBalance = ajilSales
+      ?.map((inv) => {
+        const totalPaid =
+          paid
+            ?.filter((p) => p.invoice_id === inv.id)
+            .reduce((s, p) => s + p.amount, 0) || 0;
+        return {
+          ...inv,
+          totalPaid,
+          remaining: inv.total - totalPaid,
+        };
+      })
+      .filter((inv) => inv.remaining > 0); // الفواتير المفتوحة بس
+
+    setCreditInvoices(invoicesWithBalance || []);
+    setShowCredit(true);
+  };
+
+  const payCreditInvoice = async () => {
+    if (!selectedInvoice || !payAmount) return;
+
+    const amount = parseFloat(payAmount);
+    if (amount <= 0 || amount > selectedInvoice.remaining) {
+      showToast("المبلغ غير صحيح", "error");
+      return;
+    }
+
+    const { error } = await supabase.from("credit_payments").insert({
+      invoice_id: selectedInvoice.id,
+      customer_id: selectedCreditCustomer.id,
+      amount,
+      date: new Date().toISOString().split("T")[0],
+      notes: "سداد جزئي/كامل",
+      created_by: currentUser?.name || "",
+    });
+
+    if (error) {
+      showToast("خطأ في السداد: " + error.message, "error");
+      return;
+    }
+
+    // تحديث الفواتير
+    setCreditInvoices((p) =>
+      p
+        .map((inv) =>
+          inv.id === selectedInvoice.id
+            ? {
+                ...inv,
+                totalPaid: inv.totalPaid + amount,
+                remaining: inv.remaining - amount,
+              }
+            : inv
+        )
+        .filter((inv) => inv.remaining > 0)
+    );
+
+    setPayAmount("");
+    setSelectedInvoice(null);
+    showToast("تم تسجيل السداد ✓");
+  };
 
   // ===== حساب إحصائيات العميل من المبيعات الفعلية =====
   const now = new Date();
@@ -9722,7 +9913,24 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
             value: inactiveCount,
             color: "#ff4444",
             icon: "💤",
-          },
+          },{/* كارت مديونية العملاء */}
+          <div
+            onClick={() => setActiveTab("credit")}
+            style={{
+              background: "#0f1623",
+              border: "1px solid #3a1010",
+              borderRadius: 12,
+              padding: "14px 16px",
+              cursor: "pointer",
+              gridColumn: "span 4",
+            }}
+          >
+            <div style={{ fontSize: 20, marginBottom: 4 }}>💳</div>
+            <div style={{ color: "#ff7777", fontWeight: 800, fontSize: 18 }}>
+              مديونية العملاء
+            </div>
+            <div style={{ color: "#4a6a8a", fontSize: 11 }}>اضغط لعرض التفاصيل</div>
+          </div>
         ].map((item) => (
           <div
             key={item.label}
@@ -9762,6 +9970,9 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
         <button style={tabBtn("charts")} onClick={() => setActiveTab("charts")}>
           📊 الرسوم البيانية
         </button>
+        <button style={tabBtn("credit")} onClick={() => setActiveTab("credit")}>
+  💳 المديونيات
+</button>
       </div>
 
       {/* ===== تبويب: كل العملاء ===== */}
@@ -10158,7 +10369,103 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
           />
         </div>
       )}
+{activeTab === "credit" && (
+  <CreditTab
+    customers={enriched}
+    onPay={openCreditModal}
+  />
+)}
+<Modal
+  open={showCredit}
+  onClose={() => { setShowCredit(false); setSelectedInvoice(null); setPayAmount(""); }}
+  title={`مديونية - ${selectedCreditCustomer?.name}`}
+  wide
+>
+  {creditInvoices.length === 0 ? (
+    <div style={{ color: "#44dd88", textAlign: "center", padding: 20 }}>
+      ✅ لا توجد مديونيات
+    </div>
+  ) : (
+    <>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16 }}>
+        <thead>
+          <tr style={{ background: "#080e1a" }}>
+            {["رقم الفاتورة", "التاريخ", "الإجمالي", "المدفوع", "المتبقي", ""].map((h) => (
+              <th key={h} style={{ padding: "8px 12px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {creditInvoices.map((inv) => (
+            <tr
+              key={inv.id}
+              onClick={() => setSelectedInvoice(inv)}
+              style={{
+                borderBottom: "1px solid #0a101a",
+                cursor: "pointer",
+                background: selectedInvoice?.id === inv.id ? "#0a1a3a" : "transparent",
+              }}
+            >
+              <td style={{ padding: "8px 12px", color: "#6aaeff", fontWeight: 700 }}>{inv.id}</td>
+              <td style={{ padding: "8px 12px", color: "#7a9aaa" }}>{inv.date}</td>
+              <td style={{ padding: "8px 12px", color: "#dde8ff" }}>{inv.total.toFixed(2)}</td>
+              <td style={{ padding: "8px 12px", color: "#44dd88" }}>{inv.totalPaid.toFixed(2)}</td>
+              <td style={{ padding: "8px 12px", color: "#ff7777", fontWeight: 700 }}>{inv.remaining.toFixed(2)}</td>
+              <td style={{ padding: "8px 12px" }}>
+                <span style={{ color: "#3a6a9a", fontSize: 11 }}>اختر</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
+      {selectedInvoice && (
+        <div style={{ background: "#080e1a", borderRadius: 10, padding: 14 }}>
+          <div style={{ color: "#dde8ff", marginBottom: 10, fontSize: 13 }}>
+            سداد فاتورة <span style={{ color: "#6aaeff" }}>{selectedInvoice.id}</span> •
+            المتبقي: <span style={{ color: "#ff7777" }}>{selectedInvoice.remaining.toFixed(2)} ر.س</span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="number"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              placeholder="المبلغ المدفوع..."
+              max={selectedInvoice.remaining}
+              style={{
+                flex: 1,
+                background: "#0f1623",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                padding: "8px 12px",
+                color: "#dde8ff",
+                fontSize: 14,
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={() => setPayAmount(String(selectedInvoice.remaining))}
+              style={{
+                background: "#0a1a3a",
+                border: "1px solid #1d3a6a",
+                borderRadius: 8,
+                padding: "8px 12px",
+                color: "#5a9aff",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              سداد كامل
+            </button>
+            <Btn icon="check" onClick={payCreditInvoice}>تأكيد</Btn>
+          </div>
+        </div>
+      )}
+    </>
+  )}
+</Modal>
       {/* مودال الإضافة/التعديل */}
       <Modal
         open={showForm}
