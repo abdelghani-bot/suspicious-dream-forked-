@@ -1537,6 +1537,7 @@ export default function PharmacyPro() {
             setCustomers={setCustomers}
             showToast={showToast}
             sales={sales}
+            setSales={setSales}
             creditPayments={creditPayments}
             setCreditPayments={setCreditPayments}
             currentUser={currentUser}
@@ -9203,6 +9204,7 @@ function CustomersModule({
   setCustomers,
   showToast,
   sales = [],
+  setSales,
   creditPayments,
   setCreditPayments,
   currentUser,
