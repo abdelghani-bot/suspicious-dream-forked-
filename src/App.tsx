@@ -9108,20 +9108,21 @@ function CreditTab({ customers, onPay }) {
         .select("*")
         .eq("payment", "آجل");
 
-      const { data: paid } = await supabase
-        .from("credit_payments")
-        .select("*");
+      const { data: paid } = await supabase.from("credit_payments").select("*");
 
-      const byCustomer = customers.map((c) => {
-        const cSales = ajilSales?.filter((s) => s.customer === c.id) || [];
-        const totalDebt = cSales.reduce((s, inv) => {
-          const totalPaid = paid
-            ?.filter((p) => p.invoice_id === inv.id)
-            .reduce((x, p) => x + p.amount, 0) || 0;
-          return s + (inv.total - totalPaid);
-        }, 0);
-        return { ...c, totalDebt, invoiceCount: cSales.length };
-      }).filter((c) => c.totalDebt > 0);
+      const byCustomer = customers
+        .map((c) => {
+          const cSales = ajilSales?.filter((s) => s.customer === c.id) || [];
+          const totalDebt = cSales.reduce((s, inv) => {
+            const totalPaid =
+              paid
+                ?.filter((p) => p.invoice_id === inv.id)
+                .reduce((x, p) => x + p.amount, 0) || 0;
+            return s + (inv.total - totalPaid);
+          }, 0);
+          return { ...c, totalDebt, invoiceCount: cSales.length };
+        })
+        .filter((c) => c.totalDebt > 0);
 
       setCreditData(byCustomer);
     };
@@ -9130,9 +9131,7 @@ function CreditTab({ customers, onPay }) {
 
   return (
     <div>
-      <h3 style={{ color: "#dde8ff", marginBottom: 14 }}>
-        💳 مديونية العملاء
-      </h3>
+      <h3 style={{ color: "#dde8ff", marginBottom: 14 }}>💳 مديونية العملاء</h3>
       {creditData.length === 0 ? (
         <div style={{ color: "#3a5a8a", textAlign: "center", padding: 40 }}>
           لا توجد مديونيات
@@ -9913,24 +9912,7 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
             value: inactiveCount,
             color: "#ff4444",
             icon: "💤",
-          },{/* كارت مديونية العملاء */}
-          <div
-            onClick={() => setActiveTab("credit")}
-            style={{
-              background: "#0f1623",
-              border: "1px solid #3a1010",
-              borderRadius: 12,
-              padding: "14px 16px",
-              cursor: "pointer",
-              gridColumn: "span 4",
-            }}
-          >
-            <div style={{ fontSize: 20, marginBottom: 4 }}>💳</div>
-            <div style={{ color: "#ff7777", fontWeight: 800, fontSize: 18 }}>
-              مديونية العملاء
-            </div>
-            <div style={{ color: "#4a6a8a", fontSize: 11 }}>اضغط لعرض التفاصيل</div>
-          </div>
+          },
         ].map((item) => (
           <div
             key={item.label}
@@ -9948,6 +9930,26 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
             <div style={{ color: "#4a6a8a", fontSize: 11 }}>{item.label}</div>
           </div>
         ))}
+        {/* كارت مديونية العملاء */}
+        <div
+          onClick={() => setActiveTab("credit")}
+          style={{
+            background: "#0f1623",
+            border: "1px solid #3a1010",
+            borderRadius: 12,
+            padding: "14px 16px",
+            cursor: "pointer",
+            gridColumn: "span 4",
+          }}
+        >
+          <div style={{ fontSize: 20, marginBottom: 4 }}>💳</div>
+          <div style={{ color: "#ff7777", fontWeight: 800, fontSize: 18 }}>
+            مديونية العملاء
+          </div>
+          <div style={{ color: "#4a6a8a", fontSize: 11 }}>
+            اضغط لعرض التفاصيل
+          </div>
+        </div>
       </div>
 
       {/* التبويبات */}
@@ -9971,8 +9973,8 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
           📊 الرسوم البيانية
         </button>
         <button style={tabBtn("credit")} onClick={() => setActiveTab("credit")}>
-  💳 المديونيات
-</button>
+          💳 المديونيات
+        </button>
       </div>
 
       {/* ===== تبويب: كل العملاء ===== */}
@@ -10369,103 +10371,164 @@ function CustomersModule({ customers, setCustomers, showToast, sales = [] }) {
           />
         </div>
       )}
-{activeTab === "credit" && (
-  <CreditTab
-    customers={enriched}
-    onPay={openCreditModal}
-  />
-)}
-<Modal
-  open={showCredit}
-  onClose={() => { setShowCredit(false); setSelectedInvoice(null); setPayAmount(""); }}
-  title={`مديونية - ${selectedCreditCustomer?.name}`}
-  wide
->
-  {creditInvoices.length === 0 ? (
-    <div style={{ color: "#44dd88", textAlign: "center", padding: 20 }}>
-      ✅ لا توجد مديونيات
-    </div>
-  ) : (
-    <>
-      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16 }}>
-        <thead>
-          <tr style={{ background: "#080e1a" }}>
-            {["رقم الفاتورة", "التاريخ", "الإجمالي", "المدفوع", "المتبقي", ""].map((h) => (
-              <th key={h} style={{ padding: "8px 12px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {creditInvoices.map((inv) => (
-            <tr
-              key={inv.id}
-              onClick={() => setSelectedInvoice(inv)}
-              style={{
-                borderBottom: "1px solid #0a101a",
-                cursor: "pointer",
-                background: selectedInvoice?.id === inv.id ? "#0a1a3a" : "transparent",
-              }}
-            >
-              <td style={{ padding: "8px 12px", color: "#6aaeff", fontWeight: 700 }}>{inv.id}</td>
-              <td style={{ padding: "8px 12px", color: "#7a9aaa" }}>{inv.date}</td>
-              <td style={{ padding: "8px 12px", color: "#dde8ff" }}>{inv.total.toFixed(2)}</td>
-              <td style={{ padding: "8px 12px", color: "#44dd88" }}>{inv.totalPaid.toFixed(2)}</td>
-              <td style={{ padding: "8px 12px", color: "#ff7777", fontWeight: 700 }}>{inv.remaining.toFixed(2)}</td>
-              <td style={{ padding: "8px 12px" }}>
-                <span style={{ color: "#3a6a9a", fontSize: 11 }}>اختر</span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {selectedInvoice && (
-        <div style={{ background: "#080e1a", borderRadius: 10, padding: 14 }}>
-          <div style={{ color: "#dde8ff", marginBottom: 10, fontSize: 13 }}>
-            سداد فاتورة <span style={{ color: "#6aaeff" }}>{selectedInvoice.id}</span> •
-            المتبقي: <span style={{ color: "#ff7777" }}>{selectedInvoice.remaining.toFixed(2)} ر.س</span>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              type="number"
-              value={payAmount}
-              onChange={(e) => setPayAmount(e.target.value)}
-              placeholder="المبلغ المدفوع..."
-              max={selectedInvoice.remaining}
-              style={{
-                flex: 1,
-                background: "#0f1623",
-                border: "1px solid #1d2d4a",
-                borderRadius: 8,
-                padding: "8px 12px",
-                color: "#dde8ff",
-                fontSize: 14,
-                outline: "none",
-              }}
-            />
-            <button
-              onClick={() => setPayAmount(String(selectedInvoice.remaining))}
-              style={{
-                background: "#0a1a3a",
-                border: "1px solid #1d3a6a",
-                borderRadius: 8,
-                padding: "8px 12px",
-                color: "#5a9aff",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              سداد كامل
-            </button>
-            <Btn icon="check" onClick={payCreditInvoice}>تأكيد</Btn>
-          </div>
-        </div>
+      {activeTab === "credit" && (
+        <CreditTab customers={enriched} onPay={openCreditModal} />
       )}
-    </>
-  )}
-</Modal>
+      <Modal
+        open={showCredit}
+        onClose={() => {
+          setShowCredit(false);
+          setSelectedInvoice(null);
+          setPayAmount("");
+        }}
+        title={`مديونية - ${selectedCreditCustomer?.name}`}
+        wide
+      >
+        {creditInvoices.length === 0 ? (
+          <div style={{ color: "#44dd88", textAlign: "center", padding: 20 }}>
+            ✅ لا توجد مديونيات
+          </div>
+        ) : (
+          <>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                marginBottom: 16,
+              }}
+            >
+              <thead>
+                <tr style={{ background: "#080e1a" }}>
+                  {[
+                    "رقم الفاتورة",
+                    "التاريخ",
+                    "الإجمالي",
+                    "المدفوع",
+                    "المتبقي",
+                    "",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 12px",
+                        textAlign: "right",
+                        color: "#4a6a9a",
+                        fontSize: 12,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {creditInvoices.map((inv) => (
+                  <tr
+                    key={inv.id}
+                    onClick={() => setSelectedInvoice(inv)}
+                    style={{
+                      borderBottom: "1px solid #0a101a",
+                      cursor: "pointer",
+                      background:
+                        selectedInvoice?.id === inv.id
+                          ? "#0a1a3a"
+                          : "transparent",
+                    }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 12px",
+                        color: "#6aaeff",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {inv.id}
+                    </td>
+                    <td style={{ padding: "8px 12px", color: "#7a9aaa" }}>
+                      {inv.date}
+                    </td>
+                    <td style={{ padding: "8px 12px", color: "#dde8ff" }}>
+                      {inv.total.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px 12px", color: "#44dd88" }}>
+                      {inv.totalPaid.toFixed(2)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 12px",
+                        color: "#ff7777",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {inv.remaining.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px 12px" }}>
+                      <span style={{ color: "#3a6a9a", fontSize: 11 }}>
+                        اختر
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {selectedInvoice && (
+              <div
+                style={{ background: "#080e1a", borderRadius: 10, padding: 14 }}
+              >
+                <div
+                  style={{ color: "#dde8ff", marginBottom: 10, fontSize: 13 }}
+                >
+                  سداد فاتورة{" "}
+                  <span style={{ color: "#6aaeff" }}>{selectedInvoice.id}</span>{" "}
+                  • المتبقي:{" "}
+                  <span style={{ color: "#ff7777" }}>
+                    {selectedInvoice.remaining.toFixed(2)} ر.س
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="number"
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(e.target.value)}
+                    placeholder="المبلغ المدفوع..."
+                    max={selectedInvoice.remaining}
+                    style={{
+                      flex: 1,
+                      background: "#0f1623",
+                      border: "1px solid #1d2d4a",
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      color: "#dde8ff",
+                      fontSize: 14,
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={() =>
+                      setPayAmount(String(selectedInvoice.remaining))
+                    }
+                    style={{
+                      background: "#0a1a3a",
+                      border: "1px solid #1d3a6a",
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      color: "#5a9aff",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    سداد كامل
+                  </button>
+                  <Btn icon="check" onClick={payCreditInvoice}>
+                    تأكيد
+                  </Btn>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Modal>
       {/* مودال الإضافة/التعديل */}
       <Modal
         open={showForm}
