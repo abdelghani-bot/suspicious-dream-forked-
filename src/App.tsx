@@ -1453,6 +1453,7 @@ export default function PharmacyPro() {
             shifts={shifts}
             currentUser={currentUser}
             setTab={setTab}
+            creditPayments={creditPayments}
           />
         )}
         {tab === "pos" && (
@@ -2251,32 +2252,6 @@ function POS({
         if (stockError) {
           showToast("خطأ في تحديث المخزون: " + stockError.message, "error");
         }
-      }
-    }
-    // لو الدفع آجل، حفظ في credit_payments برصيد = 0
-    if (inv.payment === "آجل") {
-      await supabase.from("credit_payments").insert({
-        invoice_id: id,
-        customer_id: inv.selCustomer?.id || null,
-        amount: 0, // لسه ما اتدفعش
-        date: new Date().toISOString().split("T")[0],
-        notes: "فاتورة آجل",
-        created_by: currentUser.name,
-      });
-    }
-    if (inv.payment === "آجل") {
-      const { error: creditError } = await supabase
-        .from("credit_payments")
-        .insert({
-          invoice_id: id,
-          customer_id: inv.selCustomer?.id || null,
-          amount: 0,
-          date: new Date().toISOString().split("T")[0],
-          notes: "فاتورة آجل",
-          created_by: currentUser.name,
-        });
-      if (creditError) {
-        showToast("خطأ في حفظ الآجل: " + creditError.message, "error");
       }
     }
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
