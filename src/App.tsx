@@ -1188,7 +1188,6 @@ export default function PharmacyPro() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
-  const [creditPayments, setCreditPayments] = useState([]);
   const currentShift = shifts.find(
     (s) => !s.end && s.user === currentUser?.name
   );
