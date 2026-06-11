@@ -1537,6 +1537,9 @@ export default function PharmacyPro() {
             setCustomers={setCustomers}
             showToast={showToast}
             sales={sales}
+            creditPayments={creditPayments}
+            setCreditPayments={setCreditPayments}
+            currentUser={currentUser}
           />
         )}
         {tab === "reports" && (
