@@ -9291,7 +9291,23 @@ function CustomersModule({
       showToast("خطأ في السداد: " + error.message, "error");
       return;
     }
+    // إضافة السداد في مبيعات اليوم
+    const paymentRecord = {
+      id: "PAY-" + Date.now(),
+      date: new Date().toISOString().split("T")[0],
+      created_at: new Date().toISOString(),
+      customer: selectedCreditCustomer.id,
+      payment: "تحصيل آجل",
+      total: amount,
+      subtotal: amount,
+      tax: 0,
+      items: [],
+      notes: `تحصيل فاتورة ${selectedInvoice.id}`,
+      returned: false,
+    };
 
+    await supabase.from("sales").insert(paymentRecord);
+    setSales((p) => [...p, paymentRecord]);
     // تحديث الفواتير
     setCreditInvoices((p) =>
       p
