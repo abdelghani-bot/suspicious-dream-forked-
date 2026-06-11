@@ -1193,7 +1193,7 @@ export default function PharmacyPro() {
   );
   useEffect(() => {
     const loadData = async () => {
-      const [p, s, c, sa, pu, ret] = await Promise.all([
+      const [p, s, c, sa, pu, ret, cp] = await Promise.all([
         supabase.from("products").select("*"),
         supabase.from("suppliers").select("*"),
         supabase.from("customers").select("*"),
