@@ -7117,24 +7117,25 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   });
 
   const openEdit = (p) => {
-    setEditing(p.id);
-    setForm({
-      ...blank,
-      ...p,
-      nameAr: p.nameAr || p.name || "",
-      nameEn: p.nameEn || "",
-      price: String(p.price),
-      cost: String(p.cost),
-      minStock: String(p.minStock || ""),
-      maxStock: String(p.maxStock || ""),
-      unitDivision: p.unitDivision || 1,
-      mainCategory: p.mainCategory || "دواء",
-      subCategory1: p.subCategory1 || "",
-      subCategory2: p.subCategory2 || "",
-    });
-    setShowForm(true);
-  };
-
+  setEditing(p.id);
+  setForm({
+    ...blank,
+    ...p,
+    nameAr: p.nameAr || p.name_ar || p.name || "",
+    nameEn: p.nameEn || p.name_en || "",
+    price: String(p.price),
+    cost: String(p.cost),
+    minStock: String(p.min_stock || p.minStock || ""),
+    maxStock: String(p.max_stock || p.maxStock || ""),
+    unitDivision: p.unit_division || p.unitDivision || 1,
+    mainCategory: p.main_category || p.mainCategory || "دواء",
+    subCategory1: p.sub_category1 || p.subCategory1 || "",
+    subCategory2: p.sub_category2 || p.subCategory2 || "",
+    activeIngredient: p.active_ingredient || p.activeIngredient || "",
+    isEssential: p.is_essential ?? p.isEssential ?? false, // ✅ هذا هو الحل
+  });
+  setShowForm(true);
+};
   const openAdd = () => {
     setEditing(null);
     setForm({
