@@ -1633,10 +1633,24 @@ function Dashboard({
 
   // حساب دخل اليوم حسب القسم
   const getItemCategory = (item) => {
-    if (item.category) return item.category;
-    const product = products.find((p) => p.id === item.id);
-    return product?.main_category || product?.category || "أخرى";
-  };
+  if (item.category) {
+    // لو القسم دواء، نشوف مزمن ولا لأ
+    if (item.category === "دواء") {
+      const product = products.find((p) => p.id === item.id);
+      if (product?.is_chronic) return "دواء مزمن";
+      return "دواء غير مزمن";
+    }
+    return item.category;
+  }
+  // fallback من products
+  const product = products.find((p) => p.id === item.id);
+  if (!product) return "أخرى";
+  if (product.main_category === "دواء" || product.category === "دواء") {
+    if (product.is_chronic) return "دواء مزمن";
+    return "دواء غير مزمن";
+  }
+  return product.main_category || product.category || "أخرى";
+};
 
   const calcCategoryRevenue = (salesList) => {
     const map = {};
