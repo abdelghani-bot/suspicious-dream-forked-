@@ -7176,14 +7176,30 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     };
 
     if (editing) {
-      await supabase.from("products").update(p).eq("id", editing);
+      const { error } = await supabase
+        .from("products")
+        .update(p)
+        .eq("id", editing);
+      if (error) {
+        showToast("خطأ في التعديل: " + error.message, "error");
+        return;
+      }
       setProducts((prev) =>
         prev.map((x) => (x.id === editing ? { ...x, ...p } : x))
       );
     } else {
-      await supabase.from("products").insert(p);
-      setProducts((prev) => [...prev, { ...p, stock: 0 }]);
+      // ✅ استخدم .select() عشان ترجع البيانات الفعلية من Supabase
+      const { data, error } = await supabase
+        .from("products")
+        .insert(p)
+        .select();
+      if (error) {
+        showToast("خطأ في الإضافة: " + error.message, "error");
+        return;
+      }
+      setProducts((prev) => [...prev, data[0]]);
     }
+
     setShowForm(false);
     showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
   };
