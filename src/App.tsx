@@ -2221,6 +2221,7 @@ function POS({
           i.expiry ||
           newFifoResults[i.id]?.soldBatches?.[0]?.expiry_date ||
           null,
+        category: i.main_category || i.mainCategory || i.category || "أخرى", // ✅ أضف هذ
       })),
       subtotal,
       tax_amount: taxAmount,
