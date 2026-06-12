@@ -7264,7 +7264,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
         />
         <StatCard
           label="أدوية أساسية"
-          value={products.filter((p) => p.isEssential).length}
+          value={products.filter((p) => p.is_essential || p.isEssential).length}
           icon="pill"
           color="#f59e0b"
         />
