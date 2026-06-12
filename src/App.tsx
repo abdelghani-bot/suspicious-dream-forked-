@@ -1634,37 +1634,44 @@ function Dashboard({
   // حساب دخل اليوم حسب القسم
   const getItemCategory = (item) => {
   if (item.category) {
-    // لو القسم دواء، نشوف مزمن ولا لأ
-    if (item.category === "دواء") {
-      const product = products.find((p) => p.id === item.id);
-      if (product?.is_chronic) return "دواء مزمن";
-      return "دواء غير مزمن";
-    }
-    return item.category;
+    // نتأكد إنه قسم رئيسي
+    const mainCats = ["دواء", "كوزمتك عادي", "كوزمتك طبي", "مستلزمات أطفال", "مستلزمات طبية"];
+    if (mainCats.includes(item.category)) return item.category;
   }
   // fallback من products
   const product = products.find((p) => p.id === item.id);
-  if (!product) return "أخرى";
-  if (product.main_category === "دواء" || product.category === "دواء") {
-    if (product.is_chronic) return "دواء مزمن";
-    return "دواء غير مزمن";
-  }
-  return product.main_category || product.category || "أخرى";
+  const main = product?.main_category || product?.category;
+  return main || "أخرى";
 };
-
-  const calcCategoryRevenue = (salesList) => {
-    const map = {};
-    salesList.forEach((s) => {
-      if (s.payment === "آجل") return;
-      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
-      items.forEach((item) => {
-        const cat = getItemCategory(item);
-        const amt = (item.price || 0) * (item.qty || 1);
-        map[cat] = (map[cat] || 0) + amt;
-      });
+  const calcCategoryRevenue = (salesList, detailed = false) => {
+  const map = {};
+  salesList.forEach((s) => {
+    if (s.payment === "آجل") return;
+    const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+    items.forEach((item) => {
+      const product = products.find((p) => p.id === item.id);
+      let cat;
+      if (detailed) {
+        // لو مستلزمات أطفال → نظهر القسم الفرعي
+        const main = product?.main_category || item.category;
+        if (main === "مستلزمات أطفال") {
+          cat = product?.sub_category2 || "مستلزمات أطفال";
+        } else {
+          cat = main || "أخرى";
+        }
+      } else {
+        cat = product?.main_category || item.category || "أخرى";
+      }
+      const mainCats = ["دواء", "كوزمتك عادي", "كوزمتك طبي", "مستلزمات أطفال", "مستلزمات طبية"];
+      if (!detailed && !mainCats.includes(cat)) {
+        cat = product?.main_category || "أخرى";
+      }
+      const amt = (item.price || 0) * (item.qty || 1);
+      map[cat] = (map[cat] || 0) + amt;
     });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  };
+  });
+  return Object.entries(map).sort((a, b) => b[1] - a[1]);
+};
 
   const todayCategoryRev = calcCategoryRevenue(todayCashSales);
 
