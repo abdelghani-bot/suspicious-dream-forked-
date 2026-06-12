@@ -7229,6 +7229,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     activeIngredient: "",
     concentration: "",
     isEssential: false,
+    isChronic: false,
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -7271,7 +7272,8 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     subCategory1: p.sub_category1 || p.subCategory1 || "",
     subCategory2: p.sub_category2 || p.subCategory2 || "",
     activeIngredient: p.active_ingredient || p.activeIngredient || "",
-    isEssential: p.is_essential ?? p.isEssential ?? false, // ✅ هذا هو الحل
+    isEssential: p.is_essential ?? p.isEssential ?? false, 
+    isChronic: p.is_chronic ?? false,
   });
   setShowForm(true);
 };
@@ -7309,6 +7311,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       active_ingredient: form.activeIngredient,
       concentration: form.concentration,
       is_essential: form.isEssential,
+      is_chronic: form.isChronic,
     };
 
     if (editing) {
@@ -7477,7 +7480,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
           >
             {p.taxable ? "15%" : "معفى"}
           </Badge>,
-          p.isEssential ? (
+          (p.is_essential || p.isEssential) ? (
             <Badge color="#2a1a00" text="#f59e0b">
               ⭐ أساسي
             </Badge>
@@ -7683,6 +7686,17 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
               onChange={(e) => F("isEssential", e.target.checked)}
               style={{ width: 16, height: 16, cursor: "pointer" }}
             />
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+  <label style={{ color: "#44aaff", fontSize: 13, fontWeight: 600 }}>
+    🔄 دواء مزمن (تذكير بإعادة الصرف)
+  </label>
+  <input
+    type="checkbox"
+    checked={form.isChronic}
+    onChange={(e) => F("isChronic", e.target.checked)}
+    style={{ width: 16, height: 16, cursor: "pointer" }}
+  />
+</div>
           </div>
         </div>
 
