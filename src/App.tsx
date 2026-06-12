@@ -7314,7 +7314,15 @@ const MAIN_CATEGORIES = {
     sub2: ["جهاز طبي", "عناية بالجروح", "وقاية"],
   },
 };
-
+const SUPPLY_CATEGORIES = [
+  "دواء",
+  "مستلزمات طبية", 
+  "كوزمتك عادي",
+  "كوزمتك طبي",
+  "حليب أطفال",
+  "حفاضات",
+  "رضاعات ومستلزمات الرضاعة",
+];
 function ProductsModule({ products, setProducts, suppliers, showToast }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -7339,6 +7347,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     concentration: "",
     isEssential: false,
     isChronic: false,
+    supply_category: "",
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -7383,6 +7392,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     activeIngredient: p.active_ingredient || p.activeIngredient || "",
     isEssential: p.is_essential ?? p.isEssential ?? false, 
     isChronic: p.is_chronic ?? false,
+    supply_category: p.supply_category || "",
   });
   setShowForm(true);
 };
@@ -7421,6 +7431,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       concentration: form.concentration,
       is_essential: form.isEssential,
       is_chronic: form.isChronic,
+      supply_category: form.supply_category,
     };
 
     if (editing) {
@@ -7673,6 +7684,12 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
             onChange={handleMainCategoryChange}
             options={Object.keys(MAIN_CATEGORIES)}
           />
+          <Select
+  label="فئة التوريد"
+  value={form.supply_category}
+  onChange={(v) => F("supply_category", v)}
+  options={["", ...SUPPLY_CATEGORIES]}
+/>
 
           {/* الفئة الفرعية 1 - تظهر فقط للدواء */}
           {currentCat.sub1.length > 0 && (
@@ -7868,6 +7885,8 @@ function SuppliersModule({
     credit_limit: 0,
     payment_terms: 30,
     whatsapp: "",
+    opening_balance: 0,
+supply_categories: [],
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -7926,11 +7945,14 @@ function SuppliersModule({
   };
 
   // ========== المستحقات ==========
-  const getSupplierDebt = (supplierId) => {
-    return purchases
-      .filter((p) => p.supplier === supplierId && p.payment_status !== "مسددة")
-      .reduce((s, p) => s + (p.total - (p.paid || 0)), 0);
-  };
+ const getSupplierDebt = (supplierId) => {
+  const supplier = suppliers.find(s => s.id === supplierId);
+  const openingBalance = supplier?.opening_balance || 0;
+  const invoicesDebt = purchases
+    .filter((p) => p.supplier === supplierId && p.payment_status !== "مسددة")
+    .reduce((s, p) => s + (p.total - (p.paid || 0)), 0);
+  return openingBalance + invoicesDebt;
+};
 
   // ========== أيام الاستحقاق لكل فاتورة ==========
   const getDueDays = (po, supplier) => {
@@ -8089,9 +8111,24 @@ function SuppliersModule({
     }
 
     // الأصناف الناقصة
-    const lowStock = (products || []).filter(
-      (p) => p.stock <= (p.min_stock || p.minStock || 0)
-    );
+    const supplierCategories = supplier.supply_categories || [];
+const lowStock = (products || []).filter((p) => {
+  const belowMin = p.stock <= (p.min_stock || p.minStock || 0);
+  if (!belowMin) return false;
+  // لو المورد ما عندوش فئات محددة، استخدم المنطق القديم
+  if (supplierCategories.length === 0) return true;
+  // لو الصنف عنده فئة توريد تطابق المورد
+  const productCategory = p.supply_category || "";
+  if (productCategory && supplierCategories.includes(productCategory)) return true;
+  // fallback: لو الصنف مش عنده فئة، اعتمد على آخر مورد
+  if (!productCategory) {
+    const lastPurchase = purchases
+      .filter(pu => pu.items?.some(i => i.id === p.id))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    return lastPurchase?.supplier === supplier.id;
+  }
+  return false;
+});
 
     // احسب الكمية المطلوبة لكل صنف بناءً على معدل الحركة
     const items = lowStock
@@ -8227,6 +8264,8 @@ function SuppliersModule({
       credit_limit: s.credit_limit || 0,
       payment_terms: s.payment_terms || 30,
       whatsapp: s.whatsapp || "",
+      opening_balance: s.opening_balance || 0,
+supply_categories: s.supply_categories || [],
     });
     setShowForm(true);
   };
@@ -8246,6 +8285,8 @@ function SuppliersModule({
       credit_limit: +form.credit_limit || 0,
       payment_terms: +form.payment_terms || 30,
       whatsapp: form.whatsapp,
+      supply_categories: form.supply_categories,
+opening_balance: +form.opening_balance || 0,
     };
     if (editing) {
       const { error } = await supabase
@@ -8588,6 +8629,18 @@ function SuppliersModule({
                     </Badge>
                   </div>
                 )}
+                {(s.supply_categories || []).length > 0 && (
+  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+    {s.supply_categories.map(cat => (
+      <Badge key={cat} color="#0a2040" text="#3a9aff">{cat}</Badge>
+    ))}
+  </div>
+)}
+{(s.opening_balance || 0) > 0 && (
+  <div style={{ fontSize: 11, color: "#ffaa44", marginBottom: 8 }}>
+    رصيد أول المدة: {s.opening_balance.toFixed(2)} ر.س
+  </div>
+)}
                 {s.payment_terms && (
                   <div style={{ fontSize: 11, color: "#5a7a9a" }}>
                     ⏱ شروط الدفع: {s.payment_terms} يوم
@@ -9346,6 +9399,68 @@ function SuppliersModule({
             </div>
           </div>
         </div>
+        {/* رصيد أول المدة */}
+<div>
+  <label style={{ fontSize: 12, color: "#4a6a8a", display: "block", marginBottom: 6 }}>
+    رصيد أول المدة (ر.س)
+  </label>
+  <input
+    type="number"
+    min="0"
+    value={form.opening_balance}
+    onChange={(e) => F("opening_balance", +e.target.value)}
+    style={{
+      width: "100%",
+      background: "#080e1a",
+      border: "1px solid #1d2d4a",
+      borderRadius: 8,
+      padding: "9px 12px",
+      color: "#dde8ff",
+      fontSize: 13,
+      outline: "none",
+      boxSizing: "border-box",
+    }}
+  />
+</div>
+
+{/* فئات التوريد */}
+<div style={{ gridColumn: "1 / -1" }}>
+  <label style={{ fontSize: 12, color: "#4a6a8a", display: "block", marginBottom: 8 }}>
+    فئات التوريد
+  </label>
+  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+    {SUPPLY_CATEGORIES.map((cat) => {
+      const selected = (form.supply_categories || []).includes(cat);
+      return (
+        <button
+          key={cat}
+          type="button"
+          onClick={() => {
+            const current = form.supply_categories || [];
+            F("supply_categories", 
+              selected 
+                ? current.filter(c => c !== cat)
+                : [...current, cat]
+            );
+          }}
+          style={{
+            padding: "6px 14px",
+            borderRadius: 20,
+            border: "1px solid",
+            borderColor: selected ? "#3a9aff" : "#1d2d4a",
+            background: selected ? "#0a2040" : "transparent",
+            color: selected ? "#3a9aff" : "#4a6a8a",
+            fontSize: 12,
+            cursor: "pointer",
+            fontWeight: selected ? 700 : 400,
+          }}
+        >
+          {selected ? "✓ " : ""}{cat}
+        </button>
+      );
+    })}
+  </div>
+</div>
         <div
           style={{
             display: "flex",
