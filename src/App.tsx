@@ -1622,8 +1622,6 @@ function Dashboard({
   const todaySales = sales.filter((s) => s.date === today && !s.returned);
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
   const todayAjilSales = todaySales.filter((s) => s.payment === "آجل");
-  const todayCreditCollected = todaySales.filter((s) => s.payment === "تحصيل آجل")
-    .reduce((a, s) => a + s.total, 0);
   const todayCreditPaid = creditPayments
     .filter((p) => p.date === today)
     .reduce((a, p) => a + p.amount, 0);
@@ -1631,47 +1629,23 @@ function Dashboard({
   const todayAjilTotal = todayAjilSales.reduce((a, s) => a + s.total, 0);
   const todayRevWithCredit = todayRev + todayCreditPaid;
 
-  // حساب دخل اليوم حسب القسم
-  const getItemCategory = (item) => {
-  if (item.category) {
-    // نتأكد إنه قسم رئيسي
-    const mainCats = ["دواء", "كوزمتك عادي", "كوزمتك طبي", "مستلزمات أطفال", "مستلزمات طبية"];
-    if (mainCats.includes(item.category)) return item.category;
-  }
-  // fallback من products
-  const product = products.find((p) => p.id === item.id);
-  const main = product?.main_category || product?.category;
-  return main || "أخرى";
-};
-  const calcCategoryRevenue = (salesList, detailed = false) => {
-  const map = {};
-  salesList.forEach((s) => {
-    if (s.payment === "آجل") return;
-    const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
-    items.forEach((item) => {
-      const product = products.find((p) => p.id === item.id);
-      let cat;
-      if (detailed) {
-        // لو مستلزمات أطفال → نظهر القسم الفرعي
-        const main = product?.main_category || item.category;
-        if (main === "مستلزمات أطفال") {
-          cat = product?.sub_category2 || "مستلزمات أطفال";
-        } else {
-          cat = main || "أخرى";
-        }
-      } else {
-        cat = product?.main_category || item.category || "أخرى";
-      }
-      const mainCats = ["دواء", "كوزمتك عادي", "كوزمتك طبي", "مستلزمات أطفال", "مستلزمات طبية"];
-      if (!detailed && !mainCats.includes(cat)) {
-        cat = product?.main_category || "أخرى";
-      }
-      const amt = (item.price || 0) * (item.qty || 1);
-      map[cat] = (map[cat] || 0) + amt;
+  const MAIN_CATS = ["دواء", "كوزمتك عادي", "كوزمتك طبي", "مستلزمات أطفال", "مستلزمات طبية"];
+
+  const calcCategoryRevenue = (salesList) => {
+    const map = {};
+    salesList.forEach((s) => {
+      if (s.payment === "آجل") return;
+      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+      items.forEach((item) => {
+        const product = products.find((p) => p.id === item.id);
+        let cat = product?.main_category || item.category || "أخرى";
+        if (!MAIN_CATS.includes(cat)) cat = "أخرى";
+        const amt = (item.price || 0) * (item.qty || 1);
+        map[cat] = (map[cat] || 0) + amt;
+      });
     });
-  });
-  return Object.entries(map).sort((a, b) => b[1] - a[1]);
-};
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  };
 
   const todayCategoryRev = calcCategoryRevenue(todayCashSales);
 
@@ -1706,14 +1680,14 @@ function Dashboard({
     const mSales = sales.filter((s) => s.date?.startsWith(mk) && !s.returned);
     const mCash = mSales.filter((s) => s.payment !== "آجل");
     const mRev = mCash.reduce((a, s) => a + s.total, 0);
-    const mPurchases = purchases.filter((p) =>
-      (p.created_at || p.date || "").startsWith(mk)
-    ).reduce((a, p) => a + (p.total || 0), 0);
+    const mPurchases = purchases
+      .filter((p) => (p.created_at || p.date || "").startsWith(mk))
+      .reduce((a, p) => a + (p.total || 0), 0);
     const mCreditPaid = creditPayments
       .filter((p) => p.date?.startsWith(mk))
       .reduce((a, p) => a + p.amount, 0);
     const mProfit = mRev - mPurchases;
-    const label = new Date(mk + "-01").toLocaleDateString("ar-SA", {
+    const label = new Date(mk + "-01").toLocaleDateString("ar-EG", {
       month: "short", year: "2-digit",
     });
     return { mk, label, mRev, mPurchases, mCreditPaid, mProfit };
@@ -1728,7 +1702,6 @@ function Dashboard({
     return (d - now) / (1000 * 60 * 60 * 24) < 90 && d > now;
   });
 
-  // مكون بار بسيط
   const MiniBar = ({ label, value, total, color }) => (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -1795,7 +1768,6 @@ function Dashboard({
           </div>
           {showTodayDetails && (
             <div style={{ marginTop: 12, borderTop: "1px solid #1d2d4a", paddingTop: 10 }}>
-              {/* تفاصيل اليوم */}
               <div style={{ marginBottom: 10 }}>
                 <div style={{ color: "#dde8ff", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
                   📊 توزيع الأقسام
@@ -1980,8 +1952,15 @@ function Dashboard({
         {/* مخزون منخفض */}
         {lowStock.length > 0 && (
           <div style={{ background: "#0f1623", border: "1px solid #3a2000", borderRadius: 14, padding: 18 }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: "#ffaa44", display: "flex", alignItems: "center", gap: 8 }}>
-              <IC n="alert" s={16} /> مخزون منخفض ({lowStock.length} صنف)
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: "#ffaa44", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <IC n="alert" s={16} />
+              <span>مخزون منخفض ({lowStock.length} صنف</span>
+              {products.length > 0 && (
+                <span style={{ color: "#ff7744", fontSize: 12, fontWeight: 600 }}>
+                  — {((lowStock.length / products.length) * 100).toFixed(1)}% من الإجمالي
+                </span>
+              )}
+              <span>)</span>
             </h3>
             {lowStock.map((p) => (
               <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #111a20" }}>
@@ -2007,7 +1986,7 @@ function Dashboard({
           </div>
         )}
 
-        {/* كارت تنبيهات الأدوية الأساسية — أصغر */}
+        {/* تنبيهات الأدوية الأساسية */}
         {alerts.length > 0 && (
           <div
             onClick={() => setShowAlertsModal(true)}
@@ -2038,25 +2017,6 @@ function Dashboard({
             </span>
           </div>
         )}
-
-        {/* آخر المبيعات */}
-        <div style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 14, padding: 18 }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: "#dde8ff" }}>
-            آخر المبيعات
-          </h3>
-          {sales.slice(-5).reverse().map((s) => (
-            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #111a20" }}>
-              <div>
-                <div style={{ fontSize: 13, color: "#c0d0f0" }}>{s.id}</div>
-                <div style={{ fontSize: 11, color: "#3a5a8a" }}>{s.customer_name || "زبون عادي"}</div>
-              </div>
-              <div style={{ textAlign: "left" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#3a9aff" }}>{s.total.toFixed(2)} ر.س</div>
-                <div style={{ fontSize: 11, color: "#3a5a8a" }}>{s.date}</div>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* مودال تنبيهات الأدوية الأساسية */}
