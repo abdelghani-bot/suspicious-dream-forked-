@@ -1617,8 +1617,40 @@ function Dashboard({
   const [showTodayDetails, setShowTodayDetails] = useState(false);
   const [showMonthDetails, setShowMonthDetails] = useState(false);
   const [showMonthsComparison, setShowMonthsComparison] = useState(false);
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
+
+  // ── فرص ضائعة ──
+  const [missedToday, setMissedToday] = useState({ count: 0, value: 0 });
+  const [missedMonth, setMissedMonth] = useState({ count: 0, value: 0 });
 
   const today = new Date().toISOString().split("T")[0];
+  const monthKey = today.substring(0, 7);
+
+  useEffect(() => {
+    const fetchMissed = async () => {
+      // اليوم
+      const { data: todayData } = await supabase
+        .from("missed_sales")
+        .select("price, qty")
+        .eq("date", today);
+      if (todayData) {
+        const value = todayData.reduce((s, r) => s + (r.price || 0) * (r.qty || 1), 0);
+        setMissedToday({ count: todayData.length, value });
+      }
+      // الشهر
+      const { data: monthData } = await supabase
+        .from("missed_sales")
+        .select("price, qty")
+        .gte("date", monthKey + "-01")
+        .lte("date", monthKey + "-31");
+      if (monthData) {
+        const value = monthData.reduce((s, r) => s + (r.price || 0) * (r.qty || 1), 0);
+        setMissedMonth({ count: monthData.length, value });
+      }
+    };
+    fetchMissed();
+  }, [today, monthKey]);
+
   const todaySales = sales.filter((s) => s.date === today && !s.returned);
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
   const todayAjilSales = todaySales.filter((s) => s.payment === "آجل");
@@ -1649,8 +1681,6 @@ function Dashboard({
 
   const todayCategoryRev = calcCategoryRevenue(todayCashSales);
 
-  // مبيعات الشهر
-  const monthKey = today.substring(0, 7);
   const monthSales = sales.filter(
     (s) => s.date && s.date.startsWith(monthKey) && !s.returned
   );
@@ -1664,7 +1694,6 @@ function Dashboard({
     .filter((s) => s.payment === "آجل")
     .reduce((a, s) => a + s.total, 0);
 
-  // مقارنة الأشهر — آخر 6 أشهر
   const getLast6Months = () => {
     const months = [];
     for (let i = 5; i >= 0; i--) {
@@ -1744,8 +1773,8 @@ function Dashboard({
         <Btn onClick={() => setTab("pos")} icon="pos" size="lg">نقطة البيع</Btn>
       </div>
 
-      {/* الكاردات الرئيسية */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
+      {/* الكاردات الرئيسية — صف 1 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 14 }}>
         {/* كارت مبيعات اليوم */}
         <div
           onClick={() => setShowTodayDetails(!showTodayDetails)}
@@ -1851,6 +1880,83 @@ function Dashboard({
         <StatCard label="العملاء المسجلون" value={customers.length} icon="customers" color="#fb923c" />
       </div>
 
+      {/* صف 2 — فرص ضائعة + مخزون منخفض */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 20 }}>
+
+        {/* فرص ضائعة اليوم */}
+        <div style={{
+          background: "#0f1623",
+          border: "1px solid #3a2000",
+          borderRadius: 14, padding: 16,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ color: "#4a6a8a", fontSize: 12 }}>فرص ضائعة اليوم</span>
+            <span style={{ fontSize: 16 }}>⚠️</span>
+          </div>
+          <div style={{ color: "#ffaa44", fontWeight: 900, fontSize: 20 }}>
+            {missedToday.value.toFixed(2)} ر.س
+          </div>
+          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
+            {missedToday.count} صنف مفقود
+          </div>
+        </div>
+
+        {/* فرص ضائعة الشهر */}
+        <div style={{
+          background: "#0f1623",
+          border: "1px solid #3a2000",
+          borderRadius: 14, padding: 16,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ color: "#4a6a8a", fontSize: 12 }}>فرص ضائعة الشهر</span>
+            <span style={{ fontSize: 16 }}>📉</span>
+          </div>
+          <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 20 }}>
+            {missedMonth.value.toFixed(2)} ر.س
+          </div>
+          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
+            {missedMonth.count} صنف مفقود
+          </div>
+        </div>
+
+        {/* مخزون منخفض — نسبة فقط + ضغط للتفاصيل */}
+        <div
+          onClick={() => lowStock.length > 0 && setShowLowStockModal(true)}
+          style={{
+            background: "#0f1623",
+            border: "1px solid #3a2000",
+            borderRadius: 14, padding: 16,
+            cursor: lowStock.length > 0 ? "pointer" : "default",
+            transition: "all 0.2s",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ color: "#4a6a8a", fontSize: 12 }}>مخزون منخفض</span>
+            <IC n="alert" s={16} color="#ffaa44" />
+          </div>
+          <div style={{ color: "#ffaa44", fontWeight: 900, fontSize: 20 }}>
+            {products.length > 0
+              ? ((lowStock.length / products.length) * 100).toFixed(1)
+              : "0.0"}%
+          </div>
+          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
+            {lowStock.length} صنف من أصل {products.length}
+            {lowStock.length > 0 && (
+              <span style={{ color: "#ffaa44", marginRight: 6 }}>• اضغط للتفاصيل</span>
+            )}
+          </div>
+          {/* شريط بصري للنسبة */}
+          <div style={{ background: "#080e1a", borderRadius: 4, height: 5, marginTop: 10 }}>
+            <div style={{
+              background: lowStock.length / products.length > 0.2 ? "#ff4444" : "#ffaa44",
+              height: "100%", borderRadius: 4,
+              width: `${products.length > 0 ? (lowStock.length / products.length) * 100 : 0}%`,
+              transition: "width 0.5s",
+            }} />
+          </div>
+        </div>
+      </div>
+
       {/* زر مقارنة الأشهر */}
       <div style={{ marginBottom: 16 }}>
         <button
@@ -1913,7 +2019,6 @@ function Dashboard({
               </tbody>
             </table>
           </div>
-          {/* بار شارت بصري */}
           <div style={{ marginTop: 16 }}>
             <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 8 }}>
               📊 مقارنة بصرية (المبيعات vs المشتريات)
@@ -1949,28 +2054,6 @@ function Dashboard({
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        {/* مخزون منخفض */}
-        {lowStock.length > 0 && (
-          <div style={{ background: "#0f1623", border: "1px solid #3a2000", borderRadius: 14, padding: 18 }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: "#ffaa44", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <IC n="alert" s={16} />
-              <span>مخزون منخفض ({lowStock.length} صنف</span>
-              {products.length > 0 && (
-                <span style={{ color: "#ff7744", fontSize: 12, fontWeight: 600 }}>
-                  — {((lowStock.length / products.length) * 100).toFixed(1)}% من الإجمالي
-                </span>
-              )}
-              <span>)</span>
-            </h3>
-            {lowStock.map((p) => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #111a20" }}>
-                <span style={{ fontSize: 13, color: "#c0d0f0" }}>{p.name}</span>
-                <Badge color="#3a1500" text="#ffaa44">{p.stock} / {p.min_stock || p.minStock}</Badge>
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* تنتهي قريباً */}
         {expiringSoon.length > 0 && (
           <div style={{ background: "#0f1623", border: "1px solid #3a1000", borderRadius: 14, padding: 18 }}>
@@ -2019,7 +2102,52 @@ function Dashboard({
         )}
       </div>
 
-      {/* مودال تنبيهات الأدوية الأساسية */}
+      {/* Modal تفاصيل المخزون المنخفض */}
+      <Modal
+        open={showLowStockModal}
+        onClose={() => setShowLowStockModal(false)}
+        title={`⚠️ أصناف المخزون المنخفض (${lowStock.length} صنف)`}
+      >
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1d2d4a", marginBottom: 8 }}>
+            <span style={{ color: "#4a6a8a", fontSize: 12, fontWeight: 700 }}>الصنف</span>
+            <div style={{ display: "flex", gap: 24 }}>
+              <span style={{ color: "#4a6a8a", fontSize: 12, fontWeight: 700 }}>المخزون الحالي</span>
+              <span style={{ color: "#4a6a8a", fontSize: 12, fontWeight: 700 }}>الحد الأدنى</span>
+            </div>
+          </div>
+          {lowStock.map((p) => {
+            const min = p.min_stock || p.minStock || 0;
+            const pct = min > 0 ? Math.min((p.stock / min) * 100, 100) : 0;
+            return (
+              <div key={p.id} style={{ padding: "10px 0", borderBottom: "1px solid #0a101a" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, color: "#c0d0f0", fontWeight: 600 }}>{p.name}</span>
+                  <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+                    <span style={{
+                      color: p.stock === 0 ? "#ff4444" : "#ffaa44",
+                      fontWeight: 700, fontSize: 13,
+                    }}>
+                      {p.stock === 0 ? "نفد" : p.stock}
+                    </span>
+                    <span style={{ color: "#4a6a8a", fontSize: 13 }}>{min}</span>
+                  </div>
+                </div>
+                <div style={{ background: "#080e1a", borderRadius: 4, height: 5 }}>
+                  <div style={{
+                    background: p.stock === 0 ? "#ff4444" : "#ffaa44",
+                    height: "100%", borderRadius: 4,
+                    width: `${pct}%`,
+                    transition: "width 0.4s",
+                  }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
+
+      {/* Modal تنبيهات الأدوية الأساسية */}
       <Modal
         open={showAlertsModal}
         onClose={() => setShowAlertsModal(false)}
