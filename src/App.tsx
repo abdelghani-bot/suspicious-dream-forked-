@@ -8129,7 +8129,14 @@ const lowStock = (products || []).filter((p) => {
   }
   return false;
 });
-
+console.log("supplierCategories:", targetSupplier.supply_categories);
+console.log("products sample:", (products || []).slice(0,3).map(p => ({
+  name: p.name,
+  stock: p.stock,
+  min_stock: p.min_stock,
+  supply_category: p.supply_category,
+  belowMin: p.stock <= (p.min_stock || p.minStock || 0)
+})));
     // احسب الكمية المطلوبة لكل صنف بناءً على معدل الحركة
     const items = lowStock
       .map((p) => {
