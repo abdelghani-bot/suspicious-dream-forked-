@@ -8111,7 +8111,7 @@ supply_categories: [],
     }
 
     // الأصناف الناقصة
-    const supplierCategories = supplier.supply_categories || [];
+    const supplierCategories = targetSupplier.supply_categories || [];
 const lowStock = (products || []).filter((p) => {
   const belowMin = p.stock <= (p.min_stock || p.minStock || 0);
   if (!belowMin) return false;
