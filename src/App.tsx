@@ -1526,11 +1526,15 @@ export default function PharmacyPro() {
         )}
         {tab === "suppliers" && (
           <SuppliersModule
-            suppliers={suppliers}
-            setSuppliers={setSuppliers}
-            purchases={purchases}
-            showToast={showToast}
-          />
+  suppliers={suppliers}
+  setSuppliers={setSuppliers}
+  purchases={purchases}
+  setPurchases={setPurchases}
+  products={products}
+  sales={sales}
+  showToast={showToast}
+  onCreateOrder={onCreateOrder}
+/>
         )}
         {tab === "customers" && (
           <CustomersModule
