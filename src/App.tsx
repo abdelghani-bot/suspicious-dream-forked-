@@ -1177,7 +1177,16 @@ export default function PharmacyPro() {
     "ph_inventory",
     INIT_INVENTORY
   );
-  const [shifts, setShifts] = useStorage("ph_shifts", INIT_SHIFTS);
+  const [shifts, setShifts] = useState([]);
+  useEffect(() => {
+  supabase
+    .from("shifts")
+    .select("*")
+    .order("start", { ascending: false })
+    .then(({ data }) => {
+      if (data) setShifts(data);
+    });
+}, []);
   const [users] = useStorage("ph_users", INIT_USERS);
   const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
@@ -11702,47 +11711,59 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
     : [];
   const shiftRevenue = shiftSales.reduce((a, s) => a + s.total, 0);
 
-  const openShift = () => {
-    if (currentShift) {
-      showToast("يوجد شفت مفتوح بالفعل", "warn");
-      return;
-    }
-    const sh = {
-      id: "SH-" + String(shifts.length + 1).padStart(3, "0"),
-      user: currentUser.name,
-      role: currentUser.role,
-      start: new Date().toLocaleString("ar-SA"),
-      end: null,
-      openCash: +openCash,
-      closeCash: null,
-      sales: 0,
-      notes: "",
-    };
-    setShifts((p) => [...p, sh]);
-    showToast("تم فتح الشفت ✓");
+  const openShift = async () => {
+  if (currentShift) {
+    showToast("يوجد شفت مفتوح بالفعل", "warn");
+    return;
+  }
+  const sh = {
+    id: "SH-" + String(shifts.length + 1).padStart(3, "0"),
+    user: currentUser.name,
+    role: currentUser.role,
+    start: new Date().toISOString(),
+    end: null,
+    open_cash: +openCash,
+    close_cash: null,
+    sales: 0,
+    notes: "",
   };
 
-  const closeShift = () => {
-    if (!closeCash) {
-      showToast("يرجى إدخال النقد الفعلي عند الإغلاق", "error");
-      return;
-    }
-    setShifts((p) =>
-      p.map((s) =>
-        s.id === currentShift.id
-          ? {
-              ...s,
-              end: new Date().toLocaleString("ar-SA"),
-              closeCash: +closeCash,
-              sales: shiftRevenue,
-              notes,
-            }
-          : s
-      )
-    );
-    showToast("تم إغلاق الشفت وتسليمه ✓");
+  const { error } = await supabase.from("shifts").insert(sh);
+  if (error) {
+    showToast("فشل فتح الشفت: " + error.message, "error");
+    return;
+  }
+  setShifts((p) => [...p, sh]);
+  showToast("تم فتح الشفت ✓");
+};
+  const closeShift = async () => {
+  if (!closeCash) {
+    showToast("يرجى إدخال النقد الفعلي عند الإغلاق", "error");
+    return;
+  }
+  const updates = {
+    end: new Date().toISOString(),
+    close_cash: +closeCash,
+    sales: shiftRevenue,
+    notes,
   };
 
+  const { error } = await supabase
+    .from("shifts")
+    .update(updates)
+    .eq("id", currentShift.id);
+
+  if (error) {
+    showToast("فشل إغلاق الشفت: " + error.message, "error");
+    return;
+  }
+  setShifts((p) =>
+    p.map((s) =>
+      s.id === currentShift.id ? { ...s, ...updates } : s
+    )
+  );
+  showToast("تم إغلاق الشفت وتسليمه ✓");
+};
   return (
     <div>
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
