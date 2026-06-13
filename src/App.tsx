@@ -9688,6 +9688,13 @@ function CustomersModule({
 
     await supabase.from("sales").insert(paymentRecord);
     setSales((p) => [...p, paymentRecord]);
+    setCreditPayments((p) => [...p, {
+  invoice_id: selectedInvoice.id,
+  customer_id: selectedCreditCustomer.id,
+  amount,
+  date: new Date().toISOString().split("T")[0],
+  notes: "سداد جزئي/كامل",
+}]);
     // تحديث الفواتير
     setCreditInvoices((p) =>
       p
