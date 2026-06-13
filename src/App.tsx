@@ -2489,6 +2489,7 @@ function POS({
     }
 
     for (const ci of inv.cart) {
+      if (ci.isMissed) continue;
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
         const { updatedBatches } = newFifoResults[ci.id] || {};
@@ -2530,7 +2531,7 @@ function POS({
 
     setProducts((p) =>
       p.map((x) => {
-        const ci = inv.cart.find((i) => i.id === x.id);
+        const ci = inv.cart.find((i) => i.id === x.id && !i.isMissed);
         if (!ci) return x;
         const { updatedBatches } = newFifoResults[x.id] || {};
         return {
