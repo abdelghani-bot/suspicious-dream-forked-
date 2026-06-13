@@ -1182,7 +1182,7 @@ export default function PharmacyPro() {
   supabase
     .from("shifts")
     .select("*")
-    .order("start", { ascending: false })
+    .order("start_time", { ascending: false })
     .then(({ data }) => {
       if (data) setShifts(data);
     });
@@ -11704,8 +11704,8 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
   const [notes, setNotes] = useState("");
 
   const currentShift = shifts.find(
-    (s) => !s.end && s.user === currentUser.name
-  );
+  (s) => !s.end_time && s.user === currentUser?.name
+);
   const shiftSales = currentShift
     ? sales.filter((s) => s.shift === currentShift.id)
     : [];
@@ -11717,16 +11717,16 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
     return;
   }
   const sh = {
-    id: "SH-" + String(shifts.length + 1).padStart(3, "0"),
-    user: currentUser.name,
-    role: currentUser.role,
-    start: new Date().toISOString(),
-    end: null,
-    open_cash: +openCash,
-    close_cash: null,
-    sales: 0,
-    notes: "",
-  };
+  id: "SH-" + String(shifts.length + 1).padStart(3, "0"),
+  user: currentUser.name,
+  role: currentUser.role,
+  start_time: new Date().toISOString(),
+  end_time: null,
+  open_cash: +openCash,
+  close_cash: null,
+  sales: 0,
+  notes: "",
+};
 
   const { error } = await supabase.from("shifts").insert(sh);
   if (error) {
@@ -11742,11 +11742,11 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
     return;
   }
   const updates = {
-    end: new Date().toISOString(),
-    close_cash: +closeCash,
-    sales: shiftRevenue,
-    notes,
-  };
+  end_time: new Date().toISOString(),
+  close_cash: +closeCash,
+  sales: shiftRevenue,
+  notes,
+};
 
   const { error } = await supabase
     .from("shifts")
@@ -11849,7 +11849,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
             >
               <div style={{ color: "#3a6a3a", fontSize: 11 }}>بداية الشفت</div>
               <div style={{ color: "#dde8ff", fontSize: 13, marginTop: 4 }}>
-                {currentShift.start}
+                {currentShift.start_time}
               </div>
             </div>
             <div
@@ -11926,7 +11926,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
               }}
             >
               فرق النقد:{" "}
-              {(+closeCash - currentShift.openCash - shiftRevenue).toFixed(2)}{" "}
+              {(+closeCash - currentShift.open_cash - shiftRevenue).toFixed(2)}{" "}
               ر.س
             </div>
           )}
@@ -11955,14 +11955,14 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
         rows={[...shifts].reverse().map((s) => [
           <span style={{ color: "#6aaeff", fontWeight: 700 }}>{s.id}</span>,
           s.user,
-          s.start,
-          s.end || "-",
-          s.openCash + " ر.س",
+          s.start_time,
+          s.end_time || "-",
+          s.open_cash + " ر.س",
           <span style={{ color: "#3a9aff", fontWeight: 700 }}>
             {(s.sales || 0).toFixed(2)} ر.س
           </span>,
-          s.closeCash ? s.closeCash + " ر.س" : "-",
-          s.end ? (
+          s.close_cash ? s.close_cash + " ر.س" : "-",
+          s.end_time ? (
             <Badge color="#0a2a10" text="#44dd88">
               مغلق
             </Badge>
