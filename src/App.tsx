@@ -1211,16 +1211,7 @@ export default function PharmacyPro() {
         supabase.from("returns").select("*"),
         supabase.from("credit_payments").select("*"),
       ]);
-      if (p.data?.length) setProducts(p.data.map((p) => ({
-  ...p,
-  name: p.name || "",
-  name_ar: p.name_ar || "",
-  name_en: p.name_en || "",
-  barcode: p.barcode || "",
-  id: p.id || "",
-  category: p.category || "",
-  main_category: p.main_category || "",
-})));
+      if (p.data?.length) setProducts(p.data);
       if (s.data?.length) setSuppliers(s.data);
       if (c.data?.length) setCustomers(c.data);
       if (sa.data?.length) setSales(sa.data);
@@ -6986,7 +6977,7 @@ function InventoryCount({
   };
 
   const filtered = countItems.filter(
-    (i) =>( i.name||"").includes(search) || (i.category||"").includes(search)
+    (i) => (i.name||"").includes(search) || (i.category||"").includes(search)
   );
 
   return (
@@ -9740,7 +9731,7 @@ function CustomersModule({
   const filtered = enriched.filter((c) => {
     const s = c.stats;
     return (
-      (c.name.includes(search) || c.phone.includes(search)) &&
+      ((c.name||"").includes(search) || (c.phone||"").includes(search)) &&
       (filterVip === "all" || s?.vipLevel === filterVip) &&
       (filterStatus === "all" || s?.status === filterStatus)
     );
