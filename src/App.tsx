@@ -7560,7 +7560,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
 
   const currentCat = MAIN_CATEGORIES[form.mainCategory] || { sub1: [], sub2: [] };
   const filteredIngredients = allIngredients.filter((x) =>
-    x.name_ar.includes(ingredientSearch) || (x.name_en || "").toLowerCase().includes(ingredientSearch.toLowerCase())
+    (x.name_ar||"").includes(ingredientSearch) || (x.name_en || "").toLowerCase().includes(ingredientSearch.toLowerCase())
   );
 
   return (
