@@ -2401,9 +2401,9 @@ function POS({
   const filtered = products.filter((p) => {
     const str = (v) => (v == null ? "" : String(v));
     return (
-      str(p.name).includes(inv.search) ||
-      str(p.barcode).includes(inv.search) ||
-      str(p.id).includes(inv.search)
+      (p.name||"").includes(inv.search) ||
+(p.barcode||"").includes(inv.search) ||
+(p.id||"").includes(inv.search)
     );
   });
 
