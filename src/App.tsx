@@ -3907,7 +3907,7 @@ function PurchaseModule({
           (x) =>
             x.barcode === searchText ||
             x.id === searchText ||
-            x.name.includes(searchText)
+            x.name||"").includes(searchText)
         );
         if (p) addItem(p);
         else showToast("الصنف غير موجود", "error");
@@ -6977,7 +6977,7 @@ function InventoryCount({
   };
 
   const filtered = countItems.filter(
-    (i) => i.name.includes(search) || i.category.includes(search)
+    (i) => i.name||"").includes(search) || (i.category||"").includes(search)
   );
 
   return (
