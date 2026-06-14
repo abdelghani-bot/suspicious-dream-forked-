@@ -3748,16 +3748,32 @@ function PrintReceipt({ invoice, onClose }) {
   );
 }
 // ==================== Pharmacy Settings ====================
-const getPharmacySettings = () => {
+const getPharmacySettings = async () => {
   try {
-    return JSON.parse(localStorage.getItem("pharmacy_settings") || "{}");
+    const { data } = await supabase
+      .from("pharmacy_settings")
+      .select("*")
+      .eq("id", "main")
+      .single();
+    return data || {};
   } catch {
     return {};
   }
 };
 
 function PharmacySettings({ showToast }) {
-  const [settings, setSettings] = useState(() => getPharmacySettings());
+  const [settings, setSettings] = useState({});
+
+  useEffect(() => {
+    supabase
+      .from("pharmacy_settings")
+      .select("*")
+      .eq("id", "main")
+      .single()
+      .then(({ data }) => {
+        if (data) setSettings(data);
+      });
+  }, []);
 
   const fields = [
     { key: "nameAr", label: "اسم الصيدلية (عربي)" },
@@ -3768,7 +3784,25 @@ function PharmacySettings({ showToast }) {
     { key: "licenseNumber", label: "رقم الترخيص" },
   ];
 
-  const save = () => {
+  const save = async () => {
+    const { error } = await supabase
+      .from("pharmacy_settings")
+      .update({
+        name_ar: settings.nameAr,
+        name_en: settings.nameEn,
+        phone: settings.phone,
+        address: settings.address,
+        tax_number: settings.vatNumber,
+        license_number: settings.licenseNumber,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", "main");
+
+    if (error) {
+      showToast("خطأ في الحفظ: " + error.message, "error");
+      return;
+    }
+    // احتفظ بـ localStorage كـ backup
     localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
     showToast("تم حفظ بيانات الصيدلية ✓");
   };
@@ -3778,55 +3812,31 @@ function PharmacySettings({ showToast }) {
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
         بيانات الصيدلية
       </h2>
-      <div
-        style={{
-          background: "#0f1623",
-          border: "1px solid #1d2d4a",
-          borderRadius: 16,
-          padding: 24,
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16,
-        }}
-      >
+      <div style={{
+        background: "#0f1623", border: "1px solid #1d2d4a",
+        borderRadius: 16, padding: 24,
+        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16,
+      }}>
         {fields.map(({ key, label }) => (
           <div key={key}>
-            <label
-              style={{
-                color: "#4a6a8a",
-                fontSize: 12,
-                display: "block",
-                marginBottom: 6,
-              }}
-            >
+            <label style={{ color: "#4a6a8a", fontSize: 12, display: "block", marginBottom: 6 }}>
               {label}
             </label>
             <input
               value={settings[key] || ""}
-              onChange={(e) =>
-                setSettings((p) => ({ ...p, [key]: e.target.value }))
-              }
+              onChange={(e) => setSettings((p) => ({ ...p, [key]: e.target.value }))}
               style={{
-                width: "100%",
-                background: "#080e1a",
-                border: "1px solid #1d2d4a",
-                borderRadius: 8,
-                padding: "8px 12px",
-                color: "#dde8ff",
-                fontSize: 13,
-                outline: "none",
-                boxSizing: "border-box",
+                width: "100%", background: "#080e1a",
+                border: "1px solid #1d2d4a", borderRadius: 8,
+                padding: "8px 12px", color: "#dde8ff",
+                fontSize: 13, outline: "none", boxSizing: "border-box",
               }}
             />
           </div>
         ))}
       </div>
-      <div
-        style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}
-      >
-        <Btn icon="check" onClick={save}>
-          حفظ البيانات
-        </Btn>
+      <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+        <Btn icon="check" onClick={save}>حفظ البيانات</Btn>
       </div>
     </div>
   );
