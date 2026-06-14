@@ -3764,16 +3764,23 @@ const getPharmacySettings = async () => {
 function PharmacySettings({ showToast }) {
   const [settings, setSettings] = useState({});
 
-  useEffect(() => {
-    supabase
-      .from("pharmacy_settings")
-      .select("*")
-      .eq("id", "main")
-      .single()
-      .then(({ data }) => {
-        if (data) setSettings(data);
+ useEffect(() => {
+  supabase
+    .from("pharmacy_settings")
+    .select("*")
+    .eq("id", "main")
+    .single()
+    .then(({ data }) => {
+      if (data) setSettings({
+        nameAr: data.name_ar || data.name || "",
+        nameEn: data.name_en || "",
+        phone: data.phone || "",
+        address: data.address || "",
+        vatNumber: data.tax_number || "",
+        licenseNumber: data.license_number || "",
       });
-  }, []);
+    });
+}, []);
 
   const fields = [
     { key: "nameAr", label: "اسم الصيدلية (عربي)" },
@@ -3785,27 +3792,26 @@ function PharmacySettings({ showToast }) {
   ];
 
   const save = async () => {
-    const { error } = await supabase
-      .from("pharmacy_settings")
-      .update({
-        name_ar: settings.nameAr,
-        name_en: settings.nameEn,
-        phone: settings.phone,
-        address: settings.address,
-        tax_number: settings.vatNumber,
-        license_number: settings.licenseNumber,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", "main");
+  const { error } = await supabase
+    .from("pharmacy_settings")
+    .update({
+      name_ar: settings.nameAr,
+      name_en: settings.nameEn,
+      phone: settings.phone,
+      address: settings.address,
+      tax_number: settings.vatNumber,
+      license_number: settings.licenseNumber,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", "main");
 
-    if (error) {
-      showToast("خطأ في الحفظ: " + error.message, "error");
-      return;
-    }
-    // احتفظ بـ localStorage كـ backup
-    localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
-    showToast("تم حفظ بيانات الصيدلية ✓");
-  };
+  if (error) {
+    showToast("خطأ في الحفظ: " + error.message, "error");
+    return;
+  }
+  localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
+  showToast("تم حفظ بيانات الصيدلية ✓");
+};
 
   return (
     <div>
