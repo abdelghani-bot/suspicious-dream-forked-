@@ -3864,9 +3864,9 @@ function PurchaseModule({
     const results = products
       .filter(
         (p) =>
-          p.name.includes(val) ||
-          p.barcode?.includes(val) ||
-          p.id?.includes(val)
+          (p.name||"").includes(val) ||
+(p.barcode||"").includes(val) ||
+(p.id||"").includes(val)
       )
       .slice(0, 8);
     setSearchResults(results);
@@ -5261,7 +5261,7 @@ function ReturnsModule({
     const found = products.find(
       (p) =>
         p.barcode === val.trim() ||
-        p.name.toLowerCase().includes(val.toLowerCase())
+        (p.name||"").toLowerCase().includes(val.toLowerCase())
     );
     if (found) {
       const already = returnItems.find((i) => i.id === found.id);
