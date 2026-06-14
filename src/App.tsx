@@ -7341,36 +7341,40 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
 
+  // ── المواد الفعالة ──
+  const [allIngredients, setAllIngredients] = useState([]);
+  const [ingredientSearch, setIngredientSearch] = useState("");
+  const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
+  const [selectedIngredients, setSelectedIngredients] = useState([]); 
+  // [{ingredient_id, name_ar, concentration}]
+
+  // ── الباركودات ──
+  const [barcodes, setBarcodes] = useState([]);
+  // [{id?, base_barcode, batch_number, serial_number, expiry_date, is_primary}]
+
   const blank = {
-    id: "",
-    nameAr: "",
-    nameEn: "",
-    barcode: "",
-    mainCategory: "دواء",
-    subCategory1: "مستورد",
-    subCategory2: "فموي",
-    unit: "قرص",
-    unitDivision: 1,
-    price: "",
-    cost: "",
-    taxable: true,
-    minStock: "",
-    maxStock: "",
-    activeIngredient: "",
-    concentration: "",
-    isEssential: false,
-    isChronic: false,
+    id: "", nameAr: "", nameEn: "",
+    mainCategory: "دواء", subCategory1: "مستورد", subCategory2: "فموي",
+    unit: "قرص", unitDivision: 1,
+    price: "", cost: "", taxable: true,
+    minStock: "", maxStock: "",
+    isEssential: false, isChronic: false,
     supply_category: "",
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  // لما تتغير الفئة الرئيسية، صفّر الفرعية
+  // تحميل المواد الفعالة
+  useEffect(() => {
+    supabase.from("active_ingredients")
+      .select("*").order("name_ar")
+      .then(({ data }) => { if (data) setAllIngredients(data); });
+  }, []);
+
   const handleMainCategoryChange = (val) => {
     const cat = MAIN_CATEGORIES[val];
     setForm((p) => ({
-      ...p,
-      mainCategory: val,
+      ...p, mainCategory: val,
       subCategory1: cat.sub1[0] || "",
       subCategory2: cat.sub2[0] || "",
     }));
@@ -7387,478 +7391,363 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     );
   });
 
-  const openEdit = (p) => {
-  setEditing(p.id);
-  setForm({
-    ...blank,
-    ...p,
-    nameAr: p.nameAr || p.name_ar || p.name || "",
-    nameEn: p.nameEn || p.name_en || "",
-    price: String(p.price),
-    cost: String(p.cost),
-    minStock: String(p.min_stock || p.minStock || ""),
-    maxStock: String(p.max_stock || p.maxStock || ""),
-    unitDivision: p.unit_division || p.unitDivision || 1,
-    mainCategory: p.main_category || p.mainCategory || "دواء",
-    subCategory1: p.sub_category1 || p.subCategory1 || "",
-    subCategory2: p.sub_category2 || p.subCategory2 || "",
-    activeIngredient: p.active_ingredient || p.activeIngredient || "",
-    isEssential: p.is_essential ?? p.isEssential ?? false, 
-    isChronic: p.is_chronic ?? false,
-    supply_category: p.supply_category || "",
-  });
-  setShowForm(true);
-};
-  const openAdd = () => {
-    setEditing(null);
+  // ── فتح تعديل ──
+  const openEdit = async (p) => {
+    setEditing(p.id);
     setForm({
-      ...blank,
-      id: "P" + String(products.length + 1).padStart(3, "0"),
+      ...blank, ...p,
+      nameAr: p.nameAr || p.name_ar || p.name || "",
+      nameEn: p.nameEn || p.name_en || "",
+      price: String(p.price), cost: String(p.cost),
+      minStock: String(p.min_stock || p.minStock || ""),
+      maxStock: String(p.max_stock || p.maxStock || ""),
+      unitDivision: p.unit_division || p.unitDivision || 1,
+      mainCategory: p.main_category || p.mainCategory || "دواء",
+      subCategory1: p.sub_category1 || p.subCategory1 || "",
+      subCategory2: p.sub_category2 || p.subCategory2 || "",
+      isEssential: p.is_essential ?? p.isEssential ?? false,
+      isChronic: p.is_chronic ?? false,
+      supply_category: p.supply_category || "",
     });
+
+    // تحميل الباركودات
+    const { data: bc } = await supabase
+      .from("product_barcodes")
+      .select("*")
+      .eq("product_id", p.id)
+      .order("is_primary", { ascending: false });
+    setBarcodes(bc || []);
+
+    // تحميل المواد الفعالة
+    const { data: pi } = await supabase
+      .from("product_ingredients")
+      .select("*, active_ingredients(name_ar)")
+      .eq("product_id", p.id);
+    setSelectedIngredients(
+      (pi || []).map((x) => ({
+        ingredient_id: x.ingredient_id,
+        name_ar: x.active_ingredients?.name_ar || "",
+        concentration: x.concentration || "",
+        db_id: x.id,
+      }))
+    );
+
     setShowForm(true);
   };
 
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ ...blank, id: "P" + String(products.length + 1).padStart(3, "0") });
+    setBarcodes([{ base_barcode: "", batch_number: "", serial_number: "", expiry_date: "", is_primary: true }]);
+    setSelectedIngredients([]);
+    setShowForm(true);
+  };
+
+  // ── إضافة باركود ──
+  const addBarcode = () => {
+    setBarcodes((prev) => [...prev, {
+      base_barcode: "", batch_number: "", serial_number: "", expiry_date: "", is_primary: false
+    }]);
+  };
+
+  const updateBarcode = (i, key, val) => {
+    setBarcodes((prev) => prev.map((b, idx) => idx === i ? { ...b, [key]: val } : b));
+  };
+
+  const removeBarcode = (i) => {
+    setBarcodes((prev) => prev.filter((_, idx) => idx !== i));
+  };
+
+  // ── إضافة مادة فعالة ──
+  const addIngredient = async (ing) => {
+    if (selectedIngredients.find((x) => x.ingredient_id === ing.id)) {
+      setShowIngredientDropdown(false);
+      setIngredientSearch("");
+      return;
+    }
+    setSelectedIngredients((prev) => [...prev, {
+      ingredient_id: ing.id, name_ar: ing.name_ar, concentration: "", db_id: null
+    }]);
+    setShowIngredientDropdown(false);
+    setIngredientSearch("");
+  };
+
+  const addNewIngredient = async () => {
+    if (!ingredientSearch.trim()) return;
+    const { data, error } = await supabase
+      .from("active_ingredients")
+      .insert({ name_ar: ingredientSearch.trim() })
+      .select().single();
+    if (error) { showToast("خطأ في إضافة المادة الفعالة", "error"); return; }
+    setAllIngredients((prev) => [...prev, data]);
+    addIngredient(data);
+  };
+
+  const removeIngredient = (ingredient_id) => {
+    setSelectedIngredients((prev) => prev.filter((x) => x.ingredient_id !== ingredient_id));
+  };
+
+  const updateIngredientConc = (ingredient_id, val) => {
+    setSelectedIngredients((prev) =>
+      prev.map((x) => x.ingredient_id === ingredient_id ? { ...x, concentration: val } : x)
+    );
+  };
+
+  // ── حفظ ──
   const save = async () => {
     if (!form.nameAr || !form.price) {
-      showToast("يرجى ملء الحقول المطلوبة", "error");
-      return;
+      showToast("يرجى ملء الحقول المطلوبة", "error"); return;
     }
     const p = {
       id: form.id,
-      name: form.nameAr,
-      name_ar: form.nameAr,
-      name_en: form.nameEn,
-      barcode: form.barcode,
-      category: form.mainCategory,
-      main_category: form.mainCategory,
-      sub_category1: form.subCategory1,
-      sub_category2: form.subCategory2,
-      unit: form.unit,
-      unit_division: +form.unitDivision || 1,
-      price: +form.price,
-      cost: +form.cost,
-      taxable: form.taxable,
-      min_stock: +form.minStock,
-      max_stock: +form.maxStock,
-      active_ingredient: form.activeIngredient,
-      concentration: form.concentration,
-      is_essential: form.isEssential,
-      is_chronic: form.isChronic,
+      name: form.nameAr, name_ar: form.nameAr, name_en: form.nameEn,
+      barcode: barcodes.find((b) => b.is_primary)?.base_barcode || barcodes[0]?.base_barcode || "",
+      category: form.mainCategory, main_category: form.mainCategory,
+      sub_category1: form.subCategory1, sub_category2: form.subCategory2,
+      unit: form.unit, unit_division: +form.unitDivision || 1,
+      price: +form.price, cost: +form.cost, taxable: form.taxable,
+      min_stock: +form.minStock, max_stock: +form.maxStock,
+      // نحتفظ بالحقول القديمة للتوافق
+      active_ingredient: selectedIngredients[0]?.name_ar || "",
+      concentration: selectedIngredients[0]?.concentration || "",
+      is_essential: form.isEssential, is_chronic: form.isChronic,
       supply_category: form.supply_category,
     };
 
+    let productId = form.id;
+
     if (editing) {
-      const { error } = await supabase
-        .from("products")
-        .update(p)
-        .eq("id", editing);
-      if (error) {
-        showToast("خطأ في التعديل: " + error.message, "error");
-        return;
-      }
-      setProducts((prev) =>
-        prev.map((x) => (x.id === editing ? { ...x, ...p } : x))
-      );
+      const { error } = await supabase.from("products").update(p).eq("id", editing);
+      if (error) { showToast("خطأ في التعديل: " + error.message, "error"); return; }
+      setProducts((prev) => prev.map((x) => (x.id === editing ? { ...x, ...p } : x)));
     } else {
-      // ✅ استخدم .select() عشان ترجع البيانات الفعلية من Supabase
-      const { data, error } = await supabase
-        .from("products")
-        .insert(p)
-        .select();
-      if (error) {
-        showToast("خطأ في الإضافة: " + error.message, "error");
-        return;
-      }
+      const { data, error } = await supabase.from("products").insert(p).select();
+      if (error) { showToast("خطأ في الإضافة: " + error.message, "error"); return; }
+      productId = data[0].id;
       setProducts((prev) => [...prev, data[0]]);
+    }
+
+    // حفظ الباركودات
+    if (editing) {
+      await supabase.from("product_barcodes").delete().eq("product_id", productId);
+    }
+    const validBarcodes = barcodes.filter((b) => b.base_barcode.trim());
+    if (validBarcodes.length > 0) {
+      await supabase.from("product_barcodes").insert(
+        validBarcodes.map((b) => ({ ...b, product_id: productId, id: undefined }))
+      );
+    }
+
+    // حفظ المواد الفعالة
+    if (editing) {
+      await supabase.from("product_ingredients").delete().eq("product_id", productId);
+    }
+    if (selectedIngredients.length > 0) {
+      await supabase.from("product_ingredients").insert(
+        selectedIngredients.map((x) => ({
+          product_id: productId,
+          ingredient_id: x.ingredient_id,
+          concentration: x.concentration,
+        }))
+      );
     }
 
     setShowForm(false);
     showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
   };
 
-  const currentCat = MAIN_CATEGORIES[form.mainCategory] || {
-    sub1: [],
-    sub2: [],
-  };
+  const currentCat = MAIN_CATEGORIES[form.mainCategory] || { sub1: [], sub2: [] };
+  const filteredIngredients = allIngredients.filter((x) =>
+    x.name_ar.includes(ingredientSearch) || (x.name_en || "").toLowerCase().includes(ingredientSearch.toLowerCase())
+  );
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 18,
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
-          إدارة الأصناف
-        </h2>
-        <Btn icon="plus" onClick={openAdd}>
-          إضافة صنف
-        </Btn>
+      {/* ── Header ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الأصناف</h2>
+        <Btn icon="plus" onClick={openAdd}>إضافة صنف</Btn>
       </div>
 
+      {/* ── Search ── */}
       <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 بحث بالاسم عربي أو إنجليزي أو الباركود أو الفئة..."
+        value={search} onChange={(e) => setSearch(e.target.value)}
+        placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
         style={{
-          width: "100%",
-          background: "#080e1a",
-          border: "1px solid #1d2d4a",
-          borderRadius: 8,
-          padding: "9px 14px",
-          color: "#dde8ff",
-          fontSize: 14,
-          outline: "none",
-          boxSizing: "border-box",
-          marginBottom: 14,
+          width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
+          borderRadius: 8, padding: "9px 14px", color: "#dde8ff",
+          fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14,
         }}
       />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4,1fr)",
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <StatCard
-          label="إجمالي الأصناف"
-          value={products.length}
-          icon="inventory"
-          color="#3a9aff"
-        />
-        <StatCard
-          label="مخزون منخفض"
-          value={products.filter((p) => p.stock <= (p.minStock || 0)).length}
-          icon="alert"
-          color="#ffaa44"
-        />
-        <StatCard
-          label="أدوية أساسية"
-          value={products.filter((p) => p.is_essential || p.isEssential).length}
-          icon="pill"
-          color="#f59e0b"
-        />
-        <StatCard
-          label="قيمة المخزون"
-          value={
-            products
-              .reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0)
-              .toFixed(0) + " ر.س"
-          }
-          icon="money"
-          color="#a78bfa"
-        />
+      {/* ── Stats ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
+        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#3a9aff" />
+        <StatCard label="مخزون منخفض" value={products.filter((p) => p.stock <= (p.minStock || 0)).length} icon="alert" color="#ffaa44" />
+        <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color="#f59e0b" />
+        <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color="#a78bfa" />
       </div>
 
+      {/* ── Table ── */}
       <Table
-        headers={[
-          "رمز",
-          "الصنف",
-          "الباركود",
-          "الفئة",
-          "سعر البيع",
-          "التكلفة",
-          "الوحدة",
-          "الضريبة",
-          "أساسي",
-          "إجراءات",
-        ]}
+        headers={["رمز", "الصنف", "الباركود", "الفئة", "سعر البيع", "التكلفة", "الوحدة", "الضريبة", "أساسي", "إجراءات"]}
         rows={filtered.map((p) => [
           <span style={{ color: "#4a6a8a", fontSize: 11 }}>{p.id}</span>,
           <div>
-            <div style={{ fontWeight: 700, color: "#dde8ff" }}>
-              {p.nameAr || p.name}
-            </div>
-            {p.nameEn && (
-              <div style={{ fontSize: 11, color: "#4a6a8a" }}>{p.nameEn}</div>
-            )}
-            <div style={{ fontSize: 10, color: "#3a5a8a" }}>
-              {p.activeIngredient} {p.concentration}
-            </div>
+            <div style={{ fontWeight: 700, color: "#dde8ff" }}>{p.nameAr || p.name}</div>
+            {p.nameEn && <div style={{ fontSize: 11, color: "#4a6a8a" }}>{p.nameEn}</div>}
+            <div style={{ fontSize: 10, color: "#3a5a8a" }}>{p.active_ingredient} {p.concentration}</div>
           </div>,
-          <span
-            style={{ fontSize: 11, color: "#4a6a8a", fontFamily: "monospace" }}
-          >
-            {p.barcode}
-          </span>,
+          <span style={{ fontSize: 11, color: "#4a6a8a", fontFamily: "monospace" }}>{p.barcode}</span>,
           <div>
             <Badge>{p.mainCategory || p.category}</Badge>
-            {p.subCategory2 && (
-              <div style={{ fontSize: 10, color: "#3a5a8a", marginTop: 3 }}>
-                {p.subCategory1 && p.subCategory1 + " · "}
-                {p.subCategory2}
-              </div>
-            )}
+            {p.subCategory2 && <div style={{ fontSize: 10, color: "#3a5a8a", marginTop: 3 }}>{p.subCategory1 && p.subCategory1 + " · "}{p.subCategory2}</div>}
           </div>,
-          <span style={{ color: "#3a9aff", fontWeight: 700 }}>
-            {p.price} ر.س
-          </span>,
+          <span style={{ color: "#3a9aff", fontWeight: 700 }}>{p.price} ر.س</span>,
           <span style={{ color: "#4a6a8a" }}>{p.cost} ر.س</span>,
-          <div style={{ fontSize: 12, color: "#6a8aaa" }}>
-            {p.unit}
-            {p.unitDivision > 1 && (
-              <span style={{ color: "#f59e0b", marginRight: 4 }}>
-                ÷{p.unitDivision}
-              </span>
-            )}
-          </div>,
-          <Badge
-            color={p.taxable ? "#0a2a00" : "#1a1a2a"}
-            text={p.taxable ? "#44dd88" : "#4a6a8a"}
-          >
-            {p.taxable ? "15%" : "معفى"}
-          </Badge>,
-          (p.is_essential || p.isEssential) ? (
-            <Badge color="#2a1a00" text="#f59e0b">
-              ⭐ أساسي
-            </Badge>
-          ) : (
-            <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>
-          ),
+          <div style={{ fontSize: 12, color: "#6a8aaa" }}>{p.unit}{p.unitDivision > 1 && <span style={{ color: "#f59e0b", marginRight: 4 }}>÷{p.unitDivision}</span>}</div>,
+          <Badge color={p.taxable ? "#0a2a00" : "#1a1a2a"} text={p.taxable ? "#44dd88" : "#4a6a8a"}>{p.taxable ? "15%" : "معفى"}</Badge>,
+          (p.is_essential || p.isEssential) ? <Badge color="#2a1a00" text="#f59e0b">⭐ أساسي</Badge> : <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>,
           <div style={{ display: "flex", gap: 5 }}>
-            <Btn
-              size="sm"
-              icon="edit"
-              variant="secondary"
-              onClick={() => openEdit(p)}
-            >
-              تعديل
-            </Btn>
-            <Btn
-              size="sm"
-              icon="trash"
-              variant="danger"
-              onClick={async () => {
-                await supabase.from("products").delete().eq("id", p.id);
-                setProducts((prev) => prev.filter((x) => x.id !== p.id));
-                showToast("تم حذف الصنف");
-              }}
-            >
-              حذف
-            </Btn>
+            <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
+            <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
+              await supabase.from("products").delete().eq("id", p.id);
+              setProducts((prev) => prev.filter((x) => x.id !== p.id));
+              showToast("تم حذف الصنف");
+            }}>حذف</Btn>
           </div>,
         ])}
       />
 
-      <Modal
-        open={showForm}
-        onClose={() => setShowForm(false)}
-        title={editing ? "تعديل الصنف" : "إضافة صنف جديد"}
-        wide
-      >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: 12,
-          }}
-        >
-          {/* الرمز */}
-          <Input
-            label="رمز الصنف"
-            value={form.id}
-            onChange={(v) => F("id", v)}
-            placeholder="P001"
-          />
+      {/* ── Modal ── */}
+      <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? "تعديل الصنف" : "إضافة صنف جديد"} wide>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
 
-          {/* الاسم العربي */}
-          <Input
-            label="الاسم بالعربي *"
-            value={form.nameAr}
-            onChange={(v) => F("nameAr", v)}
-            placeholder="باراسيتامول"
-          />
+          <Input label="رمز الصنف" value={form.id} onChange={(v) => F("id", v)} placeholder="P001" />
+          <Input label="الاسم بالعربي *" value={form.nameAr} onChange={(v) => F("nameAr", v)} placeholder="باراسيتامول" />
+          <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Paracetamol" />
 
-          {/* الاسم الإنجليزي */}
-          <Input
-            label="الاسم بالإنجليزي"
-            value={form.nameEn}
-            onChange={(v) => F("nameEn", v)}
-            placeholder="Paracetamol"
-          />
+          <Select label="الفئة الرئيسية" value={form.mainCategory} onChange={handleMainCategoryChange} options={Object.keys(MAIN_CATEGORIES)} />
+          <Select label="فئة التوريد" value={form.supply_category} onChange={(v) => F("supply_category", v)} options={["", ...SUPPLY_CATEGORIES]} />
+          {currentCat.sub1.length > 0 && <Select label="المصدر" value={form.subCategory1} onChange={(v) => F("subCategory1", v)} options={currentCat.sub1} />}
+          {currentCat.sub2.length > 0 && <Select label="الشكل الصيدلاني" value={form.subCategory2} onChange={(v) => F("subCategory2", v)} options={currentCat.sub2} />}
 
-          {/* الباركود */}
-          <Input
-            label="الباركود"
-            value={form.barcode}
-            onChange={(v) => F("barcode", v)}
-            placeholder="رقم الباركود"
-          />
+          <Input label="وحدة البيع" value={form.unit} onChange={(v) => F("unit", v)} placeholder="قرص / كبسولة..." />
+          <Input label="تقسيم الوحدة" value={form.unitDivision === 1 ? "" : String(form.unitDivision)} onChange={(v) => F("unitDivision", v ? +v : 1)} type="number" placeholder="فارغ = بدون تقسيم" />
+          <Input label="سعر البيع *" value={form.price} onChange={(v) => F("price", v)} type="number" placeholder="0.00" />
+          <Input label="سعر التكلفة" value={form.cost} onChange={(v) => F("cost", v)} type="number" placeholder="0.00" />
+          <Input label="الحد الأدنى للمخزون" value={form.minStock} onChange={(v) => F("minStock", v)} type="number" placeholder="10" />
+          <Input label="الحد الأقصى للمخزون" value={form.maxStock} onChange={(v) => F("maxStock", v)} type="number" placeholder="100" />
 
-          {/* الفئة الرئيسية */}
-          <Select
-            label="الفئة الرئيسية"
-            value={form.mainCategory}
-            onChange={handleMainCategoryChange}
-            options={Object.keys(MAIN_CATEGORIES)}
-          />
-          <Select
-  label="فئة التوريد"
-  value={form.supply_category}
-  onChange={(v) => F("supply_category", v)}
-  options={["", ...SUPPLY_CATEGORIES]}
-/>
-
-          {/* الفئة الفرعية 1 - تظهر فقط للدواء */}
-          {currentCat.sub1.length > 0 && (
-            <Select
-              label="المصدر"
-              value={form.subCategory1}
-              onChange={(v) => F("subCategory1", v)}
-              options={currentCat.sub1}
-            />
-          )}
-
-          {/* الفئة الفرعية 2 */}
-          {currentCat.sub2.length > 0 && (
-            <Select
-              label="الشكل الصيدلاني"
-              value={form.subCategory2}
-              onChange={(v) => F("subCategory2", v)}
-              options={currentCat.sub2}
-            />
-          )}
-
-          {/* وحدة القياس */}
-          <Input
-            label="وحدة البيع"
-            value={form.unit}
-            onChange={(v) => F("unit", v)}
-            placeholder="قرص / كبسولة..."
-          />
-
-          {/* تقسيم الوحدة */}
-          <Input
-            label="تقسيم الوحدة (عدد الأجزاء)"
-            value={form.unitDivision === 1 ? "" : String(form.unitDivision)}
-            onChange={(v) => F("unitDivision", v ? +v : 1)}
-            type="number"
-            placeholder="مثال: 50 (اتركه فارغاً = بدون تقسيم)"
-          />
-
-          {/* السعر والتكلفة */}
-          <Input
-            label="سعر البيع *"
-            value={form.price}
-            onChange={(v) => F("price", v)}
-            type="number"
-            placeholder="0.00"
-          />
-          <Input
-            label="سعر التكلفة"
-            value={form.cost}
-            onChange={(v) => F("cost", v)}
-            type="number"
-            placeholder="0.00"
-          />
-
-          {/* الحد الأدنى والأقصى */}
-          <Input
-            label="الحد الأدنى للمخزون"
-            value={form.minStock}
-            onChange={(v) => F("minStock", v)}
-            type="number"
-            placeholder="10"
-          />
-          <Input
-            label="الحد الأقصى للمخزون"
-            value={form.maxStock}
-            onChange={(v) => F("maxStock", v)}
-            type="number"
-            placeholder="100"
-          />
-
-          {/* المادة الفعالة والتركيز */}
-          <Input
-            label="المادة الفعالة"
-            value={form.activeIngredient}
-            onChange={(v) => F("activeIngredient", v)}
-            placeholder="Paracetamol"
-          />
-          <Input
-            label="التركيز"
-            value={form.concentration}
-            onChange={(v) => F("concentration", v)}
-            placeholder="500mg"
-          />
-
-          {/* الضريبة */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "8px 0",
-            }}
-          >
-            <label style={{ color: "#5a7aaa", fontSize: 13, fontWeight: 600 }}>
-              خاضع لضريبة القيمة المضافة 15%
-            </label>
-            <input
-              type="checkbox"
-              checked={form.taxable}
-              onChange={(e) => F("taxable", e.target.checked)}
-              style={{ width: 16, height: 16, cursor: "pointer" }}
-            />
+          {/* Checkboxes */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+            <label style={{ color: "#5a7aaa", fontSize: 13, fontWeight: 600 }}>خاضع لضريبة القيمة المضافة 15%</label>
+            <input type="checkbox" checked={form.taxable} onChange={(e) => F("taxable", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
-
-          {/* دواء أساسي */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "8px 0",
-            }}
-          >
-            <label style={{ color: "#f59e0b", fontSize: 13, fontWeight: 600 }}>
-              ⭐ دواء أساسي (قائمة هيئة الغذاء والدواء)
-            </label>
-            <input
-              type="checkbox"
-              checked={form.isEssential}
-              onChange={(e) => F("isEssential", e.target.checked)}
-              style={{ width: 16, height: 16, cursor: "pointer" }}
-            />
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
-  <label style={{ color: "#44aaff", fontSize: 13, fontWeight: 600 }}>
-    🔄 دواء مزمن (تذكير بإعادة الصرف)
-  </label>
-  <input
-    type="checkbox"
-    checked={form.isChronic}
-    onChange={(e) => F("isChronic", e.target.checked)}
-    style={{ width: 16, height: 16, cursor: "pointer" }}
-  />
-</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+            <label style={{ color: "#f59e0b", fontSize: 13, fontWeight: 600 }}>⭐ دواء أساسي (قائمة هيئة الغذاء والدواء)</label>
+            <input type="checkbox" checked={form.isEssential} onChange={(e) => F("isEssential", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+            <label style={{ color: "#44aaff", fontSize: 13, fontWeight: 600 }}>🔄 دواء مزمن</label>
+            <input type="checkbox" checked={form.isChronic} onChange={(e) => F("isChronic", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            marginTop: 18,
-            justifyContent: "flex-end",
-          }}
-        >
-          <Btn variant="ghost" onClick={() => setShowForm(false)}>
-            إلغاء
-          </Btn>
-          <Btn icon="check" onClick={save}>
-            {editing ? "حفظ التعديل" : "إضافة الصنف"}
-          </Btn>
+        {/* ── قسم المواد الفعالة ── */}
+        <div style={{ marginTop: 20, borderTop: "1px solid #1d2d4a", paddingTop: 16 }}>
+          <div style={{ fontWeight: 700, color: "#3a9aff", marginBottom: 10, fontSize: 14 }}>
+            🧪 المواد الفعالة
+          </div>
+
+          {/* المواد المختارة */}
+          {selectedIngredients.map((ing) => (
+            <div key={ing.ingredient_id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <div style={{ flex: 1, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 12px", color: "#dde8ff", fontSize: 13 }}>
+                {ing.name_ar}
+              </div>
+              <input
+                value={ing.concentration}
+                onChange={(e) => updateIngredientConc(ing.ingredient_id, e.target.value)}
+                placeholder="التركيز (مثال: 500mg)"
+                style={{ width: 160, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }}
+              />
+              <Btn size="sm" variant="danger" onClick={() => removeIngredient(ing.ingredient_id)}>✕</Btn>
+            </div>
+          ))}
+
+          {/* بحث وإضافة مادة فعالة */}
+          <div style={{ position: "relative", marginTop: 8 }}>
+            <input
+              value={ingredientSearch}
+              onChange={(e) => { setIngredientSearch(e.target.value); setShowIngredientDropdown(true); }}
+              onFocus={() => setShowIngredientDropdown(true)}
+              placeholder="🔍 بحث عن مادة فعالة أو إضافة جديدة..."
+              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 12px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+            />
+            {showIngredientDropdown && ingredientSearch && (
+              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, zIndex: 100, maxHeight: 200, overflowY: "auto" }}>
+                {filteredIngredients.length > 0 ? filteredIngredients.map((ing) => (
+                  <div key={ing.id} onClick={() => addIngredient(ing)}
+                    style={{ padding: "8px 12px", cursor: "pointer", color: "#dde8ff", fontSize: 13, borderBottom: "1px solid #1d2d4a" }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "#1d2d4a"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  >
+                    {ing.name_ar} {ing.name_en && <span style={{ color: "#4a6a8a", fontSize: 11 }}>({ing.name_en})</span>}
+                  </div>
+                )) : null}
+                {/* إضافة جديدة */}
+                <div onClick={addNewIngredient}
+                  style={{ padding: "8px 12px", cursor: "pointer", color: "#44dd88", fontSize: 13, fontWeight: 600 }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#1d2d4a"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  ➕ إضافة "{ingredientSearch}" كمادة فعالة جديدة
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── قسم الباركودات ── */}
+        <div style={{ marginTop: 20, borderTop: "1px solid #1d2d4a", paddingTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, color: "#3a9aff", fontSize: 14 }}>📦 الباركودات</div>
+            <Btn size="sm" icon="plus" onClick={addBarcode}>إضافة باركود</Btn>
+          </div>
+
+          {barcodes.map((b, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
+              <input value={b.base_barcode} onChange={(e) => updateBarcode(i, "base_barcode", e.target.value)}
+                placeholder="باركود أساسي *"
+                style={{ background: "#080e1a", border: `1px solid ${b.is_primary ? "#3a9aff" : "#1d2d4a"}`, borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+              <input value={b.batch_number} onChange={(e) => updateBarcode(i, "batch_number", e.target.value)}
+                placeholder="رقم التشغيلة"
+                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+              <input value={b.serial_number} onChange={(e) => updateBarcode(i, "serial_number", e.target.value)}
+                placeholder="الرقم التسلسلي"
+                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+              <input value={b.expiry_date} onChange={(e) => updateBarcode(i, "expiry_date", e.target.value)}
+                type="date"
+                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+              {/* زر الأساسي */}
+              <button onClick={() => setBarcodes((prev) => prev.map((x, idx) => ({ ...x, is_primary: idx === i })))}
+                style={{ padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: b.is_primary ? "#1a3a6a" : "#1d2d4a", color: b.is_primary ? "#3a9aff" : "#4a6a8a" }}>
+                {b.is_primary ? "⭐ رئيسي" : "رئيسي"}
+              </button>
+              {barcodes.length > 1 && <Btn size="sm" variant="danger" onClick={() => removeBarcode(i)}>✕</Btn>}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={save}>{editing ? "حفظ التعديل" : "إضافة الصنف"}</Btn>
         </div>
       </Modal>
     </div>
   );
 }
-
 function SuppliersModule({
   suppliers,
   setSuppliers,
