@@ -6977,7 +6977,7 @@ function InventoryCount({
   };
 
   const filtered = countItems.filter(
-    (i) => i.name||"").includes(search) || (i.category||"").includes(search)
+    (i) =>( i.name||"").includes(search) || (i.category||"").includes(search)
   );
 
   return (
