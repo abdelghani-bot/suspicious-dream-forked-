@@ -1211,7 +1211,16 @@ export default function PharmacyPro() {
         supabase.from("returns").select("*"),
         supabase.from("credit_payments").select("*"),
       ]);
-      if (p.data?.length) setProducts(p.data);
+      if (p.data?.length) setProducts(p.data.map((p) => ({
+  ...p,
+  name: p.name || "",
+  name_ar: p.name_ar || "",
+  name_en: p.name_en || "",
+  barcode: p.barcode || "",
+  id: p.id || "",
+  category: p.category || "",
+  main_category: p.main_category || "",
+})));
       if (s.data?.length) setSuppliers(s.data);
       if (c.data?.length) setCustomers(c.data);
       if (sa.data?.length) setSales(sa.data);
