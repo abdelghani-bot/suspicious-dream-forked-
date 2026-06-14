@@ -7381,16 +7381,16 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
   };
 
   const filtered = products.filter((p) => {
-    const s = search.toLowerCase();
-    return (
-      (p.nameAr || p.name || "").includes(search) ||
-      (p.nameEn || "").toLowerCase().includes(s) ||
-      (p.barcode || "").includes(search) ||
-      (p.id || "").includes(search) ||
-      (p.mainCategory || p.category || "").includes(search)
-    );
-  });
-
+  const s = search.toLowerCase();
+  const str = (v) => (v == null ? "" : String(v));
+  return (
+    str(p.nameAr || p.name).includes(search) ||
+    str(p.nameEn).toLowerCase().includes(s) ||
+    str(p.barcode).includes(search) ||
+    str(p.id).includes(search) ||
+    str(p.mainCategory || p.category).includes(search)
+  );
+});
   // ── فتح تعديل ──
   const openEdit = async (p) => {
     setEditing(p.id);
