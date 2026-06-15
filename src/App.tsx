@@ -3895,11 +3895,108 @@ function PurchaseModule({
   const [manualTax, setManualTax] = useState("");
   const [showProductCard, setShowProductCard] = useState(null);
   const searchRef = useRef(null);
-  const [showDetail, setShowDetail] = useState(null); // الفاتورة المفتوحة
+  const [showDetail, setShowDetail] = useState(null);
   const [editItems, setEditItems] = useState([]);
   const [editSupplier, setEditSupplier] = useState("");
   const [editManualSubtotal, setEditManualSubtotal] = useState("");
   const [editManualTax, setEditManualTax] = useState("");
+
+  // ===== طباعة الباركود =====
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printItems, setPrintItems] = useState([]);
+  const [pharmSettings, setPharmSettings] = useState({});
+
+  useEffect(() => {
+    supabase.from("pharmacy_settings").select("*").eq("id", "main").single()
+      .then(({ data }) => { if (data) setPharmSettings(data); });
+  }, []);
+
+  const printLabels = (invoiceItems) => {
+    setPrintItems(invoiceItems.map((i) => ({ ...i, copies: 1 })));
+    setShowPrintModal(true);
+  };
+
+  const doPrint = () => {
+    const size = LABEL_SIZES.find((s) => s.id === (pharmSettings.label_size || "50x30")) || LABEL_SIZES[1];
+    const labels = [];
+    printItems.forEach((item) => {
+      for (let c = 0; c < item.copies; c++) {
+        labels.push(item);
+      }
+    });
+
+    const win = window.open("", "_blank");
+    win.document.write(`
+      <html dir="rtl">
+      <head>
+        <meta charset="utf-8">
+        <title>ملصقات الباركود</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; }
+          .page { display: flex; flex-wrap: wrap; }
+          .label {
+            width: ${size.w}mm;
+            height: ${size.h}mm;
+            border: 0.5px solid #ccc;
+            padding: 2mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+            page-break-inside: avoid;
+          }
+          .pharmacy { font-size: 7pt; font-weight: bold; text-align: center; }
+          .phone { font-size: 6pt; text-align: center; color: #444; }
+          .product { font-size: 7pt; font-weight: bold; text-align: center; margin: 1mm 0; }
+          .details { display: flex; justify-content: space-between; font-size: 6pt; }
+          svg { width: 100%; height: ${size.h * 0.35}mm; }
+          @media print {
+            body { margin: 0; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="padding:10px; text-align:center;">
+          <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">🖨️ طباعة</button>
+          <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-right:10px;">✕ إغلاق</button>
+        </div>
+        <div class="page">
+          ${labels.map((item, idx) => `
+            <div class="label">
+              <div class="pharmacy">${pharmSettings.name_ar || ""}</div>
+              <div class="phone">${pharmSettings.phone || ""}</div>
+              <div class="product">${item.name}</div>
+              <svg id="bc${idx}"></svg>
+              <div class="details">
+                <span>سعر: ${item.newSalePrice || item.salePrice || item.price} ر.س</span>
+                <span>${item.expiry_date ? "صلاحية: " + item.expiry_date : ""}</span>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+        <script>
+          window.onload = function() {
+            ${labels.map((item, idx) => `
+              try {
+                JsBarcode("#bc${idx}", "${item.barcode || item.id}", {
+                  format: "CODE128", width: 1.5, height: ${size.h * 3},
+                  displayValue: true, fontSize: 8, margin: 0
+                });
+              } catch(e) {}
+            `).join("")}
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    win.document.close();
+    setShowPrintModal(false);
+  };
+  // ===== نهاية طباعة الباركود =====
+
   const handleSearchChange = (val) => {
     setSearchText(val);
     if (!val.trim()) {
@@ -3962,7 +4059,6 @@ function PurchaseModule({
     if (e.key === "Escape") setShowDropdown(false);
   };
 
-  // ✅ الإصلاح: الخصم يُحسب على receivedCost وليس cost الأصلي
   const calcCostAfterDiscount = (basePrice, disc1, disc2) => {
     const afterDisc1 = basePrice * (1 - (disc1 || 0) / 100);
     const afterDisc2 = afterDisc1 * (1 - (disc2 || 0) / 100);
@@ -3975,7 +4071,6 @@ function PurchaseModule({
         if (i.id !== id) return i;
         const updated = { ...i, [field]: value };
 
-        // ✅ لما يتغير الخصم، احسب التكلفة من receivedCost الحالية
         if (field === "discount1") {
           updated.receivedCost = calcCostAfterDiscount(
             i.newSalePrice,
@@ -3989,7 +4084,6 @@ function PurchaseModule({
             value
           );
         }
-        // ✅ لما يتغير سعر البيع، أعد احتساب التكلفة تلقائياً في نفس الصف
         else if (field === "newSalePrice") {
           updated.receivedCost = calcCostAfterDiscount(
             value,
@@ -4022,7 +4116,6 @@ function PurchaseModule({
     if (nextCol >= cols.length) {
       nextCol = 0;
       nextRow = rowIndex + 1;
-      // ✅ لو وصل لآخر عمود في آخر صف، ابدأ صف جديد بالفوكس على البحث
       if (nextRow >= items.length) {
         searchRef.current?.focus();
         return;
@@ -4047,7 +4140,6 @@ function PurchaseModule({
     (s, i) => (i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s),
     0
   );
-  // ✅ يسمح بتعديل الإجمالي والضريبة يدوياً
   const subtotal = manualSubtotal !== "" ? +manualSubtotal : calcSubtotal;
   const taxAmt = manualTax !== "" ? +manualTax : calcTax;
   const total = subtotal + taxAmt;
@@ -4135,6 +4227,9 @@ function PurchaseModule({
       })
     );
 
+    // ✅ نحتفظ بنسخة من الأصناف للطباعة قبل التصفير
+    const itemsForPrint = items.map((i) => ({ ...i }));
+
     setItems([]);
     setSelSupplier("");
     setManualSubtotal("");
@@ -4142,9 +4237,12 @@ function PurchaseModule({
     setShowNew(false);
     showToast("تم حفظ فاتورة الشراء ✓");
 
+    // ✅ فتح نافذة طباعة الباركود بعد نجاح الحفظ
+    printLabels(itemsForPrint);
+
     // ==================== رصد ====================
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
-    const gs1Items = items.filter((i) => i.serial);
+    const gs1Items = itemsForPrint.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
       RasdService.sendTransaction(
         "receipt",
@@ -4261,7 +4359,6 @@ function PurchaseModule({
           />
         </div>
 
-        {/* ✅ حقل البحث */}
         <div style={{ position: "relative", marginBottom: 14 }}>
           <input
             ref={searchRef}
@@ -4376,7 +4473,6 @@ function PurchaseModule({
                       style={{ display: "flex", alignItems: "center", gap: 6 }}
                     >
                       {item.name}
-                      {/* ✅ أيقونة كارت الصنف */}
                       <button
                         onClick={() => setShowProductCard(item)}
                         title="عرض بيانات الصنف"
@@ -4457,7 +4553,6 @@ function PurchaseModule({
                     />
                   </td>
                   <td style={{ padding: "4px" }}>
-                    {/* ✅ لما يتغير سعر البيع تتحدث التكلفة تلقائياً */}
                     <input
                       id={`cell-${rowIndex}-newSalePrice`}
                       type="number"
@@ -4556,7 +4651,6 @@ function PurchaseModule({
           </table>
         </div>
 
-        {/* ✅ الإجماليات مع إمكانية التعديل اليدوي */}
         {items.length > 0 && (
           <div
             style={{
@@ -4696,7 +4790,6 @@ function PurchaseModule({
         </div>
       </Modal>
 
-      {/* ✅ كارت الصنف */}
       {showProductCard && (
         <Modal
           open
@@ -4745,7 +4838,77 @@ function PurchaseModule({
           </div>
         </Modal>
       )}
-      {/* Modal تفاصيل وتعديل الفاتورة */}
+
+      {/* ✅ Modal طباعة ملصقات الباركود */}
+      {showPrintModal && (
+        <Modal
+          open
+          title="طباعة ملصقات الباركود"
+          onClose={() => setShowPrintModal(false)}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
+            {printItems.map((item, idx) => (
+              <div
+                key={item.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "8px 10px",
+                  background: "#080e1a",
+                  borderRadius: 8,
+                  border: "1px solid #1d2d4a",
+                }}
+              >
+                <span style={{ color: "#dde8ff", fontSize: 13 }}>{item.name}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>عدد النسخ</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={item.copies}
+                    onChange={(e) =>
+                      setPrintItems((prev) =>
+                        prev.map((i, pi) =>
+                          pi === idx ? { ...i, copies: +e.target.value } : i
+                        )
+                      )
+                    }
+                    style={{
+                      width: 60,
+                      background: "#0a1020",
+                      border: "1px solid #1d3a6a",
+                      borderRadius: 6,
+                      padding: "4px 8px",
+                      color: "#dde8ff",
+                      fontSize: 13,
+                      outline: "none",
+                      textAlign: "center",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginTop: 16,
+              justifyContent: "flex-end",
+            }}
+          >
+            <Btn variant="ghost" onClick={() => setShowPrintModal(false)}>
+              إلغاء
+            </Btn>
+            <Btn icon="printer" onClick={doPrint}>
+              طباعة
+            </Btn>
+          </div>
+        </Modal>
+      )}
+
       {showDetail && (
         <Modal
           open
@@ -5082,7 +5245,6 @@ function PurchaseModule({
             </table>
           </div>
 
-          {/* الإجماليات */}
           <div
             style={{
               background: "#080e1a",
