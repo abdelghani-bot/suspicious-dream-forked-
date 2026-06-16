@@ -3900,12 +3900,17 @@ function PurchaseModule({
   const [editSupplier, setEditSupplier] = useState("");
   const [editManualSubtotal, setEditManualSubtotal] = useState("");
   const [editManualTax, setEditManualTax] = useState("");
-
+  
   // ===== طباعة الباركود =====
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printItems, setPrintItems] = useState([]);
   const [pharmSettings, setPharmSettings] = useState({});
-
+const LABEL_SIZES = [
+  { id: "40x25", label: "40×25 mm", w: 40, h: 25 },
+  { id: "50x30", label: "50×30 mm", w: 50, h: 30 },
+  { id: "58x40", label: "58×40 mm", w: 58, h: 40 },
+  { id: "60x40", label: "60×40 mm", w: 60, h: 40 },
+];
   useEffect(() => {
     supabase.from("pharmacy_settings").select("*").eq("id", "main").single()
       .then(({ data }) => { if (data) setPharmSettings(data); });
@@ -5353,9 +5358,11 @@ function PurchaseModule({
               justifyContent: "flex-end",
             }}
           >
-            <Btn variant="ghost" onClick={() => setShowDetail(null)}>
-              إلغاء
-            </Btn>
+            <Btn variant="secondary" onClick={() => printLabels(
+  editItems.map((i) => ({ ...i, newSalePrice: i.salePrice || i.newSalePrice }))
+)}>
+  🖨️ طباعة ملصقات
+</Btn>
             <Btn
               icon="check"
               onClick={async () => {
