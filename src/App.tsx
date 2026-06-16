@@ -5492,21 +5492,18 @@ function ReturnsModule({
     }
   };
 
-  const returnSubtotal = returnItems.reduce(
-    (s, i) =>
-      s + (type === "purchases" ? i.cost || i.price : i.price) * i.returnQty,
-    0
-  );
-  const returnTax = returnItems.reduce(
-    (s, i) =>
-      i.taxable
-        ? s +
-          (type === "purchases" ? i.cost || i.price : i.price) *
-            i.returnQty *
-            TAX_RATE
-        : s,
-    0
-  );
+ const returnSubtotal = returnItems.reduce(
+  (s, i) =>
+    s + (type === "purchases" ? i.cost || i.price || 0 : i.price || 0) * (i.returnQty || 0),
+  0
+);
+const returnTax = returnItems.reduce(
+  (s, i) =>
+    i.taxable
+      ? s + (type === "purchases" ? i.cost || i.price || 0 : i.price || 0) * (i.returnQty || 0) * TAX_RATE
+      : s,
+  0
+);
   const returnTotal = returnSubtotal + returnTax;
 
   const processReturn = async () => {
