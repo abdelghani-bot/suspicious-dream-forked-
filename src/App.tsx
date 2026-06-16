@@ -3797,29 +3797,6 @@ const LABEL_SIZES = [
   { id: "58x40", label: "58×40 mm (كبير)", w: 58, h: 40 },
   { id: "60x40", label: "60×40 mm (كبير)", w: 60, h: 40 },
 ];
-  {/* حجم الملصق */}
-<div style={{ gridColumn: "1 / -1" }}>
-  <label style={{ color: "#4a6a8a", fontSize: 12, display: "block", marginBottom: 8 }}>
-    حجم ملصق الباركود
-  </label>
-  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-    {LABEL_SIZES.map((size) => (
-      <button
-        key={size.id}
-        onClick={() => setSettings((p) => ({ ...p, labelSize: size.id }))}
-        style={{
-          padding: "8px 16px", borderRadius: 8, cursor: "pointer",
-          border: `2px solid ${settings.labelSize === size.id ? "#3a9aff" : "#1d2d4a"}`,
-          background: settings.labelSize === size.id ? "#0a1a3a" : "#080e1a",
-          color: settings.labelSize === size.id ? "#3a9aff" : "#4a6a8a",
-          fontSize: 13, fontWeight: 600,
-        }}
-      >
-        {size.label}
-      </button>
-    ))}
-  </div>
-</div>
   const save = async () => {
   const { error } = await supabase
     .from("pharmacy_settings")
@@ -3870,7 +3847,30 @@ const LABEL_SIZES = [
             />
           </div>
         ))}
-      </div>
+      
+ {/* حجم الملصق */}
+<div style={{ gridColumn: "1 / -1" }}>
+  <label style={{ color: "#4a6a8a", fontSize: 12, display: "block", marginBottom: 8 }}>
+    حجم ملصق الباركود
+  </label>
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+    {LABEL_SIZES.map((size) => (
+      <button
+        key={size.id}
+        onClick={() => setSettings((p) => ({ ...p, labelSize: size.id }))}
+        style={{
+          padding: "8px 16px", borderRadius: 8, cursor: "pointer",
+          border: `2px solid ${settings.labelSize === size.id ? "#3a9aff" : "#1d2d4a"}`,
+          background: settings.labelSize === size.id ? "#0a1a3a" : "#080e1a",
+          color: settings.labelSize === size.id ? "#3a9aff" : "#4a6a8a",
+          fontSize: 13, fontWeight: 600,
+        }}
+      >
+        {size.label}
+      </button>
+    ))}
+  </div>
+</div>
       <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
         <Btn icon="check" onClick={save}>حفظ البيانات</Btn>
       </div>
