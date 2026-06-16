@@ -5358,6 +5358,9 @@ const LABEL_SIZES = [
               justifyContent: "flex-end",
             }}
           >
+            <Btn variant="ghost" onClick={() => setShowDetail(null)}>
+  إلغاء
+</Btn>
             <Btn variant="secondary" onClick={() => printLabels(
   editItems.map((i) => ({ ...i, newSalePrice: i.salePrice || i.newSalePrice }))
 )}>
