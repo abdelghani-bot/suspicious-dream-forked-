@@ -3917,7 +3917,7 @@ const LABEL_SIZES = [
   }, []);
 
   const printLabels = (invoiceItems) => {
-    setPrintItems(invoiceItems.map((i) => ({ ...i, copies: 1 })));
+    setPrintItems(invoiceItems.map((i) => ({ ...i, copies: i.qty + (i.bonusQty || 0) })));
     setShowPrintModal(true);
   };
 
