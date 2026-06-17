@@ -1286,7 +1286,34 @@ loadData();
         }}
       />
     );
-
+if (isLoading) return (
+  <div style={{
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#060c16",
+    flexDirection: "column",
+    gap: 16,
+    fontFamily: "'Tajawal',sans-serif",
+  }}>
+    <div style={{
+      width: 56,
+      height: 56,
+      borderRadius: 16,
+      background: "linear-gradient(135deg,#1e4fbf,#0a2a7f)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#8ab0ff",
+    }}>
+      <IC n="pill" s={28} />
+    </div>
+    <div style={{ color: "#3a6aaa", fontSize: 15 }}>
+      جاري تحميل البيانات...
+    </div>
+  </div>
+);
   const TABS = [
     { id: "dashboard", label: "الرئيسية", icon: "dashboard" },
     { id: "pos", label: "نقطة البيع", icon: "pos" },
