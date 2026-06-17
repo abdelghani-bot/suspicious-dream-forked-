@@ -6,6 +6,30 @@ const supabase = createClient(
 );
 import { useState, useEffect, useRef, useCallback } from "react";
 
+// ==================== AUTH SERVICE ====================
+const SESSION_KEY = "pharmacy_session";
+const authService = {
+  async login(username: string, password: string) {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, name, role, username, pharmacy_id")
+      .eq("username", username)
+      .eq("password", password)
+      .single();
+    if (error || !data) throw new Error("اسم المستخدم أو كلمة المرور غير صحيحة");
+    if (!data.pharmacy_id) throw new Error("هذا المستخدم غير مرتبط بصيدلية");
+    localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+    return data;
+  },
+  logout() { localStorage.removeItem(SESSION_KEY); },
+  getCurrentUser() {
+    try {
+      const s = localStorage.getItem(SESSION_KEY);
+      return s ? JSON.parse(s) : null;
+    } catch { return null; }
+  },
+};
+
 // ==================== STORAGE ====================
 const useStorage = (key, initial) => {
   const [state, setState] = useState(() => {
@@ -1188,7 +1212,8 @@ export default function PharmacyPro() {
     });
 }, []);
   const [users] = useStorage("ph_users", INIT_USERS);
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
+  const pharmacyId = currentUser?.pharmacy_id || null;
   const [tab, setTab] = useState("dashboard");
   const [toast, setToast] = useState(null);
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
@@ -1202,14 +1227,15 @@ export default function PharmacyPro() {
   );
   useEffect(() => {
     const loadData = async () => {
+      if (!pharmacyId) return;
       const [p, s, c, sa, pu, ret, cp] = await Promise.all([
-        supabase.from("products").select("*"),
-        supabase.from("suppliers").select("*"),
-        supabase.from("customers").select("*"),
-        supabase.from("sales").select("*"),
-        supabase.from("purchases").select("*"),
-        supabase.from("returns").select("*"),
-        supabase.from("credit_payments").select("*"),
+        supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
+        supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
+        supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
+        supabase.from("sales").select("*").eq("pharmacy_id", pharmacyId),
+        supabase.from("purchases").select("*").eq("pharmacy_id", pharmacyId),
+        supabase.from("returns").select("*").eq("pharmacy_id", pharmacyId),
+        supabase.from("credit_payments").select("*").eq("pharmacy_id", pharmacyId),
       ]);
       if (p.data?.length) setProducts(p.data);
       if (s.data?.length) setSuppliers(s.data);
@@ -1230,14 +1256,19 @@ export default function PharmacyPro() {
         );
     };
     loadData();
-  }, []);
+  }, [pharmacyId]);
   if (!currentUser)
     return (
       <Login
         users={users}
-        onLogin={(u) => {
-          setCurrentUser(u);
-          setTab("dashboard");
+        onLogin={async (username, password) => {
+          try {
+            const u = await authService.login(username, password);
+            setCurrentUser(u);
+            setTab("dashboard");
+          } catch (err: any) {
+            alert(err.message);
+          }
         }}
       />
     );
@@ -1422,6 +1453,7 @@ export default function PharmacyPro() {
           )}
           <button
             onClick={() => {
+              authService.logout();
               setCurrentUser(null);
               setTab("dashboard");
             }}
@@ -1481,6 +1513,7 @@ export default function PharmacyPro() {
             setInvoices={setPosInvoices}
             activeTab={posActiveTab}
             setActiveTab={setPosActiveTab}
+            pharmacyId={pharmacyId}
           />
         )}
         {tab === "purchase" && (
@@ -1491,6 +1524,7 @@ export default function PharmacyPro() {
             purchases={purchases}
             setPurchases={setPurchases}
             showToast={showToast}
+            pharmacyId={pharmacyId}
           />
         )}
         {tab === "returns" && (
@@ -1503,6 +1537,7 @@ export default function PharmacyPro() {
             setPurchases={setPurchases}
             customers={customers}
             showToast={showToast}
+            pharmacyId={pharmacyId}
           />
         )}
         {tab === "sales_history" && (
@@ -1531,6 +1566,7 @@ export default function PharmacyPro() {
             setProducts={setProducts}
             suppliers={suppliers}
             showToast={showToast}
+            pharmacyId={pharmacyId}
           />
         )}
         {tab === "suppliers" && (
@@ -1542,6 +1578,7 @@ export default function PharmacyPro() {
   products={products}
   sales={sales}
   showToast={showToast}
+  pharmacyId={pharmacyId}
 />
         )}
         {tab === "customers" && (
@@ -1554,6 +1591,7 @@ export default function PharmacyPro() {
             creditPayments={creditPayments}
             setCreditPayments={setCreditPayments}
             currentUser={currentUser}
+            pharmacyId={pharmacyId}
           />
         )}
         {tab === "reports" && (
@@ -1575,6 +1613,7 @@ export default function PharmacyPro() {
             sales={sales}
             currentUser={currentUser}
             showToast={showToast}
+            pharmacyId={pharmacyId}
           />
         )}
       </main>
@@ -2244,6 +2283,7 @@ function POS({
   setInvoices,
   activeTab,
   setActiveTab,
+  pharmacyId,
 }) {
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
@@ -2491,6 +2531,7 @@ function POS({
       payment: inv.payment,
       shift: currentShift?.id,
       returned: false,
+      pharmacy_id: pharmacyId,
     };
 
     const { error: saleError } = await supabase.from("sales").insert(invoice);
@@ -2567,6 +2608,7 @@ function POS({
         notes: i.notes || "",
         shift: currentShift?.id,
         cashier: currentUser?.name,
+        pharmacy_id: pharmacyId,
       }));
       await supabase.from("missed_sales").insert(missedRecords);
     }
@@ -3892,6 +3934,7 @@ function PurchaseModule({
   purchases,
   setPurchases,
   showToast,
+  pharmacyId,
 }) {
   const [showNew, setShowNew] = useState(false);
   const [items, setItems] = useState([]);
@@ -4197,6 +4240,7 @@ const LABEL_SIZES = [
       tax_amount: po.taxAmount,
       total: po.total,
       status: po.status,
+      pharmacy_id: pharmacyId,
     });
     if (error) {
       showToast("فشل الحفظ في السيرفر: " + error.message, "error");
@@ -5455,6 +5499,7 @@ function ReturnsModule({
   setPurchases,
   customers,
   showToast,
+  pharmacyId,
 }) {
   const [type, setType] = useState("sales");
   const [search, setSearch] = useState("");
@@ -5584,6 +5629,7 @@ const returnTax = returnItems.reduce(
         subtotal: returnSubtotal,
         tax: returnTax,
         total: returnTotal,
+        pharmacy_id: pharmacyId,
       },
     ]);
 
@@ -7561,7 +7607,7 @@ const SUPPLY_CATEGORIES = [
   "حفاضات",
   "رضاعات ومستلزمات الرضاعة",
 ];
-function ProductsModule({ products, setProducts, suppliers, showToast }) {
+function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyId }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -7746,7 +7792,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
       if (error) { showToast("خطأ في التعديل: " + error.message, "error"); return; }
       setProducts((prev) => prev.map((x) => (x.id === editing ? { ...x, ...p } : x)));
     } else {
-      const { data, error } = await supabase.from("products").insert(p).select();
+      const { data, error } = await supabase.from("products").insert({ ...p, pharmacy_id: pharmacyId }).select();
       if (error) { showToast("خطأ في الإضافة: " + error.message, "error"); return; }
       productId = data[0].id;
       setProducts((prev) => [...prev, data[0]]);
@@ -7759,7 +7805,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
     const validBarcodes = barcodes.filter((b) => b.base_barcode.trim());
     if (validBarcodes.length > 0) {
       await supabase.from("product_barcodes").insert(
-        validBarcodes.map((b) => ({ ...b, product_id: productId, id: undefined }))
+        validBarcodes.map((b) => ({ ...b, product_id: productId, id: undefined, pharmacy_id: pharmacyId }))
       );
     }
 
@@ -7773,6 +7819,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast }) {
           product_id: productId,
           ingredient_id: x.ingredient_id,
           concentration: x.concentration,
+          pharmacy_id: pharmacyId,
         }))
       );
     }
@@ -7982,6 +8029,7 @@ function SuppliersModule({
   sales,
   showToast,
   onCreateOrder,
+  pharmacyId,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -8167,6 +8215,7 @@ supply_categories: [],
       amount,
       notes: payForm.note,
       attachment_url: receiptUrl,
+      pharmacy_id: pharmacyId,
     });
 
     if (error) {
@@ -8311,6 +8360,7 @@ const lowStock = (products || []).filter((p) => {
       coverage_days: coverageDays,
       items: orderItems,
       status: "مسودة",
+      pharmacy_id: pharmacyId,
     };
 
     const { error } = await supabase.from("orders").insert(order);
@@ -9699,6 +9749,7 @@ function CustomersModule({
   creditPayments,
   setCreditPayments,
   currentUser,
+  pharmacyId,
 }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -9778,6 +9829,7 @@ function CustomersModule({
       date: new Date().toISOString().split("T")[0],
       notes: "سداد جزئي/كامل",
       created_by: currentUser?.name || "",
+      pharmacy_id: pharmacyId,
     });
 
     if (error) {
@@ -9798,6 +9850,7 @@ function CustomersModule({
       items: [],
       notes: `تحصيل فاتورة ${selectedInvoice.id}`,
       returned: false,
+      pharmacy_id: pharmacyId,
     };
 
     await supabase.from("sales").insert(paymentRecord);
@@ -11819,7 +11872,7 @@ function TaxReport({ sales, purchases }) {
 }
 
 // ==================== SHIFT MODULE ====================
-function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
+function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId }) {
   const [openCash, setOpenCash] = useState("500");
   const [closeCash, setCloseCash] = useState("");
   const [notes, setNotes] = useState("");
@@ -11847,6 +11900,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast }) {
   close_cash: null,
   sales: 0,
   notes: "",
+  pharmacy_id: pharmacyId,
 };
 
   const { error } = await supabase.from("shifts").insert(sh);
