@@ -943,10 +943,13 @@ const Login = ({ users, onLogin }) => {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState("");
-  const go = () => {
-    const usr = users.find((x) => x.username === u && x.password === p);
-    if (usr) onLogin(usr);
-    else setErr("اسم المستخدم أو كلمة المرور غير صحيحة");
+  const go = async () => {
+    setErr("");
+    try {
+      await onLogin(u, p);
+    } catch (e) {
+      setErr(e.message || "اسم المستخدم أو كلمة المرور غير صحيحة");
+    }
   };
   return (
     <div
@@ -1262,13 +1265,9 @@ export default function PharmacyPro() {
       <Login
         users={users}
         onLogin={async (username, password) => {
-          try {
-            const u = await authService.login(username, password);
-            setCurrentUser(u);
-            setTab("dashboard");
-          } catch (err: any) {
-            alert(err.message);
-          }
+          const u = await authService.login(username, password);
+          setCurrentUser(u);
+          setTab("dashboard");
         }}
       />
     );
