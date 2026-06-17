@@ -1232,35 +1232,48 @@ export default function PharmacyPro() {
   );
   useEffect(() => {
     const loadData = async () => {
-      if (!pharmacyId) return;
-      const [p, s, c, sa, pu, ret, cp] = await Promise.all([
-        supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
-        supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
-        supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
-        supabase.from("sales").select("*").eq("pharmacy_id", pharmacyId),
-        supabase.from("purchases").select("*").eq("pharmacy_id", pharmacyId),
-        supabase.from("returns").select("*").eq("pharmacy_id", pharmacyId),
-        supabase.from("credit_payments").select("*").eq("pharmacy_id", pharmacyId),
-      ]);
-      if (p.data?.length) setProducts(p.data);
-      if (s.data?.length) setSuppliers(s.data);
-      if (c.data?.length) setCustomers(c.data);
-      if (sa.data?.length) setSales(sa.data);
-      if (ret.data?.length) setReturnsData(ret.data);
-      if (cp.data?.length) setCreditPayments(cp.data);
-      if (pu.data?.length)
-        setPurchases(
-          pu.data.map((p) => ({
-            ...p,
-            supplierName: p.supplier_name,
-            taxAmount: p.tax_amount ?? 0,
-            subtotal: p.subtotal ?? 0,
-            total: p.total ?? 0,
-            items: p.items ?? [],
-          }))
-        );
-    };
-    loadData();
+  if (!pharmacyId) return;
+  
+  setProducts([]);
+  setSuppliers([]);
+  setCustomers([]);
+  setSales([]);
+  setPurchases([]);
+  setReturnsData([]);
+  setCreditPayments([]);
+  setIsLoading(true);
+  
+  try {
+    const [p, s, c, sa, pu, ret, cp] = await Promise.all([
+      supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("sales").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("purchases").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("returns").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("credit_payments").select("*").eq("pharmacy_id", pharmacyId),
+    ]);
+    setProducts(p.data ?? []);
+    setSuppliers(s.data ?? []);
+    setCustomers(c.data ?? []);
+    setSales(sa.data ?? []);
+    setReturnsData(ret.data ?? []);
+    setCreditPayments(cp.data ?? []);
+    setPurchases(
+      (pu.data ?? []).map((p) => ({
+        ...p,
+        supplierName: p.supplier_name,
+        taxAmount: p.tax_amount ?? 0,
+        subtotal: p.subtotal ?? 0,
+        total: p.total ?? 0,
+        items: p.items ?? [],
+      }))
+    );
+  } finally {
+    setIsLoading(false);
+  }
+};
+loadData();
   }, [pharmacyId]);
   if (!currentUser)
     return (
