@@ -1223,6 +1223,7 @@ export default function PharmacyPro() {
   const [toast, setToast] = useState(null);
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
   const [posActiveTab, setPosActiveTab] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
