@@ -3846,28 +3846,28 @@ function PharmacySettings({ showToast, pharmacyId }) {
   ];
 
   const save = async () => {
-    if (!pharmacyId) return;
-    const { error } = await supabase
-      .from("pharmacy_settings")
-      .upsert({
-        pharmacy_id: pharmacyId,
-        name_ar: settings.nameAr,
-        name_en: settings.nameEn,
-        phone: settings.phone,
-        address: settings.address,
-        tax_number: settings.vatNumber,
-        license_number: settings.licenseNumber,
-        updated_at: new Date().toISOString(),
-        label_size: settings.labelSize || "50x30",
-      }, { onConflict: "pharmacy_id" });
+  if (!pharmacyId) return;
+  const { error } = await supabase
+    .from("pharmacy_settings")
+    .update({
+      name_ar: settings.nameAr,
+      name_en: settings.nameEn,
+      phone: settings.phone,
+      address: settings.address,
+      tax_number: settings.vatNumber,
+      license_number: settings.licenseNumber,
+      updated_at: new Date().toISOString(),
+      label_size: settings.labelSize || "50x30",
+    })
+    .eq("pharmacy_id", pharmacyId);
 
-    if (error) {
-      showToast("خطأ في الحفظ: " + error.message, "error");
-      return;
-    }
-    localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
-    showToast("تم حفظ بيانات الصيدلية ✓");
-  };
+  if (error) {
+    showToast("خطأ في الحفظ: " + error.message, "error");
+    return;
+  }
+  localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
+  showToast("تم حفظ بيانات الصيدلية ✓");
+};
   return (
     <div>
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
