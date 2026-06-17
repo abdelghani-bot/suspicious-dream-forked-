@@ -1206,9 +1206,11 @@ export default function PharmacyPro() {
   );
   const [shifts, setShifts] = useState([]);
   useEffect(() => {
+  if (!pharmacyId) return;
   supabase
     .from("shifts")
     .select("*")
+    .eq("pharmacy_id", pharmacyId)
     .order("start_time", { ascending: false })
     .then(({ data }) => {
       if (data) setShifts(data);
@@ -1479,7 +1481,9 @@ export default function PharmacyPro() {
 
       {/* MAIN CONTENT */}
       {tab === "pharmacy_settings" && (
-        <PharmacySettings showToast={showToast} />
+        <PharmacySettings showToast={showToast}
+          pharmacyId={pharmacyId}
+          />
       )}
       <main
         style={{ flex: 1, overflow: "auto", padding: 24, minHeight: "100vh" }}
@@ -3802,14 +3806,15 @@ const getPharmacySettings = async () => {
   }
 };
 
-function PharmacySettings({ showToast }) {
+function PharmacySettings({ showToast, pharmacyId }) {
   const [settings, setSettings] = useState({});
 
   useEffect(() => {
+    if (!pharmacyId) return;
     supabase
       .from("pharmacy_settings")
       .select("*")
-      .eq("id", "main")
+      .eq("pharmacy_id", pharmacyId)
       .single()
       .then(({ data }) => {
         if (data) setSettings({
@@ -3822,7 +3827,7 @@ function PharmacySettings({ showToast }) {
           labelSize: data.label_size || "50x30",
         });
       });
-  }, []);
+  }, [pharmacyId]);
 
   const fields = [
     { key: "nameAr", label: "اسم الصيدلية (عربي)" },
@@ -3841,9 +3846,11 @@ function PharmacySettings({ showToast }) {
   ];
 
   const save = async () => {
+    if (!pharmacyId) return;
     const { error } = await supabase
       .from("pharmacy_settings")
-      .update({
+      .upsert({
+        pharmacy_id: pharmacyId,
         name_ar: settings.nameAr,
         name_en: settings.nameEn,
         phone: settings.phone,
@@ -3852,8 +3859,7 @@ function PharmacySettings({ showToast }) {
         license_number: settings.licenseNumber,
         updated_at: new Date().toISOString(),
         label_size: settings.labelSize || "50x30",
-      })
-      .eq("id", "main");
+      }, { onConflict: "pharmacy_id" });
 
     if (error) {
       showToast("خطأ في الحفظ: " + error.message, "error");
@@ -3862,7 +3868,6 @@ function PharmacySettings({ showToast }) {
     localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
     showToast("تم حفظ بيانات الصيدلية ✓");
   };
-
   return (
     <div>
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
