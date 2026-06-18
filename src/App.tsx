@@ -1192,6 +1192,9 @@ export default function PharmacyPro() {
   const [creditPayments, setCreditPayments] = useState([]);
   const [returnsData, setReturnsData] = useStorage("ph_returns", []);
   const [inventoryLogs, setInventoryLogs] = useState([]);
+  const [users] = useStorage("ph_users", INIT_USERS);
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
+  const pharmacyId = currentUser?.pharmacy_id || null;
   const [shifts, setShifts] = useState([]);
   useEffect(() => {
   if (!pharmacyId) return;
@@ -1204,9 +1207,6 @@ export default function PharmacyPro() {
       if (data) setShifts(data);
     });
 }, [pharmacyId]);
-  const [users] = useStorage("ph_users", INIT_USERS);
-  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
-  const pharmacyId = currentUser?.pharmacy_id || null;
   const [tab, setTab] = useState("dashboard");
   const [toast, setToast] = useState(null);
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
