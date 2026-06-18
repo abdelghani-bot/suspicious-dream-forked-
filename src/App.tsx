@@ -1698,13 +1698,8 @@ function Dashboard({
   setTab,
   creditPayments = [],
 }) {
-  const alerts = useEssentialAlerts(products);
-  const [showAlerts, setShowAlerts] = useState(false);
-  const [showAlertsModal, setShowAlertsModal] = useState(false);
-  const [showTodayDetails, setShowTodayDetails] = useState(false);
-  const [showMonthDetails, setShowMonthDetails] = useState(false);
-  const [showMonthsComparison, setShowMonthsComparison] = useState(false);
-  const [showLowStockModal, setShowLowStockModal] = useState(false);
+  const [showTodayDetails, setShowTodayDetails] = useState(false); // غير مستخدمة بعد التوحيد، اتركها أو احذفها لو مش هتحتاجها لاحقًا
+  const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
 
   // ── فرص ضائعة ──
   const [missedToday, setMissedToday] = useState({ count: 0, value: 0 });
@@ -1809,9 +1804,6 @@ function Dashboard({
     return { mk, label, mRev, mPurchases, mCreditPaid, mProfit };
   });
 
-  const lowStock = products.filter(
-    (p) => p.stock <= (p.min_stock || p.minStock || 0)
-  );
   const expiringSoon = products.filter((p) => {
     const d = new Date(p.expiry);
     const now = new Date();
@@ -1843,6 +1835,12 @@ function Dashboard({
 
   const COLORS = ["#3a9aff", "#44dd88", "#a78bfa", "#fb923c", "#f59e0b", "#ff7744", "#44ddcc"];
 
+  const TABS = [
+    { key: "today", label: "اليوم" },
+    { key: "month", label: "الشهر" },
+    { key: "compare", label: "المقارنة" },
+  ];
+
   return (
     <div>
       {/* الهيدر */}
@@ -1860,404 +1858,249 @@ function Dashboard({
         <Btn onClick={() => setTab("pos")} icon="pos" size="lg">نقطة البيع</Btn>
       </div>
 
-      {/* الكاردات الرئيسية — صف 1 */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 14 }}>
-        {/* كارت مبيعات اليوم */}
-        <div
-          onClick={() => setShowTodayDetails(!showTodayDetails)}
-          style={{
-            background: showTodayDetails ? "#0a1a3a" : "#0f1623",
-            border: `1px solid ${showTodayDetails ? "#3a9aff" : "#1d2d4a"}`,
-            borderRadius: 14, padding: 16, cursor: "pointer", transition: "all 0.2s",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ color: "#4a6a8a", fontSize: 12 }}>مبيعات اليوم</span>
-            <IC n="money" s={16} color="#3a9aff" />
+      {/* صف 1 — كارت إحصائيات المبيعات الموحد + كارت العملاء */}
+      <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: 14, marginBottom: 20 }}>
+
+        {/* ── كارت إحصائيات المبيعات (موحد: اليوم + الشهر + الفرص الضائعة + المقارنة) ── */}
+        <div style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 14, overflow: "hidden" }}>
+          {/* هيدر + تابز */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "14px 18px", borderBottom: "1px solid #1d2d4a",
+          }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#dde8ff" }}>
+              📊 إحصائيات المبيعات
+            </h3>
+            <div style={{ display: "flex", background: "#080e1a", borderRadius: 8, padding: 3, gap: 2 }}>
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setSalesTab(t.key)}
+                  style={{
+                    background: salesTab === t.key ? "#1a2a4a" : "transparent",
+                    color: salesTab === t.key ? "#5a9aff" : "#4a6a8a",
+                    border: "none", borderRadius: 6, padding: "6px 16px",
+                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ color: "#3a9aff", fontWeight: 900, fontSize: 20 }}>
-            {todayRevWithCredit.toFixed(2)} ر.س
-          </div>
-          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
-            {todayCashSales.length} فاتورة
-            {todayCreditPaid > 0 && ` + ${todayCreditPaid.toFixed(0)} سداد`}
-          </div>
-          {showTodayDetails && (
-            <div style={{ marginTop: 12, borderTop: "1px solid #1d2d4a", paddingTop: 10 }}>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ color: "#dde8ff", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+
+          <div style={{ padding: 18 }}>
+
+            {/* ── تاب اليوم ── */}
+            {salesTab === "today" && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14, marginBottom: 16 }}>
+                  <div>
+                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>إجمالي المبيعات</div>
+                    <div style={{ color: "#3a9aff", fontWeight: 900, fontSize: 22 }}>
+                      {todayRevWithCredit.toFixed(2)} ر.س
+                    </div>
+                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
+                      {todayCashSales.length} فاتورة
+                      {todayCreditPaid > 0 && ` + ${todayCreditPaid.toFixed(0)} سداد`}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>فرص ضائعة اليوم</div>
+                    <div style={{ color: "#ffaa44", fontWeight: 900, fontSize: 22 }}>
+                      {missedToday.value.toFixed(2)} ر.س
+                    </div>
+                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
+                      {missedToday.count} صنف مفقود
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{
+                  display: "flex", justifyContent: "space-between", marginBottom: 16,
+                  padding: "10px 0", borderTop: "1px solid #1d2d4a", borderBottom: "1px solid #1d2d4a",
+                }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>💳 مديونية اليوم</span>
+                    <span style={{ color: "#ff7777", fontWeight: 700, fontSize: 12 }}>
+                      {todayAjilTotal.toFixed(2)} ر.س
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>✅ سداد آجل</span>
+                    <span style={{ color: "#44dd88", fontWeight: 700, fontSize: 12 }}>
+                      {todayCreditPaid.toFixed(2)} ر.س
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ color: "#dde8ff", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
                   📊 توزيع الأقسام
                 </div>
                 {todayCategoryRev.length === 0 ? (
-                  <div style={{ color: "#3a5a8a", fontSize: 11 }}>لا توجد مبيعات</div>
+                  <div style={{ color: "#3a5a8a", fontSize: 12 }}>لا توجد مبيعات</div>
                 ) : (
                   todayCategoryRev.map(([cat, val], i) => (
                     <MiniBar key={cat} label={cat} value={val}
                       total={todayRev} color={COLORS[i % COLORS.length]} />
                   ))
                 )}
-              </div>
-              <div style={{ borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 11 }}>💳 مديونية اليوم</span>
-                  <span style={{ color: "#ff7777", fontWeight: 700, fontSize: 12 }}>
-                    {todayAjilTotal.toFixed(2)} ر.س
-                  </span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 11 }}>✅ سداد آجل</span>
-                  <span style={{ color: "#44dd88", fontWeight: 700, fontSize: 12 }}>
-                    {todayCreditPaid.toFixed(2)} ر.س
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+              </>
+            )}
 
-        {/* كارت مبيعات الشهر */}
-        <div
-          onClick={() => setShowMonthDetails(!showMonthDetails)}
-          style={{
-            background: showMonthDetails ? "#0a2a1a" : "#0f1623",
-            border: `1px solid ${showMonthDetails ? "#44dd88" : "#1d2d4a"}`,
-            borderRadius: 14, padding: 16, cursor: "pointer", transition: "all 0.2s",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ color: "#4a6a8a", fontSize: 12 }}>مبيعات الشهر</span>
-            <IC n="reports" s={16} color="#44dd88" />
-          </div>
-          <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 20 }}>
-            {monthRev.toFixed(2)} ر.س
-          </div>
-          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
-            {monthCashSales.length} فاتورة
-          </div>
-          {showMonthDetails && (
-            <div style={{ marginTop: 12, borderTop: "1px solid #1d2d4a", paddingTop: 10 }}>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ color: "#dde8ff", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+            {/* ── تاب الشهر ── */}
+            {salesTab === "month" && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14, marginBottom: 16 }}>
+                  <div>
+                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>إجمالي المبيعات</div>
+                    <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 22 }}>
+                      {monthRev.toFixed(2)} ر.س
+                    </div>
+                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
+                      {monthCashSales.length} فاتورة
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>فرص ضائعة الشهر</div>
+                    <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 22 }}>
+                      {missedMonth.value.toFixed(2)} ر.س
+                    </div>
+                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
+                      {missedMonth.count} صنف مفقود
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{
+                  display: "flex", justifyContent: "space-between", marginBottom: 16,
+                  padding: "10px 0", borderTop: "1px solid #1d2d4a", borderBottom: "1px solid #1d2d4a",
+                }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>💳 مديونية الشهر</span>
+                    <span style={{ color: "#ff7777", fontWeight: 700, fontSize: 12 }}>
+                      {monthAjilTotal.toFixed(2)} ر.س
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>✅ سداد آجل</span>
+                    <span style={{ color: "#44dd88", fontWeight: 700, fontSize: 12 }}>
+                      {monthCreditCollected.toFixed(2)} ر.س
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ color: "#dde8ff", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
                   📊 توزيع الأقسام
                 </div>
                 {monthCategoryRev.map(([cat, val], i) => (
                   <MiniBar key={cat} label={cat} value={val}
                     total={monthRev} color={COLORS[i % COLORS.length]} />
                 ))}
-              </div>
-              <div style={{ borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 11 }}>💳 مديونية الشهر</span>
-                  <span style={{ color: "#ff7777", fontWeight: 700, fontSize: 12 }}>
-                    {monthAjilTotal.toFixed(2)} ر.س
-                  </span>
+              </>
+            )}
+
+            {/* ── تاب المقارنة ── */}
+            {salesTab === "compare" && (
+              <>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+                    <thead>
+                      <tr style={{ background: "#080e1a" }}>
+                        {["الشهر", "المبيعات", "المشتريات", "السداد", "الربح"].map((h) => (
+                          <th key={h} style={{
+                            padding: "8px 12px", textAlign: "right",
+                            color: "#4a6a9a", fontSize: 12, fontWeight: 600,
+                          }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthsData.map((m) => (
+                        <tr key={m.mk} style={{
+                          borderBottom: "1px solid #0a101a",
+                          background: m.mk === monthKey ? "#0a1a2a" : "transparent",
+                        }}>
+                          <td style={{ padding: "10px 12px", color: "#dde8ff", fontWeight: m.mk === monthKey ? 700 : 400 }}>
+                            {m.label} {m.mk === monthKey && "🔵"}
+                          </td>
+                          <td style={{ padding: "10px 12px", color: "#3a9aff", fontWeight: 700 }}>
+                            {m.mRev.toFixed(0)} ر.س
+                          </td>
+                          <td style={{ padding: "10px 12px", color: "#ff7744" }}>
+                            {m.mPurchases.toFixed(0)} ر.س
+                          </td>
+                          <td style={{ padding: "10px 12px", color: "#44dd88" }}>
+                            {m.mCreditPaid.toFixed(0)} ر.س
+                          </td>
+                          <td style={{ padding: "10px 12px", color: m.mProfit >= 0 ? "#44dd88" : "#ff4444", fontWeight: 700 }}>
+                            {m.mProfit.toFixed(0)} ر.س
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 11 }}>✅ سداد آجل</span>
-                  <span style={{ color: "#44dd88", fontWeight: 700, fontSize: 12 }}>
-                    {monthCreditCollected.toFixed(2)} ر.س
-                  </span>
+
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 8 }}>
+                    📊 مقارنة بصرية (المبيعات vs المشتريات)
+                  </div>
+                  {monthsData.map((m) => {
+                    const maxVal = Math.max(...monthsData.map((x) => x.mRev), 1);
+                    return (
+                      <div key={m.mk} style={{ marginBottom: 10 }}>
+                        <div style={{ color: "#7a9aaa", fontSize: 11, marginBottom: 3 }}>{m.label}</div>
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <div style={{ flex: 1, background: "#080e1a", borderRadius: 4, height: 8 }}>
+                            <div style={{
+                              background: "#3a9aff", height: "100%", borderRadius: 4,
+                              width: `${(m.mRev / maxVal) * 100}%`,
+                            }} />
+                          </div>
+                          <div style={{ flex: 1, background: "#080e1a", borderRadius: 4, height: 8 }}>
+                            <div style={{
+                              background: "#ff7744", height: "100%", borderRadius: 4,
+                              width: `${(m.mPurchases / maxVal) * 100}%`,
+                            }} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
+                    <span style={{ color: "#3a9aff", fontSize: 11 }}>■ مبيعات</span>
+                    <span style={{ color: "#ff7744", fontSize: 11 }}>■ مشتريات</span>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
+              </>
+            )}
+
+          </div>
         </div>
 
-        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#a78bfa" />
+        {/* ── كارت العملاء المسجلون ── */}
         <StatCard label="العملاء المسجلون" value={customers.length} icon="customers" color="#fb923c" />
       </div>
 
-      {/* صف 2 — فرص ضائعة + مخزون منخفض */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 20 }}>
-
-        {/* فرص ضائعة اليوم */}
-        <div style={{
-          background: "#0f1623",
-          border: "1px solid #3a2000",
-          borderRadius: 14, padding: 16,
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ color: "#4a6a8a", fontSize: 12 }}>فرص ضائعة اليوم</span>
-            <span style={{ fontSize: 16 }}>⚠️</span>
-          </div>
-          <div style={{ color: "#ffaa44", fontWeight: 900, fontSize: 20 }}>
-            {missedToday.value.toFixed(2)} ر.س
-          </div>
-          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
-            {missedToday.count} صنف مفقود
-          </div>
-        </div>
-
-        {/* فرص ضائعة الشهر */}
-        <div style={{
-          background: "#0f1623",
-          border: "1px solid #3a2000",
-          borderRadius: 14, padding: 16,
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ color: "#4a6a8a", fontSize: 12 }}>فرص ضائعة الشهر</span>
-            <span style={{ fontSize: 16 }}>📉</span>
-          </div>
-          <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 20 }}>
-            {missedMonth.value.toFixed(2)} ر.س
-          </div>
-          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
-            {missedMonth.count} صنف مفقود
-          </div>
-        </div>
-
-        {/* مخزون منخفض — نسبة فقط + ضغط للتفاصيل */}
-        <div
-          onClick={() => lowStock.length > 0 && setShowLowStockModal(true)}
-          style={{
-            background: "#0f1623",
-            border: "1px solid #3a2000",
-            borderRadius: 14, padding: 16,
-            cursor: lowStock.length > 0 ? "pointer" : "default",
-            transition: "all 0.2s",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ color: "#4a6a8a", fontSize: 12 }}>مخزون منخفض</span>
-            <IC n="alert" s={16} color="#ffaa44" />
-          </div>
-          <div style={{ color: "#ffaa44", fontWeight: 900, fontSize: 20 }}>
-            {products.length > 0
-              ? ((lowStock.length / products.length) * 100).toFixed(1)
-              : "0.0"}%
-          </div>
-          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
-            {lowStock.length} صنف من أصل {products.length}
-            {lowStock.length > 0 && (
-              <span style={{ color: "#ffaa44", marginRight: 6 }}>• اضغط للتفاصيل</span>
-            )}
-          </div>
-          {/* شريط بصري للنسبة */}
-          <div style={{ background: "#080e1a", borderRadius: 4, height: 5, marginTop: 10 }}>
-            <div style={{
-              background: lowStock.length / products.length > 0.2 ? "#ff4444" : "#ffaa44",
-              height: "100%", borderRadius: 4,
-              width: `${products.length > 0 ? (lowStock.length / products.length) * 100 : 0}%`,
-              transition: "width 0.5s",
-            }} />
-          </div>
-        </div>
-      </div>
-
-      {/* زر مقارنة الأشهر */}
-      <div style={{ marginBottom: 16 }}>
-        <button
-          onClick={() => setShowMonthsComparison(!showMonthsComparison)}
-          style={{
-            background: showMonthsComparison ? "#1a2a4a" : "#0f1623",
-            border: `1px solid ${showMonthsComparison ? "#3a6aef" : "#1d2d4a"}`,
-            borderRadius: 10, padding: "10px 18px", color: "#5a9aff",
-            fontSize: 13, fontWeight: 700, cursor: "pointer", width: "100%",
-          }}
-        >
-          📈 {showMonthsComparison ? "إخفاء" : "عرض"} مقارنة الأشهر الستة
-        </button>
-      </div>
-
-      {/* مقارنة الأشهر */}
-      {showMonthsComparison && (
-        <div style={{
-          background: "#0f1623", border: "1px solid #1d2d4a",
-          borderRadius: 14, padding: 18, marginBottom: 16,
-        }}>
-          <h3 style={{ margin: "0 0 16px", color: "#dde8ff", fontSize: 15, fontWeight: 700 }}>
-            📈 مقارنة آخر 6 أشهر
+      {/* تنتهي قريباً */}
+      {expiringSoon.length > 0 && (
+        <div style={{ background: "#0f1623", border: "1px solid #3a1000", borderRadius: 14, padding: 18 }}>
+          <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: "#ff7744", display: "flex", alignItems: "center", gap: 8 }}>
+            <IC n="alert" s={16} /> تنتهي قريباً ({expiringSoon.length} صنف)
           </h3>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
-              <thead>
-                <tr style={{ background: "#080e1a" }}>
-                  {["الشهر", "المبيعات", "المشتريات", "السداد", "الربح"].map((h) => (
-                    <th key={h} style={{
-                      padding: "8px 12px", textAlign: "right",
-                      color: "#4a6a9a", fontSize: 12, fontWeight: 600,
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {monthsData.map((m) => (
-                  <tr key={m.mk} style={{
-                    borderBottom: "1px solid #0a101a",
-                    background: m.mk === monthKey ? "#0a1a2a" : "transparent",
-                  }}>
-                    <td style={{ padding: "10px 12px", color: "#dde8ff", fontWeight: m.mk === monthKey ? 700 : 400 }}>
-                      {m.label} {m.mk === monthKey && "🔵"}
-                    </td>
-                    <td style={{ padding: "10px 12px", color: "#3a9aff", fontWeight: 700 }}>
-                      {m.mRev.toFixed(0)} ر.س
-                    </td>
-                    <td style={{ padding: "10px 12px", color: "#ff7744" }}>
-                      {m.mPurchases.toFixed(0)} ر.س
-                    </td>
-                    <td style={{ padding: "10px 12px", color: "#44dd88" }}>
-                      {m.mCreditPaid.toFixed(0)} ر.س
-                    </td>
-                    <td style={{ padding: "10px 12px", color: m.mProfit >= 0 ? "#44dd88" : "#ff4444", fontWeight: 700 }}>
-                      {m.mProfit.toFixed(0)} ر.س
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 8 }}>
-              📊 مقارنة بصرية (المبيعات vs المشتريات)
+          {expiringSoon.map((p) => (
+            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #111a20" }}>
+              <span style={{ fontSize: 13, color: "#c0d0f0" }}>{p.name}</span>
+              <Badge color="#3a1000" text="#ff7744">{p.expiry}</Badge>
             </div>
-            {monthsData.map((m) => {
-              const maxVal = Math.max(...monthsData.map((x) => x.mRev), 1);
-              return (
-                <div key={m.mk} style={{ marginBottom: 10 }}>
-                  <div style={{ color: "#7a9aaa", fontSize: 11, marginBottom: 3 }}>{m.label}</div>
-                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    <div style={{ flex: 1, background: "#080e1a", borderRadius: 4, height: 8 }}>
-                      <div style={{
-                        background: "#3a9aff", height: "100%", borderRadius: 4,
-                        width: `${(m.mRev / maxVal) * 100}%`,
-                      }} />
-                    </div>
-                    <div style={{ flex: 1, background: "#080e1a", borderRadius: 4, height: 8 }}>
-                      <div style={{
-                        background: "#ff7744", height: "100%", borderRadius: 4,
-                        width: `${(m.mPurchases / maxVal) * 100}%`,
-                      }} />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
-              <span style={{ color: "#3a9aff", fontSize: 11 }}>■ مبيعات</span>
-              <span style={{ color: "#ff7744", fontSize: 11 }}>■ مشتريات</span>
-            </div>
-          </div>
+          ))}
         </div>
       )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        {/* تنتهي قريباً */}
-        {expiringSoon.length > 0 && (
-          <div style={{ background: "#0f1623", border: "1px solid #3a1000", borderRadius: 14, padding: 18 }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: "#ff7744", display: "flex", alignItems: "center", gap: 8 }}>
-              <IC n="alert" s={16} /> تنتهي قريباً ({expiringSoon.length} صنف)
-            </h3>
-            {expiringSoon.map((p) => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #111a20" }}>
-                <span style={{ fontSize: 13, color: "#c0d0f0" }}>{p.name}</span>
-                <Badge color="#3a1000" text="#ff7744">{p.expiry}</Badge>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* تنبيهات الأدوية الأساسية */}
-        {alerts.length > 0 && (
-          <div
-            onClick={() => setShowAlertsModal(true)}
-            style={{
-              background: "#0f1623",
-              border: "1px solid #3a2000",
-              borderRadius: 14, padding: "12px 16px",
-              cursor: "pointer", transition: "border-color 0.2s",
-              display: "flex", alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16 }}>⚠️</span>
-              <div>
-                <div style={{ color: "#f59e0b", fontWeight: 700, fontSize: 13 }}>
-                  تنبيهات الأدوية الأساسية
-                </div>
-                <div style={{ color: "#3a5a8a", fontSize: 11 }}>اضغط للتفاصيل</div>
-              </div>
-            </div>
-            <span style={{
-              background: "#f59e0b", color: "#000", borderRadius: "50%",
-              width: 28, height: 28, display: "flex", alignItems: "center",
-              justifyContent: "center", fontSize: 13, fontWeight: 900,
-            }}>
-              {alerts.length}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Modal تفاصيل المخزون المنخفض */}
-      <Modal
-        open={showLowStockModal}
-        onClose={() => setShowLowStockModal(false)}
-        title={`⚠️ أصناف المخزون المنخفض (${lowStock.length} صنف)`}
-      >
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1d2d4a", marginBottom: 8 }}>
-            <span style={{ color: "#4a6a8a", fontSize: 12, fontWeight: 700 }}>الصنف</span>
-            <div style={{ display: "flex", gap: 24 }}>
-              <span style={{ color: "#4a6a8a", fontSize: 12, fontWeight: 700 }}>المخزون الحالي</span>
-              <span style={{ color: "#4a6a8a", fontSize: 12, fontWeight: 700 }}>الحد الأدنى</span>
-            </div>
-          </div>
-          {lowStock.map((p) => {
-            const min = p.min_stock || p.minStock || 0;
-            const pct = min > 0 ? Math.min((p.stock / min) * 100, 100) : 0;
-            return (
-              <div key={p.id} style={{ padding: "10px 0", borderBottom: "1px solid #0a101a" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, color: "#c0d0f0", fontWeight: 600 }}>{p.name}</span>
-                  <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
-                    <span style={{
-                      color: p.stock === 0 ? "#ff4444" : "#ffaa44",
-                      fontWeight: 700, fontSize: 13,
-                    }}>
-                      {p.stock === 0 ? "نفد" : p.stock}
-                    </span>
-                    <span style={{ color: "#4a6a8a", fontSize: 13 }}>{min}</span>
-                  </div>
-                </div>
-                <div style={{ background: "#080e1a", borderRadius: 4, height: 5 }}>
-                  <div style={{
-                    background: p.stock === 0 ? "#ff4444" : "#ffaa44",
-                    height: "100%", borderRadius: 4,
-                    width: `${pct}%`,
-                    transition: "width 0.4s",
-                  }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Modal>
-
-      {/* Modal تنبيهات الأدوية الأساسية */}
-      <Modal
-        open={showAlertsModal}
-        onClose={() => setShowAlertsModal(false)}
-        title="⚠️ تنبيهات الأدوية الأساسية"
-      >
-        {alerts.map((alert, i) => (
-          <div key={i} style={{
-            padding: "10px 14px", marginBottom: 8, borderRadius: 8,
-            backgroundColor: alert.type === "danger" ? "#2a0a0a" : "#2a1a00",
-            borderRight: `4px solid ${alert.type === "danger" ? "#ef4444" : "#f59e0b"}`,
-            color: alert.type === "danger" ? "#fca5a5" : "#fcd34d",
-            fontSize: 13,
-          }}>
-            {alert.type === "danger"
-              ? `🔴 نفاذ المخزون: ${alert.name}`
-              : `🟡 قرب النفاذ: ${alert.name} (المخزون: ${alert.stock})`}
-          </div>
-        ))}
-      </Modal>
     </div>
   );
-}
-// ==================== FIFO Helper ====================
+}// ==================== FIFO Helper ====================
 function sellFromBatches(product, qtyToSell) {
   const batches = product.batches?.length
     ? [...product.batches]
