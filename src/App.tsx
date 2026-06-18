@@ -1190,20 +1190,8 @@ export default function PharmacyPro() {
   const [sales, setSales] = useStorage("ph_sales", INIT_SALES);
   const [purchases, setPurchases] = useStorage("ph_purchases", INIT_PURCHASES);
   const [creditPayments, setCreditPayments] = useState([]);
-  useEffect(() => {
-    supabase
-      .from("purchases")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data?.length) setPurchases(data);
-      });
-  }, []);
   const [returnsData, setReturnsData] = useStorage("ph_returns", []);
-  const [inventoryLogs, setInventoryLogs] = useStorage(
-    "ph_inventory",
-    INIT_INVENTORY
-  );
+  const [inventoryLogs, setInventoryLogs] = useState([]);
   const [shifts, setShifts] = useState([]);
   useEffect(() => {
   if (!pharmacyId) return;
@@ -1215,7 +1203,7 @@ export default function PharmacyPro() {
     .then(({ data }) => {
       if (data) setShifts(data);
     });
-}, []);
+}, [pharmacyId]);
   const [users] = useStorage("ph_users", INIT_USERS);
   const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
   const pharmacyId = currentUser?.pharmacy_id || null;
@@ -1229,7 +1217,7 @@ export default function PharmacyPro() {
     setTimeout(() => setToast(null), 3000);
   }, []);
   const currentShift = shifts.find(
-    (s) => !s.end && s.user === currentUser?.name
+    (s) => !s.end_time && s.user === currentUser?.name
   );
   useEffect(() => {
     const loadData = async () => {
@@ -1242,10 +1230,11 @@ export default function PharmacyPro() {
   setPurchases([]);
   setReturnsData([]);
   setCreditPayments([]);
+  setInventoryLogs([]);
   setIsLoading(true);
   
   try {
-    const [p, s, c, sa, pu, ret, cp] = await Promise.all([
+    const [p, s, c, sa, pu, ret, cp, inv] = await Promise.all([
       supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
@@ -1253,6 +1242,7 @@ export default function PharmacyPro() {
       supabase.from("purchases").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("returns").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("credit_payments").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("inventory_logs").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
     ]);
     setProducts(p.data ?? []);
     setSuppliers(s.data ?? []);
@@ -1260,6 +1250,7 @@ export default function PharmacyPro() {
     setSales(sa.data ?? []);
     setReturnsData(ret.data ?? []);
     setCreditPayments(cp.data ?? []);
+    setInventoryLogs(inv.data ?? []);
     setPurchases(
       (pu.data ?? []).map((p) => ({
         ...p,
@@ -1602,6 +1593,7 @@ if (isLoading) return (
             setInventoryLogs={setInventoryLogs}
             currentUser={currentUser}
             showToast={showToast}
+            pharmacyId={pharmacyId}
           />
         )}
         {tab === "products" && (
@@ -7201,12 +7193,13 @@ function InventoryCount({
   setInventoryLogs,
   currentUser,
   showToast,
+  pharmacyId,
 }) {
   const [showNew, setShowNew] = useState(false);
   const [countItems, setCountItems] = useState([]);
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
-  const [selectedLog, setSelectedLog] = useState(null); // ✅ جديد
+  const [selectedLog, setSelectedLog] = useState(null);
 
   const startCount = () => {
     setCountItems(
@@ -7236,6 +7229,7 @@ function InventoryCount({
       })),
       notes,
       by: currentUser.name,
+      pharmacy_id: pharmacyId,
     };
 
     const { error: logError } = await supabase
@@ -7256,6 +7250,7 @@ function InventoryCount({
         quantity: i.actualQty - i.systemQty,
         date: logData.date,
         created_by: currentUser.name,
+        pharmacy_id: pharmacyId,
       }));
 
       const { error: adjError } = await supabase
@@ -7273,11 +7268,12 @@ function InventoryCount({
             .from("products")
             .update({ stock: i.actualQty })
             .eq("id", i.id)
+            .eq("pharmacy_id", pharmacyId)
         )
       );
     }
 
-    setInventoryLogs((p) => [...p, logData]);
+    setInventoryLogs((p) => [logData, ...p]);
     setProducts((p) =>
       p.map((x) => {
         const ci = changedItems.find((i) => i.id === x.id);
@@ -11936,7 +11932,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     return;
   }
   const sh = {
-  id: "SH-" + String(shifts.length + 1).padStart(3, "0"),
+  id: "SH-" + Date.now(),
   user: currentUser.name,
   role: currentUser.role,
   start_time: new Date().toISOString(),
@@ -12086,7 +12082,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
                   marginTop: 2,
                 }}
               >
-                {currentShift.openCash} ر.س
+                {currentShift.open_cash} ر.س
               </div>
             </div>
             <div
