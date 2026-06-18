@@ -2235,7 +2235,6 @@ function Dashboard({
       </div>
     </div>
   );
-}
 }// ==================== FIFO Helper ====================
 function sellFromBatches(product, qtyToSell) {
   const batches = product.batches?.length
