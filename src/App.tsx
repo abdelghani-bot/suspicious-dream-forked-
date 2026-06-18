@@ -1253,7 +1253,7 @@ export default function PharmacyPro() {
     setInventoryLogs(inv.data ?? []);
     setPurchases(
       (pu.data ?? []).map((item) => ({
-        ...p,
+        ...item,
         supplierName: item.supplier_name,
         taxAmount: item.tax_amount ?? 0,
         subtotal: item.subtotal ?? 0,
