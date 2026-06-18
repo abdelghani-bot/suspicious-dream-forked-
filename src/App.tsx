@@ -1698,8 +1698,9 @@ function Dashboard({
   setTab,
   creditPayments = [],
 }) {
-  const [showTodayDetails, setShowTodayDetails] = useState(false); // غير مستخدمة بعد التوحيد، اتركها أو احذفها لو مش هتحتاجها لاحقًا
+  const alerts = useEssentialAlerts(products);
   const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
+  const [privacyMode, setPrivacyMode] = useState(true);
 
   // ── فرص ضائعة ──
   const [missedToday, setMissedToday] = useState({ count: 0, value: 0 });
@@ -1710,21 +1711,15 @@ function Dashboard({
 
   useEffect(() => {
     const fetchMissed = async () => {
-      // اليوم
       const { data: todayData } = await supabase
-        .from("missed_sales")
-        .select("price, qty")
-        .eq("date", today);
+        .from("missed_sales").select("price, qty").eq("date", today);
       if (todayData) {
         const value = todayData.reduce((s, r) => s + (r.price || 0) * (r.qty || 1), 0);
         setMissedToday({ count: todayData.length, value });
       }
-      // الشهر
       const { data: monthData } = await supabase
-        .from("missed_sales")
-        .select("price, qty")
-        .gte("date", monthKey + "-01")
-        .lte("date", monthKey + "-31");
+        .from("missed_sales").select("price, qty")
+        .gte("date", monthKey + "-01").lte("date", monthKey + "-31");
       if (monthData) {
         const value = monthData.reduce((s, r) => s + (r.price || 0) * (r.qty || 1), 0);
         setMissedMonth({ count: monthData.length, value });
@@ -1733,49 +1728,34 @@ function Dashboard({
     fetchMissed();
   }, [today, monthKey]);
 
-  const todaySales = sales.filter((s) => s.date === today && !s.returned);
+  // ── حسابات المبيعات ──
+  const todaySales    = sales.filter((s) => s.date === today && !s.returned);
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
-  const todayAjilSales = todaySales.filter((s) => s.payment === "آجل");
-  const todayCreditPaid = creditPayments
-    .filter((p) => p.date === today)
-    .reduce((a, p) => a + p.amount, 0);
+  const todayCreditPaid = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
   const todayRev = todayCashSales.reduce((a, s) => a + s.total, 0);
-  const todayAjilTotal = todayAjilSales.reduce((a, s) => a + s.total, 0);
-  const todayRevWithCredit = todayRev + todayCreditPaid;
+  const todayAjilTotal = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
+  const todayAvgInvoice = todayCashSales.length > 0 ? todayRev / todayCashSales.length : 0;
 
-  const MAIN_CATS = ["دواء", "كوزمتك عادي", "كوزمتك طبي", "مستلزمات أطفال", "مستلزمات طبية"];
-
-  const calcCategoryRevenue = (salesList) => {
-    const map = {};
-    salesList.forEach((s) => {
-      if (s.payment === "آجل") return;
-      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
-      items.forEach((item) => {
-        const product = products.find((p) => p.id === item.id);
-        let cat = product?.main_category || item.category || "أخرى";
-        if (!MAIN_CATS.includes(cat)) cat = "أخرى";
-        const amt = (item.price || 0) * (item.qty || 1);
-        map[cat] = (map[cat] || 0) + amt;
-      });
-    });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  };
-
-  const todayCategoryRev = calcCategoryRevenue(todayCashSales);
-
-  const monthSales = sales.filter(
-    (s) => s.date && s.date.startsWith(monthKey) && !s.returned
-  );
+  const monthSales    = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned);
   const monthCashSales = monthSales.filter((s) => s.payment !== "آجل");
   const monthRev = monthCashSales.reduce((a, s) => a + s.total, 0);
-  const monthCategoryRev = calcCategoryRevenue(monthCashSales);
-  const monthCreditCollected = creditPayments
-    .filter((p) => p.date?.startsWith(monthKey))
-    .reduce((a, p) => a + p.amount, 0);
-  const monthAjilTotal = monthSales
-    .filter((s) => s.payment === "آجل")
-    .reduce((a, s) => a + s.total, 0);
+  const monthCreditCollected = creditPayments.filter((p) => p.date?.startsWith(monthKey)).reduce((a, p) => a + p.amount, 0);
+  const monthAjilTotal = monthSales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
+  const monthAvgInvoice = monthCashSales.length > 0 ? monthRev / monthCashSales.length : 0;
 
+  // ── آخر 7 أيام للجراف ──
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().split("T")[0];
+  });
+  const last7Data = last7Days.map((day) => {
+    const daySales = sales.filter((s) => s.date === day && !s.returned && s.payment !== "آجل");
+    return { day, rev: daySales.reduce((a, s) => a + s.total, 0) };
+  });
+  const maxRev = Math.max(...last7Data.map((d) => d.rev), 1);
+
+  // ── آخر 6 أشهر ──
   const getLast6Months = () => {
     const months = [];
     for (let i = 5; i >= 0; i--) {
@@ -1786,101 +1766,231 @@ function Dashboard({
     return months;
   };
   const last6Months = getLast6Months();
-
   const monthsData = last6Months.map((mk) => {
     const mSales = sales.filter((s) => s.date?.startsWith(mk) && !s.returned);
-    const mCash = mSales.filter((s) => s.payment !== "آجل");
-    const mRev = mCash.reduce((a, s) => a + s.total, 0);
-    const mPurchases = purchases
-      .filter((p) => (p.created_at || p.date || "").startsWith(mk))
-      .reduce((a, p) => a + (p.total || 0), 0);
-    const mCreditPaid = creditPayments
-      .filter((p) => p.date?.startsWith(mk))
-      .reduce((a, p) => a + p.amount, 0);
+    const mCash  = mSales.filter((s) => s.payment !== "آجل");
+    const mRev   = mCash.reduce((a, s) => a + s.total, 0);
+    const mPurchases = purchases.filter((p) => (p.created_at || p.date || "").startsWith(mk)).reduce((a, p) => a + (p.total || 0), 0);
+    const mCreditPaid = creditPayments.filter((p) => p.date?.startsWith(mk)).reduce((a, p) => a + p.amount, 0);
     const mProfit = mRev - mPurchases;
-    const label = new Date(mk + "-01").toLocaleDateString("ar-EG", {
-      month: "short", year: "2-digit",
-    });
+    const label = new Date(mk + "-01").toLocaleDateString("ar-EG", { month: "short", year: "2-digit" });
     return { mk, label, mRev, mPurchases, mCreditPaid, mProfit };
   });
 
-  const expiringSoon = products.filter((p) => {
-    const d = new Date(p.expiry);
-    const now = new Date();
-    return (d - now) / (1000 * 60 * 60 * 24) < 90 && d > now;
+  // ── تنبيهات الأصناف ──
+  const lowStock      = products.filter((p) => p.stock <= (p.min_stock || p.minStock || 0));
+  const expiringSoon  = products.filter((p) => {
+    if (!p.expiry) return false;
+    const diff = (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24);
+    return diff < 90 && diff > 0;
   });
 
-  const MiniBar = ({ label, value, total, color }) => (
-    <div style={{ marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <span style={{ color: "#7a9aaa", fontSize: 12 }}>{label}</span>
-        <span style={{ color, fontWeight: 700, fontSize: 12 }}>
-          {value.toFixed(0)} ر.س
-          {total > 0 && (
-            <span style={{ color: "#4a6a8a", fontSize: 11, marginRight: 4 }}>
-              ({((value / total) * 100).toFixed(1)}%)
-            </span>
-          )}
-        </span>
-      </div>
-      <div style={{ background: "#080e1a", borderRadius: 4, height: 6 }}>
-        <div style={{
-          background: color, height: "100%", borderRadius: 4,
-          width: `${total > 0 ? (value / total) * 100 : 0}%`,
-          transition: "width 0.5s",
-        }} />
-      </div>
-    </div>
-  );
+  // ── معلومات الشفت الحالي ──
+  const currentShift = shifts?.find((s) => !s.end_time) || null;
+  const shiftSales   = currentShift
+    ? sales.filter((s) => s.shift_id === currentShift.id && !s.returned)
+    : [];
+  const shiftItems   = shiftSales.flatMap((s) => {
+    try { return typeof s.items === "string" ? JSON.parse(s.items) : s.items || []; }
+    catch { return []; }
+  });
+  const avgItemsPerInvoice = shiftSales.length > 0 ? (shiftItems.length / shiftSales.length).toFixed(1) : 0;
 
-  const COLORS = ["#3a9aff", "#44dd88", "#a78bfa", "#fb923c", "#f59e0b", "#ff7744", "#44ddcc"];
+  // ── helpers ──
+  const S = (val) => privacyMode
+    ? <span style={{ filter: "blur(6px)", userSelect: "none" }}>{val}</span>
+    : val;
 
-  const TABS = [
-    { key: "today", label: "اليوم" },
-    { key: "month", label: "الشهر" },
+  const VAR = {
+    bg:       "#0D1117",
+    surface:  "#161B22",
+    surface2: "#1C2330",
+    border:   "#21262D",
+    accent:   "#00C896",
+    accent2:  "#3B82F6",
+    warn:     "#F59E0B",
+    danger:   "#EF4444",
+    text:     "#E6EDF3",
+    muted:    "#7D8590",
+  };
+
+  const card = {
+    background: VAR.surface,
+    border: `1px solid ${VAR.border}`,
+    borderRadius: 12,
+    overflow: "hidden",
+  };
+
+  const SALES_TABS = [
+    { key: "today",   label: "اليوم" },
+    { key: "month",   label: "الشهر" },
     { key: "compare", label: "المقارنة" },
   ];
 
-  return (
-    <div>
-      {/* الهيدر */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#dde8ff" }}>
-            لوحة التحكم
-          </h1>
-          <p style={{ margin: "4px 0 0", color: "#3a5a8a", fontSize: 13 }}>
-            {new Date().toLocaleDateString("ar-SA", {
-              weekday: "long", year: "numeric", month: "long", day: "numeric",
-            })}
-          </p>
+  // ── محتوى تاب المبيعات ──
+  const renderSalesStats = () => {
+    if (salesTab === "compare") {
+      const maxVal = Math.max(...monthsData.map((m) => m.mRev), 1);
+      return (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
+              <thead>
+                <tr style={{ background: VAR.bg }}>
+                  {["الشهر","المبيعات","المشتريات","السداد","الربح"].map((h) => (
+                    <th key={h} style={{ padding: "8px 12px", textAlign: "right", color: VAR.muted, fontSize: 11, fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {monthsData.map((m) => (
+                  <tr key={m.mk} style={{ borderBottom: `1px solid ${VAR.border}`, background: m.mk === monthKey ? "#0d1f2d" : "transparent" }}>
+                    <td style={{ padding: "9px 12px", color: VAR.text, fontWeight: m.mk === monthKey ? 700 : 400, fontSize: 12 }}>
+                      {m.label} {m.mk === monthKey && "🔵"}
+                    </td>
+                    <td style={{ padding: "9px 12px", color: VAR.accent, fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{S(m.mRev.toFixed(0))}</td>
+                    <td style={{ padding: "9px 12px", color: VAR.danger, fontFamily: "monospace", fontSize: 12 }}>{S(m.mPurchases.toFixed(0))}</td>
+                    <td style={{ padding: "9px 12px", color: VAR.warn, fontFamily: "monospace", fontSize: 12 }}>{S(m.mCreditPaid.toFixed(0))}</td>
+                    <td style={{ padding: "9px 12px", color: m.mProfit >= 0 ? VAR.accent : VAR.danger, fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{S(m.mProfit.toFixed(0))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ padding: "12px 16px" }}>
+            {monthsData.map((m) => (
+              <div key={m.mk} style={{ marginBottom: 8 }}>
+                <div style={{ color: VAR.muted, fontSize: 10, marginBottom: 2 }}>{m.label}</div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ flex: 1, background: VAR.bg, borderRadius: 3, height: 6 }}>
+                    <div style={{ background: VAR.accent, height: "100%", borderRadius: 3, width: `${(m.mRev / maxVal) * 100}%` }} />
+                  </div>
+                  <div style={{ flex: 1, background: VAR.bg, borderRadius: 3, height: 6 }}>
+                    <div style={{ background: VAR.danger, height: "100%", borderRadius: 3, width: `${(m.mPurchases / maxVal) * 100}%` }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
+              <span style={{ color: VAR.accent, fontSize: 10 }}>■ مبيعات</span>
+              <span style={{ color: VAR.danger, fontSize: 10 }}>■ مشتريات</span>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    const isToday    = salesTab === "today";
+    const rev        = isToday ? todayRev : monthRev;
+    const invoices   = isToday ? todayCashSales : monthCashSales;
+    const missed     = isToday ? missedToday.value : missedMonth.value;
+    const missedCnt  = isToday ? missedToday.count : missedMonth.count;
+    const avgInv     = isToday ? todayAvgInvoice : monthAvgInvoice;
+    const creditPaid = isToday ? todayCreditPaid : monthCreditCollected;
+    const ajilTotal  = isToday ? todayAjilTotal  : monthAjilTotal;
+
+    return (
+      <>
+        {/* 4 stat cells */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", borderBottom: `1px solid ${VAR.border}` }}>
+          {[
+            { label: "إجمالي المبيعات", val: rev.toFixed(0) + " ر.س", color: VAR.accent, sub: `${invoices.length} فاتورة` },
+            { label: "سداد الآجل",      val: creditPaid.toFixed(0) + " ر.س", color: VAR.accent2, sub: `مديونية ${ajilTotal.toFixed(0)}` },
+            { label: "الفرص الضائعة",   val: missed.toFixed(0) + " ر.س", color: VAR.warn, sub: `${missedCnt} صنف مفقود` },
+            { label: "متوسط الفاتورة",  val: avgInv.toFixed(1) + " ر.س", color: VAR.text, sub: "ريال" },
+          ].map((cell, i) => (
+            <div key={i} style={{ padding: "14px 16px", borderLeft: i < 3 ? `1px solid ${VAR.border}` : "none" }}>
+              <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600, marginBottom: 4, letterSpacing: "0.05em" }}>
+                {cell.label}
+              </div>
+              <div style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 700, color: cell.color }}>
+                {S(cell.val)}
+              </div>
+              <div style={{ fontSize: 10, color: VAR.muted, marginTop: 3 }}>{S(cell.sub)}</div>
+            </div>
+          ))}
         </div>
-        <Btn onClick={() => setTab("pos")} icon="pos" size="lg">نقطة البيع</Btn>
+
+        {/* Bar chart - آخر 7 أيام */}
+        <div style={{ padding: "12px 16px", height: 100, display: "flex", alignItems: "flex-end", gap: 6 }}>
+          {last7Data.map((d, i) => {
+            const isToday2 = d.day === today;
+            const h = `${Math.max((d.rev / maxRev) * 76, 4)}px`;
+            return (
+              <div key={d.day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end" }}>
+                <div style={{
+                  width: "100%", height: h, borderRadius: "4px 4px 0 0",
+                  background: isToday2
+                    ? `linear-gradient(to top, ${VAR.accent}, ${VAR.accent2})`
+                    : VAR.surface2,
+                  boxShadow: isToday2 ? `0 0 10px rgba(0,200,150,0.3)` : "none",
+                  transition: "height 0.4s",
+                }} />
+                <div style={{ fontSize: 9, color: isToday2 ? VAR.accent : VAR.muted, fontFamily: "monospace" }}>
+                  {isToday2 ? "اليوم" : d.day.slice(8)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <div style={{ fontFamily: "'Cairo', sans-serif" }}>
+
+      {/* ── Alert Strip ── */}
+      {(expiringSoon.length > 0 || lowStock.length > 0 || alerts.length > 0) && (
+        <div style={{
+          background: "linear-gradient(90deg, rgba(239,68,68,0.12), transparent)",
+          border: "1px solid rgba(239,68,68,0.25)",
+          borderRadius: 10, padding: "10px 16px", marginBottom: 20,
+          display: "flex", alignItems: "center", gap: 12, fontSize: 13,
+        }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <div style={{ flex: 1, color: VAR.muted }}>
+            <strong style={{ color: VAR.danger }}>
+              {expiringSoon.length + lowStock.length + alerts.length} تنبيه تحتاج تدخل:
+            </strong>
+            {expiringSoon.length > 0 && <>&nbsp;·&nbsp;<em style={{ color: VAR.warn, fontStyle: "normal", fontWeight: 600 }}>{expiringSoon.length} صنف قرب انتهاء الصلاحية</em></>}
+            {lowStock.length > 0 && <>&nbsp;·&nbsp;<em style={{ color: VAR.warn, fontStyle: "normal", fontWeight: 600 }}>{lowStock.length} صنف مخزون منخفض</em></>}
+            {alerts.length > 0 && <>&nbsp;·&nbsp;<em style={{ color: VAR.warn, fontStyle: "normal", fontWeight: 600 }}>{alerts.length} دواء أساسي</em></>}
+          </div>
+          <button
+            onClick={() => setPrivacyMode(!privacyMode)}
+            style={{
+              background: VAR.surface2, border: `1px solid ${VAR.border}`,
+              borderRadius: 8, padding: "4px 12px", fontSize: 11,
+              color: VAR.muted, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+              fontFamily: "inherit",
+            }}
+          >
+            {privacyMode ? "🙈 إظهار" : "👁 إخفاء"}
+          </button>
+        </div>
+      )}
+
+      {/* ── ROW 1: إحصائيات المبيعات + تارجت الشهر ── */}
+      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12 }}>
+        إحصائيات المبيعات
       </div>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
 
-      {/* صف 1 — كارت إحصائيات المبيعات الموحد + كارت العملاء */}
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: 14, marginBottom: 20 }}>
-
-        {/* ── كارت إحصائيات المبيعات (موحد: اليوم + الشهر + الفرص الضائعة + المقارنة) ── */}
-        <div style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 14, overflow: "hidden" }}>
-          {/* هيدر + تابز */}
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "14px 18px", borderBottom: "1px solid #1d2d4a",
-          }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#dde8ff" }}>
-              📊 إحصائيات المبيعات
-            </h3>
-            <div style={{ display: "flex", background: "#080e1a", borderRadius: 8, padding: 3, gap: 2 }}>
-              {TABS.map((t) => (
+        {/* Sales Stats Card */}
+        <div style={{ ...card }}>
+          <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: VAR.text }}>المبيعات والفرص</div>
+            <div style={{ display: "flex", background: VAR.surface2, borderRadius: 8, padding: 2, gap: 2 }}>
+              {SALES_TABS.map((t) => (
                 <button
                   key={t.key}
                   onClick={() => setSalesTab(t.key)}
                   style={{
-                    background: salesTab === t.key ? "#1a2a4a" : "transparent",
-                    color: salesTab === t.key ? "#5a9aff" : "#4a6a8a",
-                    border: "none", borderRadius: 6, padding: "6px 16px",
-                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                    background: salesTab === t.key ? VAR.accent : "transparent",
+                    color: salesTab === t.key ? VAR.bg : VAR.muted,
+                    border: "none", cursor: "pointer", fontFamily: "inherit",
                     transition: "all 0.15s",
                   }}
                 >
@@ -1889,217 +1999,243 @@ function Dashboard({
               ))}
             </div>
           </div>
+          {renderSalesStats()}
+        </div>
 
-          <div style={{ padding: 18 }}>
+        {/* Target Card */}
+        <div style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: VAR.muted }}>تارجت الشهر</div>
+          <div>
+            <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
+              {S("73%")}
+            </div>
+            <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>{S("من 80,000 ريال")}</div>
+          </div>
+          <div style={{ height: 6, background: VAR.surface2, borderRadius: 99, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", width: "73%", borderRadius: 99,
+              background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
+              boxShadow: "0 0 8px rgba(0,200,150,0.4)",
+            }} />
+          </div>
+          <div style={{ fontSize: 11, color: VAR.muted }}>
+            متبقي <strong style={{ color: VAR.warn }}>{S("21,600 ريال")}</strong> في 11 يوم
+          </div>
+          <div style={{ borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
+            <div style={{ fontSize: 10, color: VAR.muted, marginBottom: 4 }}>المطلوب يومياً</div>
+            <div style={{ fontFamily: "monospace", fontSize: 22, color: VAR.warn, fontWeight: 700 }}>
+              {S("1,963")} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-            {/* ── تاب اليوم ── */}
-            {salesTab === "today" && (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14, marginBottom: 16 }}>
-                  <div>
-                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>إجمالي المبيعات</div>
-                    <div style={{ color: "#3a9aff", fontWeight: 900, fontSize: 22 }}>
-                      {todayRevWithCredit.toFixed(2)} ر.س
-                    </div>
-                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
-                      {todayCashSales.length} فاتورة
-                      {todayCreditPaid > 0 && ` + ${todayCreditPaid.toFixed(0)} سداد`}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>فرص ضائعة اليوم</div>
-                    <div style={{ color: "#ffaa44", fontWeight: 900, fontSize: 22 }}>
-                      {missedToday.value.toFixed(2)} ر.س
-                    </div>
-                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
-                      {missedToday.count} صنف مفقود
-                    </div>
+      {/* ── ROW 2: تنبيهات وأولويات ── */}
+      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
+        تنبيهات وأولويات
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
+
+        {/* مرتجعات تلقائية */}
+        <div style={{ ...card }}>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
+              🔄 مرتجعات تلقائية
+              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(245,158,11,0.15)", color: VAR.warn, fontFamily: "monospace" }}>
+                {expiringSoon.filter((p) => (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24 * 30) < 5).length}
+              </span>
+            </div>
+            <span onClick={() => setTab("suppliers")} style={{ color: VAR.accent2, fontSize: 11, cursor: "pointer" }}>إدارة →</span>
+          </div>
+          <div>
+            {expiringSoon.slice(0, 2).map((p) => {
+              const months = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24 * 30));
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.warn, flexShrink: 0 }} />
+                  <div style={{ flex: 1, color: VAR.text }}>{p.name}</div>
+                  <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(245,158,11,0.12)", color: VAR.warn, fontWeight: 600 }}>
+                    {months} شهر
                   </div>
                 </div>
-
-                <div style={{
-                  display: "flex", justifyContent: "space-between", marginBottom: 16,
-                  padding: "10px 0", borderTop: "1px solid #1d2d4a", borderBottom: "1px solid #1d2d4a",
-                }}>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>💳 مديونية اليوم</span>
-                    <span style={{ color: "#ff7777", fontWeight: 700, fontSize: 12 }}>
-                      {todayAjilTotal.toFixed(2)} ر.س
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>✅ سداد آجل</span>
-                    <span style={{ color: "#44dd88", fontWeight: 700, fontSize: 12 }}>
-                      {todayCreditPaid.toFixed(2)} ر.س
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ color: "#dde8ff", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
-                  📊 توزيع الأقسام
-                </div>
-                {todayCategoryRev.length === 0 ? (
-                  <div style={{ color: "#3a5a8a", fontSize: 12 }}>لا توجد مبيعات</div>
-                ) : (
-                  todayCategoryRev.map(([cat, val], i) => (
-                    <MiniBar key={cat} label={cat} value={val}
-                      total={todayRev} color={COLORS[i % COLORS.length]} />
-                  ))
-                )}
-              </>
+              );
+            })}
+            {expiringSoon.length > 2 && (
+              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "7px 0" }}>
+                + {expiringSoon.length - 2} أصناف أخرى
+              </div>
             )}
-
-            {/* ── تاب الشهر ── */}
-            {salesTab === "month" && (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14, marginBottom: 16 }}>
-                  <div>
-                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>إجمالي المبيعات</div>
-                    <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 22 }}>
-                      {monthRev.toFixed(2)} ر.س
-                    </div>
-                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
-                      {monthCashSales.length} فاتورة
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>فرص ضائعة الشهر</div>
-                    <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 22 }}>
-                      {missedMonth.value.toFixed(2)} ر.س
-                    </div>
-                    <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
-                      {missedMonth.count} صنف مفقود
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{
-                  display: "flex", justifyContent: "space-between", marginBottom: 16,
-                  padding: "10px 0", borderTop: "1px solid #1d2d4a", borderBottom: "1px solid #1d2d4a",
-                }}>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>💳 مديونية الشهر</span>
-                    <span style={{ color: "#ff7777", fontWeight: 700, fontSize: 12 }}>
-                      {monthAjilTotal.toFixed(2)} ر.س
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>✅ سداد آجل</span>
-                    <span style={{ color: "#44dd88", fontWeight: 700, fontSize: 12 }}>
-                      {monthCreditCollected.toFixed(2)} ر.س
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ color: "#dde8ff", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
-                  📊 توزيع الأقسام
-                </div>
-                {monthCategoryRev.map(([cat, val], i) => (
-                  <MiniBar key={cat} label={cat} value={val}
-                    total={monthRev} color={COLORS[i % COLORS.length]} />
-                ))}
-              </>
+            {expiringSoon.length === 0 && (
+              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "14px 0" }}>لا توجد مرتجعات</div>
             )}
-
-            {/* ── تاب المقارنة ── */}
-            {salesTab === "compare" && (
-              <>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
-                    <thead>
-                      <tr style={{ background: "#080e1a" }}>
-                        {["الشهر", "المبيعات", "المشتريات", "السداد", "الربح"].map((h) => (
-                          <th key={h} style={{
-                            padding: "8px 12px", textAlign: "right",
-                            color: "#4a6a9a", fontSize: 12, fontWeight: 600,
-                          }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monthsData.map((m) => (
-                        <tr key={m.mk} style={{
-                          borderBottom: "1px solid #0a101a",
-                          background: m.mk === monthKey ? "#0a1a2a" : "transparent",
-                        }}>
-                          <td style={{ padding: "10px 12px", color: "#dde8ff", fontWeight: m.mk === monthKey ? 700 : 400 }}>
-                            {m.label} {m.mk === monthKey && "🔵"}
-                          </td>
-                          <td style={{ padding: "10px 12px", color: "#3a9aff", fontWeight: 700 }}>
-                            {m.mRev.toFixed(0)} ر.س
-                          </td>
-                          <td style={{ padding: "10px 12px", color: "#ff7744" }}>
-                            {m.mPurchases.toFixed(0)} ر.س
-                          </td>
-                          <td style={{ padding: "10px 12px", color: "#44dd88" }}>
-                            {m.mCreditPaid.toFixed(0)} ر.س
-                          </td>
-                          <td style={{ padding: "10px 12px", color: m.mProfit >= 0 ? "#44dd88" : "#ff4444", fontWeight: 700 }}>
-                            {m.mProfit.toFixed(0)} ر.س
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div style={{ marginTop: 18 }}>
-                  <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 8 }}>
-                    📊 مقارنة بصرية (المبيعات vs المشتريات)
-                  </div>
-                  {monthsData.map((m) => {
-                    const maxVal = Math.max(...monthsData.map((x) => x.mRev), 1);
-                    return (
-                      <div key={m.mk} style={{ marginBottom: 10 }}>
-                        <div style={{ color: "#7a9aaa", fontSize: 11, marginBottom: 3 }}>{m.label}</div>
-                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <div style={{ flex: 1, background: "#080e1a", borderRadius: 4, height: 8 }}>
-                            <div style={{
-                              background: "#3a9aff", height: "100%", borderRadius: 4,
-                              width: `${(m.mRev / maxVal) * 100}%`,
-                            }} />
-                          </div>
-                          <div style={{ flex: 1, background: "#080e1a", borderRadius: 4, height: 8 }}>
-                            <div style={{
-                              background: "#ff7744", height: "100%", borderRadius: 4,
-                              width: `${(m.mPurchases / maxVal) * 100}%`,
-                            }} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
-                    <span style={{ color: "#3a9aff", fontSize: 11 }}>■ مبيعات</span>
-                    <span style={{ color: "#ff7744", fontSize: 11 }}>■ مشتريات</span>
-                  </div>
-                </div>
-              </>
-            )}
-
           </div>
         </div>
 
-        {/* ── كارت العملاء المسجلون ── */}
-        <StatCard label="العملاء المسجلون" value={customers.length} icon="customers" color="#fb923c" />
+        {/* قرب الانتهاء */}
+        <div style={{ ...card }}>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
+              ⏰ قرب الانتهاء
+              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(239,68,68,0.15)", color: VAR.danger, fontFamily: "monospace" }}>
+                {expiringSoon.length}
+              </span>
+            </div>
+            <span onClick={() => setTab("products")} style={{ color: VAR.accent2, fontSize: 11, cursor: "pointer" }}>عرض →</span>
+          </div>
+          <div>
+            {expiringSoon.slice(0, 2).map((p) => {
+              const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.danger, flexShrink: 0 }} />
+                  <div style={{ flex: 1, color: VAR.text }}>{p.name}</div>
+                  <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: VAR.danger, fontWeight: 600 }}>
+                    {days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`}
+                  </div>
+                </div>
+              );
+            })}
+            {expiringSoon.length > 2 && (
+              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "7px 0" }}>
+                + {expiringSoon.length - 2} أصناف أخرى
+              </div>
+            )}
+            {expiringSoon.length === 0 && (
+              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "14px 0" }}>لا توجد أصناف قرب الانتهاء ✅</div>
+            )}
+          </div>
+        </div>
+
+        {/* مواعيد مهمة / مصاريف ثابتة */}
+        <div style={{ ...card }}>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
+              📅 مواعيد مهمة
+              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(0,200,150,0.12)", color: VAR.accent, fontFamily: "monospace" }}>
+                1
+              </span>
+            </div>
+            <span style={{ color: VAR.accent2, fontSize: 11, cursor: "pointer" }}>إدارة →</span>
+          </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.accent, flexShrink: 0 }} />
+              <div style={{ flex: 1, color: VAR.text }}>تجديد الرخصة التجارية</div>
+              <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(0,200,150,0.10)", color: VAR.accent, fontWeight: 600 }}>18 يوم</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.warn, flexShrink: 0 }} />
+              <div style={{ flex: 1, color: VAR.text }}>إيجار الصيدلية</div>
+              <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(245,158,11,0.12)", color: VAR.warn, fontWeight: 600 }}>غداً</div>
+            </div>
+            <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "7px 0" }}>
+              المصاريف الثابتة: {S("8,500")} ريال/شهر
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* تنتهي قريباً */}
-      {expiringSoon.length > 0 && (
-        <div style={{ background: "#0f1623", border: "1px solid #3a1000", borderRadius: 14, padding: 18 }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: "#ff7744", display: "flex", alignItems: "center", gap: 8 }}>
-            <IC n="alert" s={16} /> تنتهي قريباً ({expiringSoon.length} صنف)
-          </h3>
-          {expiringSoon.map((p) => (
-            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #111a20" }}>
-              <span style={{ fontSize: 13, color: "#c0d0f0" }}>{p.name}</span>
-              <Badge color="#3a1000" text="#ff7744">{p.expiry}</Badge>
+      {/* ── ROW 3: الشفت الحالي + الخزنة + إجراءات سريعة ── */}
+      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
+        الشفت الحالي والخزنة
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
+
+        {/* بطاقة الصيدلي */}
+        <div style={{ ...card }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: "50%",
+              background: `linear-gradient(135deg, ${VAR.accent}, ${VAR.accent2})`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, fontWeight: 700, color: VAR.bg, flexShrink: 0,
+            }}>
+              {currentUser?.name?.[0] || "م"}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{currentUser?.name || "الصيدلي"}</div>
+              <div style={{ fontSize: 10, color: VAR.muted }}>
+                {currentShift ? `شفت نشط · بدأ ${new Date(currentShift.start_time).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}` : "لا يوجد شفت مفتوح"}
+              </div>
+            </div>
+            <div style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 700, color: VAR.accent }}>
+              {S(`${shiftSales.length}`)}
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: VAR.border }}>
+            {[
+              { label: "فواتير الشفت",           val: shiftSales.length },
+              { label: "متوسط الأصناف/فاتورة",   val: avgItemsPerInvoice },
+              { label: "عملاء مسجلين",            val: shiftSales.filter((s) => s.customer_id).length + " / " + shiftSales.length },
+              { label: "مبيعات الشفت",            val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
+            ].map((stat, i) => (
+              <div key={i} style={{ background: VAR.surface, padding: "8px 14px" }}>
+                <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
+                <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 600, color: VAR.text, marginTop: 2 }}>{stat.val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* خزنة اليوم */}
+        <div style={{ ...card, padding: 16 }}>
+          <div style={{ fontSize: 11, color: VAR.muted, fontWeight: 600, marginBottom: 12 }}>خزنة اليوم</div>
+          {[
+            { label: "مبيعات كاش",    val: todayRev.toFixed(0),        type: "in" },
+            { label: "شبكة / صراف",   val: "0",                        type: "in" },
+            { label: "سداد الآجل",    val: todayCreditPaid.toFixed(0), type: "in" },
+            { label: "مصاريف نثرية",  val: "0",                        type: "out" },
+          ].map((row, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
+              <span style={{ color: VAR.muted }}>{row.label}</span>
+              <span style={{ fontFamily: "monospace", fontWeight: 600, color: row.type === "in" ? VAR.accent : VAR.danger }}>
+                {row.type === "in" ? "+" : "-"} {S(row.val)}
+              </span>
             </div>
           ))}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
+            <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
+            <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
+              + {S((todayRev + todayCreditPaid).toFixed(0))}
+            </span>
+          </div>
         </div>
-      )}
+
+        {/* إجراءات سريعة */}
+        <div style={{ ...card, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: VAR.muted, marginBottom: 2 }}>إجراءات سريعة</div>
+          {[
+            { icon: "💊", label: "فاتورة بيع جديدة",  tab: "pos",       bg: "rgba(0,200,150,0.15)" },
+            { icon: "📦", label: "استلام مشتريات",     tab: "purchases", bg: "rgba(59,130,246,0.15)" },
+            { icon: "🔄", label: "تسجيل مرتجع",        tab: "returns",   bg: "rgba(245,158,11,0.15)" },
+            { icon: "🔒", label: "تقفيل الشفت",         tab: "shifts",    bg: "rgba(239,68,68,0.15)" },
+          ].map((btn) => (
+            <button
+              key={btn.tab}
+              onClick={() => setTab(btn.tab)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "8px 12px", borderRadius: 8,
+                background: VAR.surface2, border: `1px solid ${VAR.border}`,
+                cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                color: VAR.text, fontWeight: 600, transition: "border-color 0.15s",
+                textAlign: "right",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = VAR.accent}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = VAR.border}
+            >
+              <div style={{ width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, background: btn.bg }}>
+                {btn.icon}
+              </div>
+              {btn.label}
+            </button>
+          ))}
+        </div>
+
+      </div>
     </div>
   );
+}
 }// ==================== FIFO Helper ====================
 function sellFromBatches(product, qtyToSell) {
   const batches = product.batches?.length
