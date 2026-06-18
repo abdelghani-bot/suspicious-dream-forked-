@@ -1252,13 +1252,13 @@ export default function PharmacyPro() {
     setCreditPayments(cp.data ?? []);
     setInventoryLogs(inv.data ?? []);
     setPurchases(
-      (pu.data ?? []).map((p) => ({
+      (pu.data ?? []).map((item) => ({
         ...p,
-        supplierName: p.supplier_name,
-        taxAmount: p.tax_amount ?? 0,
-        subtotal: p.subtotal ?? 0,
-        total: p.total ?? 0,
-        items: p.items ?? [],
+        supplierName: item.supplier_name,
+        taxAmount: item.tax_amount ?? 0,
+        subtotal: item.subtotal ?? 0,
+        total: item.total ?? 0,
+        items: item.items ?? [],
       }))
     );
   } finally {
