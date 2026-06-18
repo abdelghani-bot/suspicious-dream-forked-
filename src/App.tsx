@@ -8187,60 +8187,67 @@ function SuppliersModule({
   };
 
   const saveAutoReturn = async () => {
-  if (!showAutoReturn || autoReturnItems.length === 0) return;
+    if (!showAutoReturn || autoReturnItems.length === 0) return;
 
-  const items = autoReturnItems.filter((i) => i.returnQty > 0);
-  if (items.length === 0) { showToast("لا توجد كميات للإرجاع", "error"); return; }
-
-  const subtotal = items.reduce((s, i) => s + (i.cost || i.price || 0) * i.returnQty, 0);
-  const tax      = items.reduce((s, i) => i.taxable ? s + (i.cost || i.price || 0) * i.returnQty * TAX_RATE : s, 0);
-  const total    = subtotal + tax;
-  const returnId = 'RET-${Date.now()}';
-
-  // تحديث المخزون — مرتجع مشتريات = نقص من المخزون
-  for (const ri of items) {
-    const prod = products.find((x) => x.id === ri.id);
-    if (prod) {
-      await supabase.from("products")
-        .update({ stock: prod.stock - ri.returnQty })
-        .eq("id", ri.id);
+    const items = autoReturnItems.filter((i) => i.returnQty > 0);
+    if (items.length === 0) {
+      showToast("لا توجد كميات للإرجاع", "error");
+      return;
     }
-  }
 
-  const { error } = await supabase.from("returns").insert([{
-    id: returnId,
-    date: new Date().toISOString().split("T")[0],
-    type: "purchases",
-    supplier_id:   showAutoReturn.id,
-    supplier_name: showAutoReturn.name,
-    items,
-    reason: "مرتجع تلقائي — قرب انتهاء الصلاحية",
-    subtotal,
-    tax,
-    total,
-    pharmacy_id: pharmacyId,
-  }]);
+    const subtotal = items.reduce((s, i) => s + (i.cost || i.price || 0) * i.returnQty, 0);
+    const tax = items.reduce((s, i) => i.taxable ? s + (i.cost || i.price || 0) * i.returnQty * TAX_RATE : s, 0);
+    const total = subtotal + tax;
+    const returnId = "RET-" + Date.now();
+    const today = new Date().toISOString().split("T")[0];
 
-  if (error) { showToast("فشل حفظ المرتجع: " + error.message, "error"); return; }
+    for (const ri of items) {
+      const prod = products.find((x) => x.id === ri.id);
+      if (prod) {
+        await supabase.from("products")
+          .update({ stock: prod.stock - ri.returnQty })
+          .eq("id", ri.id);
+      }
+    }
 
-  // تحديث المخزون محلياً
-  setProducts((p) =>
-    p.map((x) => {
-      const ri = items.find((i) => i.id === x.id);
-      return ri ? { ...x, stock: x.stock - ri.returnQty } : x;
-    })
-  );
+    const { error } = await supabase.from("returns").insert([{
+      id: returnId,
+      date: today,
+      type: "purchases",
+      supplier_id: showAutoReturn.id,
+      supplier_name: showAutoReturn.name,
+      items,
+      reason: "مرتجع تلقائي — قرب انتهاء الصلاحية",
+      subtotal,
+      tax,
+      total,
+      pharmacy_id: pharmacyId,
+    }]);
 
-  if (showAutoReturn.whatsapp) {
-    const msg = طلب مرتجع — ${new Date().toLocaleDateString("ar")}\n +
-      items.map((i) => • ${i.name}: ${i.returnQty} وحدة — صلاحية ${i.expiry}).join("\n");
-    window.open(https://wa.me/${showAutoReturn.whatsapp}?text=${encodeURIComponent(msg)}, "_blank");
-  }
+    if (error) {
+      showToast("فشل حفظ المرتجع: " + error.message, "error");
+      return;
+    }
 
-  setShowAutoReturn(null);
-  setAutoReturnItems([]);
-  showToast("تم حفظ طلب المرتجع ✓");
-};
+    setProducts((p) =>
+      p.map((x) => {
+        const ri = items.find((i) => i.id === x.id);
+        return ri ? { ...x, stock: x.stock - ri.returnQty } : x;
+      })
+    );
+
+    if (showAutoReturn.whatsapp) {
+      const itemsText = items
+        .map((i) => "- " + i.name + ": " + i.returnQty + " وحدة - صلاحية " + i.expiry)
+        .join("\n");
+      const msg = "طلب مرتجع - " + new Date().toLocaleDateString("ar") + "\n" + itemsText;
+      window.open("https://wa.me/" + showAutoReturn.whatsapp + "?text=" + encodeURIComponent(msg), "_blank");
+    }
+
+    setShowAutoReturn(null);
+    setAutoReturnItems([]);
+    showToast("تم حفظ طلب المرتجع");
+  };
   // ========== أيام الاستحقاق ==========
   const getDueDays = (po, supplier) => {
     const sup = typeof supplier === "object" && supplier !== null
