@@ -8195,7 +8195,7 @@ function SuppliersModule({
   const subtotal = items.reduce((s, i) => s + (i.cost || i.price || 0) * i.returnQty, 0);
   const tax      = items.reduce((s, i) => i.taxable ? s + (i.cost || i.price || 0) * i.returnQty * TAX_RATE : s, 0);
   const total    = subtotal + tax;
-  const returnId = RET-${Date.now()};
+  const returnId = 'RET-${Date.now()}';
 
   // تحديث المخزون — مرتجع مشتريات = نقص من المخزون
   for (const ri of items) {
