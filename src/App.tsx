@@ -474,6 +474,19 @@ const IC = ({ n, s = 18 }) => {
         <line x1="12" y1="15" x2="12" y2="3" />
       </>
     ),
+    tag: (
+      <>
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" />
+      </>
+    ),
+    percent: (
+      <>
+        <line x1="19" y1="5" x2="5" y2="19" />
+        <circle cx="6.5" cy="6.5" r="2.5" />
+        <circle cx="17.5" cy="17.5" r="2.5" />
+      </>
+    ),
   };
   return (
     <svg
@@ -1320,6 +1333,7 @@ if (isLoading) return (
     { id: "reports", label: "التقارير", icon: "reports" },
     { id: "tax_report", label: "تقرير ضريبي", icon: "tax" },
     { id: "shift", label: "الشفتات", icon: "shift" },
+    { id: "promotions", label: "العروض", icon: "tag" },
     { id: "treasury", label: "الخزنة", icon: "money" },
     { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
   ];
@@ -1635,6 +1649,17 @@ if (isLoading) return (
         )}
         {tab === "tax_report" && (
           <TaxReport sales={sales} purchases={purchases} />
+        )}
+        {tab === "promotions" && (
+          <PromotionsModule
+            products={products}
+            setProducts={setProducts}
+            sales={sales}
+            shifts={shifts}
+            currentUser={currentUser}
+            pharmacyId={pharmacyId}
+            showToast={showToast}
+          />
         )}
         {tab === "treasury" && (
           <TreasuryModule
@@ -10134,6 +10159,473 @@ function CustomersModule({
     </div>
   );
 }
+// ==================== PROMOTIONS MODULE ====================
+// منطق الخصم التدرجي حسب الصلاحية
+function calcAutoDiscount(expiryDate) {
+  if (!expiryDate) return 0;
+  const days = Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
+  if (days <= 0) return 0;
+  if (days <= 90) return 50;
+  if (days <= 120) return 25;
+  if (days <= 150) return 20;
+  if (days <= 180) return 15;
+  return 0;
+}
+
+function PromotionsModule({ products, setProducts, sales, shifts, currentUser, pharmacyId, showToast }) {
+  const [activeTab, setActiveTab] = useState("auto"); // auto | manual | incentive
+  const [promos, setPromos] = useState([]);
+  const [incentiveList, setIncentiveList] = useState([]);
+  const [incentiveConfig, setIncentiveConfig] = useState({ rate: 5, month: new Date().toISOString().slice(0, 7) });
+  const [showPromoForm, setShowPromoForm] = useState(false);
+  const [showIncentiveForm, setShowIncentiveForm] = useState(false);
+  const [promoSearch, setPromoSearch] = useState("");
+  const [incentiveSearch, setIncentiveSearch] = useState("");
+
+  const blankPromo = { product_id: "", discount: "", start_date: new Date().toISOString().split("T")[0], end_date: "", note: "" };
+  const [promoForm, setPromoForm] = useState(blankPromo);
+  const [incentiveForm, setIncentiveForm] = useState({ product_id: "", rate: "", fixed_amount: "", note: "" });
+
+  const today = new Date().toISOString().split("T")[0];
+  const monthKey = incentiveConfig.month;
+
+  // تحميل البيانات
+  useEffect(() => {
+    if (!pharmacyId) return;
+    Promise.all([
+      supabase.from("promotions").select("*").eq("pharmacy_id", pharmacyId).order("end_date"),
+      supabase.from("incentive_products").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).single(),
+    ]).then(([p, i, c]) => {
+      if (p.data) setPromos(p.data);
+      if (i.data) setIncentiveList(i.data);
+      if (c.data) setIncentiveConfig((prev) => ({ ...prev, rate: c.data.rate || 5 }));
+    });
+  }, [pharmacyId]);
+
+  // الأصناف التلقائية (غير دواء + فيها صلاحية قريبة)
+  const autoPromoProducts = products.filter((p) => {
+    const cat = p.main_category || p.category || "";
+    if (cat === "دواء") return false;
+    const disc = calcAutoDiscount(p.expiry);
+    return disc > 0 && (p.stock || 0) > 0;
+  }).map((p) => ({ ...p, autoDiscount: calcAutoDiscount(p.expiry) }))
+    .sort((a, b) => b.autoDiscount - a.autoDiscount);
+
+  // الأصناف المحفزة — خصم > 45%
+  const highMarginProducts = products.filter((p) => {
+    const cost = p.cost || 0;
+    const price = p.price || 0;
+    if (!cost || !price) return false;
+    return ((price - cost) / price) * 100 >= 45;
+  });
+
+  // حفظ عرض يدوي
+  const savePromo = async () => {
+    if (!promoForm.product_id || !promoForm.discount || !promoForm.end_date) {
+      showToast("يرجى ملء جميع الحقول", "error"); return;
+    }
+    const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
+    const { data, error } = await supabase.from("promotions").insert([row]).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setPromos((p) => [...p, data[0]]);
+    setPromoForm(blankPromo);
+    setShowPromoForm(false);
+    showToast("تم إضافة العرض ✓");
+  };
+
+  // حفظ صنف محفز
+  const saveIncentive = async () => {
+    if (!incentiveForm.product_id) { showToast("اختر صنفاً", "error"); return; }
+    const row = { ...incentiveForm, pharmacy_id: pharmacyId };
+    const { data, error } = await supabase.from("incentive_products").insert([row]).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setIncentiveList((p) => [...p, data[0]]);
+    setIncentiveForm({ product_id: "", rate: "", fixed_amount: "", note: "" });
+    setShowIncentiveForm(false);
+    showToast("تم إضافة الصنف للقائمة ✓");
+  };
+
+  // حساب مبيعات الصيدلي من الأصناف المحفزة في الشهر
+  const calcIncentiveSales = (userName) => {
+    const incentiveIds = new Set([
+      ...incentiveList.map((i) => i.product_id),
+      ...highMarginProducts.map((p) => p.id),
+    ]);
+    const monthSales = sales.filter((s) =>
+      s.date?.startsWith(monthKey) && !s.returned &&
+      (s.cashier === userName || s.user === userName || s.created_by === userName)
+    );
+    let total = 0;
+    monthSales.forEach((s) => {
+      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+      items.forEach((item) => {
+        if (incentiveIds.has(item.id)) total += (item.price || 0) * (item.qty || 1);
+      });
+    });
+    return total;
+  };
+
+  // العروض النشطة
+  const activePromos = promos.filter((p) => p.end_date >= today && p.start_date <= today);
+  const expiredPromos = promos.filter((p) => p.end_date < today);
+
+  const discountColor = (d) => d >= 50 ? "#ff4444" : d >= 25 ? "#ff7744" : d >= 20 ? "#ffaa44" : "#f59e0b";
+
+  const cardStyle = (border = "#1d2d4a") => ({
+    background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
+  });
+
+  // فلترة
+  const filteredAutoPromos = autoPromoProducts.filter((p) =>
+    !promoSearch || (p.name || p.nameAr || "").includes(promoSearch)
+  );
+  const filteredIncentive = incentiveList.filter((i) =>
+    !incentiveSearch || (products.find((p) => p.id === i.product_id)?.name || "").includes(incentiveSearch)
+  );
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🏷️ إدارة العروض</h2>
+          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>
+            عروض تلقائية حسب الصلاحية + عروض يدوية + أصناف محفزة
+          </div>
+        </div>
+      </div>
+
+      {/* تنبيه العروض التلقائية */}
+      {autoPromoProducts.length > 0 && (
+        <div style={{ background: "#1a0800", border: "1px solid #4a2800", borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <span style={{ color: "#ffaa44", fontWeight: 700 }}>⚠️ {autoPromoProducts.length} صنف يحتاج عرض تلقائي</span>
+            <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>أصناف غير دوائية بصلاحية أقل من 6 شهور</div>
+          </div>
+          <button onClick={() => setActiveTab("auto")} style={{ background: "#3a2000", border: "1px solid #6a4000", borderRadius: 8, padding: "6px 14px", color: "#ffaa44", fontSize: 12, cursor: "pointer" }}>
+            عرض التفاصيل
+          </button>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#080e1a", borderRadius: 10, padding: 4 }}>
+        {[
+          { k: "auto", l: `⏰ تلقائي (${autoPromoProducts.length})` },
+          { k: "manual", l: `✋ يدوي (${activePromos.length})` },
+          { k: "incentive", l: "⭐ أصناف محفزة" },
+        ].map((t) => (
+          <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
+            flex: 1, padding: "9px 8px", borderRadius: 8, border: "none",
+            background: activeTab === t.k ? "#0f1623" : "transparent",
+            color: activeTab === t.k ? "#3a9aff" : "#4a6a8a",
+            fontSize: 12, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {/* ── العروض التلقائية ── */}
+      {activeTab === "auto" && (
+        <div>
+          {/* شرح المنطق */}
+          <div style={cardStyle("#1a2a1a")}>
+            <div style={{ color: "#44dd88", fontWeight: 700, marginBottom: 10 }}>📋 منطق الخصم التدرجي التلقائي</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+              {[
+                { days: "≤ 3 شهور", disc: "50%", color: "#ff4444" },
+                { days: "≤ 4 شهور", disc: "25%", color: "#ff7744" },
+                { days: "≤ 5 شهور", disc: "20%", color: "#ffaa44" },
+                { days: "≤ 6 شهور", disc: "15%", color: "#f59e0b" },
+              ].map((r) => (
+                <div key={r.days} style={{ background: "#080e1a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ color: r.color, fontWeight: 900, fontSize: 18 }}>{r.disc}</div>
+                  <div style={{ color: "#4a6a8a", fontSize: 11 }}>قبل {r.days}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <input
+            value={promoSearch} onChange={(e) => setPromoSearch(e.target.value)}
+            placeholder="🔍 بحث..."
+            style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+          />
+
+          {filteredAutoPromos.length === 0
+            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>✅ لا توجد أصناف تحتاج عروض تلقائية</div>
+            : filteredAutoPromos.map((p) => {
+                const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+                const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
+                return (
+                  <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? "#3a0000" : p.autoDiscount >= 25 ? "#3a1500" : "#2a1500")}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                          <span style={{ color: "#dde8ff", fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
+                          <span style={{
+                            background: discountColor(p.autoDiscount), color: "#fff",
+                            borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
+                          }}>-{p.autoDiscount}%</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
+                          <span style={{ color: "#4a6a8a" }}>الفئة: <span style={{ color: "#8aaabb" }}>{p.main_category || p.category}</span></span>
+                          <span style={{ color: "#4a6a8a" }}>المخزون: <span style={{ color: "#dde8ff" }}>{p.stock}</span></span>
+                          <span style={{ color: "#4a6a8a" }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "left", minWidth: 110 }}>
+                        <div style={{ color: "#4a6a8a", fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
+                        <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
+                        <div style={{ color: "#4a6a8a", fontSize: 10 }}>تاريخ: {p.expiry}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+          }
+        </div>
+      )}
+
+      {/* ── العروض اليدوية ── */}
+      {activeTab === "manual" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <Btn icon="plus" onClick={() => setShowPromoForm(true)}>إضافة عرض</Btn>
+          </div>
+
+          {activePromos.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>✅ عروض نشطة ({activePromos.length})</div>
+              {activePromos.map((promo) => {
+                const prod = products.find((p) => p.id === promo.product_id);
+                const newPrice = prod ? (prod.price * (1 - promo.discount / 100)).toFixed(2) : "—";
+                const daysLeft = Math.ceil((new Date(promo.end_date) - new Date()) / (1000 * 60 * 60 * 24));
+                return (
+                  <div key={promo.id} style={cardStyle("#1a3a1a")}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <span style={{ color: "#dde8ff", fontWeight: 700 }}>{prod?.name || prod?.nameAr || promo.product_id}</span>
+                          <span style={{ background: "#ff7744", color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>-{promo.discount}%</span>
+                        </div>
+                        <div style={{ color: "#4a6a8a", fontSize: 11 }}>
+                          {promo.start_date} ← {promo.end_date}
+                          {promo.note && <span style={{ marginRight: 10, color: "#6a8aaa" }}>• {promo.note}</span>}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</div>
+                        <div style={{ color: daysLeft <= 3 ? "#ff4444" : "#4a6a8a", fontSize: 11 }}>يتبقى {daysLeft} يوم</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {expiredPromos.length > 0 && (
+            <div>
+              <div style={{ color: "#4a6a8a", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>📦 عروض منتهية ({expiredPromos.length})</div>
+              {expiredPromos.slice(0, 5).map((promo) => {
+                const prod = products.find((p) => p.id === promo.product_id);
+                return (
+                  <div key={promo.id} style={{ ...cardStyle(), opacity: 0.6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#6a8aaa" }}>{prod?.name || prod?.nameAr || promo.product_id}</span>
+                      <span style={{ color: "#4a6a8a" }}>-{promo.discount}% • انتهى {promo.end_date}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {promos.length === 0 && <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد عروض يدوية</div>}
+        </div>
+      )}
+
+      {/* ── الأصناف المحفزة ── */}
+      {activeTab === "incentive" && (
+        <div>
+          {/* إعداد النسبة */}
+          <div style={cardStyle("#1a2a4a")}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ color: "#3a9aff", fontWeight: 700, marginBottom: 4 }}>⚙️ إعدادات العمولة</div>
+                <div style={{ color: "#4a6a8a", fontSize: 12 }}>نسبة الصيدلي من مبيعات الأصناف المحفزة</div>
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <div>
+                  <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
+                  <input type="month" value={incentiveConfig.month}
+                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, month: e.target.value }))}
+                    style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                </div>
+                <div>
+                  <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
+                  <input type="number" value={incentiveConfig.rate} min="1" max="20"
+                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
+                    style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* أصناف بخصم > 45% تلقائية */}
+          <div style={cardStyle("#1a1a2a")}>
+            <div style={{ color: "#a78bfa", fontWeight: 700, marginBottom: 10 }}>
+              🎯 أصناف بهامش ربح ≥ 45% — تلقائية ({highMarginProducts.length})
+            </div>
+            {highMarginProducts.length === 0
+              ? <div style={{ color: "#4a6a8a", fontSize: 12 }}>لا توجد أصناف بهذا الهامش حالياً</div>
+              : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {highMarginProducts.map((p) => {
+                    const margin = (((p.price - p.cost) / p.price) * 100).toFixed(0);
+                    return (
+                      <div key={p.id} style={{ background: "#0a0a1a", border: "1px solid #2a2a4a", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                        <span style={{ color: "#dde8ff" }}>{p.name || p.nameAr}</span>
+                        <span style={{ color: "#a78bfa", marginRight: 8, fontWeight: 700 }}>{margin}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            }
+          </div>
+
+          {/* أصناف مضافة يدوياً */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ color: "#dde8ff", fontWeight: 700 }}>✋ أصناف مضافة يدوياً ({incentiveList.length})</div>
+            <Btn icon="plus" size="sm" onClick={() => setShowIncentiveForm(true)}>إضافة صنف</Btn>
+          </div>
+
+          <input
+            value={incentiveSearch} onChange={(e) => setIncentiveSearch(e.target.value)}
+            placeholder="🔍 بحث..."
+            style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+          />
+
+          {filteredIncentive.map((item) => {
+            const prod = products.find((p) => p.id === item.product_id);
+            return (
+              <div key={item.id} style={cardStyle()}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ color: "#dde8ff", fontWeight: 700 }}>{prod?.name || prod?.nameAr || item.product_id}</div>
+                    {item.note && <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>{item.note}</div>}
+                  </div>
+                  <div style={{ textAlign: "left" }}>
+                    {item.rate && <div style={{ color: "#44dd88", fontWeight: 700 }}>{item.rate}% عمولة</div>}
+                    {item.fixed_amount && <div style={{ color: "#3a9aff", fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</div>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* ── نسبة الصيدلي هذا الشهر ── */}
+          {(() => {
+            const staffSales = {};
+            sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned).forEach((s) => {
+              const name = s.cashier || s.user || s.created_by || "غير محدد";
+              if (!staffSales[name]) staffSales[name] = 0;
+              staffSales[name] += calcIncentiveSales(name);
+            });
+            const staffList = Object.entries(staffSales).filter(([, v]) => v > 0);
+            if (staffList.length === 0) return null;
+            return (
+              <div style={{ ...cardStyle("#1a3a1a"), marginTop: 16 }}>
+                <div style={{ color: "#44dd88", fontWeight: 700, marginBottom: 12 }}>
+                  📊 نسبة الصيدلي من الأصناف المحفزة — {monthKey}
+                </div>
+                {staffList.map(([name, total]) => {
+                  const commission = (total * incentiveConfig.rate / 100).toFixed(2);
+                  return (
+                    <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #0a101a" }}>
+                      <div>
+                        <div style={{ color: "#dde8ff", fontWeight: 700 }}>{name}</div>
+                        <div style={{ color: "#4a6a8a", fontSize: 11 }}>مبيعات محفزة: {total.toFixed(2)} ر.س</div>
+                      </div>
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{commission} ر.س</div>
+                        <div style={{ color: "#4a6a8a", fontSize: 11 }}>عمولة {incentiveConfig.rate}%</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Modal إضافة عرض يدوي */}
+      <Modal open={showPromoForm} onClose={() => setShowPromoForm(false)} title="➕ إضافة عرض يدوي">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ gridColumn: "1/-1" }}>
+            <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
+            <select value={promoForm.product_id}
+              onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
+              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
+              <option value="">-- اختر صنفاً --</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
+              ))}
+            </select>
+          </div>
+          <Input label="نسبة الخصم %" value={promoForm.discount} onChange={(v) => setPromoForm((p) => ({ ...p, discount: v }))} type="number" placeholder="10" />
+          <Input label="تاريخ البداية" value={promoForm.start_date} onChange={(v) => setPromoForm((p) => ({ ...p, start_date: v }))} type="date" />
+          <Input label="تاريخ النهاية" value={promoForm.end_date} onChange={(v) => setPromoForm((p) => ({ ...p, end_date: v }))} type="date" />
+          <Input label="ملاحظة" value={promoForm.note} onChange={(v) => setPromoForm((p) => ({ ...p, note: v }))} placeholder="وصف العرض..." />
+        </div>
+        {promoForm.product_id && promoForm.discount && (() => {
+          const prod = products.find((p) => p.id === promoForm.product_id);
+          if (!prod) return null;
+          const newPrice = (prod.price * (1 - +promoForm.discount / 100)).toFixed(2);
+          return (
+            <div style={{ background: "#0a1a0a", border: "1px solid #1a4a1a", borderRadius: 8, padding: 10, marginTop: 10 }}>
+              <span style={{ color: "#4a6a8a", fontSize: 12 }}>السعر بعد الخصم: </span>
+              <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</span>
+              <span style={{ color: "#4a6a8a", fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
+            </div>
+          );
+        })()}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowPromoForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={savePromo}>إضافة العرض</Btn>
+        </div>
+      </Modal>
+
+      {/* Modal إضافة صنف محفز */}
+      <Modal open={showIncentiveForm} onClose={() => setShowIncentiveForm(false)} title="⭐ إضافة صنف للقائمة المحفزة">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ gridColumn: "1/-1" }}>
+            <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
+            <select value={incentiveForm.product_id}
+              onChange={(e) => setIncentiveForm((p) => ({ ...p, product_id: e.target.value }))}
+              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
+              <option value="">-- اختر صنفاً --</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>{p.name || p.nameAr}</option>
+              ))}
+            </select>
+          </div>
+          <Input label="نسبة عمولة %" value={incentiveForm.rate} onChange={(v) => setIncentiveForm((p) => ({ ...p, rate: v }))} type="number" placeholder="اتركه فارغ لو ثابت" />
+          <Input label="مبلغ ثابت (ر.س)" value={incentiveForm.fixed_amount} onChange={(v) => setIncentiveForm((p) => ({ ...p, fixed_amount: v }))} type="number" placeholder="اتركه فارغ لو نسبة" />
+          <Input label="ملاحظة" value={incentiveForm.note} onChange={(v) => setIncentiveForm((p) => ({ ...p, note: v }))} placeholder="..." />
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowIncentiveForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={saveIncentive}>إضافة</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 // ==================== TREASURY MODULE ====================
 function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showToast }) {
   const [activeTab, setActiveTab] = useState("today"); // today | history | fixed | licenses
