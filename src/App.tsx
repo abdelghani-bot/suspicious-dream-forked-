@@ -11592,8 +11592,6 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
       </Modal>
     </div>
   );
-}
-
 // ==================== REPORTS ====================
 function Reports({ sales, purchases, products, suppliers, customers, returns = [] }) {
   const [type, setType] = useState("sales");
