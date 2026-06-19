@@ -1335,8 +1335,6 @@ if (isLoading) return (
     { id: "shift", label: "الشفتات", icon: "shift" },
     { id: "promotions", label: "العروض", icon: "tag" },
     { id: "treasury", label: "الخزنة", icon: "money" },
-    { id: "targets", label: "تارجت المبيعات", icon: "shift" },
-    { id: "users_management", label: "إدارة المستخدمين", icon: "user" },
     { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
   ];
 
@@ -1682,23 +1680,6 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
           />
         )}
-        {tab === "targets" && (
-  <TargetModule
-    users={users}
-    sales={sales}
-    customers={customers}
-    currentUser={currentUser}
-    pharmacyId={pharmacyId}
-    showToast={showToast}
-  />
-)}
-  {tab === "users_management" && (
-  <UsersModule
-    currentUser={currentUser}
-    pharmacyId={pharmacyId}
-    showToast={showToast}
-  />
-)}      
       </main>
     </div>
   );
@@ -10256,12 +10237,7 @@ function PromotionsModule({ products, setProducts, sales, shifts, currentUser, p
   // حفظ صنف محفز
   const saveIncentive = async () => {
     if (!incentiveForm.product_id) { showToast("اختر صنفاً", "error"); return; }
-    const row = {
-      ...incentiveForm,
-      rate: incentiveForm.rate === "" ? null : +incentiveForm.rate,
-      fixed_amount: incentiveForm.fixed_amount === "" ? null : +incentiveForm.fixed_amount,
-      pharmacy_id: pharmacyId,
-    };
+    const row = { ...incentiveForm, pharmacy_id: pharmacyId };
     const { data, error } = await supabase.from("incentive_products").insert([row]).select();
     if (error) { showToast("خطأ: " + error.message, "error"); return; }
     setIncentiveList((p) => [...p, data[0]]);
@@ -10652,6 +10628,539 @@ function PromotionsModule({ products, setProducts, sales, shifts, currentUser, p
 
 // ==================== TREASURY MODULE ====================
 function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showToast }) {
+  const [activeTab, setActiveTab] = useState("today");
+  const [entries, setEntries] = useState([]);
+  const [fixedExpenses, setFixedExpenses] = useState([]);
+  const [licenses, setLicenses] = useState([]);
+  const [showFixedForm, setShowFixedForm] = useState(false);
+  const [showLicenseForm, setShowLicenseForm] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null);
+  const printRef = useRef(null);
+
+  const today = new Date().toISOString().split("T")[0];
+  const monthKey = today.substring(0, 7);
+
+  // فورم التقفيل اليومي
+  const [closingForm, setClosingForm] = useState({
+    card_income: "",       // دخل صراف يدوي
+    extra_income: "",      // دخل إضافي
+    extra_income_note: "",
+    petty: "",             // نثريات
+    petty_note: "",
+    variable_expenses: [], // مصروفات متغيرة [ {name, amount} ]
+    fixed_paid: {},        // المصاريف الثابتة المدفوعة اليوم {id: true/false}
+  });
+  const [closingSaved, setClosingSaved] = useState(false);
+  const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1" });
+  const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    Promise.all([
+      supabase.from("treasury_entries").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
+      supabase.from("fixed_expenses").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("licenses").select("*").eq("pharmacy_id", pharmacyId).order("renew_date"),
+    ]).then(([t, f, l]) => {
+      if (t.data) setEntries(t.data);
+      if (f.data) setFixedExpenses(f.data);
+      if (l.data) setLicenses(l.data);
+    });
+  }, [pharmacyId]);
+
+  // حسابات تلقائية من POS
+  const todaySalesIncome = sales.filter((s) => s.date === today && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0);
+  const todayCreditIncome = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
+  const monthFixedTotal = fixedExpenses.reduce((a, f) => a + (f.amount || 0), 0);
+  const currentDay = new Date().getDate();
+  const dueFixed = fixedExpenses.filter((f) => Math.abs(+f.due_day - currentDay) <= 3);
+  const upcomingLicenses = licenses.filter((l) => {
+    const days = (new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24);
+    return days >= 0 && days <= 60;
+  });
+
+  // حساب المصروفات من الفورم
+  const variableTotal = closingForm.variable_expenses.reduce((a, e) => a + (+e.amount || 0), 0);
+  const fixedPaidTotal = fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).reduce((a, f) => a + f.amount, 0);
+  const totalExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal;
+  const totalIncome = todaySalesIncome + todayCreditIncome + (+closingForm.card_income || 0) + (+closingForm.extra_income || 0);
+  const netCash = totalIncome - totalExpenses;
+
+  // حفظ التقفيل
+  const saveClosing = async () => {
+    const rows = [];
+    if (+closingForm.card_income > 0)
+      rows.push({ type: "income", sub_type: "card", amount: +closingForm.card_income, note: "دخل صراف/شبكة", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+    if (+closingForm.extra_income > 0)
+      rows.push({ type: "income", sub_type: "other", amount: +closingForm.extra_income, note: closingForm.extra_income_note || "دخل إضافي", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+    if (+closingForm.petty > 0)
+      rows.push({ type: "expense", sub_type: "petty", amount: +closingForm.petty, note: closingForm.petty_note || "نثريات", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+    closingForm.variable_expenses.filter((e) => +e.amount > 0).forEach((e) =>
+      rows.push({ type: "expense", sub_type: "variable", amount: +e.amount, note: e.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name })
+    );
+    fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).forEach((f) =>
+      rows.push({ type: "expense", sub_type: "fixed", amount: f.amount, note: f.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name })
+    );
+    if (rows.length > 0) {
+      const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
+      if (error) { showToast("خطأ: " + error.message, "error"); return; }
+      setEntries((p) => [...data, ...p]);
+    }
+    setClosingSaved(true);
+    showToast("تم حفظ تقفيل اليوم ✓");
+  };
+
+  // طباعة
+  const handlePrint = () => {
+    const content = printRef.current;
+    const win = window.open("", "_blank");
+    win.document.write(`
+      <html><head><title>تقفيل يوم ${today}</title>
+      <style>
+        body { font-family: 'Tajawal', Arial, sans-serif; direction: rtl; background: #fff; color: #111; padding: 24px; }
+        h2 { font-size: 20px; margin-bottom: 4px; }
+        .sub { color: #666; font-size: 13px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+        th { background: #f0f4ff; padding: 8px 12px; text-align: right; font-size: 13px; }
+        td { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+        .green { color: #16a34a; font-weight: 700; }
+        .red { color: #dc2626; font-weight: 700; }
+        .blue { color: #2563eb; font-weight: 700; }
+        .total-row { background: #f8faff; font-weight: 900; font-size: 15px; }
+        .section { font-weight: 700; color: #1e3a8a; margin: 14px 0 6px; font-size: 14px; }
+        @media print { button { display: none; } }
+      </style></head><body>
+      ${content.innerHTML}
+      <br/><button onclick="window.print()" style="padding:8px 20px;background:#1e3a8a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">طباعة</button>
+      </body></html>
+    `);
+    win.document.close();
+    setTimeout(() => win.print(), 300);
+  };
+
+  // تجميع السجل
+  const groupedByDay = {};
+  entries.forEach((e) => {
+    if (!groupedByDay[e.date]) groupedByDay[e.date] = [];
+    groupedByDay[e.date].push(e);
+  });
+  const sortedDays = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
+
+  const cardStyle = (border = "#1d2d4a") => ({
+    background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
+  });
+
+  const inputStyle = {
+    background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8,
+    padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const,
+  };
+
+  const rowStyle = {
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    padding: "10px 0", borderBottom: "1px solid #0a101a",
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
+          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>{today}</div>
+        </div>
+      </div>
+
+      {/* تنبيهات */}
+      {(dueFixed.length > 0 || upcomingLicenses.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: dueFixed.length > 0 && upcomingLicenses.length > 0 ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 14 }}>
+          {dueFixed.length > 0 && (
+            <div style={{ background: "#1a0800", border: "1px solid #4a2800", borderRadius: 12, padding: 12 }}>
+              <div style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⏰ مصاريف ثابتة مستحقة قريباً</div>
+              {dueFixed.map((f) => (
+                <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                  <span style={{ color: "#dde8ff" }}>{f.name}</span>
+                  <span style={{ color: "#ffaa44", fontWeight: 700 }}>{f.amount} ر.س</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {upcomingLicenses.length > 0 && (
+            <div style={{ background: "#1a0a1a", border: "1px solid #4a1a4a", borderRadius: 12, padding: 12 }}>
+              <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📋 تراخيص قريبة التجديد</div>
+              {upcomingLicenses.map((l) => {
+                const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
+                return (
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                    <span style={{ color: "#dde8ff" }}>{l.name}</span>
+                    <span style={{ color: days <= 14 ? "#ff4444" : "#ffaa44" }}>خلال {days} يوم</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#080e1a", borderRadius: 10, padding: 4 }}>
+        {[
+          { k: "today", l: "📅 تقفيل اليوم" },
+          { k: "history", l: "📋 السجل" },
+          { k: "fixed", l: "🔒 مصاريف ثابتة" },
+          { k: "licenses", l: "📄 التراخيص" },
+        ].map((t) => (
+          <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
+            flex: 1, padding: "9px 8px", borderRadius: 8, border: "none",
+            background: activeTab === t.k ? "#0f1623" : "transparent",
+            color: activeTab === t.k ? "#3a9aff" : "#4a6a8a",
+            fontSize: 12, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {/* ══════════ تقفيل اليوم ══════════ */}
+      {activeTab === "today" && (
+        <div>
+          {/* ── الدخل التلقائي ── */}
+          <div style={cardStyle("#1a3a1a")}>
+            <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📥 الدخل</div>
+
+            <div style={rowStyle}>
+              <span style={{ color: "#8aaabb", fontSize: 13 }}>💵 مبيعات نقدية (POS)</span>
+              <span style={{ color: "#44dd88", fontWeight: 700 }}>{todaySalesIncome.toFixed(2)} ر.س</span>
+            </div>
+
+            <div style={rowStyle}>
+              <span style={{ color: "#8aaabb", fontSize: 13 }}>✅ سداد آجل (POS)</span>
+              <span style={{ color: "#3a9aff", fontWeight: 700 }}>{todayCreditIncome.toFixed(2)} ر.س</span>
+            </div>
+
+            {/* صراف يدوي */}
+            <div style={{ ...rowStyle, gap: 12 }}>
+              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>💳 صراف/شبكة (يدوي)</span>
+              <input type="number" value={closingForm.card_income} onChange={(e) => setClosingForm((p) => ({ ...p, card_income: e.target.value }))}
+                placeholder="0.00" style={{ ...inputStyle, width: 120, textAlign: "left" }} />
+            </div>
+
+            {/* دخل إضافي */}
+            <div style={{ ...rowStyle, gap: 12 }}>
+              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>➕ دخل إضافي</span>
+              <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
+                <input value={closingForm.extra_income_note} onChange={(e) => setClosingForm((p) => ({ ...p, extra_income_note: e.target.value }))}
+                  placeholder="وصف..." style={{ ...inputStyle, width: 140 }} />
+                <input type="number" value={closingForm.extra_income} onChange={(e) => setClosingForm((p) => ({ ...p, extra_income: e.target.value }))}
+                  placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" }} />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #1a3a1a" }}>
+              <span style={{ color: "#4a6a8a", fontSize: 12, marginLeft: 12 }}>إجمالي الدخل</span>
+              <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{totalIncome.toFixed(2)} ر.س</span>
+            </div>
+          </div>
+
+          {/* ── المصروفات ── */}
+          <div style={cardStyle("#3a1000")}>
+            <div style={{ color: "#ff7744", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📤 المصروفات</div>
+
+            {/* نثريات */}
+            <div style={{ ...rowStyle, gap: 12 }}>
+              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>🪙 نثريات</span>
+              <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
+                <input value={closingForm.petty_note} onChange={(e) => setClosingForm((p) => ({ ...p, petty_note: e.target.value }))}
+                  placeholder="وصف..." style={{ ...inputStyle, width: 140 }} />
+                <input type="number" value={closingForm.petty} onChange={(e) => setClosingForm((p) => ({ ...p, petty: e.target.value }))}
+                  placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" }} />
+              </div>
+            </div>
+
+            {/* مصروفات متغيرة */}
+            {closingForm.variable_expenses.map((exp, i) => (
+              <div key={i} style={{ ...rowStyle, gap: 8 }}>
+                <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>📦 مصروف</span>
+                <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
+                  <input value={exp.name} onChange={(e) => setClosingForm((p) => {
+                    const v = [...p.variable_expenses]; v[i] = { ...v[i], name: e.target.value }; return { ...p, variable_expenses: v };
+                  })} placeholder="اسم المصروف" style={{ ...inputStyle, width: 140 }} />
+                  <input type="number" value={exp.amount} onChange={(e) => setClosingForm((p) => {
+                    const v = [...p.variable_expenses]; v[i] = { ...v[i], amount: e.target.value }; return { ...p, variable_expenses: v };
+                  })} placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" }} />
+                  <button onClick={() => setClosingForm((p) => ({ ...p, variable_expenses: p.variable_expenses.filter((_, j) => j !== i) }))}
+                    style={{ background: "#3a0a0a", border: "none", borderRadius: 6, padding: "4px 10px", color: "#ff7744", cursor: "pointer", fontSize: 16 }}>×</button>
+                </div>
+              </div>
+            ))}
+
+            <button onClick={() => setClosingForm((p) => ({ ...p, variable_expenses: [...p.variable_expenses, { name: "", amount: "" }] }))}
+              style={{ background: "#1a0800", border: "1px dashed #3a1800", borderRadius: 8, padding: "7px 14px", color: "#ff7744", cursor: "pointer", fontSize: 12, width: "100%", marginTop: 4 }}>
+              + إضافة مصروف متغير
+            </button>
+
+            {/* مصاريف ثابتة */}
+            {fixedExpenses.length > 0 && (
+              <div style={{ marginTop: 14, borderTop: "1px solid #2a1000", paddingTop: 12 }}>
+                <div style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🔒 مصاريف ثابتة — علّم المدفوع اليوم</div>
+                {fixedExpenses.map((f) => (
+                  <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input type="checkbox" checked={!!closingForm.fixed_paid[f.id]}
+                        onChange={(e) => setClosingForm((p) => ({ ...p, fixed_paid: { ...p.fixed_paid, [f.id]: e.target.checked } }))}
+                        style={{ width: 16, height: 16, accentColor: "#ffaa44" }} />
+                      <span style={{ color: "#dde8ff", fontSize: 13 }}>{f.name}</span>
+                    </label>
+                    <span style={{ color: closingForm.fixed_paid[f.id] ? "#ff7744" : "#4a6a8a", fontWeight: 700 }}>{f.amount} ر.س</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a1000" }}>
+              <span style={{ color: "#4a6a8a", fontSize: 12, marginLeft: 12 }}>إجمالي المصروفات</span>
+              <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{totalExpenses.toFixed(2)} ر.س</span>
+            </div>
+          </div>
+
+          {/* ── صافي الخزنة ── */}
+          <div style={{ ...cardStyle("#1a2a4a"), textAlign: "center", padding: 20 }}>
+            <div style={{ color: "#4a6a8a", fontSize: 13, marginBottom: 6 }}>🏦 صافي الخزنة اليوم</div>
+            <div style={{ color: netCash >= 0 ? "#44dd88" : "#ff4444", fontWeight: 900, fontSize: 32, marginBottom: 4 }}>
+              {netCash.toFixed(2)} ر.س
+            </div>
+            <div style={{ color: "#4a6a8a", fontSize: 11 }}>
+              إجمالي دخل: {totalIncome.toFixed(2)} — مصروفات: {totalExpenses.toFixed(2)}
+            </div>
+            {monthFixedTotal > 0 && (
+              <div style={{ color: "#ffaa44", fontSize: 11, marginTop: 6 }}>
+                ⚠️ مصاريف ثابتة شهرية غير مدفوعة اليوم: {(monthFixedTotal - fixedPaidTotal).toFixed(2)} ر.س
+              </div>
+            )}
+          </div>
+
+          {/* أزرار الحفظ والطباعة */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+            <button onClick={handlePrint} style={{
+              background: "#0a1a3a", border: "1px solid #1d3a6a", borderRadius: 10,
+              padding: "10px 20px", color: "#3a9aff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <IC n="print" s={15} /> طباعة / PDF
+            </button>
+            {!closingSaved
+              ? <Btn icon="check" onClick={saveClosing}>حفظ تقفيل اليوم</Btn>
+              : <div style={{ color: "#44dd88", fontWeight: 700, padding: "10px 16px", fontSize: 13 }}>✅ تم الحفظ</div>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ══════════ السجل ══════════ */}
+      {activeTab === "history" && (
+        <div>
+          {sortedDays.slice(0, 30).map((day) => {
+            const dayEnt = groupedByDay[day];
+            const dayIncome = dayEnt.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
+            const dayExp = dayEnt.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+            const isOpen = selectedDay === day;
+            return (
+              <div key={day} style={cardStyle()}>
+                <div onClick={() => setSelectedDay(isOpen ? null : day)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                  <div>
+                    <div style={{ color: "#dde8ff", fontWeight: 700 }}>{day}</div>
+                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>{dayEnt.length} قيد</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#44dd88", fontWeight: 700 }}>+{dayIncome.toFixed(0)}</div>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>دخل</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#ff7744", fontWeight: 700 }}>-{dayExp.toFixed(0)}</div>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>مصروف</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: dayIncome - dayExp >= 0 ? "#3a9aff" : "#ff4444", fontWeight: 900 }}>
+                        {(dayIncome - dayExp).toFixed(0)}
+                      </div>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>صافي</div>
+                    </div>
+                    <span style={{ color: "#4a6a8a" }}>{isOpen ? "▲" : "▼"}</span>
+                  </div>
+                </div>
+                {isOpen && (
+                  <div style={{ marginTop: 10, borderTop: "1px solid #0a101a", paddingTop: 10 }}>
+                    {dayEnt.map((e) => (
+                      <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12 }}>
+                        <span style={{ color: "#7a9aaa" }}>{e.note || e.sub_type}</span>
+                        <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744", fontWeight: 700 }}>
+                          {e.type === "income" ? "+" : "-"}{e.amount} ر.س
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {sortedDays.length === 0 && <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد قيود مسجلة</div>}
+        </div>
+      )}
+
+      {/* ══════════ المصاريف الثابتة ══════════ */}
+      {activeTab === "fixed" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>
+          </div>
+          {fixedExpenses.length === 0
+            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد مصاريف ثابتة</div>
+            : (
+              <>
+                <div style={{ ...cardStyle("#2a1a00"), display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#ffaa44", fontWeight: 700 }}>إجمالي شهري</span>
+                  <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{monthFixedTotal.toFixed(2)} ر.س</span>
+                </div>
+                {fixedExpenses.map((f) => (
+                  <div key={f.id} style={cardStyle()}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ color: "#dde8ff", fontWeight: 700 }}>{f.name}</div>
+                        <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+                          يوم {f.due_day} من كل شهر
+                          {Math.abs(+f.due_day - currentDay) <= 3 && <span style={{ color: "#ffaa44", marginRight: 8 }}>⏰ مستحقة قريباً</span>}
+                        </div>
+                      </div>
+                      <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{f.amount} ر.س</span>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )
+          }
+        </div>
+      )}
+
+      {/* ══════════ التراخيص ══════════ */}
+      {activeTab === "licenses" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>
+          </div>
+          {licenses.length === 0
+            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد تراخيص</div>
+            : licenses.map((l) => {
+                const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
+                const urgent = days <= 14; const soon = days <= 60;
+                return (
+                  <div key={l.id} style={cardStyle(urgent ? "#4a0000" : soon ? "#3a2000" : "#1d2d4a")}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ color: "#dde8ff", fontWeight: 700 }}>{l.name}</div>
+                        <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+                          تجديد: {l.renew_date}{l.note && ` • ${l.note}`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ color: urgent ? "#ff4444" : soon ? "#ffaa44" : "#44dd88", fontWeight: 700 }}>
+                          {days <= 0 ? "⚠️ منتهي" : `خلال ${days} يوم`}
+                        </div>
+                        <div style={{ color: "#a78bfa", fontWeight: 700 }}>{l.amount} ر.س</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+          }
+        </div>
+      )}
+
+      {/* Modal مصروف ثابت */}
+      <Modal open={showFixedForm} onClose={() => setShowFixedForm(false)} title="🔒 إضافة مصروف ثابت">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="اسم المصروف" value={fixedForm.name} onChange={(v) => setFixedForm((p) => ({ ...p, name: v }))} placeholder="إيجار، رواتب..." />
+          <Input label="المبلغ الشهري (ر.س)" value={fixedForm.amount} onChange={(v) => setFixedForm((p) => ({ ...p, amount: v }))} type="number" />
+          <Input label="يوم الاستحقاق (1-31)" value={fixedForm.due_day} onChange={(v) => setFixedForm((p) => ({ ...p, due_day: v }))} type="number" />
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowFixedForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={async () => {
+            if (!fixedForm.name || !fixedForm.amount) return;
+            const { data, error } = await supabase.from("fixed_expenses").insert([{ ...fixedForm, amount: +fixedForm.amount, pharmacy_id: pharmacyId }]).select();
+            if (error) { showToast("خطأ: " + error.message, "error"); return; }
+            setFixedExpenses((p) => [...p, data[0]]);
+            setFixedForm({ name: "", amount: "", due_day: "1" });
+            setShowFixedForm(false);
+            showToast("تم الإضافة ✓");
+          }}>إضافة</Btn>
+        </div>
+      </Modal>
+
+      {/* Modal ترخيص */}
+      <Modal open={showLicenseForm} onClose={() => setShowLicenseForm(false)} title="📄 إضافة ترخيص">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="اسم الترخيص" value={licenseForm.name} onChange={(v) => setLicenseForm((p) => ({ ...p, name: v }))} placeholder="رخصة تشغيل..." />
+          <Input label="تاريخ التجديد" value={licenseForm.renew_date} onChange={(v) => setLicenseForm((p) => ({ ...p, renew_date: v }))} type="date" />
+          <Input label="التكلفة (ر.س)" value={licenseForm.amount} onChange={(v) => setLicenseForm((p) => ({ ...p, amount: v }))} type="number" />
+          <Input label="ملاحظات" value={licenseForm.note} onChange={(v) => setLicenseForm((p) => ({ ...p, note: v }))} placeholder="تفاصيل..." />
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowLicenseForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={async () => {
+            if (!licenseForm.name || !licenseForm.renew_date) return;
+            const { data, error } = await supabase.from("licenses").insert([{ ...licenseForm, amount: +licenseForm.amount || 0, pharmacy_id: pharmacyId }]).select();
+            if (error) { showToast("خطأ: " + error.message, "error"); return; }
+            setLicenses((p) => [...p, data[0]].sort((a, b) => a.renew_date.localeCompare(b.renew_date)));
+            setLicenseForm({ name: "", renew_date: "", amount: "", note: "" });
+            setShowLicenseForm(false);
+            showToast("تم الإضافة ✓");
+          }}>إضافة</Btn>
+        </div>
+      </Modal>
+
+      {/* محتوى الطباعة المخفي */}
+      <div ref={printRef} style={{ display: "none" }}>
+        <h2>💰 تقفيل يوم {today}</h2>
+        <div className="sub">بواسطة: {currentUser?.name} — {new Date().toLocaleTimeString("ar-SA")}</div>
+
+        <div className="section">📥 الدخل</div>
+        <table>
+          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
+          <tbody>
+            <tr><td>مبيعات نقدية (POS)</td><td className="green">{todaySalesIncome.toFixed(2)} ر.س</td></tr>
+            <tr><td>سداد آجل (POS)</td><td className="blue">{todayCreditIncome.toFixed(2)} ر.س</td></tr>
+            {+closingForm.card_income > 0 && <tr><td>صراف/شبكة</td><td className="green">{(+closingForm.card_income).toFixed(2)} ر.س</td></tr>}
+            {+closingForm.extra_income > 0 && <tr><td>{closingForm.extra_income_note || "دخل إضافي"}</td><td className="green">{(+closingForm.extra_income).toFixed(2)} ر.س</td></tr>}
+            <tr className="total-row"><td>إجمالي الدخل</td><td className="green">{totalIncome.toFixed(2)} ر.س</td></tr>
+          </tbody>
+        </table>
+
+        <div className="section">📤 المصروفات</div>
+        <table>
+          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
+          <tbody>
+            {+closingForm.petty > 0 && <tr><td>{closingForm.petty_note || "نثريات"}</td><td className="red">{(+closingForm.petty).toFixed(2)} ر.س</td></tr>}
+            {closingForm.variable_expenses.filter((e) => +e.amount > 0).map((e, i) => (
+              <tr key={i}><td>{e.name}</td><td className="red">{(+e.amount).toFixed(2)} ر.س</td></tr>
+            ))}
+            {fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).map((f) => (
+              <tr key={f.id}><td>{f.name} (ثابت)</td><td className="red">{f.amount.toFixed(2)} ر.س</td></tr>
+            ))}
+            <tr className="total-row"><td>إجمالي المصروفات</td><td className="red">{totalExpenses.toFixed(2)} ر.س</td></tr>
+          </tbody>
+        </table>
+
+        <div className="section">🏦 الصافي</div>
+        <table>
+          <tbody>
+            <tr className="total-row">
+              <td>صافي الخزنة</td>
+              <td style={{ color: netCash >= 0 ? "#16a34a" : "#dc2626", fontWeight: 900, fontSize: 18 }}>{netCash.toFixed(2)} ر.س</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
   const [activeTab, setActiveTab] = useState("today"); // today | history | fixed | licenses
   const [entries, setEntries] = useState([]);
   const [fixedExpenses, setFixedExpenses] = useState([]);
@@ -11600,7 +12109,6 @@ filteredSales.forEach((s) => {
     </div>
   );
 }
-
 // ==================== TAX REPORT ====================
 function TaxReport({ sales, purchases }) {
   const [quarter, setQuarter] = useState("Q2-2026");
@@ -11623,20 +12131,20 @@ function TaxReport({ sales, purchases }) {
   const months = qMap[q].split(",").map((m) => `${year}-${m}`);
 
   const filtSales = sales.filter(
-    (s) => months.some((m) => (s.date || s.created_at || "").startsWith(m)) && !s.returned
+    (s) => months.some((m) => s.date.startsWith(m)) && !s.returned
   );
   const filtPurchases = purchases.filter((p) =>
-    months.some((m) => (p.date || p.created_at || "").startsWith(m))
+    months.some((m) => p.date.startsWith(m))
   );
 
   const salesSubtotal = filtSales.reduce((a, s) => a + (s.subtotal || 0), 0);
-  const salesTax = filtSales.reduce((a, s) => a + (s.taxAmount || s.tax_amount || 0), 0);
+  const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
   const salesTotal = filtSales.reduce((a, s) => a + (s.total || 0), 0);
   const purchSubtotal = filtPurchases.reduce(
     (a, p) => a + (p.subtotal || 0),
     0
   );
-  const purchTax = filtPurchases.reduce((a, p) => a + (p.taxAmount || p.tax_amount || 0), 0);
+  const purchTax = filtPurchases.reduce((a, p) => a + (p.tax_amount || 0), 0);
   const purchTotal = filtPurchases.reduce((a, p) => a + (p.total || 0), 0);
   const netTax = salesTax - purchTax;
 
@@ -12167,395 +12675,6 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
           ),
         ])}
       />
-    </div>
-  );
-}
-// ==================== TARGET MODULE ====================
-function TargetModule({ users, sales, customers, currentUser, pharmacyId, showToast }) {
-  const [monthKey, setMonthKey] = useState(new Date().toISOString().slice(0, 7));
-  const [targets, setTargets] = useState([]); // [{pharmacist_name, month, target_amount}]
-  const [editing, setEditing] = useState(null); // اسم الصيدلي اللي بيتعدل تارجته
-  const [editValue, setEditValue] = useState("");
-  const [expanded, setExpanded] = useState(null); // اسم الصيدلي المفتوح تحليله الفني
-
-  const isAdmin = currentUser?.role === "admin";
-  const pharmacists = users.filter((u) => u.role === "pharmacist");
-
-  // تحميل التارجتات
-  useEffect(() => {
-    if (!pharmacyId) return;
-    supabase
-      .from("monthly_targets")
-      .select("*")
-      .eq("pharmacy_id", pharmacyId)
-      .eq("month", monthKey)
-      .then(({ data }) => setTargets(data || []));
-  }, [pharmacyId, monthKey]);
-
-  const getTarget = (name) =>
-    targets.find((t) => t.pharmacist_name === name)?.target_amount || 0;
-
-  const saveTarget = async (name) => {
-    if (!editValue || +editValue <= 0) {
-      showToast("ادخل قيمة تارجت صحيحة", "error");
-      return;
-    }
-    const row = {
-      pharmacy_id: pharmacyId,
-      pharmacist_name: name,
-      month: monthKey,
-      target_amount: +editValue,
-    };
-    const { data, error } = await supabase
-      .from("monthly_targets")
-      .upsert([row], { onConflict: "pharmacy_id,pharmacist_name,month" })
-      .select();
-    if (error) {
-      showToast("خطأ: " + error.message, "error");
-      return;
-    }
-    setTargets((prev) => {
-      const others = prev.filter((t) => t.pharmacist_name !== name);
-      return [...others, data[0]];
-    });
-    setEditing(null);
-    setEditValue("");
-    showToast("تم حفظ التارجت ✓");
-  };
-
-  // ===== حسابات الشهر =====
-  const now = new Date();
-  const [y, m] = monthKey.split("-").map(Number);
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const isCurrentMonth = monthKey === now.toISOString().slice(0, 7);
-  const daysPassed = isCurrentMonth ? now.getDate() : daysInMonth;
-
-  const monthSalesAll = sales.filter(
-    (s) => (s.created_at || s.date || "").startsWith(monthKey) && !s.returned
-  );
-
-  const calcForPharmacist = (name) => {
-    const mySales = monthSalesAll.filter(
-      (s) => s.cashier === name || s.user === name || s.created_by === name
-    );
-    const achieved = mySales.reduce((a, s) => a + (s.total || 0), 0);
-    const target = getTarget(name);
-
-    // نسبة التحقق البسيطة
-    const simplePct = target > 0 ? (achieved / target) * 100 : 0;
-
-    // معدل التحقق المتوقع (Run Rate)
-    const dailyAvg = daysPassed > 0 ? achieved / daysPassed : 0;
-    const projected = dailyAvg * daysInMonth;
-    const paceRequired = target > 0 ? target / daysInMonth : 0;
-    const paceStatus =
-      target === 0
-        ? "—"
-        : dailyAvg >= paceRequired
-        ? "على المسار ✅"
-        : dailyAvg >= paceRequired * 0.85
-        ? "متأخر بسيط ⚠️"
-        : "متأخر عن المسار 🔴";
-
-    // التحليل الفني
-    const invoiceCount = mySales.length;
-    let itemsSold = 0;
-    mySales.forEach((s) => {
-      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
-      itemsSold += items.reduce((a, it) => a + (it.qty || 1), 0);
-    });
-    const avgItemsPerInvoice = invoiceCount > 0 ? itemsSold / invoiceCount : 0;
-    const avgInvoiceValue = invoiceCount > 0 ? achieved / invoiceCount : 0;
-
-    const linkedToCustomer = mySales.filter((s) => s.customer).length;
-    const customerRegRate = invoiceCount > 0 ? (linkedToCustomer / invoiceCount) * 100 : 0;
-
-    const newCustomers = customers.filter(
-      (c) => (c.created_at || "").startsWith(monthKey) && c.created_by === name
-    ).length;
-
-    // عملاء سجلهم الصيدلي وأصبحوا خاملين (آخر زيارة لهم من أكثر من 90 يوم)
-    const myCustomers = customers.filter((c) => c.created_by === name);
-    const inactiveCustomers = myCustomers.filter((c) => {
-      const cSales = sales.filter((s) => s.customer === c.id);
-      if (cSales.length === 0) return false;
-      const last = cSales.reduce((a, s) => {
-        const d = new Date(s.created_at || s.date);
-        return d > a ? d : a;
-      }, new Date(0));
-      const daysSince = (now - last) / (1000 * 60 * 60 * 24);
-      return daysSince > 90;
-    }).length;
-
-    return {
-      achieved, target, simplePct, projected, paceStatus,
-      invoiceCount, itemsSold, avgItemsPerInvoice, avgInvoiceValue,
-      customerRegRate, newCustomers, inactiveCustomers,
-    };
-  };
-
-  const pctColor = (p) => (p >= 100 ? "#44dd88" : p >= 75 ? "#3a9aff" : p >= 50 ? "#ffaa44" : "#ff4444");
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🎯 تارجت المبيعات</h2>
-          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>
-            تارجت شهري لكل صيدلي + تحليل فني للأداء
-          </div>
-        </div>
-        <Input type="month" value={monthKey} onChange={setMonthKey} style={{ width: 160 }} />
-      </div>
-
-      {pharmacists.length === 0 && (
-        <div style={{ color: "#4a6a8a", padding: 20 }}>لا يوجد صيادلة مسجلين بدور "pharmacist".</div>
-      )}
-
-      {pharmacists.map((u) => {
-        const c = calcForPharmacist(u.name);
-        const isOpen = expanded === u.name;
-        return (
-          <div key={u.id} style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: "#dde8ff" }}>{u.name}</div>
-                <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>صيدلاني</div>
-              </div>
-
-              {editing === u.name ? (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <Input value={editValue} onChange={setEditValue} type="number" placeholder="قيمة التارجت" style={{ width: 140 }} />
-                  <Btn size="sm" variant="success" onClick={() => saveTarget(u.name)}>حفظ</Btn>
-                  <Btn size="sm" variant="ghost" onClick={() => setEditing(null)}>إلغاء</Btn>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>التارجت الشهري</div>
-                    <div style={{ color: "#8ab0ff", fontWeight: 800, fontSize: 15 }}>
-                      {c.target ? c.target.toFixed(0) + " ر.س" : "غير محدد"}
-                    </div>
-                  </div>
-                  {isAdmin && (
-                    <Btn size="sm" variant="ghost" icon="edit" onClick={() => { setEditing(u.name); setEditValue(c.target || ""); }}>
-                      تعديل
-                    </Btn>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* شريط التقدم */}
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                <span style={{ color: "#8aa0cc" }}>
-                  المحقق: <b style={{ color: "#dde8ff" }}>{c.achieved.toFixed(0)} ر.س</b>
-                </span>
-                <span style={{ color: pctColor(c.simplePct), fontWeight: 800 }}>
-                  {c.target ? c.simplePct.toFixed(1) + "%" : "—"}
-                </span>
-              </div>
-              <div style={{ background: "#080e1a", borderRadius: 8, height: 10, overflow: "hidden" }}>
-                <div style={{
-                  width: Math.min(c.simplePct, 100) + "%",
-                  height: "100%",
-                  background: pctColor(c.simplePct),
-                  transition: "width .3s",
-                }} />
-              </div>
-              {c.target > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12 }}>
-                  <span style={{ color: "#4a6a8a" }}>
-                    المتوقع نهاية الشهر (Run Rate): <b style={{ color: "#a78bfa" }}>{c.projected.toFixed(0)} ر.س</b>
-                  </span>
-                  <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={() => setExpanded(isOpen ? null : u.name)}
-              style={{ marginTop: 12, background: "transparent", border: "none", color: "#3a9aff", fontSize: 12, cursor: "pointer", padding: 0 }}
-            >
-              {isOpen ? "▲ إخفاء التحليل الفني" : "▼ عرض التحليل الفني"}
-            </button>
-
-            {isOpen && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 12 }}>
-                {[
-                  { l: "عدد الفواتير", v: c.invoiceCount },
-                  { l: "عدد الأصناف المباعة", v: c.itemsSold },
-                  { l: "متوسط الأصناف/فاتورة", v: c.avgItemsPerInvoice.toFixed(1) },
-                  { l: "متوسط قيمة الفاتورة", v: c.avgInvoiceValue.toFixed(0) + " ر.س" },
-                  { l: "نسبة التسجيل على عملاء", v: c.customerRegRate.toFixed(0) + "%" },
-                  { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
-                  { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
-                ].map((x, i) => (
-                  <div key={i} style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}>
-                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>{x.l}</div>
-                    <div style={{ color: "#dde8ff", fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-// ==================== USERS MANAGEMENT MODULE ====================
-function UsersModule({ currentUser, pharmacyId, showToast }) {
-  const [usersList, setUsersList] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [editingUser, setEditingUser] = useState(null);
-  const blankForm = { name: "", username: "", password: "", role: "pharmacist" };
-  const [form, setForm] = useState(blankForm);
-
-  const isAdmin = currentUser?.role === "admin";
-
-  useEffect(() => {
-    if (!pharmacyId) return;
-    loadUsers();
-  }, [pharmacyId]);
-
-  const loadUsers = async () => {
-    const { data, error } = await supabase
-      .from("users")
-      .select("id, name, username, role, pharmacy_id")
-      .eq("pharmacy_id", pharmacyId)
-      .order("name");
-    if (error) { showToast("خطأ تحميل المستخدمين: " + error.message, "error"); return; }
-    setUsersList(data || []);
-  };
-
-  const openAdd = () => {
-    setEditingUser(null);
-    setForm(blankForm);
-    setShowForm(true);
-  };
-
-  const openEdit = (u) => {
-    setEditingUser(u);
-    setForm({ name: u.name, username: u.username, password: "", role: u.role });
-    setShowForm(true);
-  };
-
-  const saveUser = async () => {
-    if (!form.name || !form.username || (!editingUser && !form.password)) {
-      showToast("يرجى ملء الاسم واسم الدخول وكلمة السر", "error");
-      return;
-    }
-
-    // التحقق من تكرار اسم الدخول
-    const dup = usersList.find(
-      (u) => u.username === form.username && u.id !== editingUser?.id
-    );
-    if (dup) {
-      showToast("اسم الدخول هذا مستخدم من قبل", "error");
-      return;
-    }
-
-    if (editingUser) {
-      const updates = { name: form.name, username: form.username, role: form.role };
-      if (form.password) updates.password = form.password;
-      const { error } = await supabase.from("users").update(updates).eq("id", editingUser.id);
-      if (error) { showToast("خطأ: " + error.message, "error"); return; }
-      showToast("تم تعديل المستخدم ✓");
-    } else {
-      const row = {
-        name: form.name,
-        username: form.username,
-        password: form.password,
-        role: form.role,
-        pharmacy_id: pharmacyId,
-      };
-      const { error } = await supabase.from("users").insert([row]);
-      if (error) { showToast("خطأ: " + error.message, "error"); return; }
-      showToast("تم إضافة المستخدم ✓");
-    }
-
-    setShowForm(false);
-    setForm(blankForm);
-    setEditingUser(null);
-    loadUsers();
-  };
-
-  const deleteUser = async (u) => {
-    if (u.id === currentUser.id) {
-      showToast("لا يمكنك حذف حسابك الحالي", "error");
-      return;
-    }
-    if (!window.confirm(`تأكيد حذف المستخدم "${u.name}"؟`)) return;
-    const { error } = await supabase.from("users").delete().eq("id", u.id);
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    showToast("تم حذف المستخدم ✓");
-    loadUsers();
-  };
-
-  if (!isAdmin) {
-    return (
-      <div style={{ color: "#4a6a8a", padding: 30, textAlign: "center" }}>
-        هذا القسم مخصص للأدمن فقط.
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>👤 إدارة المستخدمين</h2>
-          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>
-            إضافة وتعديل حسابات الصيادلة والأدمن لهذه الصيدلية
-          </div>
-        </div>
-        <Btn icon="plus" onClick={openAdd}>إضافة مستخدم</Btn>
-      </div>
-
-      <Table
-        headers={["الاسم", "اسم الدخول", "الدور", "إجراءات"]}
-        rows={usersList.map((u) => [
-          u.name,
-          u.username,
-          u.role === "admin" ? (
-            <Badge color="#2a2000" text="#ffd700">أدمن</Badge>
-          ) : (
-            <Badge color="#0a1a3a" text="#5a9aff">صيدلاني</Badge>
-          ),
-          <div style={{ display: "flex", gap: 6 }}>
-            <Btn size="sm" variant="ghost" icon="edit" onClick={() => openEdit(u)}>تعديل</Btn>
-            <Btn size="sm" variant="danger" icon="trash" onClick={() => deleteUser(u)}>حذف</Btn>
-          </div>,
-        ])}
-      />
-
-      <Modal open={showForm} onClose={() => setShowForm(false)} title={editingUser ? "تعديل مستخدم" : "إضافة مستخدم جديد"}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Input label="الاسم" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} required />
-          <Input label="اسم الدخول (إنجليزي)" value={form.username} onChange={(v) => setForm((f) => ({ ...f, username: v }))} required />
-          <Input
-            label={editingUser ? "كلمة السر (سيبها فاضية لو مش عايز تغيرها)" : "كلمة السر"}
-            value={form.password}
-            onChange={(v) => setForm((f) => ({ ...f, password: v }))}
-            type="text"
-            required={!editingUser}
-          />
-          <Select
-            label="الدور"
-            value={form.role}
-            onChange={(v) => setForm((f) => ({ ...f, role: v }))}
-            options={[
-              { v: "pharmacist", l: "صيدلاني" },
-              { v: "admin", l: "أدمن" },
-            ]}
-          />
-          <Btn onClick={saveUser} size="lg" style={{ marginTop: 6 }}>
-            {editingUser ? "حفظ التعديلات" : "إضافة المستخدم"}
-          </Btn>
-        </div>
-      </Modal>
     </div>
   );
 }
