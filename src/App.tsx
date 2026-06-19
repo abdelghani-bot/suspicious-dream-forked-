@@ -1335,6 +1335,7 @@ if (isLoading) return (
     { id: "shift", label: "الشفتات", icon: "shift" },
     { id: "promotions", label: "العروض", icon: "tag" },
     { id: "treasury", label: "الخزنة", icon: "money" },
+    { id: "targets", label: "تارجت المبيعات", icon: "shift" },
     { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
   ];
 
@@ -1680,6 +1681,16 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
           />
         )}
+        {tab === "targets" && (
+  <TargetModule
+    users={users}
+    sales={sales}
+    customers={customers}
+    currentUser={currentUser}
+    pharmacyId={pharmacyId}
+    showToast={showToast}
+  />
+)}
       </main>
     </div>
   );
@@ -11857,6 +11868,241 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
           ),
         ])}
       />
+    </div>
+  );
+}
+// ==================== TARGET MODULE ====================
+function TargetModule({ users, sales, customers, currentUser, pharmacyId, showToast }) {
+  const [monthKey, setMonthKey] = useState(new Date().toISOString().slice(0, 7));
+  const [targets, setTargets] = useState([]); // [{pharmacist_name, month, target_amount}]
+  const [editing, setEditing] = useState(null); // اسم الصيدلي اللي بيتعدل تارجته
+  const [editValue, setEditValue] = useState("");
+  const [expanded, setExpanded] = useState(null); // اسم الصيدلي المفتوح تحليله الفني
+
+  const isAdmin = currentUser?.role === "admin";
+  const pharmacists = users.filter((u) => u.role === "pharmacist");
+
+  // تحميل التارجتات
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase
+      .from("monthly_targets")
+      .select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .eq("month", monthKey)
+      .then(({ data }) => setTargets(data || []));
+  }, [pharmacyId, monthKey]);
+
+  const getTarget = (name) =>
+    targets.find((t) => t.pharmacist_name === name)?.target_amount || 0;
+
+  const saveTarget = async (name) => {
+    if (!editValue || +editValue <= 0) {
+      showToast("ادخل قيمة تارجت صحيحة", "error");
+      return;
+    }
+    const row = {
+      pharmacy_id: pharmacyId,
+      pharmacist_name: name,
+      month: monthKey,
+      target_amount: +editValue,
+    };
+    const { data, error } = await supabase
+      .from("monthly_targets")
+      .upsert([row], { onConflict: "pharmacy_id,pharmacist_name,month" })
+      .select();
+    if (error) {
+      showToast("خطأ: " + error.message, "error");
+      return;
+    }
+    setTargets((prev) => {
+      const others = prev.filter((t) => t.pharmacist_name !== name);
+      return [...others, data[0]];
+    });
+    setEditing(null);
+    setEditValue("");
+    showToast("تم حفظ التارجت ✓");
+  };
+
+  // ===== حسابات الشهر =====
+  const now = new Date();
+  const [y, m] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const isCurrentMonth = monthKey === now.toISOString().slice(0, 7);
+  const daysPassed = isCurrentMonth ? now.getDate() : daysInMonth;
+
+  const monthSalesAll = sales.filter(
+    (s) => (s.created_at || s.date || "").startsWith(monthKey) && !s.returned
+  );
+
+  const calcForPharmacist = (name) => {
+    const mySales = monthSalesAll.filter(
+      (s) => s.cashier === name || s.user === name || s.created_by === name
+    );
+    const achieved = mySales.reduce((a, s) => a + (s.total || 0), 0);
+    const target = getTarget(name);
+
+    // نسبة التحقق البسيطة
+    const simplePct = target > 0 ? (achieved / target) * 100 : 0;
+
+    // معدل التحقق المتوقع (Run Rate)
+    const dailyAvg = daysPassed > 0 ? achieved / daysPassed : 0;
+    const projected = dailyAvg * daysInMonth;
+    const paceRequired = target > 0 ? target / daysInMonth : 0;
+    const paceStatus =
+      target === 0
+        ? "—"
+        : dailyAvg >= paceRequired
+        ? "على المسار ✅"
+        : dailyAvg >= paceRequired * 0.85
+        ? "متأخر بسيط ⚠️"
+        : "متأخر عن المسار 🔴";
+
+    // التحليل الفني
+    const invoiceCount = mySales.length;
+    let itemsSold = 0;
+    mySales.forEach((s) => {
+      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+      itemsSold += items.reduce((a, it) => a + (it.qty || 1), 0);
+    });
+    const avgItemsPerInvoice = invoiceCount > 0 ? itemsSold / invoiceCount : 0;
+    const avgInvoiceValue = invoiceCount > 0 ? achieved / invoiceCount : 0;
+
+    const linkedToCustomer = mySales.filter((s) => s.customer).length;
+    const customerRegRate = invoiceCount > 0 ? (linkedToCustomer / invoiceCount) * 100 : 0;
+
+    const newCustomers = customers.filter(
+      (c) => (c.created_at || "").startsWith(monthKey) && c.created_by === name
+    ).length;
+
+    // عملاء سجلهم الصيدلي وأصبحوا خاملين (آخر زيارة لهم من أكثر من 90 يوم)
+    const myCustomers = customers.filter((c) => c.created_by === name);
+    const inactiveCustomers = myCustomers.filter((c) => {
+      const cSales = sales.filter((s) => s.customer === c.id);
+      if (cSales.length === 0) return false;
+      const last = cSales.reduce((a, s) => {
+        const d = new Date(s.created_at || s.date);
+        return d > a ? d : a;
+      }, new Date(0));
+      const daysSince = (now - last) / (1000 * 60 * 60 * 24);
+      return daysSince > 90;
+    }).length;
+
+    return {
+      achieved, target, simplePct, projected, paceStatus,
+      invoiceCount, itemsSold, avgItemsPerInvoice, avgInvoiceValue,
+      customerRegRate, newCustomers, inactiveCustomers,
+    };
+  };
+
+  const pctColor = (p) => (p >= 100 ? "#44dd88" : p >= 75 ? "#3a9aff" : p >= 50 ? "#ffaa44" : "#ff4444");
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🎯 تارجت المبيعات</h2>
+          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>
+            تارجت شهري لكل صيدلي + تحليل فني للأداء
+          </div>
+        </div>
+        <Input type="month" value={monthKey} onChange={setMonthKey} style={{ width: 160 }} />
+      </div>
+
+      {pharmacists.length === 0 && (
+        <div style={{ color: "#4a6a8a", padding: 20 }}>لا يوجد صيادلة مسجلين بدور "pharmacist".</div>
+      )}
+
+      {pharmacists.map((u) => {
+        const c = calcForPharmacist(u.name);
+        const isOpen = expanded === u.name;
+        return (
+          <div key={u.id} style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#dde8ff" }}>{u.name}</div>
+                <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>صيدلاني</div>
+              </div>
+
+              {editing === u.name ? (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <Input value={editValue} onChange={setEditValue} type="number" placeholder="قيمة التارجت" style={{ width: 140 }} />
+                  <Btn size="sm" variant="success" onClick={() => saveTarget(u.name)}>حفظ</Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => setEditing(null)}>إلغاء</Btn>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>التارجت الشهري</div>
+                    <div style={{ color: "#8ab0ff", fontWeight: 800, fontSize: 15 }}>
+                      {c.target ? c.target.toFixed(0) + " ر.س" : "غير محدد"}
+                    </div>
+                  </div>
+                  {isAdmin && (
+                    <Btn size="sm" variant="ghost" icon="edit" onClick={() => { setEditing(u.name); setEditValue(c.target || ""); }}>
+                      تعديل
+                    </Btn>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* شريط التقدم */}
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: "#8aa0cc" }}>
+                  المحقق: <b style={{ color: "#dde8ff" }}>{c.achieved.toFixed(0)} ر.س</b>
+                </span>
+                <span style={{ color: pctColor(c.simplePct), fontWeight: 800 }}>
+                  {c.target ? c.simplePct.toFixed(1) + "%" : "—"}
+                </span>
+              </div>
+              <div style={{ background: "#080e1a", borderRadius: 8, height: 10, overflow: "hidden" }}>
+                <div style={{
+                  width: Math.min(c.simplePct, 100) + "%",
+                  height: "100%",
+                  background: pctColor(c.simplePct),
+                  transition: "width .3s",
+                }} />
+              </div>
+              {c.target > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12 }}>
+                  <span style={{ color: "#4a6a8a" }}>
+                    المتوقع نهاية الشهر (Run Rate): <b style={{ color: "#a78bfa" }}>{c.projected.toFixed(0)} ر.س</b>
+                  </span>
+                  <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setExpanded(isOpen ? null : u.name)}
+              style={{ marginTop: 12, background: "transparent", border: "none", color: "#3a9aff", fontSize: 12, cursor: "pointer", padding: 0 }}
+            >
+              {isOpen ? "▲ إخفاء التحليل الفني" : "▼ عرض التحليل الفني"}
+            </button>
+
+            {isOpen && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 12 }}>
+                {[
+                  { l: "عدد الفواتير", v: c.invoiceCount },
+                  { l: "عدد الأصناف المباعة", v: c.itemsSold },
+                  { l: "متوسط الأصناف/فاتورة", v: c.avgItemsPerInvoice.toFixed(1) },
+                  { l: "متوسط قيمة الفاتورة", v: c.avgInvoiceValue.toFixed(0) + " ر.س" },
+                  { l: "نسبة التسجيل على عملاء", v: c.customerRegRate.toFixed(0) + "%" },
+                  { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
+                  { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
+                ].map((x, i) => (
+                  <div key={i} style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>{x.l}</div>
+                    <div style={{ color: "#dde8ff", fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
