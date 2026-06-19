@@ -11129,15 +11129,16 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   });
 
   const salesByMonth = {};
-  filteredSales.forEach((s) => {
-    const m = s.date.substring(0, 7);
-    if (!salesByMonth[m])
-      salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
-    salesByMonth[m].count++;
-    salesByMonth[m].subtotal += s.subtotal;
-    salesByMonth[m].tax += s.taxAmount;
-    salesByMonth[m].total += s.total;
-  });
+filteredSales.forEach((s) => {
+  const m = (s.date || s.created_at || "").substring(0, 7);
+  if (!m) return;
+  if (!salesByMonth[m])
+    salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
+  salesByMonth[m].count++;
+  salesByMonth[m].subtotal += s.subtotal || 0;
+  salesByMonth[m].tax += s.taxAmount ?? s.tax_amount ?? 0;
+  salesByMonth[m].total += s.total || 0;
+});
 
   const productSales = {};
   filteredSales.forEach((s) =>
