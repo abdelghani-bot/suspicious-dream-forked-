@@ -1638,6 +1638,7 @@ if (isLoading) return (
             products={products}
             suppliers={suppliers}
             customers={customers}
+            returns={returnsData}
           />
         )}
         {tab === "tax_report" && (
@@ -10653,20 +10654,29 @@ function CustomersModule({
   );
 }
 // ==================== REPORTS ====================
-function Reports({ sales, purchases, products, suppliers, customers }) {
+function Reports({ sales, purchases, products, suppliers, customers, returns = [] }) {
   const [type, setType] = useState("sales");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(new Date().toISOString().split("T")[0]);
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterProduct, setFilterProduct] = useState("");
+  const [search, setSearch] = useState("");
+  const [showInvoiceDetail, setShowInvoiceDetail] = useState(null);
+  const [showPrint, setShowPrint] = useState(null);
 
   const filteredSales = sales.filter((s) => {
     const d = s.date;
     let ok = true;
     if (fromDate && d < fromDate) ok = false;
     if (toDate && d > toDate) ok = false;
-    if (filterProduct && !s.items.some((i) => i.id === filterProduct))
-      ok = false;
+    if (filterProduct && !s.items.some((i) => i.id === filterProduct)) ok = false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const inId = (s.id || "").toLowerCase().includes(q);
+      const inCustomer = (s.customer_name || "").toLowerCase().includes(q);
+      const inItems = (s.items || []).some((i) => (i.name || "").toLowerCase().includes(q));
+      if (!inId && !inCustomer && !inItems) ok = false;
+    }
     return ok;
   });
   const filteredPurchases = purchases.filter((p) => {
@@ -10675,6 +10685,14 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
     if (fromDate && d < fromDate) ok = false;
     if (toDate && d > toDate) ok = false;
     if (filterSupplier && p.supplier !== filterSupplier) ok = false;
+    return ok;
+  });
+
+  const filteredReturns = (returns || []).filter((r) => {
+    const d = r.date;
+    let ok = true;
+    if (fromDate && d < fromDate) ok = false;
+    if (toDate && d > toDate) ok = false;
     return ok;
   });
 
@@ -10708,10 +10726,15 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
     .reduce((a, s) => a + (s.taxAmount || s.tax_amount || 0), 0);
   const returnedCount = filteredSales.filter((s) => s.returned).length;
   const totalPurchase = filteredPurchases.reduce((a, p) => a + p.total, 0);
-  const totalPurchaseTax = filteredPurchases.reduce(
-    (a, p) => a + p.taxAmount,
-    0
-  );
+  const totalPurchaseTax = filteredPurchases.reduce((a, p) => a + p.taxAmount, 0);
+
+  // ── إحصائيات المرتجعات ──
+  const returnsSales = filteredReturns.filter((r) => r.type === "sales");
+  const returnsPurchases = filteredReturns.filter((r) => r.type === "purchases");
+  const totalReturnsSales = returnsSales.reduce((a, r) => a + (r.total || 0), 0);
+  const totalReturnsPurchases = returnsPurchases.reduce((a, r) => a + (r.total || 0), 0);
+  const totalReturnsTax = filteredReturns.reduce((a, r) => a + (r.tax || 0), 0);
+  const isAutoReturn = (r) => (r.reason || "").includes("تلقائي");
 
   return (
     <div>
@@ -10727,7 +10750,7 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
           alignItems: "flex-end",
         }}
       >
-        {["sales", "purchase", "product", "monthly"].map((t) => (
+        {["sales", "purchase", "product", "monthly", "returns"].map((t) => (
           <button
             key={t}
             onClick={() => setType(t)}
@@ -10749,7 +10772,9 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
               ? "تقرير المشتريات"
               : t === "product"
               ? "تقرير الأصناف"
-              : "تقرير شهري"}
+              : t === "monthly"
+              ? "تقرير شهري"
+              : "تقرير المرتجعات"}
           </button>
         ))}
         <div
@@ -10758,8 +10783,18 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
             display: "flex",
             gap: 10,
             alignItems: "center",
+            flexWrap: "wrap",
           }}
         >
+          {type === "sales" && (
+            <Input
+              label="بحث"
+              value={search}
+              onChange={setSearch}
+              placeholder="رقم الفاتورة، العميل، أو اسم الصنف"
+              style={{ width: 220 }}
+            />
+          )}
           <Input
             label="من"
             value={fromDate}
@@ -10848,7 +10883,17 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
               "حالة",
             ]}
             rows={filteredSales.map((s) => [
-              <span style={{ color: "#6aaeff", fontWeight: 700 }}>{s.id}</span>,
+              <span
+                onClick={() => setShowInvoiceDetail(s)}
+                style={{
+                  color: "#6aaeff",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                }}
+              >
+                {s.id}
+              </span>,
               s.date,
               s.customer_name || "زبون عادي",
               (s.subtotal || 0).toFixed(2) + " ر.س",
@@ -10870,6 +10915,11 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
               ),
             ])}
           />
+          {filteredSales.length === 0 && (
+            <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>
+              لا توجد فواتير مطابقة للبحث
+            </div>
+          )}
         </>
       )}
       {type === "purchase" && (
@@ -10978,300 +11028,145 @@ function Reports({ sales, purchases, products, suppliers, customers }) {
             ])}
         />
       )}
+
+      {type === "returns" && (
+        <>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4,1fr)",
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <StatCard
+              label="عدد المرتجعات"
+              value={filteredReturns.length}
+              icon="returns"
+              color="#ff7744"
+            />
+            <StatCard
+              label="مرتجعات المبيعات"
+              value={totalReturnsSales.toFixed(2) + " ر.س"}
+              icon="pos"
+              color="#3a9aff"
+            />
+            <StatCard
+              label="مرتجعات المشتريات"
+              value={totalReturnsPurchases.toFixed(2) + " ر.س"}
+              icon="purchase"
+              color="#fb923c"
+            />
+            <StatCard
+              label="الضريبة المستردة"
+              value={totalReturnsTax.toFixed(2) + " ر.س"}
+              icon="tax"
+              color="#88dd44"
+            />
+          </div>
+          <Table
+            headers={["رقم المرتجع", "التاريخ", "النوع", "العميل / المورد", "السبب", "الإجمالي"]}
+            rows={filteredReturns
+              .sort((a, b) => new Date(b.date) - new Date(a.date))
+              .map((r) => [
+                <span style={{ color: "#6aaeff", fontWeight: 700 }}>{r.id}</span>,
+                r.date,
+                r.type === "sales" ? (
+                  <Badge color="#0a2040" text="#3a9aff">مرتجع مبيعات</Badge>
+                ) : (
+                  <Badge color="#1a1000" text="#fb923c">مرتجع مشتريات</Badge>
+                ),
+                r.type === "sales"
+                  ? (r.customer_name || "زبون عادي")
+                  : (r.supplier_name || "—"),
+                <span>
+                  {r.reason || "—"}
+                  {isAutoReturn(r) && (
+                    <span style={{ marginRight: 6 }}>
+                      <Badge color="#1a0a00" text="#ff7744">تلقائي</Badge>
+                    </span>
+                  )}
+                </span>,
+                <span style={{ color: "#ff7744", fontWeight: 700 }}>
+                  {(r.total || 0).toFixed(2)} ر.س
+                </span>,
+              ])}
+          />
+          {filteredReturns.length === 0 && (
+            <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>
+              لا توجد مرتجعات في هذه الفترة
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ===== Modal تفاصيل الفاتورة ===== */}
+      {showInvoiceDetail && (
+        <Modal
+          open
+          title={`تفاصيل الفاتورة — ${showInvoiceDetail.id}`}
+          onClose={() => setShowInvoiceDetail(null)}
+          wide
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 13, color: "#4a6a8a" }}>
+            <span>التاريخ: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.date}</span></span>
+            <span>العميل: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.customer_name || "زبون عادي"}</span></span>
+            <span>طريقة الدفع: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.payment}</span></span>
+          </div>
+
+          <div style={{ overflowX: "auto", marginBottom: 14 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#080e1a" }}>
+                  {["الصنف", "الكمية", "السعر", "الإجمالي"].map((h) => (
+                    <th key={h} style={{ padding: "8px 10px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(showInvoiceDetail.items || []).map((item, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #0a101a" }}>
+                    <td style={{ padding: "8px 10px", color: "#c0d0f0", fontSize: 13 }}>{item.name}</td>
+                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13, textAlign: "center" }}>{item.qty}</td>
+                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13, textAlign: "center" }}>{item.price}</td>
+                    <td style={{ padding: "8px 10px", color: "#dde8ff", fontSize: 13, textAlign: "center", fontWeight: 700 }}>
+                      {(item.price * item.qty).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", marginBottom: 5 }}>
+              <span>قبل الضريبة</span>
+              <span>{(showInvoiceDetail.subtotal || 0).toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", marginBottom: 5 }}>
+              <span>الضريبة</span>
+              <span>{(showInvoiceDetail.taxAmount || showInvoiceDetail.tax_amount || 0).toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
+              <span>الإجمالي</span>
+              <span>{(showInvoiceDetail.total || 0).toFixed(2)} ر.س</span>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowInvoiceDetail(null)}>إغلاق</Btn>
+            <Btn icon="print" onClick={() => setShowPrint(showInvoiceDetail)}>إعادة الطباعة</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* إعادة استخدام كومبوننت الطباعة الموجود في المشروع */}
+      {showPrint && (
+        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />
+      )}
     </div>
   );
 }
-
-// ==================== TAX REPORT ====================
-function TaxReport({ sales, purchases }) {
-  const [quarter, setQuarter] = useState("Q2-2026");
-  const quarters = [
-    "Q1-2026",
-    "Q2-2026",
-    "Q3-2026",
-    "Q4-2026",
-    "Q1-2025",
-    "Q2-2025",
-  ];
-
-  const qMap = {
-    Q1: "01,02,03",
-    Q2: "04,05,06",
-    Q3: "07,08,09",
-    Q4: "10,11,12",
-  };
-  const [q, year] = quarter.split("-");
-  const months = qMap[q].split(",").map((m) => `${year}-${m}`);
-
-  const filtSales = sales.filter(
-    (s) => months.some((m) => s.date.startsWith(m)) && !s.returned
-  );
-  const filtPurchases = purchases.filter((p) =>
-    months.some((m) => p.date.startsWith(m))
-  );
-
-  const salesSubtotal = filtSales.reduce((a, s) => a + (s.subtotal || 0), 0);
-  const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
-  const salesTotal = filtSales.reduce((a, s) => a + (s.total || 0), 0);
-  const purchSubtotal = filtPurchases.reduce(
-    (a, p) => a + (p.subtotal || 0),
-    0
-  );
-  const purchTax = filtPurchases.reduce((a, p) => a + (p.tax_amount || 0), 0);
-  const purchTotal = filtPurchases.reduce((a, p) => a + (p.total || 0), 0);
-  const netTax = salesTax - purchTax;
-
-  return (
-    <div>
-      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
-        تقرير ضريبة القيمة المضافة — ربع سنوي
-      </h2>
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          marginBottom: 22,
-          alignItems: "center",
-        }}
-      >
-        <Select
-          label="الربع السنوي"
-          value={quarter}
-          onChange={setQuarter}
-          options={quarters.map((q) => ({ v: q, l: `الربع ${q}` }))}
-          style={{ width: 200 }}
-        />
-        <div style={{ color: "#3a5a8a", fontSize: 13, marginTop: 20 }}>
-          نسبة الضريبة: 15% (VAT)
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16,
-          marginBottom: 20,
-        }}
-      >
-        <div
-          style={{
-            background: "#0f1623",
-            border: "1px solid #1a3a1a",
-            borderRadius: 14,
-            padding: 20,
-          }}
-        >
-          <h3
-            style={{
-              margin: "0 0 16px",
-              fontSize: 15,
-              fontWeight: 700,
-              color: "#44dd88",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <IC n="pos" s={16} />
-            ضريبة المبيعات (الضريبة المحصلة)
-          </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#6a8aaa",
-              }}
-            >
-              <span>إجمالي المبيعات قبل الضريبة</span>
-              <span style={{ fontWeight: 700 }}>
-                {salesSubtotal.toFixed(2)} ر.س
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#88dd44",
-              }}
-            >
-              <span>ضريبة القيمة المضافة (15%)</span>
-              <span style={{ fontWeight: 700 }}>{salesTax.toFixed(2)} ر.س</span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#dde8ff",
-                fontWeight: 800,
-                borderTop: "1px solid #1d3a1d",
-                paddingTop: 10,
-              }}
-            >
-              <span>إجمالي المبيعات شامل الضريبة</span>
-              <span>{salesTotal.toFixed(2)} ر.س</span>
-            </div>
-            <div style={{ color: "#3a6a3a", fontSize: 12 }}>
-              عدد الفواتير: {filtSales.length}
-            </div>
-          </div>
-        </div>
-        <div
-          style={{
-            background: "#0f1623",
-            border: "1px solid #1a2a3a",
-            borderRadius: 14,
-            padding: 20,
-          }}
-        >
-          <h3
-            style={{
-              margin: "0 0 16px",
-              fontSize: 15,
-              fontWeight: 700,
-              color: "#6aaeff",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <IC n="purchase" s={16} />
-            ضريبة المشتريات (ضريبة المدخلات)
-          </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#6a8aaa",
-              }}
-            >
-              <span>إجمالي المشتريات قبل الضريبة</span>
-              <span style={{ fontWeight: 700 }}>
-                {purchSubtotal.toFixed(2)} ر.س
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#6aaeff",
-              }}
-            >
-              <span>ضريبة القيمة المضافة (15%)</span>
-              <span style={{ fontWeight: 700 }}>{purchTax.toFixed(2)} ر.س</span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#dde8ff",
-                fontWeight: 800,
-                borderTop: "1px solid #1d2d4a",
-                paddingTop: 10,
-              }}
-            >
-              <span>إجمالي المشتريات شامل الضريبة</span>
-              <span>{purchTotal.toFixed(2)} ر.س</span>
-            </div>
-            <div style={{ color: "#3a5a7a", fontSize: 12 }}>
-              عدد الفواتير: {filtPurchases.length}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          background: netTax > 0 ? "#0a1a0a" : "#1a0a0a",
-          border: `2px solid ${netTax > 0 ? "#1a6a1a" : "#6a1a1a"}`,
-          borderRadius: 16,
-          padding: 24,
-        }}
-      >
-        <h3
-          style={{
-            margin: "0 0 16px",
-            fontSize: 16,
-            fontWeight: 800,
-            color: netTax > 0 ? "#44dd88" : "#ff7777",
-          }}
-        >
-          {netTax > 0 ? "✔ ضريبة مستحقة الدفع" : "✔ ضريبة مستردة"} — {quarter}
-        </h3>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3,1fr)",
-            gap: 16,
-          }}
-        >
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>ضريبة المبيعات</div>
-            <div
-              style={{
-                color: "#44dd88",
-                fontSize: 22,
-                fontWeight: 800,
-                marginTop: 4,
-              }}
-            >
-              {salesTax.toFixed(2)}
-            </div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>
-              ضريبة المشتريات
-            </div>
-            <div
-              style={{
-                color: "#6aaeff",
-                fontSize: 22,
-                fontWeight: 800,
-                marginTop: 4,
-              }}
-            >
-              {purchTax.toFixed(2)}
-            </div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>صافي الضريبة</div>
-            <div
-              style={{
-                color: netTax > 0 ? "#44dd88" : "#ff7777",
-                fontSize: 28,
-                fontWeight: 900,
-                marginTop: 4,
-              }}
-            >
-              {netTax.toFixed(2)} ر.س
-            </div>
-          </div>
-        </div>
-        <div
-          style={{
-            marginTop: 16,
-            padding: "12px 16px",
-            background: "rgba(0,0,0,0.2)",
-            borderRadius: 10,
-            color: "#6a8aaa",
-            fontSize: 13,
-          }}
-        >
-          {netTax > 0
-            ? `يجب تحويل مبلغ ${netTax.toFixed(
-                2
-              )} ر.س إلى هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`
-            : `يحق استرداد مبلغ ${Math.abs(netTax).toFixed(
-                2
-              )} ر.س من هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ==================== SHIFT MODULE ====================
 function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId }) {
   const [openCash, setOpenCash] = useState("500");
