@@ -11665,8 +11665,6 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
       </Modal>
     </div>
   );
-}
-
 // ==================== TAX REPORT ====================
 function TaxReport({ sales, purchases }) {
   const [quarter, setQuarter] = useState("Q2-2026");
