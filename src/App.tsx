@@ -10528,34 +10528,107 @@ function PromotionsModule({ products, setProducts, sales, shifts, currentUser, p
 
           {/* ── نسبة الصيدلي هذا الشهر ── */}
           {(() => {
+            const incentiveIds = new Set([
+              ...incentiveList.map((i) => i.product_id),
+              ...highMarginProducts.map((p) => p.id),
+            ]);
+
+            // تجميع المبيعات المحفزة لكل صيدلي
             const staffSales = {};
-            sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned).forEach((s) => {
-              const name = s.cashier || s.user || s.created_by || "غير محدد";
-              if (!staffSales[name]) staffSales[name] = 0;
-              staffSales[name] += calcIncentiveSales(name);
-            });
-            const staffList = Object.entries(staffSales).filter(([, v]) => v > 0);
-            if (staffList.length === 0) return null;
+            sales
+              .filter((s) => s.date?.startsWith(monthKey) && !s.returned)
+              .forEach((s) => {
+                const name = s.cashier || s.user || s.created_by || "غير محدد";
+                const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+                items.forEach((item) => {
+                  if (incentiveIds.has(item.id)) {
+                    if (!staffSales[name]) staffSales[name] = { total: 0, items: {} };
+                    const amt = (item.price || 0) * (item.qty || 1);
+                    staffSales[name].total += amt;
+                    // تفاصيل كل صنف
+                    const prod = products.find((p) => p.id === item.id);
+                    const pName = prod?.name || prod?.nameAr || item.name || item.id;
+                    if (!staffSales[name].items[pName]) staffSales[name].items[pName] = 0;
+                    staffSales[name].items[pName] += amt;
+                  }
+                });
+              });
+
+            const staffList = Object.entries(staffSales).filter(([, v]) => v.total > 0);
+            if (staffList.length === 0) return (
+              <div style={{ ...cardStyle(), marginTop: 16, textAlign: "center" }}>
+                <div style={{ color: "#4a6a8a", padding: 20 }}>
+                  لا توجد مبيعات من الأصناف المحفزة في {monthKey}
+                </div>
+              </div>
+            );
+
+            const totalAllStaff = staffList.reduce((a, [, v]) => a + v.total, 0);
+
             return (
               <div style={{ ...cardStyle("#1a3a1a"), marginTop: 16 }}>
-                <div style={{ color: "#44dd88", fontWeight: 700, marginBottom: 12 }}>
-                  📊 نسبة الصيدلي من الأصناف المحفزة — {monthKey}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14 }}>
+                    📊 عمولة الأصناف المحفزة — {monthKey}
+                  </div>
+                  <div style={{ color: "#4a6a8a", fontSize: 12 }}>
+                    إجمالي المبيعات المحفزة: <span style={{ color: "#44dd88", fontWeight: 700 }}>{totalAllStaff.toFixed(2)} ر.س</span>
+                  </div>
                 </div>
-                {staffList.map(([name, total]) => {
-                  const commission = (total * incentiveConfig.rate / 100).toFixed(2);
+
+                {staffList.map(([name, data]) => {
+                  // نسبة الصيدلي من قائمة المحفزة (لو له نسبة خاصة)
+                  const customItem = incentiveList.find((i) => {
+                    const prod = products.find((p) => p.id === i.product_id);
+                    return prod && (prod.name === name || i.product_id === name);
+                  });
+                  const rate = incentiveConfig.rate;
+                  const commission = (data.total * rate / 100);
+                  const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100).toFixed(1) : "0";
+                  const [showDetails, setShowDetails] = [false, () => {}]; // placeholder
+
                   return (
-                    <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #0a101a" }}>
-                      <div>
-                        <div style={{ color: "#dde8ff", fontWeight: 700 }}>{name}</div>
-                        <div style={{ color: "#4a6a8a", fontSize: 11 }}>مبيعات محفزة: {total.toFixed(2)} ر.س</div>
+                    <div key={name} style={{ padding: "12px 0", borderBottom: "1px solid #0a1a0a" }}>
+                      {/* صف الصيدلي */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <div>
+                          <div style={{ color: "#dde8ff", fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
+                          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
+                            مبيعات محفزة: <span style={{ color: "#44dd88" }}>{data.total.toFixed(2)} ر.س</span>
+                            <span style={{ marginRight: 10, color: "#3a5a7a" }}>({pct}% من الإجمالي)</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>{commission.toFixed(2)} ر.س</div>
+                          <div style={{ color: "#4a6a8a", fontSize: 11 }}>عمولة {rate}%</div>
+                        </div>
                       </div>
-                      <div style={{ textAlign: "left" }}>
-                        <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{commission} ر.س</div>
-                        <div style={{ color: "#4a6a8a", fontSize: 11 }}>عمولة {incentiveConfig.rate}%</div>
+
+                      {/* شريط النسبة */}
+                      <div style={{ background: "#080e1a", borderRadius: 4, height: 6, marginBottom: 8 }}>
+                        <div style={{ background: "#44dd88", height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
+                      </div>
+
+                      {/* تفاصيل الأصناف */}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {Object.entries(data.items).map(([pName, amt]) => (
+                          <div key={pName} style={{ background: "#0a1a0a", border: "1px solid #1a3a1a", borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
+                            <span style={{ color: "#8aaabb" }}>{pName}</span>
+                            <span style={{ color: "#44dd88", marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
                 })}
+
+                {/* إجمالي العمولات */}
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "2px solid #1a3a1a" }}>
+                  <span style={{ color: "#dde8ff", fontWeight: 700 }}>إجمالي العمولات المستحقة</span>
+                  <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>
+                    {staffList.reduce((a, [, v]) => a + v.total * incentiveConfig.rate / 100, 0).toFixed(2)} ر.س
+                  </span>
+                </div>
               </div>
             );
           })()}
