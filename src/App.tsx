@@ -10237,7 +10237,12 @@ function PromotionsModule({ products, setProducts, sales, shifts, currentUser, p
   // حفظ صنف محفز
   const saveIncentive = async () => {
     if (!incentiveForm.product_id) { showToast("اختر صنفاً", "error"); return; }
-    const row = { ...incentiveForm, pharmacy_id: pharmacyId };
+    const row = {
+      ...incentiveForm,
+      rate: incentiveForm.rate === "" ? null : +incentiveForm.rate,
+      fixed_amount: incentiveForm.fixed_amount === "" ? null : +incentiveForm.fixed_amount,
+      pharmacy_id: pharmacyId,
+    };
     const { data, error } = await supabase.from("incentive_products").insert([row]).select();
     if (error) { showToast("خطأ: " + error.message, "error"); return; }
     setIncentiveList((p) => [...p, data[0]]);
