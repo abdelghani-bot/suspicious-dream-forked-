@@ -1336,6 +1336,7 @@ if (isLoading) return (
     { id: "promotions", label: "العروض", icon: "tag" },
     { id: "treasury", label: "الخزنة", icon: "money" },
     { id: "targets", label: "تارجت المبيعات", icon: "shift" },
+    { id: "users_management", label: "إدارة المستخدمين", icon: "user" },
     { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
   ];
 
@@ -1691,6 +1692,13 @@ if (isLoading) return (
     showToast={showToast}
   />
 )}
+  {tab === "users_management" && (
+  <UsersModule
+    currentUser={currentUser}
+    pharmacyId={pharmacyId}
+    showToast={showToast}
+  />
+)}      
       </main>
     </div>
   );
@@ -12103,6 +12111,160 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
           </div>
         );
       })}
+    </div>
+  );
+}
+// ==================== USERS MANAGEMENT MODULE ====================
+function UsersModule({ currentUser, pharmacyId, showToast }) {
+  const [usersList, setUsersList] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const blankForm = { name: "", username: "", password: "", role: "pharmacist" };
+  const [form, setForm] = useState(blankForm);
+
+  const isAdmin = currentUser?.role === "admin";
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    loadUsers();
+  }, [pharmacyId]);
+
+  const loadUsers = async () => {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, name, username, role, pharmacy_id")
+      .eq("pharmacy_id", pharmacyId)
+      .order("name");
+    if (error) { showToast("خطأ تحميل المستخدمين: " + error.message, "error"); return; }
+    setUsersList(data || []);
+  };
+
+  const openAdd = () => {
+    setEditingUser(null);
+    setForm(blankForm);
+    setShowForm(true);
+  };
+
+  const openEdit = (u) => {
+    setEditingUser(u);
+    setForm({ name: u.name, username: u.username, password: "", role: u.role });
+    setShowForm(true);
+  };
+
+  const saveUser = async () => {
+    if (!form.name || !form.username || (!editingUser && !form.password)) {
+      showToast("يرجى ملء الاسم واسم الدخول وكلمة السر", "error");
+      return;
+    }
+
+    // التحقق من تكرار اسم الدخول
+    const dup = usersList.find(
+      (u) => u.username === form.username && u.id !== editingUser?.id
+    );
+    if (dup) {
+      showToast("اسم الدخول هذا مستخدم من قبل", "error");
+      return;
+    }
+
+    if (editingUser) {
+      const updates = { name: form.name, username: form.username, role: form.role };
+      if (form.password) updates.password = form.password;
+      const { error } = await supabase.from("users").update(updates).eq("id", editingUser.id);
+      if (error) { showToast("خطأ: " + error.message, "error"); return; }
+      showToast("تم تعديل المستخدم ✓");
+    } else {
+      const row = {
+        name: form.name,
+        username: form.username,
+        password: form.password,
+        role: form.role,
+        pharmacy_id: pharmacyId,
+      };
+      const { error } = await supabase.from("users").insert([row]);
+      if (error) { showToast("خطأ: " + error.message, "error"); return; }
+      showToast("تم إضافة المستخدم ✓");
+    }
+
+    setShowForm(false);
+    setForm(blankForm);
+    setEditingUser(null);
+    loadUsers();
+  };
+
+  const deleteUser = async (u) => {
+    if (u.id === currentUser.id) {
+      showToast("لا يمكنك حذف حسابك الحالي", "error");
+      return;
+    }
+    if (!window.confirm(`تأكيد حذف المستخدم "${u.name}"؟`)) return;
+    const { error } = await supabase.from("users").delete().eq("id", u.id);
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    showToast("تم حذف المستخدم ✓");
+    loadUsers();
+  };
+
+  if (!isAdmin) {
+    return (
+      <div style={{ color: "#4a6a8a", padding: 30, textAlign: "center" }}>
+        هذا القسم مخصص للأدمن فقط.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>👤 إدارة المستخدمين</h2>
+          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>
+            إضافة وتعديل حسابات الصيادلة والأدمن لهذه الصيدلية
+          </div>
+        </div>
+        <Btn icon="plus" onClick={openAdd}>إضافة مستخدم</Btn>
+      </div>
+
+      <Table
+        headers={["الاسم", "اسم الدخول", "الدور", "إجراءات"]}
+        rows={usersList.map((u) => [
+          u.name,
+          u.username,
+          u.role === "admin" ? (
+            <Badge color="#2a2000" text="#ffd700">أدمن</Badge>
+          ) : (
+            <Badge color="#0a1a3a" text="#5a9aff">صيدلاني</Badge>
+          ),
+          <div style={{ display: "flex", gap: 6 }}>
+            <Btn size="sm" variant="ghost" icon="edit" onClick={() => openEdit(u)}>تعديل</Btn>
+            <Btn size="sm" variant="danger" icon="trash" onClick={() => deleteUser(u)}>حذف</Btn>
+          </div>,
+        ])}
+      />
+
+      <Modal open={showForm} onClose={() => setShowForm(false)} title={editingUser ? "تعديل مستخدم" : "إضافة مستخدم جديد"}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Input label="الاسم" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} required />
+          <Input label="اسم الدخول (إنجليزي)" value={form.username} onChange={(v) => setForm((f) => ({ ...f, username: v }))} required />
+          <Input
+            label={editingUser ? "كلمة السر (سيبها فاضية لو مش عايز تغيرها)" : "كلمة السر"}
+            value={form.password}
+            onChange={(v) => setForm((f) => ({ ...f, password: v }))}
+            type="text"
+            required={!editingUser}
+          />
+          <Select
+            label="الدور"
+            value={form.role}
+            onChange={(v) => setForm((f) => ({ ...f, role: v }))}
+            options={[
+              { v: "pharmacist", l: "صيدلاني" },
+              { v: "admin", l: "أدمن" },
+            ]}
+          />
+          <Btn onClick={saveUser} size="lg" style={{ marginTop: 6 }}>
+            {editingUser ? "حفظ التعديلات" : "إضافة المستخدم"}
+          </Btn>
+        </div>
+      </Modal>
     </div>
   );
 }
