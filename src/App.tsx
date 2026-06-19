@@ -11592,6 +11592,102 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
       </Modal>
     </div>
   );
+}
+
+// ==================== TAX REPORT ====================
+function TaxReport({ sales, purchases }) {
+  const [quarter, setQuarter] = useState("Q2-2026");
+  const quarters = ["Q1-2026","Q2-2026","Q3-2026","Q4-2026","Q1-2025","Q2-2025"];
+  const qMap = { Q1: "01,02,03", Q2: "04,05,06", Q3: "07,08,09", Q4: "10,11,12" };
+  const [q, year] = quarter.split("-");
+  const months = qMap[q].split(",").map((m) => `${year}-${m}`);
+  const filtSales = sales.filter((s) => months.some((m) => s.date.startsWith(m)) && !s.returned);
+  const filtPurchases = purchases.filter((p) => months.some((m) => p.date.startsWith(m)));
+  const salesSubtotal = filtSales.reduce((a, s) => a + (s.subtotal || 0), 0);
+  const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
+  const salesTotal = filtSales.reduce((a, s) => a + (s.total || 0), 0);
+  const purchSubtotal = filtPurchases.reduce((a, p) => a + (p.subtotal || 0), 0);
+  const purchTax = filtPurchases.reduce((a, p) => a + (p.tax_amount || 0), 0);
+  const purchTotal = filtPurchases.reduce((a, p) => a + (p.total || 0), 0);
+  const netTax = salesTax - purchTax;
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>تقرير ضريبة القيمة المضافة — ربع سنوي</h2>
+      <div style={{ display: "flex", gap: 12, marginBottom: 22, alignItems: "center" }}>
+        <Select label="الربع السنوي" value={quarter} onChange={setQuarter}
+          options={quarters.map((q) => ({ v: q, l: `الربع ${q}` }))} style={{ width: 200 }} />
+        <div style={{ color: "#3a5a8a", fontSize: 13, marginTop: 20 }}>نسبة الضريبة: 15% (VAT)</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        <div style={{ background: "#0f1623", border: "1px solid #1a3a1a", borderRadius: 14, padding: 20 }}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#44dd88", display: "flex", alignItems: "center", gap: 8 }}>
+            <IC n="pos" s={16} /> ضريبة المبيعات (الضريبة المحصلة)
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#6a8aaa" }}>
+              <span>إجمالي المبيعات قبل الضريبة</span>
+              <span style={{ fontWeight: 700 }}>{salesSubtotal.toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44" }}>
+              <span>ضريبة القيمة المضافة (15%)</span>
+              <span style={{ fontWeight: 700 }}>{salesTax.toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, borderTop: "1px solid #1d3a1d", paddingTop: 10 }}>
+              <span>إجمالي المبيعات شامل الضريبة</span>
+              <span>{salesTotal.toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ color: "#3a6a3a", fontSize: 12 }}>عدد الفواتير: {filtSales.length}</div>
+          </div>
+        </div>
+        <div style={{ background: "#0f1623", border: "1px solid #1a2a3a", borderRadius: 14, padding: 20 }}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#6aaeff", display: "flex", alignItems: "center", gap: 8 }}>
+            <IC n="purchase" s={16} /> ضريبة المشتريات (ضريبة المدخلات)
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#6a8aaa" }}>
+              <span>إجمالي المشتريات قبل الضريبة</span>
+              <span style={{ fontWeight: 700 }}>{purchSubtotal.toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#6aaeff" }}>
+              <span>ضريبة القيمة المضافة (15%)</span>
+              <span style={{ fontWeight: 700 }}>{purchTax.toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 10 }}>
+              <span>إجمالي المشتريات شامل الضريبة</span>
+              <span>{purchTotal.toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ color: "#3a5a7a", fontSize: 12 }}>عدد الفواتير: {filtPurchases.length}</div>
+          </div>
+        </div>
+      </div>
+      <div style={{ background: netTax > 0 ? "#0a1a0a" : "#1a0a0a", border: `2px solid ${netTax > 0 ? "#1a6a1a" : "#6a1a1a"}`, borderRadius: 16, padding: 24 }}>
+        <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 800, color: netTax > 0 ? "#44dd88" : "#ff7777" }}>
+          {netTax > 0 ? "✔️ ضريبة مستحقة الدفع" : "✔️ ضريبة مستردة"} — {quarter}
+        </h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#6a8aaa", fontSize: 13 }}>ضريبة المبيعات</div>
+            <div style={{ color: "#44dd88", fontSize: 22, fontWeight: 800, marginTop: 4 }}>{salesTax.toFixed(2)}</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#6a8aaa", fontSize: 13 }}>ضريبة المشتريات</div>
+            <div style={{ color: "#6aaeff", fontSize: 22, fontWeight: 800, marginTop: 4 }}>{purchTax.toFixed(2)}</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#6a8aaa", fontSize: 13 }}>صافي الضريبة</div>
+            <div style={{ color: netTax > 0 ? "#44dd88" : "#ff7777", fontSize: 28, fontWeight: 900, marginTop: 4 }}>{netTax.toFixed(2)} ر.س</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 16, padding: "12px 16px", background: "rgba(0,0,0,0.2)", borderRadius: 10, color: "#6a8aaa", fontSize: 13 }}>
+          {netTax > 0
+            ? `يجب تحويل مبلغ ${netTax.toFixed(2)} ر.س إلى هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`
+            : `يحق استرداد مبلغ ${Math.abs(netTax).toFixed(2)} ر.س من هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ==================== REPORTS ====================
 function Reports({ sales, purchases, products, suppliers, customers, returns = [] }) {
   const [type, setType] = useState("sales");
@@ -11636,16 +11732,16 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   });
 
   const salesByMonth = {};
-filteredSales.forEach((s) => {
-  const m = (s.date || s.created_at || "").substring(0, 7);
-  if (!m) return;
-  if (!salesByMonth[m])
-    salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
-  salesByMonth[m].count++;
-  salesByMonth[m].subtotal += s.subtotal || 0;
-  salesByMonth[m].tax += s.taxAmount ?? s.tax_amount ?? 0;
-  salesByMonth[m].total += s.total || 0;
-});
+  filteredSales.forEach((s) => {
+    const m = (s.date || s.created_at || "").substring(0, 7);
+    if (!m) return;
+    if (!salesByMonth[m])
+      salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
+    salesByMonth[m].count++;
+    salesByMonth[m].subtotal += s.subtotal || 0;
+    salesByMonth[m].tax += s.taxAmount ?? s.tax_amount ?? 0;
+    salesByMonth[m].total += s.total || 0;
+  });
 
   const productSales = {};
   filteredSales.forEach((s) =>
@@ -12104,295 +12200,6 @@ filteredSales.forEach((s) => {
       {showPrint && (
         <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />
       )}
-    </div>
-  );
-}
-// ==================== TAX REPORT ====================
-function TaxReport({ sales, purchases }) {
-  const [quarter, setQuarter] = useState("Q2-2026");
-  const quarters = [
-    "Q1-2026",
-    "Q2-2026",
-    "Q3-2026",
-    "Q4-2026",
-    "Q1-2025",
-    "Q2-2025",
-  ];
-
-  const qMap = {
-    Q1: "01,02,03",
-    Q2: "04,05,06",
-    Q3: "07,08,09",
-    Q4: "10,11,12",
-  };
-  const [q, year] = quarter.split("-");
-  const months = qMap[q].split(",").map((m) => `${year}-${m}`);
-
-  const filtSales = sales.filter(
-    (s) => months.some((m) => s.date.startsWith(m)) && !s.returned
-  );
-  const filtPurchases = purchases.filter((p) =>
-    months.some((m) => p.date.startsWith(m))
-  );
-
-  const salesSubtotal = filtSales.reduce((a, s) => a + (s.subtotal || 0), 0);
-  const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
-  const salesTotal = filtSales.reduce((a, s) => a + (s.total || 0), 0);
-  const purchSubtotal = filtPurchases.reduce(
-    (a, p) => a + (p.subtotal || 0),
-    0
-  );
-  const purchTax = filtPurchases.reduce((a, p) => a + (p.tax_amount || 0), 0);
-  const purchTotal = filtPurchases.reduce((a, p) => a + (p.total || 0), 0);
-  const netTax = salesTax - purchTax;
-
-  return (
-    <div>
-      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
-        تقرير ضريبة القيمة المضافة — ربع سنوي
-      </h2>
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          marginBottom: 22,
-          alignItems: "center",
-        }}
-      >
-        <Select
-          label="الربع السنوي"
-          value={quarter}
-          onChange={setQuarter}
-          options={quarters.map((q) => ({ v: q, l: `الربع ${q}` }))}
-          style={{ width: 200 }}
-        />
-        <div style={{ color: "#3a5a8a", fontSize: 13, marginTop: 20 }}>
-          نسبة الضريبة: 15% (VAT)
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16,
-          marginBottom: 20,
-        }}
-      >
-        <div
-          style={{
-            background: "#0f1623",
-            border: "1px solid #1a3a1a",
-            borderRadius: 14,
-            padding: 20,
-          }}
-        >
-          <h3
-            style={{
-              margin: "0 0 16px",
-              fontSize: 15,
-              fontWeight: 700,
-              color: "#44dd88",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <IC n="pos" s={16} />
-            ضريبة المبيعات (الضريبة المحصلة)
-          </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#6a8aaa",
-              }}
-            >
-              <span>إجمالي المبيعات قبل الضريبة</span>
-              <span style={{ fontWeight: 700 }}>
-                {salesSubtotal.toFixed(2)} ر.س
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#88dd44",
-              }}
-            >
-              <span>ضريبة القيمة المضافة (15%)</span>
-              <span style={{ fontWeight: 700 }}>{salesTax.toFixed(2)} ر.س</span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#dde8ff",
-                fontWeight: 800,
-                borderTop: "1px solid #1d3a1d",
-                paddingTop: 10,
-              }}
-            >
-              <span>إجمالي المبيعات شامل الضريبة</span>
-              <span>{salesTotal.toFixed(2)} ر.س</span>
-            </div>
-            <div style={{ color: "#3a6a3a", fontSize: 12 }}>
-              عدد الفواتير: {filtSales.length}
-            </div>
-          </div>
-        </div>
-        <div
-          style={{
-            background: "#0f1623",
-            border: "1px solid #1a2a3a",
-            borderRadius: 14,
-            padding: 20,
-          }}
-        >
-          <h3
-            style={{
-              margin: "0 0 16px",
-              fontSize: 15,
-              fontWeight: 700,
-              color: "#6aaeff",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <IC n="purchase" s={16} />
-            ضريبة المشتريات (ضريبة المدخلات)
-          </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#6a8aaa",
-              }}
-            >
-              <span>إجمالي المشتريات قبل الضريبة</span>
-              <span style={{ fontWeight: 700 }}>
-                {purchSubtotal.toFixed(2)} ر.س
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#6aaeff",
-              }}
-            >
-              <span>ضريبة القيمة المضافة (15%)</span>
-              <span style={{ fontWeight: 700 }}>{purchTax.toFixed(2)} ر.س</span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#dde8ff",
-                fontWeight: 800,
-                borderTop: "1px solid #1d2d4a",
-                paddingTop: 10,
-              }}
-            >
-              <span>إجمالي المشتريات شامل الضريبة</span>
-              <span>{purchTotal.toFixed(2)} ر.س</span>
-            </div>
-            <div style={{ color: "#3a5a7a", fontSize: 12 }}>
-              عدد الفواتير: {filtPurchases.length}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          background: netTax > 0 ? "#0a1a0a" : "#1a0a0a",
-          border: `2px solid ${netTax > 0 ? "#1a6a1a" : "#6a1a1a"}`,
-          borderRadius: 16,
-          padding: 24,
-        }}
-      >
-        <h3
-          style={{
-            margin: "0 0 16px",
-            fontSize: 16,
-            fontWeight: 800,
-            color: netTax > 0 ? "#44dd88" : "#ff7777",
-          }}
-        >
-          {netTax > 0 ? "✔️ ضريبة مستحقة الدفع" : "✔️ ضريبة مستردة"} — {quarter}
-        </h3>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3,1fr)",
-            gap: 16,
-          }}
-        >
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>ضريبة المبيعات</div>
-            <div
-              style={{
-                color: "#44dd88",
-                fontSize: 22,
-                fontWeight: 800,
-                marginTop: 4,
-              }}
-            >
-              {salesTax.toFixed(2)}
-            </div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>
-              ضريبة المشتريات
-            </div>
-            <div
-              style={{
-                color: "#6aaeff",
-                fontSize: 22,
-                fontWeight: 800,
-                marginTop: 4,
-              }}
-            >
-              {purchTax.toFixed(2)}
-            </div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>صافي الضريبة</div>
-            <div
-              style={{
-                color: netTax > 0 ? "#44dd88" : "#ff7777",
-                fontSize: 28,
-                fontWeight: 900,
-                marginTop: 4,
-              }}
-            >
-              {netTax.toFixed(2)} ر.س
-            </div>
-          </div>
-        </div>
-        <div
-          style={{
-            marginTop: 16,
-            padding: "12px 16px",
-            background: "rgba(0,0,0,0.2)",
-            borderRadius: 10,
-            color: "#6a8aaa",
-            fontSize: 13,
-          }}
-        >
-          {netTax > 0
-            ? `يجب تحويل مبلغ ${netTax.toFixed(
-                2
-              )} ر.س إلى هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`
-            : `يحق استرداد مبلغ ${Math.abs(netTax).toFixed(
-                2
-              )} ر.س من هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`}
-        </div>
-      </div>
     </div>
   );
 }
