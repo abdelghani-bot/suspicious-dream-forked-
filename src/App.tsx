@@ -10206,7 +10206,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
   // الأصناف التلقائية (غير دواء + فيها صلاحية قريبة)
   // بنجيب أقرب تاريخ صلاحية من فواتير الشراء لكل صنف
-  const productEarliestExpiry = useMemo ? useMemo(() => {
+  const productEarliestExpiry = useMemo(() => {
     const map = {};
     (purchases || []).forEach((pu) => {
       const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
@@ -10216,19 +10216,14 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
       });
     });
-    return map;
-  }, [purchases]) : (() => {
-    const map = {};
-    (purchases || []).forEach((pu) => {
-      const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
-      items.forEach((item) => {
-        const expiry = item.expiry_date || item.expiry;
-        if (!expiry || !item.id) return;
-        if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
-      });
+    // كمان نجيب من جدول products نفسه لو موجود
+    (products || []).forEach((p) => {
+      if (p.expiry && (!map[p.id] || p.expiry < map[p.id])) {
+        map[p.id] = p.expiry;
+      }
     });
     return map;
-  })();
+  }, [purchases, products]);
 
   const getProductExpiry = (p) =>
     productEarliestExpiry[p.id] || p.expiry || null;
@@ -11697,6 +11692,8 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
       </Modal>
     </div>
   );
+}
+
 // ==================== TAX REPORT ====================
 function TaxReport({ sales, purchases }) {
   const [quarter, setQuarter] = useState("Q2-2026");
