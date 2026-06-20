@@ -1220,6 +1220,18 @@ export default function PharmacyPro() {
       if (data) setShifts(data);
     });
 }, [pharmacyId]);
+  const [treasuryEntries, setTreasuryEntries] = useState([]);
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase
+      .from("treasury_entries")
+      .select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .order("date", { ascending: false })
+      .then(({ data }) => {
+        if (data) setTreasuryEntries(data);
+      });
+  }, [pharmacyId]);
   const [tab, setTab] = useState("dashboard");
   const [toast, setToast] = useState(null);
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
@@ -1622,7 +1634,8 @@ if (isLoading) return (
   sales={sales}
   showToast={showToast}
   pharmacyId={pharmacyId}
-  currentUser={currentUser}          
+  currentUser={currentUser}
+  setTreasuryEntries={setTreasuryEntries}
 />
         )}
         {tab === "customers" && (
@@ -1672,6 +1685,8 @@ if (isLoading) return (
             showToast={showToast}
             suppliers={suppliers}
             shifts={shifts}
+            entries={treasuryEntries}
+            setEntries={setTreasuryEntries}
           />
         )}
         {tab === "shift" && (
@@ -7563,6 +7578,7 @@ function SuppliersModule({
   onCreateOrder,
   pharmacyId,
   currentUser,
+  setTreasuryEntries,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -7822,7 +7838,7 @@ function SuppliersModule({
 
     setPayments((p) => [...p, { id: payId, supplier_id: supplier.id, date: new Date().toISOString().split("T")[0], amount, notes: payForm.note, attachment_url: receiptUrl }]);
     await processPaymentFIFO(supplier.id, amount);
-    await supabase.from("treasury_entries").insert({
+    const { data: trData, error: trError } = await supabase.from("treasury_entries").insert({
     type: "expense",
     sub_type: "supplier_payment",
     method: payForm.method || "نقدي",
@@ -7832,9 +7848,14 @@ function SuppliersModule({
     pharmacy_id: pharmacyId,
     created_by: currentUser?.name || "",
     supplier_id: supplier.id,
-  });
+  }).select();
+    if (trError) {
+      showToast("تم تسجيل السداد لكن فشل تحديث الخزنة: " + trError.message, "error");
+    } else if (trData && setTreasuryEntries) {
+      setTreasuryEntries((p) => [trData[0], ...p]);
+    }
     setShowPayForm(null);
-    setPayForm({ amount: "", note: "", receipt: null, receiptUrl: "" });
+    setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
     showToast(`تم تسجيل الدفعة ✓ — ${amount.toFixed(2)} ر.س`);
   };
 
@@ -10752,9 +10773,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 }
 
 // ==================== TREASURY MODULE ====================
-function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts }) {
+function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries }) {
   const [activeTab, setActiveTab] = useState("today");
-  const [entries, setEntries] = useState([]);
   const [fixedExpenses, setFixedExpenses] = useState([]);
   const [licenses, setLicenses] = useState([]);
   const [showFixedForm, setShowFixedForm] = useState(false);
@@ -10780,11 +10800,9 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   useEffect(() => {
     if (!pharmacyId) return;
     Promise.all([
-      supabase.from("treasury_entries").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
       supabase.from("fixed_expenses").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("licenses").select("*").eq("pharmacy_id", pharmacyId).order("renew_date"),
-    ]).then(([t, f, l]) => {
-      if (t.data) setEntries(t.data);
+    ]).then(([f, l]) => {
       if (f.data) setFixedExpenses(f.data);
       if (l.data) setLicenses(l.data);
     });
@@ -10805,12 +10823,10 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     const salesIncome = sales.filter((s) => !s.returned && s.payment === method).reduce((a, s) => a + s.total, 0);
     // سداد آجل (كاش دايماً)
     const creditIn = method === "نقدي" ? creditPayments.reduce((a, p) => a + p.amount, 0) : 0;
-    // من سجل الخزنة
+    // من سجل الخزنة (يشمل المصروفات العادية ومدفوعات الموردين سوا — type === "expense")
     const entryIn = entries.filter((e) => e.type === "income" && e.method === method).reduce((a, e) => a + e.amount, 0);
     const entryOut = entries.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
-    // مدفوعات موردين
-    const supplierOut = entries.filter((e) => e.sub_type === "supplier_payment" && e.method === method).reduce((a, e) => a + e.amount, 0);
-    return salesIncome + creditIn + entryIn - entryOut - supplierOut;
+    return salesIncome + creditIn + entryIn - entryOut;
   };
 
   const balanceCash = calcBalance("نقدي");
