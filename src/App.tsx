@@ -7301,6 +7301,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
       name: form.nameAr, name_ar: form.nameAr, name_en: form.nameEn,
       barcode: barcodes.find((b) => b.is_primary)?.base_barcode || barcodes[0]?.base_barcode || "",
       category: form.mainCategory, main_category: form.mainCategory,
+      ...(editing ? {} : { stock: 0 }),
       sub_category1: form.subCategory1, sub_category2: form.subCategory2,
       unit: form.unit, unit_division: +form.unitDivision || 1,
       price: +form.price, cost: +form.cost, taxable: form.taxable,
