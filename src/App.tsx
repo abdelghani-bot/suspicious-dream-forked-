@@ -10257,6 +10257,17 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   ];
   const [discountRules, setDiscountRules] = useState(DEFAULT_RULES);
   const [editRules, setEditRules] = useState(DEFAULT_RULES);
+
+  // تحميل قواعد الخصم من Supabase
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase.from("promo_rules").select("*").eq("pharmacy_id", pharmacyId).order("days").then(({ data }) => {
+      if (data && data.length > 0) {
+        setDiscountRules(data);
+        setEditRules(data);
+      }
+    });
+  }, [pharmacyId]);
   const [incentiveSearch, setIncentiveSearch] = useState("");
 
   const blankPromo = { product_id: "", discount: "", start_date: new Date().toISOString().split("T")[0], end_date: "", note: "" };
@@ -10779,8 +10790,19 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={() => setEditRules([...DEFAULT_RULES])}>إعادة للافتراضي</Btn>
           <Btn variant="ghost" onClick={() => setShowRulesEditor(false)}>إلغاء</Btn>
-          <Btn icon="check" onClick={() => {
-            setDiscountRules([...editRules].sort((a, b) => a.days - b.days));
+          <Btn icon="check" onClick={async () => {
+            const sorted = [...editRules].sort((a, b) => a.days - b.days);
+            // احذف القديم وأضف الجديد
+            await supabase.from("promo_rules").delete().eq("pharmacy_id", pharmacyId);
+            const rows = sorted.map((r) => ({
+              days: r.days,
+              discount: r.discount,
+              color: r.color || "#ffaa44",
+              pharmacy_id: pharmacyId,
+            }));
+            const { error } = await supabase.from("promo_rules").insert(rows);
+            if (error) { showToast("خطأ في الحفظ: " + error.message, "error"); return; }
+            setDiscountRules(sorted);
             setShowRulesEditor(false);
             showToast("تم حفظ قواعد الخصم ✓");
           }}>حفظ</Btn>
