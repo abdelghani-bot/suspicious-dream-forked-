@@ -1622,6 +1622,7 @@ if (isLoading) return (
   sales={sales}
   showToast={showToast}
   pharmacyId={pharmacyId}
+  currentUser={currentUser}          
 />
         )}
         {tab === "customers" && (
@@ -7561,6 +7562,7 @@ function SuppliersModule({
   showToast,
   onCreateOrder,
   pharmacyId,
+  currentUser,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -10897,7 +10899,6 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
           <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>{today}</div>
         </div>
-        <Btn icon="plus" onClick={() => setShowSupplierPayForm(true)}>سداد مورد</Btn>
       </div>
 
       {/* ── رصيد الخزنة اللحظي ── */}
