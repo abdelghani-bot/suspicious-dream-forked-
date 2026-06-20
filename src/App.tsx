@@ -10756,7 +10756,6 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const [licenses, setLicenses] = useState([]);
   const [showFixedForm, setShowFixedForm] = useState(false);
   const [showLicenseForm, setShowLicenseForm] = useState(false);
-  const [showSupplierPayForm, setShowSupplierPayForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const printRef = useRef(null);
 
@@ -10774,8 +10773,7 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const [closingSaved, setClosingSaved] = useState(false);
   const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1" });
   const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
-  const [supplierPayForm, setSupplierPayForm] = useState({ supplier_id: "", amount: "", method: "نقدي", note: "", bank_fees: "" });
-
+  
   useEffect(() => {
     if (!pharmacyId) return;
     Promise.all([
@@ -10866,35 +10864,6 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     setClosingSaved(true);
     showToast("تم حفظ تقفيل اليوم ✓");
   };
-
-  // ── سداد مورد ──
-  const saveSupplierPayment = async () => {
-    if (!supplierPayForm.supplier_id || !supplierPayForm.amount) return;
-    const supplier = suppliers.find((s) => s.id === supplierPayForm.supplier_id);
-    const rows = [];
-    rows.push({
-      type: "expense", sub_type: "supplier_payment", method: supplierPayForm.method,
-      amount: +supplierPayForm.amount,
-      note: `سداد مورد: ${supplier?.name || ""} ${supplierPayForm.note ? "- " + supplierPayForm.note : ""}`,
-      date: today, pharmacy_id: pharmacyId, created_by: currentUser.name,
-      supplier_id: supplierPayForm.supplier_id,
-    });
-    if (+supplierPayForm.bank_fees > 0) {
-      rows.push({
-        type: "expense", sub_type: "bank_fees", method: supplierPayForm.method,
-        amount: +supplierPayForm.bank_fees,
-        note: `مصاريف بنكية - ${supplier?.name || ""}`,
-        date: today, pharmacy_id: pharmacyId, created_by: currentUser.name,
-      });
-    }
-    const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setEntries((p) => [...data, ...p]);
-    setSupplierPayForm({ supplier_id: "", amount: "", method: "نقدي", note: "", bank_fees: "" });
-    setShowSupplierPayForm(false);
-    showToast("تم تسجيل سداد المورد ✓");
-  };
-
   // ── تجميع السجل ──
   const groupedByDay = {};
   entries.forEach((e) => {
@@ -11348,44 +11317,6 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
           }
         </div>
       )}
-
-      {/* Modal سداد مورد */}
-      <Modal open={showSupplierPayForm} onClose={() => setShowSupplierPayForm(false)} title="💳 سداد مورد">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 6 }}>المورد</div>
-            <select value={supplierPayForm.supplier_id}
-              onChange={(e) => setSupplierPayForm((p) => ({ ...p, supplier_id: e.target.value }))}
-              style={{ ...inputStyle }}>
-              <option value="">اختر المورد...</option>
-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
-          <Input label="المبلغ (ر.س)" value={supplierPayForm.amount} onChange={(v) => setSupplierPayForm((p) => ({ ...p, amount: v }))} type="number" />
-          <div>
-            <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 6 }}>طريقة الدفع</div>
-            <select value={supplierPayForm.method}
-              onChange={(e) => setSupplierPayForm((p) => ({ ...p, method: e.target.value }))}
-              style={{ ...inputStyle }}>
-              <option value="نقدي">💵 نقدي</option>
-              <option value="بطاقة">💳 بطاقة / صراف</option>
-              <option value="تحويل">🏦 تحويل بنكي</option>
-            </select>
-          </div>
-          {(supplierPayForm.method === "بطاقة" || supplierPayForm.method === "تحويل") && (
-            <Input label="مصاريف بنكية (ر.س)" value={supplierPayForm.bank_fees}
-              onChange={(v) => setSupplierPayForm((p) => ({ ...p, bank_fees: v }))} type="number" />
-          )}
-          <div style={{ gridColumn: "1 / -1" }}>
-            <Input label="ملاحظات" value={supplierPayForm.note} onChange={(v) => setSupplierPayForm((p) => ({ ...p, note: v }))} placeholder="رقم الفاتورة..." />
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setShowSupplierPayForm(false)}>إلغاء</Btn>
-          <Btn icon="check" onClick={saveSupplierPayment}>تسجيل السداد</Btn>
-        </div>
-      </Modal>
-
       {/* Modal مصروف ثابت */}
       <Modal open={showFixedForm} onClose={() => setShowFixedForm(false)} title="🔒 إضافة مصروف ثابت">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
