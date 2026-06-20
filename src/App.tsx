@@ -1655,6 +1655,7 @@ if (isLoading) return (
             products={products}
             setProducts={setProducts}
             sales={sales}
+            purchases={purchases}
             shifts={shifts}
             currentUser={currentUser}
             pharmacyId={pharmacyId}
@@ -7301,7 +7302,6 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
       name: form.nameAr, name_ar: form.nameAr, name_en: form.nameEn,
       barcode: barcodes.find((b) => b.is_primary)?.base_barcode || barcodes[0]?.base_barcode || "",
       category: form.mainCategory, main_category: form.mainCategory,
-      ...(editing ? {} : { stock: 0 }),
       sub_category1: form.subCategory1, sub_category2: form.subCategory2,
       unit: form.unit, unit_division: +form.unitDivision || 1,
       price: +form.price, cost: +form.cost, taxable: form.taxable,
@@ -7597,12 +7597,11 @@ function SuppliersModule({
 
   // تحميل الدفعات والأوردرات
   useEffect(() => {
-    if (!pharmacyId) return;
-    supabase.from("payments").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: true })
+    supabase.from("payments").select("*").order("date", { ascending: true })
       .then(({ data }) => { if (data) setPayments(data); });
-    supabase.from("orders").select("*").eq("pharmacy_id", pharmacyId).order("created_at", { ascending: false })
+    supabase.from("orders").select("*").order("created_at", { ascending: false })
       .then(({ data }) => { if (data) setOrders(data); });
-  }, [pharmacyId]);
+  }, []);
 
   // ========== حالة المورد ==========
   const getSupplierStatus = (supplier) => {
@@ -7957,7 +7956,6 @@ function SuppliersModule({
       supply_categories: form.supply_categories,
       opening_balance: openingBal,
       opening_balance_details: form.opening_balance_details || [],
-      pharmacy_id: pharmacyId,
     };
     if (editing) {
       const { error } = await supabase.from("suppliers").update(payload).eq("id", editing);
@@ -10175,7 +10173,7 @@ function calcAutoDiscount(expiryDate) {
   return 0;
 }
 
-function PromotionsModule({ products, setProducts, sales, shifts, currentUser, pharmacyId, showToast }) {
+function PromotionsModule({ products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast }) {
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual | incentive
   const [promos, setPromos] = useState([]);
   const [incentiveList, setIncentiveList] = useState([]);
@@ -10207,13 +10205,44 @@ function PromotionsModule({ products, setProducts, sales, shifts, currentUser, p
   }, [pharmacyId]);
 
   // الأصناف التلقائية (غير دواء + فيها صلاحية قريبة)
+  // بنجيب أقرب تاريخ صلاحية من فواتير الشراء لكل صنف
+  const productEarliestExpiry = useMemo ? useMemo(() => {
+    const map = {};
+    (purchases || []).forEach((pu) => {
+      const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
+      items.forEach((item) => {
+        const expiry = item.expiry_date || item.expiry;
+        if (!expiry || !item.id) return;
+        if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
+      });
+    });
+    return map;
+  }, [purchases]) : (() => {
+    const map = {};
+    (purchases || []).forEach((pu) => {
+      const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
+      items.forEach((item) => {
+        const expiry = item.expiry_date || item.expiry;
+        if (!expiry || !item.id) return;
+        if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
+      });
+    });
+    return map;
+  })();
+
+  const getProductExpiry = (p) =>
+    productEarliestExpiry[p.id] || p.expiry || null;
+
   const autoPromoProducts = products.filter((p) => {
     const cat = p.main_category || p.category || "";
     if (cat === "دواء") return false;
-    const disc = calcAutoDiscount(p.expiry);
+    const expiry = getProductExpiry(p);
+    const disc = calcAutoDiscount(expiry);
     return disc > 0 && (p.stock || 0) > 0;
-  }).map((p) => ({ ...p, autoDiscount: calcAutoDiscount(p.expiry) }))
-    .sort((a, b) => b.autoDiscount - a.autoDiscount);
+  }).map((p) => {
+    const expiry = getProductExpiry(p);
+    return { ...p, expiry, autoDiscount: calcAutoDiscount(expiry) };
+  }).sort((a, b) => b.autoDiscount - a.autoDiscount);
 
   // الأصناف المحفزة — خصم > 45%
   const highMarginProducts = products.filter((p) => {
@@ -10704,27 +10733,19 @@ function PromotionsModule({ products, setProducts, sales, shifts, currentUser, p
 
 // ==================== TREASURY MODULE ====================
 function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showToast }) {
-  const [activeTab, setActiveTab] = useState("today"); // today | history | fixed | licenses
+  const [activeTab, setActiveTab] = useState("today");
   const [entries, setEntries] = useState([]);
   const [fixedExpenses, setFixedExpenses] = useState([]);
   const [licenses, setLicenses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showEntryForm, setShowEntryForm] = useState(false);
   const [showFixedForm, setShowFixedForm] = useState(false);
   const [showLicenseForm, setShowLicenseForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
-  const [closingSaved, setClosingSaved] = useState(false);
   const printRef = useRef(null);
 
   const today = new Date().toISOString().split("T")[0];
   const monthKey = today.substring(0, 7);
 
-  const blankEntry = { type: "income", sub_type: "cash", amount: "", note: "", date: today };
-  const [entryForm, setEntryForm] = useState(blankEntry);
-  const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1", recurring: true });
-  const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
-
-  // فورم التقفيل اليومي التفاعلي
+  // فورم التقفيل اليومي
   const [closingForm, setClosingForm] = useState({
     card_income: "",       // دخل صراف يدوي
     extra_income: "",      // دخل إضافي
@@ -10734,11 +10755,12 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
     variable_expenses: [], // مصروفات متغيرة [ {name, amount} ]
     fixed_paid: {},        // المصاريف الثابتة المدفوعة اليوم {id: true/false}
   });
+  const [closingSaved, setClosingSaved] = useState(false);
+  const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1" });
+  const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
 
-  // تحميل البيانات
   useEffect(() => {
     if (!pharmacyId) return;
-    setLoading(true);
     Promise.all([
       supabase.from("treasury_entries").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
       supabase.from("fixed_expenses").select("*").eq("pharmacy_id", pharmacyId),
@@ -10747,56 +10769,13 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
       if (t.data) setEntries(t.data);
       if (f.data) setFixedExpenses(f.data);
       if (l.data) setLicenses(l.data);
-      setLoading(false);
     });
   }, [pharmacyId]);
 
-  // إضافة قيد فردي (من زر "إضافة قيد" في الهيدر)
-  const saveEntry = async () => {
-    if (!entryForm.amount || !entryForm.type) return;
-    const row = {
-      ...entryForm,
-      amount: +entryForm.amount,
-      pharmacy_id: pharmacyId,
-      created_by: currentUser.name,
-    };
-    const { data, error } = await supabase.from("treasury_entries").insert([row]).select();
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setEntries((p) => [data[0], ...p]);
-    setEntryForm(blankEntry);
-    setShowEntryForm(false);
-    showToast("تم تسجيل القيد ✓");
-  };
-
-  // إضافة مصروف ثابت
-  const saveFixed = async () => {
-    if (!fixedForm.name || !fixedForm.amount) return;
-    const row = { ...fixedForm, amount: +fixedForm.amount, pharmacy_id: pharmacyId };
-    const { data, error } = await supabase.from("fixed_expenses").insert([row]).select();
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setFixedExpenses((p) => [...p, data[0]]);
-    setFixedForm({ name: "", amount: "", due_day: "1", recurring: true });
-    setShowFixedForm(false);
-    showToast("تم إضافة المصروف الثابت ✓");
-  };
-
-  // إضافة ترخيص
-  const saveLicense = async () => {
-    if (!licenseForm.name || !licenseForm.renew_date) return;
-    const row = { ...licenseForm, amount: +licenseForm.amount || 0, pharmacy_id: pharmacyId };
-    const { data, error } = await supabase.from("licenses").insert([row]).select();
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setLicenses((p) => [...p, data[0]].sort((a, b) => a.renew_date.localeCompare(b.renew_date)));
-    setLicenseForm({ name: "", renew_date: "", amount: "", note: "" });
-    setShowLicenseForm(false);
-    showToast("تم إضافة الترخيص ✓");
-  };
-
-  // حسابات تلقائية من POS + القيود المسجلة
-  const todayEntries = entries.filter((e) => e.date === today);
+  // حسابات تلقائية من POS
   const todaySalesIncome = sales.filter((s) => s.date === today && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0);
   const todayCreditIncome = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
-  const todayExpensesFromEntries = todayEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+  const monthFixedTotal = fixedExpenses.reduce((a, f) => a + (f.amount || 0), 0);
   const currentDay = new Date().getDate();
   const dueFixed = fixedExpenses.filter((f) => Math.abs(+f.due_day - currentDay) <= 3);
   const upcomingLicenses = licenses.filter((l) => {
@@ -10804,19 +10783,14 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
     return days >= 0 && days <= 60;
   });
 
-  // حساب الشهر
-  const monthEntries = entries.filter((e) => e.date?.startsWith(monthKey));
-  const monthExpenses = monthEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
-  const monthFixedTotal = fixedExpenses.reduce((a, f) => a + f.amount, 0);
-
-  // حساب فورم التقفيل التفاعلي
+  // حساب المصروفات من الفورم
   const variableTotal = closingForm.variable_expenses.reduce((a, e) => a + (+e.amount || 0), 0);
   const fixedPaidTotal = fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).reduce((a, f) => a + f.amount, 0);
-  const closingExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal;
-  const closingIncome = todaySalesIncome + todayCreditIncome + (+closingForm.card_income || 0) + (+closingForm.extra_income || 0);
-  const netCash = closingIncome - closingExpenses;
+  const totalExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal;
+  const totalIncome = todaySalesIncome + todayCreditIncome + (+closingForm.card_income || 0) + (+closingForm.extra_income || 0);
+  const netCash = totalIncome - totalExpenses;
 
-  // حفظ التقفيل (يسجل كل بنود الفورم كقيود دفعة واحدة)
+  // حفظ التقفيل
   const saveClosing = async () => {
     const rows = [];
     if (+closingForm.card_income > 0)
@@ -10840,7 +10814,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
     showToast("تم حفظ تقفيل اليوم ✓");
   };
 
-  // طباعة تقرير التقفيل
+  // طباعة
   const handlePrint = () => {
     const content = printRef.current;
     const win = window.open("", "_blank");
@@ -10868,7 +10842,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
     setTimeout(() => win.print(), 300);
   };
 
-  // تجميع الأيام للسجل
+  // تجميع السجل
   const groupedByDay = {};
   entries.forEach((e) => {
     if (!groupedByDay[e.date]) groupedByDay[e.date] = [];
@@ -10876,17 +10850,8 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
   });
   const sortedDays = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
 
-  const ENTRY_TYPES = [
-    { v: "income|cash", l: "💵 دخل نقدي" },
-    { v: "income|card", l: "💳 دخل صراف/شبكة" },
-    { v: "income|credit_paid", l: "✅ سداد آجل" },
-    { v: "expense|fixed", l: "🔒 مصروف ثابت" },
-    { v: "expense|variable", l: "📦 مصروف متغير" },
-    { v: "expense|petty", l: "🪙 نثريات" },
-  ];
-
   const cardStyle = (border = "#1d2d4a") => ({
-    background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 14,
+    background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
 
   const inputStyle = {
@@ -10907,16 +10872,6 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
           <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>{today}</div>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={handlePrint} style={{
-            background: "#0a1a3a", border: "1px solid #1d3a6a", borderRadius: 10,
-            padding: "10px 16px", color: "#3a9aff", fontSize: 13, fontWeight: 700, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 8,
-          }}>
-            <IC n="print" s={15} /> طباعة / PDF
-          </button>
-          <Btn icon="plus" onClick={() => setShowEntryForm(true)}>إضافة قيد</Btn>
-        </div>
       </div>
 
       {/* تنبيهات */}
@@ -10924,27 +10879,24 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
         <div style={{ display: "grid", gridTemplateColumns: dueFixed.length > 0 && upcomingLicenses.length > 0 ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 14 }}>
           {dueFixed.length > 0 && (
             <div style={{ background: "#1a0800", border: "1px solid #4a2800", borderRadius: 12, padding: 12 }}>
-              <div style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13, marginBottom: 8 }}>⏰ مصاريف ثابتة مستحقة قريباً</div>
+              <div style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⏰ مصاريف ثابتة مستحقة قريباً</div>
               {dueFixed.map((f) => (
-                <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
                   <span style={{ color: "#dde8ff" }}>{f.name}</span>
                   <span style={{ color: "#ffaa44", fontWeight: 700 }}>{f.amount} ر.س</span>
                 </div>
               ))}
-              <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 6 }}>
-                إجمالي المصاريف الثابتة الشهرية: <span style={{ color: "#ff7744" }}>{monthFixedTotal} ر.س</span>
-              </div>
             </div>
           )}
           {upcomingLicenses.length > 0 && (
             <div style={{ background: "#1a0a1a", border: "1px solid #4a1a4a", borderRadius: 12, padding: 12 }}>
-              <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 8 }}>📋 تراخيص قريبة التجديد</div>
+              <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📋 تراخيص قريبة التجديد</div>
               {upcomingLicenses.map((l) => {
                 const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
                 return (
-                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
                     <span style={{ color: "#dde8ff" }}>{l.name}</span>
-                    <span style={{ color: days <= 14 ? "#ff4444" : "#ffaa44" }}>خلال {days} يوم • {l.amount} ر.س</span>
+                    <span style={{ color: days <= 14 ? "#ff4444" : "#ffaa44" }}>خلال {days} يوم</span>
                   </div>
                 );
               })}
@@ -10970,29 +10922,9 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
         ))}
       </div>
 
-      {/* ══════════ تقفيل اليوم (فورم تفاعلي) ══════════ */}
+      {/* ══════════ تقفيل اليوم ══════════ */}
       {activeTab === "today" && (
         <div>
-          {/* قيود اليوم المسجلة (من POS أو "إضافة قيد") */}
-          {todayEntries.length > 0 && (
-            <div style={cardStyle()}>
-              <div style={{ color: "#dde8ff", fontWeight: 700, marginBottom: 10 }}>قيود اليوم ({todayEntries.length})</div>
-              {todayEntries.map((e) => (
-                <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #0a101a", fontSize: 13 }}>
-                  <div>
-                    <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744" }}>
-                      {e.type === "income" ? "▲" : "▼"}
-                    </span>
-                    <span style={{ color: "#8aaabb", marginRight: 8 }}>{e.note || e.sub_type}</span>
-                  </div>
-                  <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744", fontWeight: 700 }}>
-                    {e.type === "income" ? "+" : "-"}{e.amount} ر.س
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* ── الدخل التلقائي ── */}
           <div style={cardStyle("#1a3a1a")}>
             <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📥 الدخل</div>
@@ -11027,7 +10959,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #1a3a1a" }}>
               <span style={{ color: "#4a6a8a", fontSize: 12, marginLeft: 12 }}>إجمالي الدخل</span>
-              <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{closingIncome.toFixed(2)} ر.س</span>
+              <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{totalIncome.toFixed(2)} ر.س</span>
             </div>
           </div>
 
@@ -11088,7 +11020,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a1000" }}>
               <span style={{ color: "#4a6a8a", fontSize: 12, marginLeft: 12 }}>إجمالي المصروفات</span>
-              <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{closingExpenses.toFixed(2)} ر.س</span>
+              <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{totalExpenses.toFixed(2)} ر.س</span>
             </div>
           </div>
 
@@ -11099,7 +11031,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
               {netCash.toFixed(2)} ر.س
             </div>
             <div style={{ color: "#4a6a8a", fontSize: 11 }}>
-              إجمالي دخل: {closingIncome.toFixed(2)} — مصروفات: {closingExpenses.toFixed(2)}
+              إجمالي دخل: {totalIncome.toFixed(2)} — مصروفات: {totalExpenses.toFixed(2)}
             </div>
             {monthFixedTotal > 0 && (
               <div style={{ color: "#ffaa44", fontSize: 11, marginTop: 6 }}>
@@ -11108,8 +11040,15 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
             )}
           </div>
 
-          {/* زر الحفظ */}
+          {/* أزرار الحفظ والطباعة */}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+            <button onClick={handlePrint} style={{
+              background: "#0a1a3a", border: "1px solid #1d3a6a", borderRadius: 10,
+              padding: "10px 20px", color: "#3a9aff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <IC n="print" s={15} /> طباعة / PDF
+            </button>
             {!closingSaved
               ? <Btn icon="check" onClick={saveClosing}>حفظ تقفيل اليوم</Btn>
               : <div style={{ color: "#44dd88", fontWeight: 700, padding: "10px 16px", fontSize: 13 }}>✅ تم الحفظ</div>
@@ -11178,14 +11117,12 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
             <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>
           </div>
           {fixedExpenses.length === 0
-            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد مصاريف ثابتة مسجلة</div>
+            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد مصاريف ثابتة</div>
             : (
-              <div>
-                <div style={cardStyle("#2a1a00")}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                    <span style={{ color: "#ffaa44", fontWeight: 700 }}>إجمالي المصاريف الثابتة الشهرية</span>
-                    <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{monthFixedTotal.toFixed(2)} ر.س</span>
-                  </div>
+              <>
+                <div style={{ ...cardStyle("#2a1a00"), display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#ffaa44", fontWeight: 700 }}>إجمالي شهري</span>
+                  <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{monthFixedTotal.toFixed(2)} ر.س</span>
                 </div>
                 {fixedExpenses.map((f) => (
                   <div key={f.id} style={cardStyle()}>
@@ -11201,13 +11138,478 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
                     </div>
                   </div>
                 ))}
-              </div>
+              </>
             )
           }
         </div>
       )}
 
       {/* ══════════ التراخيص ══════════ */}
+      {activeTab === "licenses" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>
+          </div>
+          {licenses.length === 0
+            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد تراخيص</div>
+            : licenses.map((l) => {
+                const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
+                const urgent = days <= 14; const soon = days <= 60;
+                return (
+                  <div key={l.id} style={cardStyle(urgent ? "#4a0000" : soon ? "#3a2000" : "#1d2d4a")}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ color: "#dde8ff", fontWeight: 700 }}>{l.name}</div>
+                        <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+                          تجديد: {l.renew_date}{l.note && ` • ${l.note}`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ color: urgent ? "#ff4444" : soon ? "#ffaa44" : "#44dd88", fontWeight: 700 }}>
+                          {days <= 0 ? "⚠️ منتهي" : `خلال ${days} يوم`}
+                        </div>
+                        <div style={{ color: "#a78bfa", fontWeight: 700 }}>{l.amount} ر.س</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+          }
+        </div>
+      )}
+
+      {/* Modal مصروف ثابت */}
+      <Modal open={showFixedForm} onClose={() => setShowFixedForm(false)} title="🔒 إضافة مصروف ثابت">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="اسم المصروف" value={fixedForm.name} onChange={(v) => setFixedForm((p) => ({ ...p, name: v }))} placeholder="إيجار، رواتب..." />
+          <Input label="المبلغ الشهري (ر.س)" value={fixedForm.amount} onChange={(v) => setFixedForm((p) => ({ ...p, amount: v }))} type="number" />
+          <Input label="يوم الاستحقاق (1-31)" value={fixedForm.due_day} onChange={(v) => setFixedForm((p) => ({ ...p, due_day: v }))} type="number" />
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowFixedForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={async () => {
+            if (!fixedForm.name || !fixedForm.amount) return;
+            const { data, error } = await supabase.from("fixed_expenses").insert([{ ...fixedForm, amount: +fixedForm.amount, pharmacy_id: pharmacyId }]).select();
+            if (error) { showToast("خطأ: " + error.message, "error"); return; }
+            setFixedExpenses((p) => [...p, data[0]]);
+            setFixedForm({ name: "", amount: "", due_day: "1" });
+            setShowFixedForm(false);
+            showToast("تم الإضافة ✓");
+          }}>إضافة</Btn>
+        </div>
+      </Modal>
+
+      {/* Modal ترخيص */}
+      <Modal open={showLicenseForm} onClose={() => setShowLicenseForm(false)} title="📄 إضافة ترخيص">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="اسم الترخيص" value={licenseForm.name} onChange={(v) => setLicenseForm((p) => ({ ...p, name: v }))} placeholder="رخصة تشغيل..." />
+          <Input label="تاريخ التجديد" value={licenseForm.renew_date} onChange={(v) => setLicenseForm((p) => ({ ...p, renew_date: v }))} type="date" />
+          <Input label="التكلفة (ر.س)" value={licenseForm.amount} onChange={(v) => setLicenseForm((p) => ({ ...p, amount: v }))} type="number" />
+          <Input label="ملاحظات" value={licenseForm.note} onChange={(v) => setLicenseForm((p) => ({ ...p, note: v }))} placeholder="تفاصيل..." />
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowLicenseForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={async () => {
+            if (!licenseForm.name || !licenseForm.renew_date) return;
+            const { data, error } = await supabase.from("licenses").insert([{ ...licenseForm, amount: +licenseForm.amount || 0, pharmacy_id: pharmacyId }]).select();
+            if (error) { showToast("خطأ: " + error.message, "error"); return; }
+            setLicenses((p) => [...p, data[0]].sort((a, b) => a.renew_date.localeCompare(b.renew_date)));
+            setLicenseForm({ name: "", renew_date: "", amount: "", note: "" });
+            setShowLicenseForm(false);
+            showToast("تم الإضافة ✓");
+          }}>إضافة</Btn>
+        </div>
+      </Modal>
+
+      {/* محتوى الطباعة المخفي */}
+      <div ref={printRef} style={{ display: "none" }}>
+        <h2>💰 تقفيل يوم {today}</h2>
+        <div className="sub">بواسطة: {currentUser?.name} — {new Date().toLocaleTimeString("ar-SA")}</div>
+
+        <div className="section">📥 الدخل</div>
+        <table>
+          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
+          <tbody>
+            <tr><td>مبيعات نقدية (POS)</td><td className="green">{todaySalesIncome.toFixed(2)} ر.س</td></tr>
+            <tr><td>سداد آجل (POS)</td><td className="blue">{todayCreditIncome.toFixed(2)} ر.س</td></tr>
+            {+closingForm.card_income > 0 && <tr><td>صراف/شبكة</td><td className="green">{(+closingForm.card_income).toFixed(2)} ر.س</td></tr>}
+            {+closingForm.extra_income > 0 && <tr><td>{closingForm.extra_income_note || "دخل إضافي"}</td><td className="green">{(+closingForm.extra_income).toFixed(2)} ر.س</td></tr>}
+            <tr className="total-row"><td>إجمالي الدخل</td><td className="green">{totalIncome.toFixed(2)} ر.س</td></tr>
+          </tbody>
+        </table>
+
+        <div className="section">📤 المصروفات</div>
+        <table>
+          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
+          <tbody>
+            {+closingForm.petty > 0 && <tr><td>{closingForm.petty_note || "نثريات"}</td><td className="red">{(+closingForm.petty).toFixed(2)} ر.س</td></tr>}
+            {closingForm.variable_expenses.filter((e) => +e.amount > 0).map((e, i) => (
+              <tr key={i}><td>{e.name}</td><td className="red">{(+e.amount).toFixed(2)} ر.س</td></tr>
+            ))}
+            {fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).map((f) => (
+              <tr key={f.id}><td>{f.name} (ثابت)</td><td className="red">{f.amount.toFixed(2)} ر.س</td></tr>
+            ))}
+            <tr className="total-row"><td>إجمالي المصروفات</td><td className="red">{totalExpenses.toFixed(2)} ر.س</td></tr>
+          </tbody>
+        </table>
+
+        <div className="section">🏦 الصافي</div>
+        <table>
+          <tbody>
+            <tr className="total-row">
+              <td>صافي الخزنة</td>
+              <td style={{ color: netCash >= 0 ? "#16a34a" : "#dc2626", fontWeight: 900, fontSize: 18 }}>{netCash.toFixed(2)} ر.س</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+  const [activeTab, setActiveTab] = useState("today"); // today | history | fixed | licenses
+  const [entries, setEntries] = useState([]);
+  const [fixedExpenses, setFixedExpenses] = useState([]);
+  const [licenses, setLicenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showEntryForm, setShowEntryForm] = useState(false);
+  const [showFixedForm, setShowFixedForm] = useState(false);
+  const [showLicenseForm, setShowLicenseForm] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  const today = new Date().toISOString().split("T")[0];
+  const monthKey = today.substring(0, 7);
+
+  const blankEntry = { type: "income", sub_type: "cash", amount: "", note: "", date: today };
+  const [entryForm, setEntryForm] = useState(blankEntry);
+  const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1", recurring: true });
+  const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
+
+  // تحميل البيانات
+  useEffect(() => {
+    if (!pharmacyId) return;
+    setLoading(true);
+    Promise.all([
+      supabase.from("treasury_entries").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
+      supabase.from("fixed_expenses").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("licenses").select("*").eq("pharmacy_id", pharmacyId).order("renew_date"),
+    ]).then(([t, f, l]) => {
+      if (t.data) setEntries(t.data);
+      if (f.data) setFixedExpenses(f.data);
+      if (l.data) setLicenses(l.data);
+      setLoading(false);
+    });
+  }, [pharmacyId]);
+
+  // إضافة قيد
+  const saveEntry = async () => {
+    if (!entryForm.amount || !entryForm.type) return;
+    const row = {
+      ...entryForm,
+      amount: +entryForm.amount,
+      pharmacy_id: pharmacyId,
+      created_by: currentUser.name,
+    };
+    const { data, error } = await supabase.from("treasury_entries").insert([row]).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setEntries((p) => [data[0], ...p]);
+    setEntryForm(blankEntry);
+    setShowEntryForm(false);
+    showToast("تم تسجيل القيد ✓");
+  };
+
+  // إضافة مصروف ثابت
+  const saveFixed = async () => {
+    if (!fixedForm.name || !fixedForm.amount) return;
+    const row = { ...fixedForm, amount: +fixedForm.amount, pharmacy_id: pharmacyId };
+    const { data, error } = await supabase.from("fixed_expenses").insert([row]).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setFixedExpenses((p) => [...p, data[0]]);
+    setFixedForm({ name: "", amount: "", due_day: "1", recurring: true });
+    setShowFixedForm(false);
+    showToast("تم إضافة المصروف الثابت ✓");
+  };
+
+  // إضافة ترخيص
+  const saveLicense = async () => {
+    if (!licenseForm.name || !licenseForm.renew_date) return;
+    const row = { ...licenseForm, amount: +licenseForm.amount || 0, pharmacy_id: pharmacyId };
+    const { data, error } = await supabase.from("licenses").insert([row]).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setLicenses((p) => [...p, data[0]].sort((a, b) => a.renew_date.localeCompare(b.renew_date)));
+    setLicenseForm({ name: "", renew_date: "", amount: "", note: "" });
+    setShowLicenseForm(false);
+    showToast("تم إضافة الترخيص ✓");
+  };
+
+  // حساب اليوم
+  const todayEntries = entries.filter((e) => e.date === today);
+  const todaySalesIncome = sales.filter((s) => s.date === today && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0);
+  const todayCreditIncome = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
+  const todayCash = todayEntries.filter((e) => e.sub_type === "cash" && e.type === "income").reduce((a, e) => a + e.amount, 0);
+  const todayCard = todayEntries.filter((e) => e.sub_type === "card" && e.type === "income").reduce((a, e) => a + e.amount, 0);
+  const todayExpenses = todayEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+  const todayFixedTotal = fixedExpenses.reduce((a, f) => a + (f.amount || 0), 0);
+  const todayNet = todaySalesIncome + todayCreditIncome + todayCash + todayCard - todayExpenses;
+
+  // تنبيهات التراخيص
+  const upcomingLicenses = licenses.filter((l) => {
+    const days = (new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24);
+    return days >= 0 && days <= 60;
+  });
+
+  // تنبيهات المصاريف الثابتة
+  const currentDay = new Date().getDate();
+  const dueFixed = fixedExpenses.filter((f) => Math.abs(+f.due_day - currentDay) <= 3);
+
+  // حساب الشهر
+  const monthEntries = entries.filter((e) => e.date?.startsWith(monthKey));
+  const monthExpenses = monthEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+  const monthFixedTotal = fixedExpenses.reduce((a, f) => a + f.amount, 0);
+
+  // تجميع الأيام للتاريخ
+  const groupedByDay = {};
+  entries.forEach((e) => {
+    if (!groupedByDay[e.date]) groupedByDay[e.date] = [];
+    groupedByDay[e.date].push(e);
+  });
+  const sortedDays = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
+
+  const ENTRY_TYPES = [
+    { v: "income|cash", l: "💵 دخل نقدي" },
+    { v: "income|card", l: "💳 دخل صراف/شبكة" },
+    { v: "income|credit_paid", l: "✅ سداد آجل" },
+    { v: "expense|fixed", l: "🔒 مصروف ثابت" },
+    { v: "expense|variable", l: "📦 مصروف متغير" },
+    { v: "expense|petty", l: "🪙 نثريات" },
+  ];
+
+  const cardStyle = (border = "#1d2d4a") => ({
+    background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 14,
+  });
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
+          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>إدارة الدخل والمصروفات</div>
+        </div>
+        <Btn icon="plus" onClick={() => setShowEntryForm(true)}>إضافة قيد</Btn>
+      </div>
+
+      {/* تنبيهات */}
+      {(upcomingLicenses.length > 0 || dueFixed.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: upcomingLicenses.length > 0 && dueFixed.length > 0 ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 14 }}>
+          {dueFixed.length > 0 && (
+            <div style={{ background: "#1a0800", border: "1px solid #4a2800", borderRadius: 12, padding: 12 }}>
+              <div style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13, marginBottom: 8 }}>⏰ مصاريف ثابتة مستحقة</div>
+              {dueFixed.map((f) => (
+                <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ color: "#dde8ff" }}>{f.name}</span>
+                  <span style={{ color: "#ffaa44", fontWeight: 700 }}>{f.amount} ر.س</span>
+                </div>
+              ))}
+              <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 6 }}>
+                إجمالي المصاريف الثابتة الشهرية: <span style={{ color: "#ff7744" }}>{monthFixedTotal} ر.س</span>
+              </div>
+            </div>
+          )}
+          {upcomingLicenses.length > 0 && (
+            <div style={{ background: "#1a0a1a", border: "1px solid #4a1a4a", borderRadius: 12, padding: 12 }}>
+              <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 8 }}>📋 تراخيص قريبة التجديد</div>
+              {upcomingLicenses.map((l) => {
+                const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
+                return (
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ color: "#dde8ff" }}>{l.name}</span>
+                    <span style={{ color: days <= 14 ? "#ff4444" : "#ffaa44" }}>خلال {days} يوم • {l.amount} ر.س</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#080e1a", borderRadius: 10, padding: 4 }}>
+        {[
+          { k: "today", l: "📅 تقفيل اليوم" },
+          { k: "history", l: "📋 السجل" },
+          { k: "fixed", l: "🔒 مصاريف ثابتة" },
+          { k: "licenses", l: "📄 التراخيص" },
+        ].map((t) => (
+          <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
+            flex: 1, padding: "9px 8px", borderRadius: 8, border: "none",
+            background: activeTab === t.k ? "#0f1623" : "transparent",
+            color: activeTab === t.k ? "#3a9aff" : "#4a6a8a",
+            fontSize: 12, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {/* ── تقفيل اليوم ── */}
+      {activeTab === "today" && (
+        <div>
+          {/* ملخص الدخل */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 14 }}>
+            <div style={cardStyle("#1a3a1a")}>
+              <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 6 }}>💵 مبيعات نقدية (POS)</div>
+              <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 20 }}>{todaySalesIncome.toFixed(2)} ر.س</div>
+            </div>
+            <div style={cardStyle("#1a3a1a")}>
+              <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 6 }}>✅ سداد آجل</div>
+              <div style={{ color: "#3a9aff", fontWeight: 900, fontSize: 20 }}>{todayCreditIncome.toFixed(2)} ر.س</div>
+            </div>
+            <div style={cardStyle(todayExpenses > 0 ? "#3a1000" : "#1d2d4a")}>
+              <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 6 }}>💸 مصروفات اليوم</div>
+              <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 20 }}>{todayExpenses.toFixed(2)} ر.س</div>
+            </div>
+          </div>
+
+          {/* تقفيل */}
+          <div style={cardStyle("#1a2a4a")}>
+            <div style={{ color: "#dde8ff", fontWeight: 700, fontSize: 15, marginBottom: 14 }}>📊 ملخص تقفيل اليوم</div>
+            {[
+              { l: "مبيعات نقدية", v: todaySalesIncome, c: "#44dd88" },
+              { l: "سداد آجل", v: todayCreditIncome, c: "#3a9aff" },
+              { l: "دخل إضافي (يدوي)", v: todayCash + todayCard, c: "#a78bfa" },
+              { l: "مصروفات", v: -todayExpenses, c: "#ff7744" },
+              { l: "تنبيه: مصاريف ثابتة شهرية", v: -todayFixedTotal, c: "#ffaa44", note: true },
+            ].map((row) => (
+              <div key={row.l} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "8px 0", borderBottom: "1px solid #0a101a",
+                opacity: row.note ? 0.7 : 1,
+              }}>
+                <span style={{ color: row.note ? "#4a6a8a" : "#8aaabb", fontSize: 13 }}>
+                  {row.note ? "⚠️ " : ""}{row.l}
+                </span>
+                <span style={{ color: row.c, fontWeight: 700, fontSize: 14 }}>
+                  {row.v >= 0 ? "+" : ""}{row.v.toFixed(2)} ر.س
+                </span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, padding: "10px 0", borderTop: "2px solid #2a3a5a" }}>
+              <span style={{ color: "#dde8ff", fontWeight: 900, fontSize: 15 }}>🏦 صافي الخزنة</span>
+              <span style={{ color: todayNet >= 0 ? "#44dd88" : "#ff4444", fontWeight: 900, fontSize: 18 }}>
+                {todayNet.toFixed(2)} ر.س
+              </span>
+            </div>
+          </div>
+
+          {/* قيود اليوم */}
+          {todayEntries.length > 0 && (
+            <div style={cardStyle()}>
+              <div style={{ color: "#dde8ff", fontWeight: 700, marginBottom: 10 }}>قيود اليوم ({todayEntries.length})</div>
+              {todayEntries.map((e) => (
+                <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #0a101a", fontSize: 13 }}>
+                  <div>
+                    <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744" }}>
+                      {e.type === "income" ? "▲" : "▼"}
+                    </span>
+                    <span style={{ color: "#8aaabb", marginRight: 8 }}>{e.note || e.sub_type}</span>
+                  </div>
+                  <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744", fontWeight: 700 }}>
+                    {e.type === "income" ? "+" : "-"}{e.amount} ر.س
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── السجل ── */}
+      {activeTab === "history" && (
+        <div>
+          {sortedDays.slice(0, 30).map((day) => {
+            const dayEnt = groupedByDay[day];
+            const dayIncome = dayEnt.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
+            const dayExp = dayEnt.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+            const isOpen = selectedDay === day;
+            return (
+              <div key={day} style={cardStyle()}>
+                <div onClick={() => setSelectedDay(isOpen ? null : day)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                  <div>
+                    <div style={{ color: "#dde8ff", fontWeight: 700, fontSize: 13 }}>{day}</div>
+                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>{dayEnt.length} قيد</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#44dd88", fontWeight: 700 }}>+{dayIncome.toFixed(0)}</div>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>دخل</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#ff7744", fontWeight: 700 }}>-{dayExp.toFixed(0)}</div>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>مصروف</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: dayIncome - dayExp >= 0 ? "#3a9aff" : "#ff4444", fontWeight: 900 }}>
+                        {(dayIncome - dayExp).toFixed(0)}
+                      </div>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>صافي</div>
+                    </div>
+                    <span style={{ color: "#4a6a8a" }}>{isOpen ? "▲" : "▼"}</span>
+                  </div>
+                </div>
+                {isOpen && (
+                  <div style={{ marginTop: 12, borderTop: "1px solid #0a101a", paddingTop: 10 }}>
+                    {dayEnt.map((e) => (
+                      <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12 }}>
+                        <span style={{ color: "#7a9aaa" }}>{e.note || e.sub_type}</span>
+                        <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744", fontWeight: 700 }}>
+                          {e.type === "income" ? "+" : "-"}{e.amount} ر.س
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {sortedDays.length === 0 && <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد قيود مسجلة</div>}
+        </div>
+      )}
+
+      {/* ── المصاريف الثابتة ── */}
+      {activeTab === "fixed" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>
+          </div>
+          {fixedExpenses.length === 0
+            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد مصاريف ثابتة مسجلة</div>
+            : (
+              <div>
+                <div style={cardStyle("#2a1a00")}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ color: "#ffaa44", fontWeight: 700 }}>إجمالي المصاريف الثابتة الشهرية</span>
+                    <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{monthFixedTotal.toFixed(2)} ر.س</span>
+                  </div>
+                </div>
+                {fixedExpenses.map((f) => (
+                  <div key={f.id} style={cardStyle()}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ color: "#dde8ff", fontWeight: 700 }}>{f.name}</div>
+                        <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+                          تستحق يوم {f.due_day} من كل شهر
+                          {Math.abs(+f.due_day - currentDay) <= 3 && <span style={{ color: "#ffaa44", marginRight: 8 }}>⏰ مستحقة قريباً</span>}
+                        </div>
+                      </div>
+                      <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{f.amount} ر.س</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {/* ── التراخيص ── */}
       {activeTab === "licenses" && (
         <div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -11293,52 +11695,10 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
           <Btn icon="check" onClick={saveLicense}>إضافة</Btn>
         </div>
       </Modal>
-
-      {/* محتوى الطباعة المخفي */}
-      <div ref={printRef} style={{ display: "none" }}>
-        <h2>💰 تقفيل يوم {today}</h2>
-        <div className="sub">بواسطة: {currentUser?.name} — {new Date().toLocaleTimeString("ar-SA")}</div>
-
-        <div className="section">📥 الدخل</div>
-        <table>
-          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
-          <tbody>
-            <tr><td>مبيعات نقدية (POS)</td><td className="green">{todaySalesIncome.toFixed(2)} ر.س</td></tr>
-            <tr><td>سداد آجل (POS)</td><td className="blue">{todayCreditIncome.toFixed(2)} ر.س</td></tr>
-            {+closingForm.card_income > 0 && <tr><td>صراف/شبكة</td><td className="green">{(+closingForm.card_income).toFixed(2)} ر.س</td></tr>}
-            {+closingForm.extra_income > 0 && <tr><td>{closingForm.extra_income_note || "دخل إضافي"}</td><td className="green">{(+closingForm.extra_income).toFixed(2)} ر.س</td></tr>}
-            <tr className="total-row"><td>إجمالي الدخل</td><td className="green">{closingIncome.toFixed(2)} ر.س</td></tr>
-          </tbody>
-        </table>
-
-        <div className="section">📤 المصروفات</div>
-        <table>
-          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
-          <tbody>
-            {+closingForm.petty > 0 && <tr><td>{closingForm.petty_note || "نثريات"}</td><td className="red">{(+closingForm.petty).toFixed(2)} ر.س</td></tr>}
-            {closingForm.variable_expenses.filter((e) => +e.amount > 0).map((e, i) => (
-              <tr key={i}><td>{e.name}</td><td className="red">{(+e.amount).toFixed(2)} ر.س</td></tr>
-            ))}
-            {fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).map((f) => (
-              <tr key={f.id}><td>{f.name} (ثابت)</td><td className="red">{f.amount.toFixed(2)} ر.س</td></tr>
-            ))}
-            <tr className="total-row"><td>إجمالي المصروفات</td><td className="red">{closingExpenses.toFixed(2)} ر.س</td></tr>
-          </tbody>
-        </table>
-
-        <div className="section">🏦 الصافي</div>
-        <table>
-          <tbody>
-            <tr className="total-row">
-              <td>صافي الخزنة</td>
-              <td style={{ color: netCash >= 0 ? "#16a34a" : "#dc2626", fontWeight: 900, fontSize: 18 }}>{netCash.toFixed(2)} ر.س</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
+
 // ==================== TAX REPORT ====================
 function TaxReport({ sales, purchases }) {
   const [quarter, setQuarter] = useState("Q2-2026");
