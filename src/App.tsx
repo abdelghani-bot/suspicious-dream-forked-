@@ -2604,6 +2604,7 @@ function POS({
       shift: currentShift?.id,
       returned: false,
       pharmacy_id: pharmacyId,
+      cashier_name: currentUser?.name || "",
     };
 
     const { error: saleError } = await supabase.from("sales").insert(invoice);
@@ -10848,9 +10849,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
     const monthSales = sales.filter(
       (s) => (s.created_at || s.date || "").startsWith(mKey) && !s.returned
     );
-    const mySales = monthSales.filter(
-      (s) => s.cashier === name || s.user === name || s.created_by === name
-    );
+    const mySales = monthSales.filter((s) => s.cashier_name === name);
     const achieved = mySales.reduce((a, s) => a + (s.total || 0), 0);
     const target = getTarget(name, mKey);
 
@@ -10914,7 +10913,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
           (s) =>
             (s.created_at || s.date || "").startsWith(dayStr) &&
             !s.returned &&
-            (s.cashier === name || s.user === name || s.created_by === name)
+            s.cashier_name === name
         )
         .reduce((a, s) => a + (s.total || 0), 0);
       days.push({ day: d, amount: amt });
