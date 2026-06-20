@@ -10222,14 +10222,20 @@ function CustomersModule({
 }
 // ==================== PROMOTIONS MODULE ====================
 // منطق الخصم التدرجي حسب الصلاحية
-function calcAutoDiscount(expiryDate) {
+function calcAutoDiscount(expiryDate, rules?) {
   if (!expiryDate) return 0;
   const days = Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
   if (days <= 0) return 0;
-  if (days <= 90) return 50;
-  if (days <= 120) return 25;
-  if (days <= 150) return 20;
-  if (days <= 180) return 15;
+  const activeRules = rules || [
+    { days: 90,  discount: 50 },
+    { days: 120, discount: 25 },
+    { days: 150, discount: 20 },
+    { days: 180, discount: 15 },
+  ];
+  const sorted = [...activeRules].sort((a, b) => a.days - b.days);
+  for (const rule of sorted) {
+    if (days <= rule.days) return rule.discount;
+  }
   return 0;
 }
 
@@ -10240,7 +10246,17 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const [incentiveConfig, setIncentiveConfig] = useState({ rate: 5, month: new Date().toISOString().slice(0, 7) });
   const [showPromoForm, setShowPromoForm] = useState(false);
   const [showIncentiveForm, setShowIncentiveForm] = useState(false);
+  const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [promoSearch, setPromoSearch] = useState("");
+
+  const DEFAULT_RULES = [
+    { days: 90,  discount: 50, color: "#ff4444" },
+    { days: 120, discount: 25, color: "#ff7744" },
+    { days: 150, discount: 20, color: "#ffaa44" },
+    { days: 180, discount: 15, color: "#f59e0b" },
+  ];
+  const [discountRules, setDiscountRules] = useState(DEFAULT_RULES);
+  const [editRules, setEditRules] = useState(DEFAULT_RULES);
   const [incentiveSearch, setIncentiveSearch] = useState("");
 
   const blankPromo = { product_id: "", discount: "", start_date: new Date().toISOString().split("T")[0], end_date: "", note: "" };
@@ -10292,11 +10308,11 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     const cat = p.main_category || p.category || "";
     if (cat === "دواء") return false;
     const expiry = getProductExpiry(p);
-    const disc = calcAutoDiscount(expiry);
+    const disc = calcAutoDiscount(expiry, discountRules);
     return disc > 0 && (p.stock || 0) > 0;
   }).map((p) => {
     const expiry = getProductExpiry(p);
-    return { ...p, expiry, autoDiscount: calcAutoDiscount(expiry) };
+    return { ...p, expiry, autoDiscount: calcAutoDiscount(expiry, discountRules) };
   }).sort((a, b) => b.autoDiscount - a.autoDiscount);
 
   // الأصناف المحفزة — خصم > 45%
@@ -10415,19 +10431,21 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       {/* ── العروض التلقائية ── */}
       {activeTab === "auto" && (
         <div>
-          {/* شرح المنطق */}
+          {/* قواعد الخصم — قابلة للتعديل */}
           <div style={cardStyle("#1a2a1a")}>
-            <div style={{ color: "#44dd88", fontWeight: 700, marginBottom: 10 }}>📋 منطق الخصم التدرجي التلقائي</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ color: "#44dd88", fontWeight: 700 }}>📋 منطق الخصم التدرجي التلقائي</div>
+              <button onClick={() => { setEditRules(discountRules.map(r => ({...r}))); setShowRulesEditor(true); }}
+                style={{ background: "#0a1a2a", border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: "#3a9aff", fontSize: 12, cursor: "pointer" }}>
+                ✏️ تعديل القواعد
+              </button>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
-              {[
-                { days: "≤ 3 شهور", disc: "50%", color: "#ff4444" },
-                { days: "≤ 4 شهور", disc: "25%", color: "#ff7744" },
-                { days: "≤ 5 شهور", disc: "20%", color: "#ffaa44" },
-                { days: "≤ 6 شهور", disc: "15%", color: "#f59e0b" },
-              ].map((r) => (
+              {[...discountRules].sort((a,b) => a.days - b.days).map((r) => (
                 <div key={r.days} style={{ background: "#080e1a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                  <div style={{ color: r.color, fontWeight: 900, fontSize: 18 }}>{r.disc}</div>
-                  <div style={{ color: "#4a6a8a", fontSize: 11 }}>قبل {r.days}</div>
+                  <div style={{ color: r.color || "#ffaa44", fontWeight: 900, fontSize: 18 }}>{r.discount}%</div>
+                  <div style={{ color: "#4a6a8a", fontSize: 11 }}>أقل من {Math.round(r.days/30)} شهور</div>
+                  <div style={{ color: "#3a5a7a", fontSize: 10 }}>({r.days} يوم)</div>
                 </div>
               ))}
             </div>
@@ -10721,6 +10739,53 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           })()}
         </div>
       )}
+
+      {/* Modal تعديل قواعد الخصم */}
+      <Modal open={showRulesEditor} onClose={() => setShowRulesEditor(false)} title="✏️ تعديل قواعد الخصم التدرجي">
+        <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 14 }}>
+          حدد عدد الأيام ونسبة الخصم لكل مرحلة — يتم الترتيب تلقائياً من الأقل للأكثر
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 8 }}>
+          <span style={{ color: "#4a6a9a", fontSize: 12, fontWeight: 700 }}>أقل من (يوم)</span>
+          <span style={{ color: "#4a6a9a", fontSize: 12, fontWeight: 700 }}>نسبة الخصم %</span>
+          <span/>
+        </div>
+        {editRules.map((rule, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
+            <input type="number" value={rule.days} min="1" max="365"
+              onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, days: +e.target.value } : r))}
+              style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+            <input type="number" value={rule.discount} min="1" max="100"
+              onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, discount: +e.target.value } : r))}
+              style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+            <button onClick={() => setEditRules((p) => p.filter((_, j) => j !== i))}
+              style={{ background: "#2a0a0a", border: "none", borderRadius: 6, padding: "8px 12px", color: "#ff7744", cursor: "pointer", fontSize: 16 }}>×</button>
+          </div>
+        ))}
+        <button onClick={() => setEditRules((p) => [...p, { days: 60, discount: 10, color: "#f59e0b" }])}
+          style={{ background: "#0a1a0a", border: "1px dashed #1a4a1a", borderRadius: 8, padding: "7px 14px", color: "#44dd88", cursor: "pointer", fontSize: 12, width: "100%", marginBottom: 14 }}>
+          + إضافة مرحلة
+        </button>
+        {/* معاينة */}
+        <div style={{ background: "#080e1a", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+          <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 8 }}>معاينة:</div>
+          {[...editRules].sort((a, b) => a.days - b.days).map((r, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: "#8aaabb" }}>أقل من {r.days} يوم (~{Math.round(r.days/30)} شهور)</span>
+              <span style={{ color: "#ffaa44", fontWeight: 700 }}>خصم {r.discount}%</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setEditRules([...DEFAULT_RULES])}>إعادة للافتراضي</Btn>
+          <Btn variant="ghost" onClick={() => setShowRulesEditor(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={() => {
+            setDiscountRules([...editRules].sort((a, b) => a.days - b.days));
+            setShowRulesEditor(false);
+            showToast("تم حفظ قواعد الخصم ✓");
+          }}>حفظ</Btn>
+        </div>
+      </Modal>
 
       {/* Modal إضافة عرض يدوي */}
       <Modal open={showPromoForm} onClose={() => setShowPromoForm(false)} title="➕ إضافة عرض يدوي">
