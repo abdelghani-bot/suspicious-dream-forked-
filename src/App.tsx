@@ -7597,11 +7597,12 @@ function SuppliersModule({
 
   // تحميل الدفعات والأوردرات
   useEffect(() => {
-    supabase.from("payments").select("*").order("date", { ascending: true })
+    if (!pharmacyId) return;
+    supabase.from("payments").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: true })
       .then(({ data }) => { if (data) setPayments(data); });
-    supabase.from("orders").select("*").order("created_at", { ascending: false })
+    supabase.from("orders").select("*").eq("pharmacy_id", pharmacyId).order("created_at", { ascending: false })
       .then(({ data }) => { if (data) setOrders(data); });
-  }, []);
+  }, [pharmacyId]);
 
   // ========== حالة المورد ==========
   const getSupplierStatus = (supplier) => {
@@ -7956,6 +7957,7 @@ function SuppliersModule({
       supply_categories: form.supply_categories,
       opening_balance: openingBal,
       opening_balance_details: form.opening_balance_details || [],
+      pharmacy_id: pharmacyId,
     };
     if (editing) {
       const { error } = await supabase.from("suppliers").update(payload).eq("id", editing);
