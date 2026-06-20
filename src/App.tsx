@@ -7573,7 +7573,7 @@ function SuppliersModule({
   const [showStatements, setShowStatements] = useState(null);
   const [coverageDays, setCoverageDays] = useState(30);
   const [orderItems, setOrderItems] = useState([]);
-  const [payForm, setPayForm] = useState({ amount: "", note: "", receipt: null, receiptUrl: "" });
+  const [payForm, setPayForm] = useState({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
 
   // ── مرتجع تلقائي ──
   const [showAutoReturn, setShowAutoReturn] = useState(null); // المورد المختار
@@ -7819,7 +7819,17 @@ function SuppliersModule({
     if (error) { showToast("فشل حفظ الدفعة: " + error.message, "error"); return; }
 
     setPayments((p) => [...p, { id: payId, supplier_id: supplier.id, date: new Date().toISOString().split("T")[0], amount, notes: payForm.note, attachment_url: receiptUrl }]);
-    await processPaymentFIFO(supplier.id, amount);
+    await supabase.from("treasury_entries").insert({
+    type: "expense",
+    sub_type: "supplier_payment",
+    method: payForm.method || "نقدي",
+    amount,
+    note: `سداد مورد: ${supplier.name}${payForm.note ? " - " + payForm.note : ""}`,
+    date: new Date().toISOString().split("T")[0],
+    pharmacy_id: pharmacyId,
+    created_by: currentUser?.name || "",
+    supplier_id: supplier.id,
+  });
     setShowPayForm(null);
     setPayForm({ amount: "", note: "", receipt: null, receiptUrl: "" });
     showToast(`تم تسجيل الدفعة ✓ — ${amount.toFixed(2)} ر.س`);
@@ -8336,6 +8346,16 @@ function SuppliersModule({
               <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4 }}>إجمالي المستحقات</div>
               <div style={{ fontSize: 20, fontWeight: 800, color: "#ff5555" }}>{getSupplierDebt(showPayForm.id).toFixed(2)} ر.س</div>
             </div>
+            <div>
+  <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 6 }}>طريقة الدفع</div>
+  <select value={payForm.method}
+    onChange={(e) => setPayForm((p) => ({ ...p, method: e.target.value }))}
+    style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
+    <option value="نقدي">💵 نقدي</option>
+    <option value="بطاقة">💳 بطاقة / صراف</option>
+    <option value="تحويل">🏦 تحويل بنكي</option>
+  </select>
+</div>
             <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4 }}>ترتيب السداد (الأقدم أولاً):</div>
             {purchases.filter((p) => p.supplier === showPayForm.id && p.payment_status !== "مسددة")
               .sort((a, b) => new Date(a.date) - new Date(b.date))
