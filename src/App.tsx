@@ -7819,6 +7819,7 @@ function SuppliersModule({
     if (error) { showToast("فشل حفظ الدفعة: " + error.message, "error"); return; }
 
     setPayments((p) => [...p, { id: payId, supplier_id: supplier.id, date: new Date().toISOString().split("T")[0], amount, notes: payForm.note, attachment_url: receiptUrl }]);
+    await processPaymentFIFO(supplier.id, amount);
     await supabase.from("treasury_entries").insert({
     type: "expense",
     sub_type: "supplier_payment",
