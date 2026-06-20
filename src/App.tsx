@@ -1669,6 +1669,8 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
             currentUser={currentUser}
             showToast={showToast}
+            suppliers={suppliers}
+            shifts={shifts}
           />
         )}
         {tab === "shift" && (
@@ -10727,32 +10729,32 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 }
 
 // ==================== TREASURY MODULE ====================
-function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showToast }) {
+function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts }) {
   const [activeTab, setActiveTab] = useState("today");
   const [entries, setEntries] = useState([]);
   const [fixedExpenses, setFixedExpenses] = useState([]);
   const [licenses, setLicenses] = useState([]);
   const [showFixedForm, setShowFixedForm] = useState(false);
   const [showLicenseForm, setShowLicenseForm] = useState(false);
+  const [showSupplierPayForm, setShowSupplierPayForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const printRef = useRef(null);
 
   const today = new Date().toISOString().split("T")[0];
   const monthKey = today.substring(0, 7);
 
-  // فورم التقفيل اليومي
   const [closingForm, setClosingForm] = useState({
-    card_income: "",       // دخل صراف يدوي
-    extra_income: "",      // دخل إضافي
+    extra_income: "",
     extra_income_note: "",
-    petty: "",             // نثريات
+    petty: "",
     petty_note: "",
-    variable_expenses: [], // مصروفات متغيرة [ {name, amount} ]
-    fixed_paid: {},        // المصاريف الثابتة المدفوعة اليوم {id: true/false}
+    variable_expenses: [],
+    fixed_paid: {},
   });
   const [closingSaved, setClosingSaved] = useState(false);
   const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1" });
   const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
+  const [supplierPayForm, setSupplierPayForm] = useState({ supplier_id: "", amount: "", method: "نقدي", note: "", bank_fees: "" });
 
   useEffect(() => {
     if (!pharmacyId) return;
@@ -10767,9 +10769,54 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
     });
   }, [pharmacyId]);
 
-  // حسابات تلقائية من POS
-  const todaySalesIncome = sales.filter((s) => s.date === today && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0);
+  // ── حسابات المبيعات مقسمة ──
+  const todaySales = sales.filter((s) => s.date === today && !s.returned);
+  const todayCash = todaySales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0);
+  const todayCard = todaySales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
+  const todayTransfer = todaySales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
+  const todayAjil = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
   const todayCreditIncome = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
+  const todaySalesIncome = todayCash + todayCard + todayTransfer + todayCreditIncome;
+
+  // ── رصيد الخزنة اللحظي من كل السجلات ──
+  const calcBalance = (method) => {
+    // دخل من المبيعات
+    const salesIncome = sales.filter((s) => !s.returned && s.payment === method).reduce((a, s) => a + s.total, 0);
+    // سداد آجل (كاش دايماً)
+    const creditIn = method === "نقدي" ? creditPayments.reduce((a, p) => a + p.amount, 0) : 0;
+    // من سجل الخزنة
+    const entryIn = entries.filter((e) => e.type === "income" && e.method === method).reduce((a, e) => a + e.amount, 0);
+    const entryOut = entries.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
+    // مدفوعات موردين
+    const supplierOut = entries.filter((e) => e.sub_type === "supplier_payment" && e.method === method).reduce((a, e) => a + e.amount, 0);
+    return salesIncome + creditIn + entryIn - entryOut - supplierOut;
+  };
+
+  const balanceCash = calcBalance("نقدي");
+  const balanceCard = calcBalance("بطاقة");
+  const balanceTransfer = calcBalance("تحويل");
+  const balanceTotal = balanceCash + balanceCard + balanceTransfer;
+
+  // ── تقفيل الشفتات ──
+  const todayShifts = shifts.filter((s) => s.start_time?.startsWith(today));
+  const getShiftSales = (shiftId) => {
+    const shiftSales = todaySales.filter((s) => s.shift === shiftId);
+    return {
+      cash: shiftSales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0),
+      card: shiftSales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0),
+      transfer: shiftSales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0),
+      ajil: shiftSales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0),
+      total: shiftSales.filter((s) => s.payment !== "آجل").reduce((a, s) => a + s.total, 0),
+      count: shiftSales.length,
+    };
+  };
+
+  // ── حسابات المصروفات ──
+  const variableTotal = closingForm.variable_expenses.reduce((a, e) => a + (+e.amount || 0), 0);
+  const fixedPaidTotal = fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).reduce((a, f) => a + f.amount, 0);
+  const totalExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal;
+  const totalIncome = todaySalesIncome + (+closingForm.extra_income || 0);
+  const netCash = totalIncome - totalExpenses;
   const monthFixedTotal = fixedExpenses.reduce((a, f) => a + (f.amount || 0), 0);
   const currentDay = new Date().getDate();
   const dueFixed = fixedExpenses.filter((f) => Math.abs(+f.due_day - currentDay) <= 3);
@@ -10778,27 +10825,18 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
     return days >= 0 && days <= 60;
   });
 
-  // حساب المصروفات من الفورم
-  const variableTotal = closingForm.variable_expenses.reduce((a, e) => a + (+e.amount || 0), 0);
-  const fixedPaidTotal = fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).reduce((a, f) => a + f.amount, 0);
-  const totalExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal;
-  const totalIncome = todaySalesIncome + todayCreditIncome + (+closingForm.card_income || 0) + (+closingForm.extra_income || 0);
-  const netCash = totalIncome - totalExpenses;
-
-  // حفظ التقفيل
+  // ── حفظ التقفيل ──
   const saveClosing = async () => {
     const rows = [];
-    if (+closingForm.card_income > 0)
-      rows.push({ type: "income", sub_type: "card", amount: +closingForm.card_income, note: "دخل صراف/شبكة", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     if (+closingForm.extra_income > 0)
-      rows.push({ type: "income", sub_type: "other", amount: +closingForm.extra_income, note: closingForm.extra_income_note || "دخل إضافي", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+      rows.push({ type: "income", sub_type: "other", method: "نقدي", amount: +closingForm.extra_income, note: closingForm.extra_income_note || "دخل إضافي", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     if (+closingForm.petty > 0)
-      rows.push({ type: "expense", sub_type: "petty", amount: +closingForm.petty, note: closingForm.petty_note || "نثريات", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+      rows.push({ type: "expense", sub_type: "petty", method: "نقدي", amount: +closingForm.petty, note: closingForm.petty_note || "نثريات", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     closingForm.variable_expenses.filter((e) => +e.amount > 0).forEach((e) =>
-      rows.push({ type: "expense", sub_type: "variable", amount: +e.amount, note: e.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name })
+      rows.push({ type: "expense", sub_type: "variable", method: "نقدي", amount: +e.amount, note: e.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name })
     );
     fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).forEach((f) =>
-      rows.push({ type: "expense", sub_type: "fixed", amount: f.amount, note: f.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name })
+      rows.push({ type: "expense", sub_type: "fixed", method: "نقدي", amount: f.amount, note: f.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name })
     );
     if (rows.length > 0) {
       const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
@@ -10809,35 +10847,35 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
     showToast("تم حفظ تقفيل اليوم ✓");
   };
 
-  // طباعة
-  const handlePrint = () => {
-    const content = printRef.current;
-    const win = window.open("", "_blank");
-    win.document.write(`
-      <html><head><title>تقفيل يوم ${today}</title>
-      <style>
-        body { font-family: 'Tajawal', Arial, sans-serif; direction: rtl; background: #fff; color: #111; padding: 24px; }
-        h2 { font-size: 20px; margin-bottom: 4px; }
-        .sub { color: #666; font-size: 13px; margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-        th { background: #f0f4ff; padding: 8px 12px; text-align: right; font-size: 13px; }
-        td { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
-        .green { color: #16a34a; font-weight: 700; }
-        .red { color: #dc2626; font-weight: 700; }
-        .blue { color: #2563eb; font-weight: 700; }
-        .total-row { background: #f8faff; font-weight: 900; font-size: 15px; }
-        .section { font-weight: 700; color: #1e3a8a; margin: 14px 0 6px; font-size: 14px; }
-        @media print { button { display: none; } }
-      </style></head><body>
-      ${content.innerHTML}
-      <br/><button onclick="window.print()" style="padding:8px 20px;background:#1e3a8a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">طباعة</button>
-      </body></html>
-    `);
-    win.document.close();
-    setTimeout(() => win.print(), 300);
+  // ── سداد مورد ──
+  const saveSupplierPayment = async () => {
+    if (!supplierPayForm.supplier_id || !supplierPayForm.amount) return;
+    const supplier = suppliers.find((s) => s.id === supplierPayForm.supplier_id);
+    const rows = [];
+    rows.push({
+      type: "expense", sub_type: "supplier_payment", method: supplierPayForm.method,
+      amount: +supplierPayForm.amount,
+      note: `سداد مورد: ${supplier?.name || ""} ${supplierPayForm.note ? "- " + supplierPayForm.note : ""}`,
+      date: today, pharmacy_id: pharmacyId, created_by: currentUser.name,
+      supplier_id: supplierPayForm.supplier_id,
+    });
+    if (+supplierPayForm.bank_fees > 0) {
+      rows.push({
+        type: "expense", sub_type: "bank_fees", method: supplierPayForm.method,
+        amount: +supplierPayForm.bank_fees,
+        note: `مصاريف بنكية - ${supplier?.name || ""}`,
+        date: today, pharmacy_id: pharmacyId, created_by: currentUser.name,
+      });
+    }
+    const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setEntries((p) => [...data, ...p]);
+    setSupplierPayForm({ supplier_id: "", amount: "", method: "نقدي", note: "", bank_fees: "" });
+    setShowSupplierPayForm(false);
+    showToast("تم تسجيل سداد المورد ✓");
   };
 
-  // تجميع السجل
+  // ── تجميع السجل ──
   const groupedByDay = {};
   entries.forEach((e) => {
     if (!groupedByDay[e.date]) groupedByDay[e.date] = [];
@@ -10845,28 +10883,47 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
   });
   const sortedDays = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
 
+  // إجمالي الشهر
+  const monthEntries = entries.filter((e) => e.date?.startsWith(monthKey));
+  const monthIncome = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0)
+    + creditPayments.filter((p) => p.date?.startsWith(monthKey)).reduce((a, p) => a + p.amount, 0)
+    + monthEntries.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
+  const monthExpenses = monthEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+
   const cardStyle = (border = "#1d2d4a") => ({
     background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
-
   const inputStyle = {
     background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8,
     padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const,
   };
-
-  const rowStyle = {
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-    padding: "10px 0", borderBottom: "1px solid #0a101a",
-  };
+  const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0a101a" };
 
   return (
     <div>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
           <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>{today}</div>
         </div>
+        <Btn icon="plus" onClick={() => setShowSupplierPayForm(true)}>سداد مورد</Btn>
+      </div>
+
+      {/* ── رصيد الخزنة اللحظي ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+        {[
+          { label: "💵 نقدي", value: balanceCash, color: "#44dd88" },
+          { label: "💳 بطاقة", value: balanceCard, color: "#3a9aff" },
+          { label: "🏦 تحويل", value: balanceTransfer, color: "#a78bfa" },
+          { label: "📦 الإجمالي", value: balanceTotal, color: "#ffaa44" },
+        ].map((b) => (
+          <div key={b.label} style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 12, padding: 14, textAlign: "center" }}>
+            <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 4 }}>{b.label}</div>
+            <div style={{ color: b.value < 0 ? "#ff4444" : b.color, fontWeight: 900, fontSize: 18 }}>{b.value.toFixed(2)}</div>
+            <div style={{ color: "#3a5a8a", fontSize: 10 }}>ر.س</div>
+          </div>
+        ))}
       </div>
 
       {/* تنبيهات */}
@@ -10904,15 +10961,16 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
       <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#080e1a", borderRadius: 10, padding: 4 }}>
         {[
           { k: "today", l: "📅 تقفيل اليوم" },
+          { k: "shifts", l: "🔄 الشفتات" },
           { k: "history", l: "📋 السجل" },
           { k: "fixed", l: "🔒 مصاريف ثابتة" },
           { k: "licenses", l: "📄 التراخيص" },
         ].map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
-            flex: 1, padding: "9px 8px", borderRadius: 8, border: "none",
+            flex: 1, padding: "9px 6px", borderRadius: 8, border: "none",
             background: activeTab === t.k ? "#0f1623" : "transparent",
             color: activeTab === t.k ? "#3a9aff" : "#4a6a8a",
-            fontSize: 12, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
+            fontSize: 11, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
           }}>{t.l}</button>
         ))}
       </div>
@@ -10920,35 +10978,39 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
       {/* ══════════ تقفيل اليوم ══════════ */}
       {activeTab === "today" && (
         <div>
-          {/* ── الدخل التلقائي ── */}
+          {/* الدخل مقسم */}
           <div style={cardStyle("#1a3a1a")}>
             <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📥 الدخل</div>
 
             <div style={rowStyle}>
-              <span style={{ color: "#8aaabb", fontSize: 13 }}>💵 مبيعات نقدية (POS)</span>
-              <span style={{ color: "#44dd88", fontWeight: 700 }}>{todaySalesIncome.toFixed(2)} ر.س</span>
+              <span style={{ color: "#8aaabb", fontSize: 13 }}>💵 مبيعات نقدي</span>
+              <span style={{ color: "#44dd88", fontWeight: 700 }}>{todayCash.toFixed(2)} ر.س</span>
             </div>
-
             <div style={rowStyle}>
-              <span style={{ color: "#8aaabb", fontSize: 13 }}>✅ سداد آجل (POS)</span>
+              <span style={{ color: "#8aaabb", fontSize: 13 }}>💳 مبيعات بطاقة</span>
+              <span style={{ color: "#3a9aff", fontWeight: 700 }}>{todayCard.toFixed(2)} ر.س</span>
+            </div>
+            <div style={rowStyle}>
+              <span style={{ color: "#8aaabb", fontSize: 13 }}>🏦 مبيعات تحويل</span>
+              <span style={{ color: "#a78bfa", fontWeight: 700 }}>{todayTransfer.toFixed(2)} ر.س</span>
+            </div>
+            <div style={rowStyle}>
+              <span style={{ color: "#8aaabb", fontSize: 13 }}>✅ سداد آجل</span>
               <span style={{ color: "#3a9aff", fontWeight: 700 }}>{todayCreditIncome.toFixed(2)} ر.س</span>
             </div>
-
-            {/* صراف يدوي */}
-            <div style={{ ...rowStyle, gap: 12 }}>
-              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>💳 صراف/شبكة (يدوي)</span>
-              <input type="number" value={closingForm.card_income} onChange={(e) => setClosingForm((p) => ({ ...p, card_income: e.target.value }))}
-                placeholder="0.00" style={{ ...inputStyle, width: 120, textAlign: "left" }} />
+            <div style={{ ...rowStyle, borderBottom: "none" }}>
+              <span style={{ color: "#ff7777", fontSize: 13 }}>📋 مديونية اليوم (غير محصلة)</span>
+              <span style={{ color: "#ff7777", fontWeight: 700 }}>{todayAjil.toFixed(2)} ر.س</span>
             </div>
 
             {/* دخل إضافي */}
-            <div style={{ ...rowStyle, gap: 12 }}>
-              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>➕ دخل إضافي</span>
-              <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
+            <div style={{ marginTop: 8, borderTop: "1px solid #1a3a1a", paddingTop: 10 }}>
+              <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 6 }}>دخل إضافي (اختياري)</div>
+              <div style={{ display: "flex", gap: 8 }}>
                 <input value={closingForm.extra_income_note} onChange={(e) => setClosingForm((p) => ({ ...p, extra_income_note: e.target.value }))}
-                  placeholder="وصف..." style={{ ...inputStyle, width: 140 }} />
+                  placeholder="وصف الدخل..." style={{ ...inputStyle, flex: 2 }} />
                 <input type="number" value={closingForm.extra_income} onChange={(e) => setClosingForm((p) => ({ ...p, extra_income: e.target.value }))}
-                  placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" }} />
+                  placeholder="0.00" style={{ ...inputStyle, flex: 1, textAlign: "left" as const }} />
               </div>
             </div>
 
@@ -10958,32 +11020,30 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
             </div>
           </div>
 
-          {/* ── المصروفات ── */}
+          {/* المصروفات */}
           <div style={cardStyle("#3a1000")}>
             <div style={{ color: "#ff7744", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📤 المصروفات</div>
 
-            {/* نثريات */}
             <div style={{ ...rowStyle, gap: 12 }}>
-              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>🪙 نثريات</span>
+              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" as const }}>🪙 نثريات</span>
               <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
                 <input value={closingForm.petty_note} onChange={(e) => setClosingForm((p) => ({ ...p, petty_note: e.target.value }))}
                   placeholder="وصف..." style={{ ...inputStyle, width: 140 }} />
                 <input type="number" value={closingForm.petty} onChange={(e) => setClosingForm((p) => ({ ...p, petty: e.target.value }))}
-                  placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" }} />
+                  placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" as const }} />
               </div>
             </div>
 
-            {/* مصروفات متغيرة */}
             {closingForm.variable_expenses.map((exp, i) => (
               <div key={i} style={{ ...rowStyle, gap: 8 }}>
-                <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" }}>📦 مصروف</span>
+                <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" as const }}>📦 مصروف</span>
                 <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
                   <input value={exp.name} onChange={(e) => setClosingForm((p) => {
                     const v = [...p.variable_expenses]; v[i] = { ...v[i], name: e.target.value }; return { ...p, variable_expenses: v };
                   })} placeholder="اسم المصروف" style={{ ...inputStyle, width: 140 }} />
                   <input type="number" value={exp.amount} onChange={(e) => setClosingForm((p) => {
                     const v = [...p.variable_expenses]; v[i] = { ...v[i], amount: e.target.value }; return { ...p, variable_expenses: v };
-                  })} placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" }} />
+                  })} placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" as const }} />
                   <button onClick={() => setClosingForm((p) => ({ ...p, variable_expenses: p.variable_expenses.filter((_, j) => j !== i) }))}
                     style={{ background: "#3a0a0a", border: "none", borderRadius: 6, padding: "4px 10px", color: "#ff7744", cursor: "pointer", fontSize: 16 }}>×</button>
                 </div>
@@ -10995,7 +11055,6 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
               + إضافة مصروف متغير
             </button>
 
-            {/* مصاريف ثابتة */}
             {fixedExpenses.length > 0 && (
               <div style={{ marginTop: 14, borderTop: "1px solid #2a1000", paddingTop: 12 }}>
                 <div style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🔒 مصاريف ثابتة — علّم المدفوع اليوم</div>
@@ -11019,31 +11078,25 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
             </div>
           </div>
 
-          {/* ── صافي الخزنة ── */}
-          <div style={{ ...cardStyle("#1a2a4a"), textAlign: "center", padding: 20 }}>
+          {/* صافي الخزنة */}
+          <div style={{ ...cardStyle("#1a2a4a"), textAlign: "center" as const, padding: 20 }}>
             <div style={{ color: "#4a6a8a", fontSize: 13, marginBottom: 6 }}>🏦 صافي الخزنة اليوم</div>
             <div style={{ color: netCash >= 0 ? "#44dd88" : "#ff4444", fontWeight: 900, fontSize: 32, marginBottom: 4 }}>
               {netCash.toFixed(2)} ر.س
             </div>
-            <div style={{ color: "#4a6a8a", fontSize: 11 }}>
-              إجمالي دخل: {totalIncome.toFixed(2)} — مصروفات: {totalExpenses.toFixed(2)}
+            <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: 12, color: "#4a6a8a" }}>
+              <span>نقدي: <b style={{ color: "#44dd88" }}>{(todayCash + todayCreditIncome).toFixed(0)}</b></span>
+              <span>بطاقة: <b style={{ color: "#3a9aff" }}>{todayCard.toFixed(0)}</b></span>
+              <span>تحويل: <b style={{ color: "#a78bfa" }}>{todayTransfer.toFixed(0)}</b></span>
             </div>
             {monthFixedTotal > 0 && (
-              <div style={{ color: "#ffaa44", fontSize: 11, marginTop: 6 }}>
+              <div style={{ color: "#ffaa44", fontSize: 11, marginTop: 8 }}>
                 ⚠️ مصاريف ثابتة شهرية غير مدفوعة اليوم: {(monthFixedTotal - fixedPaidTotal).toFixed(2)} ر.س
               </div>
             )}
           </div>
 
-          {/* أزرار الحفظ والطباعة */}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
-            <button onClick={handlePrint} style={{
-              background: "#0a1a3a", border: "1px solid #1d3a6a", borderRadius: 10,
-              padding: "10px 20px", color: "#3a9aff", fontSize: 13, fontWeight: 700, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 8,
-            }}>
-              <IC n="print" s={15} /> طباعة / PDF
-            </button>
             {!closingSaved
               ? <Btn icon="check" onClick={saveClosing}>حفظ تقفيل اليوم</Btn>
               : <div style={{ color: "#44dd88", fontWeight: 700, padding: "10px 16px", fontSize: 13 }}>✅ تم الحفظ</div>
@@ -11052,9 +11105,109 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
         </div>
       )}
 
+      {/* ══════════ تاب الشفتات ══════════ */}
+      {activeTab === "shifts" && (
+        <div>
+          {todayShifts.length === 0 ? (
+            <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد شفتات اليوم</div>
+          ) : (
+            <>
+              {todayShifts.map((sh) => {
+                const ss = getShiftSales(sh.id);
+                return (
+                  <div key={sh.id} style={cardStyle("#1a2a3a")}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <div>
+                        <span style={{ color: "#6aaeff", fontWeight: 700 }}>{sh.id}</span>
+                        <span style={{ color: "#4a6a8a", fontSize: 11, marginRight: 10 }}>{sh.user}</span>
+                      </div>
+                      <div style={{ color: sh.end_time ? "#44dd88" : "#ffaa44", fontSize: 11, fontWeight: 700 }}>
+                        {sh.end_time ? "✅ مغلق" : "🟡 مفتوح"}
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+                      {[
+                        { l: "نقدي", v: ss.cash, c: "#44dd88" },
+                        { l: "بطاقة", v: ss.card, c: "#3a9aff" },
+                        { l: "تحويل", v: ss.transfer, c: "#a78bfa" },
+                        { l: "إجمالي", v: ss.total, c: "#ffaa44" },
+                      ].map((x) => (
+                        <div key={x.l} style={{ background: "#080e14", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                          <div style={{ color: "#4a6a8a", fontSize: 10 }}>{x.l}</div>
+                          <div style={{ color: x.c, fontWeight: 700, fontSize: 14 }}>{x.v.toFixed(2)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {ss.ajil > 0 && (
+                      <div style={{ marginTop: 8, color: "#ff7777", fontSize: 12 }}>
+                        مديونية: {ss.ajil.toFixed(2)} ر.س ({ss.count} فاتورة)
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* إجمالي اليوم */}
+              <div style={{ ...cardStyle("#2a3a1a"), marginTop: 8 }}>
+                <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📊 إجمالي اليوم</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+                  {[
+                    { l: "نقدي", v: todayCash, c: "#44dd88" },
+                    { l: "بطاقة", v: todayCard, c: "#3a9aff" },
+                    { l: "تحويل", v: todayTransfer, c: "#a78bfa" },
+                    { l: "الإجمالي", v: todayCash + todayCard + todayTransfer, c: "#ffaa44" },
+                  ].map((x) => (
+                    <div key={x.l} style={{ background: "#080e14", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>{x.l}</div>
+                      <div style={{ color: x.c, fontWeight: 700, fontSize: 16 }}>{x.v.toFixed(2)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* إجمالي الشهر */}
+              <div style={{ ...cardStyle("#1a2a4a"), marginTop: 8 }}>
+                <div style={{ color: "#3a9aff", fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📅 إجمالي الشهر</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  {[
+                    { l: "دخل الشهر", v: monthIncome, c: "#44dd88" },
+                    { l: "مصروفات الشهر", v: monthExpenses, c: "#ff7744" },
+                    { l: "صافي الشهر", v: monthIncome - monthExpenses, c: monthIncome - monthExpenses >= 0 ? "#3a9aff" : "#ff4444" },
+                  ].map((x) => (
+                    <div key={x.l} style={{ background: "#080e14", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>{x.l}</div>
+                      <div style={{ color: x.c, fontWeight: 700, fontSize: 16 }}>{x.v.toFixed(2)}</div>
+                      <div style={{ color: "#3a5a8a", fontSize: 10 }}>ر.س</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ══════════ السجل ══════════ */}
       {activeTab === "history" && (
         <div>
+          {/* ملخص الشهر */}
+          <div style={{ ...cardStyle("#1a2a4a"), display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div style={{ textAlign: "center" as const }}>
+              <div style={{ color: "#4a6a8a", fontSize: 11 }}>دخل الشهر</div>
+              <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>{monthIncome.toFixed(0)} ر.س</div>
+            </div>
+            <div style={{ textAlign: "center" as const }}>
+              <div style={{ color: "#4a6a8a", fontSize: 11 }}>مصروفات الشهر</div>
+              <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 18 }}>{monthExpenses.toFixed(0)} ر.س</div>
+            </div>
+            <div style={{ textAlign: "center" as const }}>
+              <div style={{ color: "#4a6a8a", fontSize: 11 }}>صافي الشهر</div>
+              <div style={{ color: monthIncome - monthExpenses >= 0 ? "#3a9aff" : "#ff4444", fontWeight: 900, fontSize: 18 }}>
+                {(monthIncome - monthExpenses).toFixed(0)} ر.س
+              </div>
+            </div>
+          </div>
+
           {sortedDays.slice(0, 30).map((day) => {
             const dayEnt = groupedByDay[day];
             const dayIncome = dayEnt.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
@@ -11069,15 +11222,15 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
                     <div style={{ color: "#4a6a8a", fontSize: 11 }}>{dayEnt.length} قيد</div>
                   </div>
                   <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
-                    <div style={{ textAlign: "center" }}>
+                    <div style={{ textAlign: "center" as const }}>
                       <div style={{ color: "#44dd88", fontWeight: 700 }}>+{dayIncome.toFixed(0)}</div>
                       <div style={{ color: "#4a6a8a", fontSize: 10 }}>دخل</div>
                     </div>
-                    <div style={{ textAlign: "center" }}>
+                    <div style={{ textAlign: "center" as const }}>
                       <div style={{ color: "#ff7744", fontWeight: 700 }}>-{dayExp.toFixed(0)}</div>
                       <div style={{ color: "#4a6a8a", fontSize: 10 }}>مصروف</div>
                     </div>
-                    <div style={{ textAlign: "center" }}>
+                    <div style={{ textAlign: "center" as const }}>
                       <div style={{ color: dayIncome - dayExp >= 0 ? "#3a9aff" : "#ff4444", fontWeight: 900 }}>
                         {(dayIncome - dayExp).toFixed(0)}
                       </div>
@@ -11090,7 +11243,10 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
                   <div style={{ marginTop: 10, borderTop: "1px solid #0a101a", paddingTop: 10 }}>
                     {dayEnt.map((e) => (
                       <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12 }}>
-                        <span style={{ color: "#7a9aaa" }}>{e.note || e.sub_type}</span>
+                        <div>
+                          <span style={{ color: "#7a9aaa" }}>{e.note || e.sub_type}</span>
+                          {e.method && <span style={{ color: "#3a5a8a", fontSize: 10, marginRight: 8 }}>({e.method})</span>}
+                        </div>
                         <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744", fontWeight: 700 }}>
                           {e.type === "income" ? "+" : "-"}{e.amount} ر.س
                         </span>
@@ -11101,7 +11257,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
               </div>
             );
           })}
-          {sortedDays.length === 0 && <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد قيود مسجلة</div>}
+          {sortedDays.length === 0 && <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد قيود مسجلة</div>}
         </div>
       )}
 
@@ -11112,7 +11268,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
             <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>
           </div>
           {fixedExpenses.length === 0
-            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد مصاريف ثابتة</div>
+            ? <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد مصاريف ثابتة</div>
             : (
               <>
                 <div style={{ ...cardStyle("#2a1a00"), display: "flex", justifyContent: "space-between" }}>
@@ -11146,7 +11302,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
             <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>
           </div>
           {licenses.length === 0
-            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد تراخيص</div>
+            ? <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد تراخيص</div>
             : licenses.map((l) => {
                 const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
                 const urgent = days <= 14; const soon = days <= 60;
@@ -11159,7 +11315,7 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
                           تجديد: {l.renew_date}{l.note && ` • ${l.note}`}
                         </div>
                       </div>
-                      <div style={{ textAlign: "left" }}>
+                      <div style={{ textAlign: "left" as const }}>
                         <div style={{ color: urgent ? "#ff4444" : soon ? "#ffaa44" : "#44dd88", fontWeight: 700 }}>
                           {days <= 0 ? "⚠️ منتهي" : `خلال ${days} يوم`}
                         </div>
@@ -11172,6 +11328,43 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
           }
         </div>
       )}
+
+      {/* Modal سداد مورد */}
+      <Modal open={showSupplierPayForm} onClose={() => setShowSupplierPayForm(false)} title="💳 سداد مورد">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 6 }}>المورد</div>
+            <select value={supplierPayForm.supplier_id}
+              onChange={(e) => setSupplierPayForm((p) => ({ ...p, supplier_id: e.target.value }))}
+              style={{ ...inputStyle }}>
+              <option value="">اختر المورد...</option>
+              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <Input label="المبلغ (ر.س)" value={supplierPayForm.amount} onChange={(v) => setSupplierPayForm((p) => ({ ...p, amount: v }))} type="number" />
+          <div>
+            <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 6 }}>طريقة الدفع</div>
+            <select value={supplierPayForm.method}
+              onChange={(e) => setSupplierPayForm((p) => ({ ...p, method: e.target.value }))}
+              style={{ ...inputStyle }}>
+              <option value="نقدي">💵 نقدي</option>
+              <option value="بطاقة">💳 بطاقة / صراف</option>
+              <option value="تحويل">🏦 تحويل بنكي</option>
+            </select>
+          </div>
+          {(supplierPayForm.method === "بطاقة" || supplierPayForm.method === "تحويل") && (
+            <Input label="مصاريف بنكية (ر.س)" value={supplierPayForm.bank_fees}
+              onChange={(v) => setSupplierPayForm((p) => ({ ...p, bank_fees: v }))} type="number" />
+          )}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Input label="ملاحظات" value={supplierPayForm.note} onChange={(v) => setSupplierPayForm((p) => ({ ...p, note: v }))} placeholder="رقم الفاتورة..." />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowSupplierPayForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={saveSupplierPayment}>تسجيل السداد</Btn>
+        </div>
+      </Modal>
 
       {/* Modal مصروف ثابت */}
       <Modal open={showFixedForm} onClose={() => setShowFixedForm(false)} title="🔒 إضافة مصروف ثابت">
@@ -11215,53 +11408,9 @@ function TreasuryModule({ sales, creditPayments, pharmacyId, currentUser, showTo
           }}>إضافة</Btn>
         </div>
       </Modal>
-
-      {/* محتوى الطباعة المخفي */}
-      <div ref={printRef} style={{ display: "none" }}>
-        <h2>💰 تقفيل يوم {today}</h2>
-        <div className="sub">بواسطة: {currentUser?.name} — {new Date().toLocaleTimeString("ar-SA")}</div>
-
-        <div className="section">📥 الدخل</div>
-        <table>
-          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
-          <tbody>
-            <tr><td>مبيعات نقدية (POS)</td><td className="green">{todaySalesIncome.toFixed(2)} ر.س</td></tr>
-            <tr><td>سداد آجل (POS)</td><td className="blue">{todayCreditIncome.toFixed(2)} ر.س</td></tr>
-            {+closingForm.card_income > 0 && <tr><td>صراف/شبكة</td><td className="green">{(+closingForm.card_income).toFixed(2)} ر.س</td></tr>}
-            {+closingForm.extra_income > 0 && <tr><td>{closingForm.extra_income_note || "دخل إضافي"}</td><td className="green">{(+closingForm.extra_income).toFixed(2)} ر.س</td></tr>}
-            <tr className="total-row"><td>إجمالي الدخل</td><td className="green">{totalIncome.toFixed(2)} ر.س</td></tr>
-          </tbody>
-        </table>
-
-        <div className="section">📤 المصروفات</div>
-        <table>
-          <thead><tr><th>البيان</th><th>المبلغ</th></tr></thead>
-          <tbody>
-            {+closingForm.petty > 0 && <tr><td>{closingForm.petty_note || "نثريات"}</td><td className="red">{(+closingForm.petty).toFixed(2)} ر.س</td></tr>}
-            {closingForm.variable_expenses.filter((e) => +e.amount > 0).map((e, i) => (
-              <tr key={i}><td>{e.name}</td><td className="red">{(+e.amount).toFixed(2)} ر.س</td></tr>
-            ))}
-            {fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).map((f) => (
-              <tr key={f.id}><td>{f.name} (ثابت)</td><td className="red">{f.amount.toFixed(2)} ر.س</td></tr>
-            ))}
-            <tr className="total-row"><td>إجمالي المصروفات</td><td className="red">{totalExpenses.toFixed(2)} ر.س</td></tr>
-          </tbody>
-        </table>
-
-        <div className="section">🏦 الصافي</div>
-        <table>
-          <tbody>
-            <tr className="total-row">
-              <td>صافي الخزنة</td>
-              <td style={{ color: netCash >= 0 ? "#16a34a" : "#dc2626", fontWeight: 900, fontSize: 18 }}>{netCash.toFixed(2)} ر.س</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
-
 // ==================== TAX REPORT ====================
 function TaxReport({ sales, purchases }) {
   const [quarter, setQuarter] = useState("Q2-2026");
