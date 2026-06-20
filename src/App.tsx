@@ -7838,21 +7838,23 @@ function SuppliersModule({
 
     setPayments((p) => [...p, { id: payId, supplier_id: supplier.id, date: new Date().toISOString().split("T")[0], amount, notes: payForm.note, attachment_url: receiptUrl }]);
     await processPaymentFIFO(supplier.id, amount);
-    const { data: trData, error: trError } = await supabase.from("treasury_entries").insert({
-    type: "expense",
-    sub_type: "supplier_payment",
-    method: payForm.method || "نقدي",
-    amount,
-    note: `سداد مورد: ${supplier.name}${payForm.note ? " - " + payForm.note : ""}`,
-    date: new Date().toISOString().split("T")[0],
-    pharmacy_id: pharmacyId,
-    created_by: currentUser?.name || "",
-    supplier_id: supplier.id,
-  }).select();
+    const trPayload = {
+      type: "expense",
+      sub_type: "supplier_payment",
+      method: payForm.method || "نقدي",
+      amount,
+      note: `سداد مورد: ${supplier.name}${payForm.note ? " - " + payForm.note : ""}`,
+      date: new Date().toISOString().split("T")[0],
+      pharmacy_id: pharmacyId,
+      created_by: currentUser?.name || "",
+      supplier_id: supplier.id,
+    };
+    const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
     if (trError) {
       showToast("تم تسجيل السداد لكن فشل تحديث الخزنة: " + trError.message, "error");
-    } else if (trData && setTreasuryEntries) {
-      setTreasuryEntries((p) => [trData[0], ...p]);
+    } else if (setTreasuryEntries) {
+      const newEntry = (trData && trData[0]) ? trData[0] : { id: `TMP-${Date.now()}`, ...trPayload };
+      setTreasuryEntries((p) => [newEntry, ...p]);
     }
     setShowPayForm(null);
     setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
@@ -10819,13 +10821,14 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
 
   // ── رصيد الخزنة اللحظي من كل السجلات ──
   const calcBalance = (method) => {
+    const safe = (entries || []).filter(Boolean);
     // دخل من المبيعات
     const salesIncome = sales.filter((s) => !s.returned && s.payment === method).reduce((a, s) => a + s.total, 0);
     // سداد آجل (كاش دايماً)
     const creditIn = method === "نقدي" ? creditPayments.reduce((a, p) => a + p.amount, 0) : 0;
     // من سجل الخزنة (يشمل المصروفات العادية ومدفوعات الموردين سوا — type === "expense")
-    const entryIn = entries.filter((e) => e.type === "income" && e.method === method).reduce((a, e) => a + e.amount, 0);
-    const entryOut = entries.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
+    const entryIn = safe.filter((e) => e.type === "income" && e.method === method).reduce((a, e) => a + e.amount, 0);
+    const entryOut = safe.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
     return salesIncome + creditIn + entryIn - entryOut;
   };
 
@@ -10884,15 +10887,16 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     showToast("تم حفظ تقفيل اليوم ✓");
   };
   // ── تجميع السجل ──
+  const safeEntries = (entries || []).filter(Boolean);
   const groupedByDay = {};
-  entries.forEach((e) => {
+  safeEntries.forEach((e) => {
     if (!groupedByDay[e.date]) groupedByDay[e.date] = [];
     groupedByDay[e.date].push(e);
   });
   const sortedDays = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
 
   // إجمالي الشهر
-  const monthEntries = entries.filter((e) => e.date?.startsWith(monthKey));
+  const monthEntries = safeEntries.filter((e) => e.date?.startsWith(monthKey));
   const monthIncome = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0)
     + creditPayments.filter((p) => p.date?.startsWith(monthKey)).reduce((a, p) => a + p.amount, 0)
     + monthEntries.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
