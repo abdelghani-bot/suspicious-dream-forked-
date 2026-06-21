@@ -4522,6 +4522,7 @@ const LABEL_SIZES = [
           stock: newStock,
           cost: ci.receivedCost,
           price: ci.newSalePrice,
+          not_available_market: false,
         })
         .eq("id", ci.id);
     }
@@ -4547,6 +4548,7 @@ const LABEL_SIZES = [
           cost: ci.receivedCost,
           price: ci.newSalePrice,
           batches: [...existingBatches, newBatch],
+          not_available_market: false,
         };
       })
     );
@@ -7362,6 +7364,7 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [showLowStock, setShowLowStock] = useState(false);
 
   // ── الشركات المنتجة ──
   const [manufacturers, setManufacturers] = useState([]);
@@ -7386,6 +7389,8 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
     isEssential: false, isChronic: false,
     supply_category: "",
     manufacturer_id: "",
+    notAvailableMarket: false,
+    shortageReportUrl: "",
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -7437,6 +7442,8 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
       isChronic: p.is_chronic ?? false,
       supply_category: p.supply_category || "",
       manufacturer_id: p.manufacturer_id || "",
+      notAvailableMarket: p.not_available_market ?? false,
+      shortageReportUrl: p.shortage_report_url || "",
     });
 
     const { data: bc } = await supabase.from("product_barcodes").select("*").eq("product_id", p.id).order("is_primary", { ascending: false });
@@ -7516,6 +7523,8 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
       is_essential: form.isEssential, is_chronic: form.isChronic,
       supply_category: form.supply_category,
       manufacturer_id: form.manufacturer_id || null,
+      not_available_market: form.notAvailableMarket,
+      shortage_report_url: form.shortageReportUrl || null,
     };
 
     let productId = form.id;
@@ -7553,6 +7562,14 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
 
   const inputStyle = { background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
 
+  const lowStockList = products
+    .filter((p) => (p.stock ?? 0) <= (p.minStock || p.min_stock || 0))
+    .sort((a, b) => {
+      const aEss = (a.is_essential || a.isEssential) ? 1 : 0;
+      const bEss = (b.is_essential || b.isEssential) ? 1 : 0;
+      return bEss - aEss;
+    });
+
   return (
     <div>
       {/* ── Header ── */}
@@ -7572,7 +7589,9 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
       {/* ── Stats ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
         <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#3a9aff" />
-        <StatCard label="مخزون منخفض" value={products.filter((p) => p.stock <= (p.minStock || p.min_stock || 0)).length} icon="alert" color="#ffaa44" />
+        <div onClick={() => setShowLowStock(true)} style={{ cursor: "pointer" }}>
+          <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color="#ffaa44" />
+        </div>
         <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color="#f59e0b" />
         <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color="#a78bfa" />
       </div>
@@ -7598,17 +7617,55 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
             <span style={{ color: "#3a9aff", fontWeight: 700 }}>{p.price} ر.س</span>,
             <span style={{ color: "#4a6a8a" }}>{p.cost} ر.س</span>,
             (p.is_essential || p.isEssential) ? <Badge color="#2a1a00" text="#f59e0b">⭐ أساسي</Badge> : <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>,
-            <div style={{ display: "flex", gap: 5 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {(p.not_available_market) && (
+                p.shortage_report_url
+                  ? <a href={p.shortage_report_url} target="_blank" rel="noreferrer"><Badge color="#3a0a0a" text="#ff5566">🚫 غير متوفر</Badge></a>
+                  : <Badge color="#3a0a0a" text="#ff5566">🚫 غير متوفر</Badge>
+              )}
+              <div style={{ display: "flex", gap: 5 }}>
               <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
               <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
                 await supabase.from("products").delete().eq("id", p.id);
                 setProducts((prev) => prev.filter((x) => x.id !== p.id));
                 showToast("تم حذف الصنف");
               }}>حذف</Btn>
+              </div>
             </div>,
           ];
         })}
       />
+
+      {/* ── Modal المخزون المنخفض ── */}
+      <Modal open={showLowStock} onClose={() => setShowLowStock(false)} title="⚠️ الأصناف ذات المخزون المنخفض">
+        {lowStockList.length === 0 ? (
+          <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20 }}>لا توجد أصناف ناقصة حاليًا 👍</div>
+        ) : (
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            {lowStockList.map((p) => {
+              const isEss = p.is_essential || p.isEssential;
+              return (
+                <div key={p.id} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "10px 12px", marginBottom: 6, borderRadius: 8,
+                  background: isEss ? "#2a1200" : "#0d1a2e",
+                  border: `1px solid ${isEss ? "#f59e0b" : "#1d2d4a"}`,
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: isEss ? "#f59e0b" : "#dde8ff", fontSize: 13 }}>
+                      {isEss && "⭐ "}{p.nameAr || p.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#4a6a8a", marginTop: 2 }}>
+                      المتاح: {p.stock ?? 0} / الحد الأدنى: {p.minStock || p.min_stock || 0}
+                    </div>
+                  </div>
+                  <Btn size="sm" icon="edit" variant="secondary" onClick={() => { setShowLowStock(false); openEdit(p); }}>تعديل</Btn>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
 
       {/* ── Modal إدارة الشركات ── */}
       <Modal open={showMfrModal} onClose={() => setShowMfrModal(false)} title="🏭 إدارة الشركات المنتجة">
@@ -7676,6 +7733,15 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
             <label style={{ color: "#44aaff", fontSize: 13, fontWeight: 600 }}>🔄 دواء مزمن</label>
             <input type="checkbox" checked={form.isChronic} onChange={(e) => F("isChronic", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+            <label style={{ color: "#ff5566", fontSize: 13, fontWeight: 600 }}>🚫 غير متوفر بالسوق السعودي</label>
+            <input type="checkbox" checked={form.notAvailableMarket} onChange={(e) => F("notAvailableMarket", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
+          </div>
+          {form.notAvailableMarket && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Input label="رابط بلاغ عدم التوفر (منصة رصد مثلاً)" value={form.shortageReportUrl} onChange={(v) => F("shortageReportUrl", v)} placeholder="https://..." />
+            </div>
+          )}
         </div>
 
         {/* المواد الفعالة */}
