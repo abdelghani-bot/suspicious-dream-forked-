@@ -1335,6 +1335,45 @@ if (isLoading) return (
     </div>
   </div>
 );
+  const essentialAlerts = useEssentialAlerts(products);
+  const tabAlertCounts = useMemo(() => {
+    const lowStockCount   = products.filter((p) => p.stock <= (p.min_stock || p.minStock || 0)).length;
+    const expiringCount   = products.filter((p) => {
+      if (!p.expiry) return false;
+      const diff = (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24);
+      return diff < 90 && diff > 0;
+    }).length;
+    const supplierDueCount = (suppliers || []).filter((s) => {
+      const supPurchases = (purchases || []).filter((p) => p.supplier === s.id && p.payment_status !== "مسددة");
+      return supPurchases.some((po) => {
+        const due = new Date(po.date);
+        due.setDate(due.getDate() + (s.payment_terms || 30));
+        const daysLeft = Math.floor((due - new Date()) / (1000 * 60 * 60 * 24));
+        return daysLeft <= 5;
+      });
+    }).length;
+    const disappearedCount = (customers || []).filter((c) => {
+      if (!c.lastVisit) return false;
+      const days = (new Date() - new Date(c.lastVisit)) / (1000 * 60 * 60 * 24);
+      return days > 45 && days < 365 && (c.visits || 0) > 0;
+    }).length;
+    const newCustomersCount = (customers || []).filter((c) => {
+      if (!c.created_at) return false;
+      const days = (new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24);
+      return days <= 7;
+    }).length;
+    const now = new Date();
+    const quarterEndMonth = [2, 5, 8, 11].find((m) => m >= now.getMonth()) ?? 2;
+    const qEnd = new Date(now.getFullYear(), quarterEndMonth + 1, 0);
+    const taxDaysLeft = Math.ceil((qEnd - now) / (1000 * 60 * 60 * 24));
+    return {
+      products: lowStockCount + expiringCount + essentialAlerts.length,
+      suppliers: supplierDueCount,
+      customers: disappearedCount + newCustomersCount,
+      tax_report: taxDaysLeft <= 14 ? 1 : 0,
+    };
+  }, [products, suppliers, purchases, customers, essentialAlerts]);
+
   const TABS = [
     { id: "dashboard", label: "الرئيسية", icon: "dashboard" },
     { id: "pos", label: "نقطة البيع", icon: "pos" },
@@ -1479,7 +1518,17 @@ if (isLoading) return (
               }}
             >
               <IC n={t.icon} s={16} />
-              {t.label}
+              <span style={{ flex: 1 }}>{t.label}</span>
+              {tabAlertCounts[t.id] > 0 && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, padding: "0 4px",
+                  borderRadius: 99, background: "#3a1010", color: "#ff6a6a",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: "monospace",
+                }}>
+                  {tabAlertCounts[t.id]}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -1851,12 +1900,16 @@ function Dashboard({
     catch { return []; }
   };
   const calcSaleProfit = (s) => {
-    const items = getSaleItems(s);
-    return items.reduce((sum, it) => {
+    const items = getSaleItems(s).filter((it) => !it.isMissed); // الأصناف المفقودة (طلب بدون مخزون) مش بيع فعلي ومالهاش ربح
+    const rawProfit = items.reduce((sum, it) => {
       const cost = it.cost ?? products.find((p) => p.id === it.id)?.cost ?? 0;
       const price = it.price ?? 0;
       return sum + (price - cost) * (it.qty || 0);
     }, 0);
+    // الخصم بيتطبق على مستوى الفاتورة كلها (subtotal + ضريبة) مش موزّع على كل صنف،
+    // وبما إن التكلفة ثابتة، أي خصم بيقلل الربح بقيمته بالكامل
+    const discount = s.discount_amt ?? s.discountAmt ?? 0;
+    return rawProfit - discount;
   };
   const monthsData = last6Months.map((mk) => {
     const mSales = sales.filter((s) => s.date?.startsWith(mk) && !s.returned);
@@ -1933,13 +1986,13 @@ function Dashboard({
     { key: "essential",  icon: "💊", label: "نفاذ/قرب نفاذ دواء أساسي", count: alerts.length,                 color: "#EF4444", tab: "products" },
     { key: "lowstock",   icon: "📦", label: "مخزون منخفض",              count: lowStock.length,               color: "#F59E0B", tab: "products" },
     { key: "expiry",     icon: "⏰", label: "أصناف قرب الانتهاء",        count: expiringSoon.length,           color: "#F59E0B", tab: "products" },
-    { key: "promo",      icon: "🏷️", label: "عروض تلقائية تحتاج مراجعة", count: autoPromoCandidates.length,    color: "#3B82F6", tab: "promotions" },
     { key: "supplier",   icon: "🧾", label: "استحقاق مورد قريب/متأخر",   count: supplierDues.length,           color: "#EF4444", tab: "suppliers" },
     { key: "newcust",    icon: "🆕", label: "عملاء جدد هذا الأسبوع",     count: newCustomers.length,           color: "#00C896", tab: "customers" },
     { key: "lostcust",   icon: "👻", label: "عملاء مختفون",              count: disappearedCustomers.length,   color: "#7D8590", tab: "customers" },
     { key: "tax",        icon: "🗂️", label: "موعد الإقرار الضريبي الربعي", count: taxDeadlineInfo.daysLeft <= 14 ? 1 : 0, color: "#F59E0B", tab: "tax_report" },
     { key: "appoint",    icon: "📅", label: "مواعيد مهمة (رخصة/إيجار)",  count: 2,                              color: "#00C896", tab: "dashboard" },
   ];
+  // العروض التلقائية بتتطبق وبتتلغي تلقائيًا حسب الصلاحية بدون تدخل بشري — مش بند تنبيه يحتاج إجراء
   const totalAlertsCount = alertCenterGroups.reduce((a, g) => a + g.count, 0);
 
   // ══════════ تايم لاين حركة اليوم (بالساعة) ══════════
@@ -2247,7 +2300,12 @@ function Dashboard({
           </div>
         </div>
         <div>
-          {alertCenterGroups.map((g) => (
+          {totalAlertsCount === 0 && (
+            <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
+              لا توجد تنبيهات حالياً ✅
+            </div>
+          )}
+          {alertCenterGroups.filter((g) => g.count > 0).map((g) => (
             <div key={g.key}>
               <div
                 onClick={() => setExpandedAlertGroup(expandedAlertGroup === g.key ? null : g.key)}
@@ -2285,12 +2343,6 @@ function Dashboard({
                       const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
                       return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={VAR.warn} VAR={VAR} />;
                     })
-                  )}
-                  {g.key === "promo" && (
-                    autoPromoCandidates.length === 0 ? <EmptyAlertRow text="لا توجد أصناف تحتاج عرض تلقائي" muted={VAR.muted} /> :
-                    autoPromoCandidates.slice(0, 8).map((p) => (
-                      <AlertRow key={p.id} text={p.name} badge={`خصم مقترح ${calcAutoDiscount(p.expiry)}%`} color={VAR.accent2} VAR={VAR} />
-                    ))
                   )}
                   {g.key === "supplier" && (
                     supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :
@@ -2725,6 +2777,8 @@ function POS({
         gtin: i.gtin || i.barcode,
         batch: i.batch || null,
         serial: i.serial || null,
+        isMissed: !!i.isMissed,
+        isJoker: !!i.isJoker,
         expiry:
           i.expiry ||
           newFifoResults[i.id]?.soldBatches?.[0]?.expiry_date ||
