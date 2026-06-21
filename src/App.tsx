@@ -1664,7 +1664,7 @@ if (isLoading) return (
             suppliers={suppliers}
             customers={customers}
             returns={returnsData}
-            manufactures={manufactures}
+            manufacturers={manufacturers}
           />
         )}
         {tab === "tax_report" && (
