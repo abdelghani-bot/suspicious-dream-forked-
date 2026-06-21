@@ -1678,6 +1678,8 @@ if (isLoading) return (
             products={products}
             setProducts={setProducts}
             suppliers={suppliers}
+            sales={sales}
+            purchases={purchases}
             showToast={showToast}
             pharmacyId={pharmacyId}
           />
@@ -7360,11 +7362,12 @@ const SUPPLY_CATEGORIES = [
   "حفاضات",
   "رضاعات ومستلزمات الرضاعة",
 ];
-function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyId }) {
+function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [showLowStock, setShowLowStock] = useState(false);
+  const [showSlowProducts, setShowSlowProducts] = useState(false);
 
   // ── الشركات المنتجة ──
   const [manufacturers, setManufacturers] = useState([]);
@@ -7570,6 +7573,27 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
       return bEss - aEss;
     });
 
+  // ========== تصنيف حركة الصنف (سريع/بطيء) ==========
+  const getMovementClass = (productId) => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const recentSales = (sales || []).filter((s) => {
+      const saleDate = new Date(s.date);
+      return saleDate >= thirtyDaysAgo && s.items?.some((i) => i.id === productId);
+    });
+    const salesDays = new Set(recentSales.map((s) => s.date)).size;
+    const salesCount = recentSales.length;
+    if (salesDays >= 21) return { class: "fast",      label: "سريع جداً", color: "#44dd88" };
+    if (salesDays >= 10) return { class: "regular",   label: "منتظم",     color: "#3a9aff" };
+    if (salesCount >= 5) return { class: "normal",    label: "عادي",      color: "#aaaaaa" };
+    if (salesCount >= 1) return { class: "slow",      label: "بطيء",      color: "#ffaa44" };
+    return             { class: "very_slow", label: "بطيء جداً", color: "#ff5555" };
+  };
+
+  const slowProducts = (products || [])
+    .filter((p) => { const mv = getMovementClass(p.id); return (mv.class === "slow" || mv.class === "very_slow") && p.stock > 0; })
+    .sort((a, b) => (b.cost || 0) - (a.cost || 0));
+
   return (
     <div>
       {/* ── Header ── */}
@@ -7587,10 +7611,13 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
         style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: "#dde8ff", fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
 
       {/* ── Stats ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
         <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#3a9aff" />
         <div onClick={() => setShowLowStock(true)} style={{ cursor: "pointer" }}>
           <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color="#ffaa44" />
+        </div>
+        <div onClick={() => setShowSlowProducts(true)} style={{ cursor: "pointer" }}>
+          <StatCard label="أصناف بطيئة" value={slowProducts.length} icon="alert" color="#ff5555" />
         </div>
         <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color="#f59e0b" />
         <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color="#a78bfa" />
@@ -7660,6 +7687,38 @@ function ProductsModule({ products, setProducts, suppliers, showToast, pharmacyI
                     </div>
                   </div>
                   <Btn size="sm" icon="edit" variant="secondary" onClick={() => { setShowLowStock(false); openEdit(p); }}>تعديل</Btn>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Modal الأصناف البطيئة ── */}
+      <Modal open={showSlowProducts} onClose={() => setShowSlowProducts(false)} title="⚠️ أصناف بطيئة تحتاج تنشيط">
+        {slowProducts.length === 0 ? (
+          <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20 }}>لا توجد أصناف بطيئة حاليًا 👍</div>
+        ) : (
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            {slowProducts.map((p) => {
+              const mv = getMovementClass(p.id);
+              const isEss = p.is_essential || p.isEssential;
+              return (
+                <div key={p.id} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "10px 12px", marginBottom: 6, borderRadius: 8,
+                  background: isEss ? "#2a1200" : "#1a0a00",
+                  border: `1px solid ${isEss ? "#f59e0b" : "#3a2000"}`,
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: isEss ? "#f59e0b" : "#dde8ff", fontSize: 13 }}>
+                      {isEss && "⭐ "}{p.nameAr || p.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#4a6a8a", marginTop: 2 }}>
+                      مخزون: {p.stock} · تكلفة: {p.cost} ر.س
+                    </div>
+                  </div>
+                  <Badge color="#0a0800" text={mv.color}>{mv.label}</Badge>
                 </div>
               );
             })}
@@ -8259,10 +8318,6 @@ function SuppliersModule({
 
   const filteredSuppliers = suppliers.filter((s) => filterStatus === "all" ? true : getSupplierStatus(s) === filterStatus);
 
-  const slowProducts = (products || [])
-    .filter((p) => { const mv = getMovementClass(p.id); return (mv.class === "slow" || mv.class === "very_slow") && p.stock > 0; })
-    .sort((a, b) => (b.cost || 0) - (a.cost || 0));
-
   // ── helper لإضافة سطر في تفاصيل رصيد أول المدة ──
   const addOpeningDetail = () => {
     F("opening_balance_details", [
@@ -8306,28 +8361,6 @@ function SuppliersModule({
           }}>{f.l}</button>
         ))}
       </div>
-
-      {/* أصناف بطيئة */}
-      {slowProducts.length > 0 && (
-        <div style={{ background: "#1a0a00", border: "1px solid #4a2a00", borderRadius: 12, padding: 14, marginBottom: 18 }}>
-          <div style={{ color: "#ffaa44", fontWeight: 700, marginBottom: 10, fontSize: 14 }}>
-            ⚠️ أصناف بطيئة تحتاج تنشيط ({slowProducts.length})
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {slowProducts.slice(0, 10).map((p) => {
-              const mv = getMovementClass(p.id);
-              return (
-                <div key={p.id} style={{ background: "#0a0800", border: "1px solid #3a2000", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
-                  <span style={{ color: "#dde8ff" }}>{p.name}</span>
-                  <span style={{ color: mv.color, marginRight: 8 }}>{mv.label}</span>
-                  <span style={{ color: "#4a6a8a", marginRight: 8 }}>مخزون: {p.stock}</span>
-                  <span style={{ color: "#ffaa44" }}>تكلفة: {p.cost} ر.س</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* كروت الموردين */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 14 }}>
