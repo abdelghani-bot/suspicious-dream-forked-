@@ -1557,6 +1557,7 @@ if (isLoading) return (
             sales={sales}
             purchases={purchases}
             customers={customers}
+            suppliers={suppliers}
             shifts={shifts}
             currentUser={currentUser}
             setTab={setTab}
@@ -1720,6 +1721,18 @@ if (isLoading) return (
   );
 }
 
+function AlertRow({ text, badge, color, VAR }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", padding: "6px 0", gap: 10, fontSize: 12 }}>
+      <div style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />
+      <div style={{ flex: 1, color: VAR.text }}>{text}</div>
+      <div style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, background: `${color}1f`, color, fontWeight: 600 }}>{badge}</div>
+    </div>
+  );
+}
+function EmptyAlertRow({ text, muted }) {
+  return <div style={{ textAlign: "center", color: muted, fontSize: 11, padding: "10px 0" }}>{text}</div>;
+}
 function useEssentialAlerts(products) {
   const [alerts, setAlerts] = useState([]);
 
@@ -1756,6 +1769,7 @@ function Dashboard({
   sales,
   purchases,
   customers,
+  suppliers = [],
   shifts,
   currentUser,
   setTab,
@@ -1764,6 +1778,7 @@ function Dashboard({
   const alerts = useEssentialAlerts(products);
   const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
   const [privacyMode, setPrivacyMode] = useState(true);
+  const [expandedAlertGroup, setExpandedAlertGroup] = useState(null);
 
   // ── فرص ضائعة ──
   const [missedToday, setMissedToday] = useState({ count: 0, value: 0 });
@@ -1829,13 +1844,28 @@ function Dashboard({
     return months;
   };
   const last6Months = getLast6Months();
+  // ربح صنف واحد داخل فاتورة = (سعر البيع - التكلفة) × الكمية
+  // التكلفة تُقرأ من الـ item نفسه (مسجلة وقت البيع) وإن لم توجد (فواتير قديمة) نرجع لتكلفة الصنف الحالية كتقريب
+  const getSaleItems = (s) => {
+    try { return typeof s.items === "string" ? JSON.parse(s.items) : s.items || []; }
+    catch { return []; }
+  };
+  const calcSaleProfit = (s) => {
+    const items = getSaleItems(s);
+    return items.reduce((sum, it) => {
+      const cost = it.cost ?? products.find((p) => p.id === it.id)?.cost ?? 0;
+      const price = it.price ?? 0;
+      return sum + (price - cost) * (it.qty || 0);
+    }, 0);
+  };
   const monthsData = last6Months.map((mk) => {
     const mSales = sales.filter((s) => s.date?.startsWith(mk) && !s.returned);
     const mCash  = mSales.filter((s) => s.payment !== "آجل");
     const mRev   = mCash.reduce((a, s) => a + s.total, 0);
     const mPurchases = purchases.filter((p) => (p.created_at || p.date || "").startsWith(mk)).reduce((a, p) => a + (p.total || 0), 0);
     const mCreditPaid = creditPayments.filter((p) => p.date?.startsWith(mk)).reduce((a, p) => a + p.amount, 0);
-    const mProfit = mRev - mPurchases;
+    // الربح الفعلي = مجموع (سعر البيع - التكلفة) × الكمية لكل أصناف فواتير الشهر (وليس الفرق بين إجمالي البيع وإجمالي الشراء)
+    const mProfit = mSales.reduce((sum, s) => sum + calcSaleProfit(s), 0);
     const label = new Date(mk + "-01").toLocaleDateString("ar-EG", { month: "short", year: "2-digit" });
     return { mk, label, mRev, mPurchases, mCreditPaid, mProfit };
   });
@@ -1847,6 +1877,83 @@ function Dashboard({
     const diff = (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24);
     return diff < 90 && diff > 0;
   });
+
+  // ══════════ بيانات مركز التنبيهات ══════════
+  const todayISO = new Date().toISOString().split("T")[0];
+
+  // عروض تلقائية (غير دواء + قرب صلاحية حسب نفس قواعد قسم العروض) + عروض يدوية لا تحتاج هنا عداد دقيق (تُدار في قسمها)
+  const autoPromoCandidates = products.filter((p) => {
+    const cat = p.main_category || p.category || "";
+    if (cat === "دواء") return false;
+    if (!p.expiry) return false;
+    const disc = calcAutoDiscount(p.expiry);
+    return disc > 0 && (p.stock || 0) > 0;
+  });
+
+  // استحقاقات الموردين القريبة (خلال 5 أيام أو متأخرة بالفعل)
+  const supplierDues = (suppliers || []).map((s) => {
+    const supPurchases = (purchases || []).filter((p) => p.supplier === s.id && p.payment_status !== "مسددة");
+    let nearestDue = null, isOverdue = false;
+    supPurchases.forEach((po) => {
+      const due = new Date(po.date);
+      due.setDate(due.getDate() + (s.payment_terms || 30));
+      const daysLeft = Math.floor((due - new Date()) / (1000 * 60 * 60 * 24));
+      if (nearestDue === null || daysLeft < nearestDue) nearestDue = daysLeft;
+      if (daysLeft < 0) isOverdue = true;
+    });
+    return { supplier: s, daysLeft: nearestDue, isOverdue };
+  }).filter((d) => d.daysLeft !== null && d.daysLeft <= 5);
+
+  // عملاء جدد خلال آخر 7 أيام
+  const newCustomers = (customers || []).filter((c) => {
+    const created = c.created_at ? new Date(c.created_at) : null;
+    if (!created) return false;
+    const days = (new Date() - created) / (1000 * 60 * 60 * 24);
+    return days <= 7;
+  });
+
+  // عملاء مختفون: كان عندهم تعامل سابق ومالهمش زيارة منذ أكثر من 45 يوم
+  const disappearedCustomers = (customers || []).filter((c) => {
+    if (!c.lastVisit) return false;
+    const days = (new Date() - new Date(c.lastVisit)) / (1000 * 60 * 60 * 24);
+    return days > 45 && days < 365 && (c.visits || 0) > 0;
+  });
+
+  // موعد إقفال الإقرار الضريبي الربعي (نهاية الشهر التالي لنهاية الربع - نظام ضريبة القيمة المضافة السعودي)
+  const taxDeadlineInfo = (() => {
+    const now = new Date();
+    const quarterEndMonth = [2, 5, 8, 11].find((m) => m >= now.getMonth()) ?? 2; // فبراير=1 .. نهاية كل ربع
+    const qEnd = new Date(now.getFullYear(), quarterEndMonth + 1, 0); // آخر يوم في الشهر التالي للربع
+    const daysLeft = Math.ceil((qEnd - now) / (1000 * 60 * 60 * 24));
+    return { daysLeft, date: qEnd };
+  })();
+
+  // إجمالي مركز التنبيهات
+  const alertCenterGroups = [
+    { key: "essential",  icon: "💊", label: "نفاذ/قرب نفاذ دواء أساسي", count: alerts.length,                 color: "#EF4444", tab: "products" },
+    { key: "lowstock",   icon: "📦", label: "مخزون منخفض",              count: lowStock.length,               color: "#F59E0B", tab: "products" },
+    { key: "expiry",     icon: "⏰", label: "أصناف قرب الانتهاء",        count: expiringSoon.length,           color: "#F59E0B", tab: "products" },
+    { key: "promo",      icon: "🏷️", label: "عروض تلقائية تحتاج مراجعة", count: autoPromoCandidates.length,    color: "#3B82F6", tab: "promotions" },
+    { key: "supplier",   icon: "🧾", label: "استحقاق مورد قريب/متأخر",   count: supplierDues.length,           color: "#EF4444", tab: "suppliers" },
+    { key: "newcust",    icon: "🆕", label: "عملاء جدد هذا الأسبوع",     count: newCustomers.length,           color: "#00C896", tab: "customers" },
+    { key: "lostcust",   icon: "👻", label: "عملاء مختفون",              count: disappearedCustomers.length,   color: "#7D8590", tab: "customers" },
+    { key: "tax",        icon: "🗂️", label: "موعد الإقرار الضريبي الربعي", count: taxDeadlineInfo.daysLeft <= 14 ? 1 : 0, color: "#F59E0B", tab: "tax_report" },
+    { key: "appoint",    icon: "📅", label: "مواعيد مهمة (رخصة/إيجار)",  count: 2,                              color: "#00C896", tab: "dashboard" },
+  ];
+  const totalAlertsCount = alertCenterGroups.reduce((a, g) => a + g.count, 0);
+
+  // ══════════ تايم لاين حركة اليوم (بالساعة) ══════════
+  const todaySalesForTimeline = sales.filter((s) => s.date === todayISO && !s.returned);
+  const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0, rev: 0 }));
+  todaySalesForTimeline.forEach((s) => {
+    const t = s.created_at || s.time || null;
+    const h = t ? new Date(t).getHours() : null;
+    if (h === null || isNaN(h)) return;
+    hourBuckets[h].count += 1;
+    hourBuckets[h].rev += s.total || 0;
+  });
+  const activeHours = hourBuckets.filter((b) => b.hour >= 7 && b.hour <= 23); // ساعات عمل الصيدلية المعتادة
+  const maxHourCount = Math.max(...activeHours.map((b) => b.count), 1);
 
   // ── معلومات الشفت الحالي ──
   const currentShift = shifts?.find((s) => !s.end_time) || null;
@@ -2003,8 +2110,8 @@ function Dashboard({
   return (
     <div style={{ fontFamily: "'Cairo', sans-serif" }}>
 
-      {/* ── Alert Strip ── */}
-      {(expiringSoon.length > 0 || lowStock.length > 0 || alerts.length > 0) && (
+      {/* ── Alert Strip (مختصر يفتح مركز التنبيهات) ── */}
+      {totalAlertsCount > 0 && (
         <div style={{
           background: "linear-gradient(90deg, rgba(239,68,68,0.12), transparent)",
           border: "1px solid rgba(239,68,68,0.25)",
@@ -2013,12 +2120,8 @@ function Dashboard({
         }}>
           <span style={{ fontSize: 16 }}>⚠️</span>
           <div style={{ flex: 1, color: VAR.muted }}>
-            <strong style={{ color: VAR.danger }}>
-              {expiringSoon.length + lowStock.length + alerts.length} تنبيه تحتاج تدخل:
-            </strong>
-            {expiringSoon.length > 0 && <>&nbsp;·&nbsp;<em style={{ color: VAR.warn, fontStyle: "normal", fontWeight: 600 }}>{expiringSoon.length} صنف قرب انتهاء الصلاحية</em></>}
-            {lowStock.length > 0 && <>&nbsp;·&nbsp;<em style={{ color: VAR.warn, fontStyle: "normal", fontWeight: 600 }}>{lowStock.length} صنف مخزون منخفض</em></>}
-            {alerts.length > 0 && <>&nbsp;·&nbsp;<em style={{ color: VAR.warn, fontStyle: "normal", fontWeight: 600 }}>{alerts.length} دواء أساسي</em></>}
+            <strong style={{ color: VAR.danger }}>{totalAlertsCount} تنبيه تحتاج تدخل</strong>
+            <span style={{ color: VAR.muted }}> — راجع مركز التنبيهات بالأسفل</span>
           </div>
           <button
             onClick={() => setPrivacyMode(!privacyMode)}
@@ -2093,108 +2196,133 @@ function Dashboard({
         </div>
       </div>
 
-      {/* ── ROW 2: تنبيهات وأولويات ── */}
+      {/* ── ROW 1.5: تايم لاين حركة اليوم ── */}
       <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
-        تنبيهات وأولويات
+        حركة اليوم بالساعة
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
-
-        {/* مرتجعات تلقائية */}
-        <div style={{ ...card }}>
-          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
-              🔄 مرتجعات تلقائية
-              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(245,158,11,0.15)", color: VAR.warn, fontFamily: "monospace" }}>
-                {expiringSoon.filter((p) => (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24 * 30) < 5).length}
-              </span>
-            </div>
-            <span onClick={() => setTab("suppliers")} style={{ color: VAR.accent2, fontSize: 11, cursor: "pointer" }}>إدارة →</span>
+      <div style={{ ...card, padding: "16px 16px 12px", marginBottom: 12 }}>
+        {todaySalesForTimeline.length === 0 ? (
+          <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
+            لا توجد مبيعات مسجّلة اليوم بعد
           </div>
-          <div>
-            {expiringSoon.slice(0, 2).map((p) => {
-              const months = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24 * 30));
-              return (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.warn, flexShrink: 0 }} />
-                  <div style={{ flex: 1, color: VAR.text }}>{p.name}</div>
-                  <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(245,158,11,0.12)", color: VAR.warn, fontWeight: 600 }}>
-                    {months} شهر
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 70 }}>
+              {activeHours.map((b) => {
+                const intensity = b.count / maxHourCount; // 0..1
+                const h = `${Math.max(intensity * 56, b.count > 0 ? 6 : 2)}px`;
+                // ألوان متدرجة زي خرائط جوجل: فاتح = هادئ، غامق/أخضر مشبع = ذروة
+                const bg = b.count === 0
+                  ? VAR.surface2
+                  : intensity > 0.66 ? VAR.accent
+                  : intensity > 0.33 ? "#3B82F6"
+                  : "#1f4f6e";
+                return (
+                  <div key={b.hour} title={`${b.hour}:00 — ${b.count} فاتورة، ${b.rev.toFixed(0)} ر.س`}
+                    style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end" }}>
+                    <div style={{ width: "100%", height: h, borderRadius: "3px 3px 0 0", background: bg, transition: "height 0.3s" }} />
+                    <div style={{ fontSize: 8, color: VAR.muted, fontFamily: "monospace" }}>{b.hour}</div>
                   </div>
-                </div>
-              );
-            })}
-            {expiringSoon.length > 2 && (
-              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "7px 0" }}>
-                + {expiringSoon.length - 2} أصناف أخرى
-              </div>
-            )}
-            {expiringSoon.length === 0 && (
-              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "14px 0" }}>لا توجد مرتجعات</div>
-            )}
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 10, color: VAR.muted, marginTop: 10 }}>
+              مبني على بيانات اليوم الحالي فقط — مع تراكم أكثر من بضعة أسابيع هيتحول لمتوسط "أكثر أوقات الازدحام" زي خرائط جوجل
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── ROW 2: مركز التنبيهات ── */}
+      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
+        مركز التنبيهات
+      </div>
+      <div style={{ ...card, marginBottom: 12 }}>
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
+            🔔 مركز التنبيهات
+            <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(239,68,68,0.15)", color: VAR.danger, fontFamily: "monospace" }}>
+              {totalAlertsCount}
+            </span>
           </div>
         </div>
-
-        {/* قرب الانتهاء */}
-        <div style={{ ...card }}>
-          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
-              ⏰ قرب الانتهاء
-              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(239,68,68,0.15)", color: VAR.danger, fontFamily: "monospace" }}>
-                {expiringSoon.length}
-              </span>
-            </div>
-            <span onClick={() => setTab("products")} style={{ color: VAR.accent2, fontSize: 11, cursor: "pointer" }}>عرض →</span>
-          </div>
-          <div>
-            {expiringSoon.slice(0, 2).map((p) => {
-              const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
-              return (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.danger, flexShrink: 0 }} />
-                  <div style={{ flex: 1, color: VAR.text }}>{p.name}</div>
-                  <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: VAR.danger, fontWeight: 600 }}>
-                    {days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`}
-                  </div>
+        <div>
+          {alertCenterGroups.map((g) => (
+            <div key={g.key}>
+              <div
+                onClick={() => setExpandedAlertGroup(expandedAlertGroup === g.key ? null : g.key)}
+                style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12, cursor: "pointer" }}
+              >
+                <span style={{ fontSize: 14 }}>{g.icon}</span>
+                <div style={{ flex: 1, color: VAR.text, fontWeight: 600 }}>{g.label}</div>
+                <div style={{
+                  fontSize: 10, padding: "2px 8px", borderRadius: 99, fontWeight: 700, fontFamily: "monospace",
+                  background: g.count > 0 ? `${g.color}26` : "rgba(125,133,144,0.12)",
+                  color: g.count > 0 ? g.color : VAR.muted,
+                }}>
+                  {g.count}
                 </div>
-              );
-            })}
-            {expiringSoon.length > 2 && (
-              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "7px 0" }}>
-                + {expiringSoon.length - 2} أصناف أخرى
+                <span style={{ color: VAR.muted, fontSize: 11 }}>{expandedAlertGroup === g.key ? "▲" : "▼"}</span>
+                <span onClick={(e) => { e.stopPropagation(); setTab(g.tab); }} style={{ color: VAR.accent2, fontSize: 11 }}>فتح →</span>
               </div>
-            )}
-            {expiringSoon.length === 0 && (
-              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "14px 0" }}>لا توجد أصناف قرب الانتهاء ✅</div>
-            )}
-          </div>
-        </div>
-
-        {/* مواعيد مهمة / مصاريف ثابتة */}
-        <div style={{ ...card }}>
-          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
-              📅 مواعيد مهمة
-              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(0,200,150,0.12)", color: VAR.accent, fontFamily: "monospace" }}>
-                1
-              </span>
+              {expandedAlertGroup === g.key && (
+                <div style={{ background: VAR.bg, padding: "8px 14px 12px" }}>
+                  {g.key === "essential" && (
+                    alerts.length === 0 ? <EmptyAlertRow text="لا توجد أدوية أساسية ناقصة ✅" muted={VAR.muted} /> :
+                    alerts.map((a, i) => (
+                      <AlertRow key={i} text={a.name} badge={a.type === "danger" ? "نافذ" : `متبقي ${a.stock}`} color={a.type === "danger" ? VAR.danger : VAR.warn} VAR={VAR} />
+                    ))
+                  )}
+                  {g.key === "lowstock" && (
+                    lowStock.length === 0 ? <EmptyAlertRow text="لا يوجد مخزون منخفض ✅" muted={VAR.muted} /> :
+                    lowStock.slice(0, 8).map((p) => (
+                      <AlertRow key={p.id} text={p.name} badge={`${p.stock} / ${p.min_stock || p.minStock || 0}`} color={VAR.warn} VAR={VAR} />
+                    ))
+                  )}
+                  {g.key === "expiry" && (
+                    expiringSoon.length === 0 ? <EmptyAlertRow text="لا توجد أصناف قرب الانتهاء ✅" muted={VAR.muted} /> :
+                    expiringSoon.slice(0, 8).map((p) => {
+                      const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+                      return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={VAR.warn} VAR={VAR} />;
+                    })
+                  )}
+                  {g.key === "promo" && (
+                    autoPromoCandidates.length === 0 ? <EmptyAlertRow text="لا توجد أصناف تحتاج عرض تلقائي" muted={VAR.muted} /> :
+                    autoPromoCandidates.slice(0, 8).map((p) => (
+                      <AlertRow key={p.id} text={p.name} badge={`خصم مقترح ${calcAutoDiscount(p.expiry)}%`} color={VAR.accent2} VAR={VAR} />
+                    ))
+                  )}
+                  {g.key === "supplier" && (
+                    supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :
+                    supplierDues.slice(0, 8).map((d) => (
+                      <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? VAR.danger : VAR.warn} VAR={VAR} />
+                    ))
+                  )}
+                  {g.key === "newcust" && (
+                    newCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء جدد هذا الأسبوع" muted={VAR.muted} /> :
+                    newCustomers.slice(0, 8).map((c) => (
+                      <AlertRow key={c.id} text={c.name} badge="جديد" color={VAR.accent} VAR={VAR} />
+                    ))
+                  )}
+                  {g.key === "lostcust" && (
+                    disappearedCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء مختفون" muted={VAR.muted} /> :
+                    disappearedCustomers.slice(0, 8).map((c) => (
+                      <AlertRow key={c.id} text={c.name} badge={`آخر زيارة ${c.lastVisit}`} color={VAR.muted} VAR={VAR} />
+                    ))
+                  )}
+                  {g.key === "tax" && (
+                    <AlertRow text="الإقرار الضريبي الربعي القادم" badge={`خلال ${taxDeadlineInfo.daysLeft} يوم`} color={taxDeadlineInfo.daysLeft <= 7 ? VAR.danger : VAR.warn} VAR={VAR} />
+                  )}
+                  {g.key === "appoint" && (
+                    <>
+                      <AlertRow text="تجديد الرخصة التجارية" badge="18 يوم" color={VAR.accent} VAR={VAR} />
+                      <AlertRow text="إيجار الصيدلية" badge="غداً" color={VAR.warn} VAR={VAR} />
+                    </>
+                  )}
+                </div>
+              )}
             </div>
-            <span style={{ color: VAR.accent2, fontSize: 11, cursor: "pointer" }}>إدارة →</span>
-          </div>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.accent, flexShrink: 0 }} />
-              <div style={{ flex: 1, color: VAR.text }}>تجديد الرخصة التجارية</div>
-              <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(0,200,150,0.10)", color: VAR.accent, fontWeight: 600 }}>18 يوم</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", padding: "7px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.warn, flexShrink: 0 }} />
-              <div style={{ flex: 1, color: VAR.text }}>إيجار الصيدلية</div>
-              <div style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(245,158,11,0.12)", color: VAR.warn, fontWeight: 600 }}>غداً</div>
-            </div>
-            <div style={{ textAlign: "center", color: VAR.muted, fontSize: 11, padding: "7px 0" }}>
-              المصاريف الثابتة: {S("8,500")} ريال/شهر
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
@@ -2583,6 +2711,7 @@ function POS({
     const invoice = {
       id,
       date: new Date().toISOString().split("T")[0],
+      created_at: new Date().toISOString(),
       customer: inv.selCustomer?.id || null,
       customer_name: inv.selCustomer?.name || "زبون عادي",
       items: inv.cart.map((i) => ({
@@ -2590,6 +2719,7 @@ function POS({
         name: i.name,
         qty: i.qty,
         price: newFifoResults[i.id]?.salePrice ?? i.price,
+        cost: newFifoResults[i.id]?.soldBatches?.[0]?.cost ?? products.find((x) => x.id === i.id)?.cost ?? 0,
         taxable: i.taxable,
         dose: i.dose,
         gtin: i.gtin || i.barcode,
