@@ -2749,6 +2749,10 @@ function POS({
       showToast("السلة فارغة!", "error");
       return;
     }
+    if (inv.payment === "آجل" && !inv.selCustomer) {
+      showToast("لا يمكن تسجيل بيع آجل لزبون عادي — اختر عميلاً أولاً", "error");
+      return;
+    }
 
     const id =
       "INV-" +
@@ -3408,14 +3412,14 @@ function POS({
         >
           <select
             value={inv.selCustomer ? String(inv.selCustomer.id) : ""}
-            onChange={(e) =>
+            onChange={(e) => {
+              const chosen = customers.find((c) => String(c.id) === e.target.value) || null;
               setInv((p) => ({
                 ...p,
-                selCustomer:
-                  customers.find((c) => String(c.id) === e.target.value) ||
-                  null,
-              }))
-            }
+                selCustomer: chosen,
+                payment: (!chosen && p.payment === "آجل") ? "نقدي" : p.payment,
+              }));
+            }}
             style={{
               flex: 1,
               background: "#080e1a",
@@ -3749,10 +3753,17 @@ function POS({
           }}
         >
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {["نقدي", "بطاقة", "تحويل", "آجل"].map((m) => (
+            {["نقدي", "بطاقة", "تحويل", "آجل"].map((m) => {
+              const isAjilLocked = m === "آجل" && !inv.selCustomer;
+              return (
               <button
                 key={m}
-                onClick={() => setInv((p) => ({ ...p, payment: m }))}
+                disabled={isAjilLocked}
+                title={isAjilLocked ? "اختر عميلاً أولاً لتفعيل البيع الآجل" : undefined}
+                onClick={() => {
+                  if (isAjilLocked) { showToast("لا يمكن تسجيل بيع آجل لزبون عادي — اختر عميلاً أولاً", "error"); return; }
+                  setInv((p) => ({ ...p, payment: m }));
+                }}
                 style={{
                   flex: 1,
                   padding: "7px 0",
@@ -3760,15 +3771,17 @@ function POS({
                   border: "1px solid",
                   borderColor: inv.payment === m ? "#2a6aef" : "#1d2d4a",
                   background: inv.payment === m ? "#142a5a" : "transparent",
-                  color: inv.payment === m ? "#6aaeff" : "#4a6a8a",
+                  color: isAjilLocked ? "#2a3a4a" : (inv.payment === m ? "#6aaeff" : "#4a6a8a"),
                   fontSize: 12,
                   fontWeight: 600,
-                  cursor: "pointer",
+                  cursor: isAjilLocked ? "not-allowed" : "pointer",
+                  opacity: isAjilLocked ? 0.5 : 1,
                 }}
               >
                 {m}
               </button>
-            ))}
+              );
+            })}
           </div>
           <div
             style={{
