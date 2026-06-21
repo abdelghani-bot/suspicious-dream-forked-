@@ -11932,15 +11932,21 @@ function TaxReport({ sales, purchases }) {
 }
 
 // ==================== REPORTS ====================
-function Reports({ sales, purchases, products, suppliers, customers, returns = [] }) {
+function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [] }) {
   const [type, setType] = useState("sales");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(new Date().toISOString().split("T")[0]);
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterProduct, setFilterProduct] = useState("");
+  const [filterManufacturer, setFilterManufacturer] = useState("");
   const [search, setSearch] = useState("");
   const [showInvoiceDetail, setShowInvoiceDetail] = useState(null);
   const [showPrint, setShowPrint] = useState(null);
+
+  // helper: منتجات الشركة المنتجة المختارة
+  const mfrProductIds = filterManufacturer
+    ? new Set(products.filter((p) => p.manufacturer_id === filterManufacturer).map((p) => p.id))
+    : null;
 
   const filteredSales = sales.filter((s) => {
     const d = s.date;
@@ -11948,6 +11954,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     if (fromDate && d < fromDate) ok = false;
     if (toDate && d > toDate) ok = false;
     if (filterProduct && !s.items.some((i) => i.id === filterProduct)) ok = false;
+    if (mfrProductIds && !s.items.some((i) => mfrProductIds.has(i.id))) ok = false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       const inId = (s.id || "").toLowerCase().includes(q);
@@ -11957,12 +11964,14 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     }
     return ok;
   });
+
   const filteredPurchases = purchases.filter((p) => {
     const d = p.date;
     let ok = true;
     if (fromDate && d < fromDate) ok = false;
     if (toDate && d > toDate) ok = false;
     if (filterSupplier && p.supplier !== filterSupplier) ok = false;
+    if (mfrProductIds && !(p.items || []).some((i) => mfrProductIds.has(i.id))) ok = false;
     return ok;
   });
 
@@ -11971,43 +11980,40 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     let ok = true;
     if (fromDate && d < fromDate) ok = false;
     if (toDate && d > toDate) ok = false;
+    if (mfrProductIds && !(r.items || []).some((i) => mfrProductIds.has(i.id))) ok = false;
     return ok;
   });
 
+  // احصائيات شهرية
   const salesByMonth = {};
   filteredSales.forEach((s) => {
     const m = (s.date || s.created_at || "").substring(0, 7);
     if (!m) return;
-    if (!salesByMonth[m])
-      salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
+    if (!salesByMonth[m]) salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
     salesByMonth[m].count++;
     salesByMonth[m].subtotal += s.subtotal || 0;
     salesByMonth[m].tax += s.taxAmount ?? s.tax_amount ?? 0;
     salesByMonth[m].total += s.total || 0;
   });
 
+  // تقرير الأصناف — مع فلتر الشركة
   const productSales = {};
   filteredSales.forEach((s) =>
     s.items.forEach((i) => {
-      if (!productSales[i.id])
-        productSales[i.id] = { name: i.name, qty: 0, revenue: 0, tax: 0 };
+      if (mfrProductIds && !mfrProductIds.has(i.id)) return;
+      if (!productSales[i.id]) productSales[i.id] = { name: i.name, qty: 0, revenue: 0, tax: 0 };
       productSales[i.id].qty += i.qty;
       productSales[i.id].revenue += i.price * i.qty;
       productSales[i.id].tax += i.taxable ? i.price * i.qty * TAX_RATE : 0;
     })
   );
 
-  const totalSalesRev = filteredSales
-    .filter((s) => !s.returned)
-    .reduce((a, s) => a + s.total, 0);
-  const totalSalesTax = filteredSales
-    .filter((s) => !s.returned)
-    .reduce((a, s) => a + (s.taxAmount || s.tax_amount || 0), 0);
+  const totalSalesRev = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + s.total, 0);
+  const totalSalesTax = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + (s.taxAmount || s.tax_amount || 0), 0);
   const returnedCount = filteredSales.filter((s) => s.returned).length;
   const totalPurchase = filteredPurchases.reduce((a, p) => a + p.total, 0);
   const totalPurchaseTax = filteredPurchases.reduce((a, p) => a + p.taxAmount, 0);
 
-  // ── إحصائيات المرتجعات ──
   const returnsSales = filteredReturns.filter((r) => r.type === "sales");
   const returnsPurchases = filteredReturns.filter((r) => r.type === "purchases");
   const totalReturnsSales = returnsSales.reduce((a, r) => a + (r.total || 0), 0);
@@ -12015,384 +12021,175 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   const totalReturnsTax = filteredReturns.reduce((a, r) => a + (r.tax || 0), 0);
   const isAutoReturn = (r) => (r.reason || "").includes("تلقائي");
 
+  // فلتر الشركة يظهر في: product, purchase, returns
+  const showMfrFilter = ["product", "purchase", "returns"].includes(type);
+
   return (
     <div>
-      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
-        التقارير والإحصائيات
-      </h2>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginBottom: 18,
-          flexWrap: "wrap",
-          alignItems: "flex-end",
-        }}
-      >
+      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>التقارير والإحصائيات</h2>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
         {["sales", "purchase", "product", "monthly", "returns"].map((t) => (
-          <button
-            key={t}
-            onClick={() => setType(t)}
-            style={{
-              padding: "8px 18px",
-              borderRadius: 8,
-              border: "1px solid",
-              borderColor: type === t ? "#2a6aef" : "#1d2d4a",
-              background: type === t ? "#142a5a" : "transparent",
-              color: type === t ? "#6aaeff" : "#4a6a8a",
-              fontWeight: type === t ? 700 : 400,
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-            {t === "sales"
-              ? "تقرير المبيعات"
-              : t === "purchase"
-              ? "تقرير المشتريات"
-              : t === "product"
-              ? "تقرير الأصناف"
-              : t === "monthly"
-              ? "تقرير شهري"
-              : "تقرير المرتجعات"}
+          <button key={t} onClick={() => setType(t)} style={{
+            padding: "8px 18px", borderRadius: 8, border: "1px solid",
+            borderColor: type === t ? "#2a6aef" : "#1d2d4a",
+            background: type === t ? "#142a5a" : "transparent",
+            color: type === t ? "#6aaeff" : "#4a6a8a",
+            fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 13,
+          }}>
+            {t === "sales" ? "تقرير المبيعات" : t === "purchase" ? "تقرير المشتريات" : t === "product" ? "تقرير الأصناف" : t === "monthly" ? "تقرير شهري" : "تقرير المرتجعات"}
           </button>
         ))}
-        <div
-          style={{
-            marginRight: "auto",
-            display: "flex",
-            gap: 10,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+
+        <div style={{ marginRight: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {type === "sales" && (
-            <Input
-              label="بحث"
-              value={search}
-              onChange={setSearch}
-              placeholder="رقم الفاتورة، العميل، أو اسم الصنف"
-              style={{ width: 220 }}
-            />
+            <Input label="بحث" value={search} onChange={setSearch} placeholder="رقم الفاتورة، العميل، أو اسم الصنف" style={{ width: 220 }} />
           )}
-          <Input
-            label="من"
-            value={fromDate}
-            onChange={setFromDate}
-            type="date"
-            style={{ width: 140 }}
-          />
-          <Input
-            label="إلى"
-            value={toDate}
-            onChange={setToDate}
-            type="date"
-            style={{ width: 140 }}
-          />
+          <Input label="من" value={fromDate} onChange={setFromDate} type="date" style={{ width: 140 }} />
+          <Input label="إلى" value={toDate} onChange={setToDate} type="date" style={{ width: 140 }} />
+
           {type === "purchase" && (
-            <Select
-              label="المورد"
-              value={filterSupplier}
-              onChange={setFilterSupplier}
-              options={[
-                { v: "", l: "الكل" },
-                ...suppliers.map((s) => ({ v: s.id, l: s.name })),
-              ]}
-              style={{ width: 160 }}
-            />
+            <Select label="المورد" value={filterSupplier} onChange={setFilterSupplier}
+              options={[{ v: "", l: "الكل" }, ...suppliers.map((s) => ({ v: s.id, l: s.name }))]}
+              style={{ width: 160 }} />
           )}
           {type === "product" && (
-            <Select
-              label="الصنف"
-              value={filterProduct}
-              onChange={setFilterProduct}
-              options={[
-                { v: "", l: "الكل" },
-                ...products.map((p) => ({ v: p.id, l: p.name })),
-              ]}
-              style={{ width: 180 }}
-            />
+            <Select label="الصنف" value={filterProduct} onChange={setFilterProduct}
+              options={[{ v: "", l: "الكل" }, ...products.map((p) => ({ v: p.id, l: p.name }))]}
+              style={{ width: 180 }} />
+          )}
+          {showMfrFilter && manufacturers.length > 0 && (
+            <Select label="🏭 الشركة المنتجة" value={filterManufacturer} onChange={setFilterManufacturer}
+              options={[{ v: "", l: "الكل" }, ...manufacturers.map((m) => ({ v: m.id, l: m.name }))]}
+              style={{ width: 180 }} />
           )}
         </div>
       </div>
 
+      {/* تقرير المبيعات */}
       {type === "sales" && (
         <>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4,1fr)",
-              gap: 12,
-              marginBottom: 16,
-            }}
-          >
-            <StatCard
-              label="إجمالي المبيعات (شامل الضريبة)"
-              value={totalSalesRev.toFixed(2) + " ر.س"}
-              icon="money"
-              color="#3a9aff"
-            />
-            <StatCard
-              label="ضريبة المبيعات"
-              value={totalSalesTax.toFixed(2) + " ر.س"}
-              icon="tax"
-              color="#88dd44"
-            />
-            <StatCard
-              label="عدد الفواتير"
-              value={filteredSales.filter((s) => !s.returned).length}
-              icon="pos"
-              color="#a78bfa"
-            />
-            <StatCard
-              label="المرتجعات"
-              value={returnedCount}
-              icon="returns"
-              color="#ff7744"
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
+            <StatCard label="إجمالي المبيعات (شامل الضريبة)" value={totalSalesRev.toFixed(2) + " ر.س"} icon="money" color="#3a9aff" />
+            <StatCard label="ضريبة المبيعات" value={totalSalesTax.toFixed(2) + " ر.س"} icon="tax" color="#88dd44" />
+            <StatCard label="عدد الفواتير" value={filteredSales.filter((s) => !s.returned).length} icon="pos" color="#a78bfa" />
+            <StatCard label="المرتجعات" value={returnedCount} icon="returns" color="#ff7744" />
           </div>
           <Table
-            headers={[
-              "رقم الفاتورة",
-              "التاريخ",
-              "العميل",
-              "المجموع",
-              "الضريبة",
-              "الإجمالي شامل الضريبة",
-              "الدفع",
-              "حالة",
-            ]}
+            headers={["رقم الفاتورة", "التاريخ", "العميل", "المجموع", "الضريبة", "الإجمالي شامل الضريبة", "الدفع", "حالة"]}
             rows={filteredSales.map((s) => [
-              <span
-                onClick={() => setShowInvoiceDetail(s)}
-                style={{
-                  color: "#6aaeff",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                }}
-              >
-                {s.id}
-              </span>,
+              <span onClick={() => setShowInvoiceDetail(s)} style={{ color: "#6aaeff", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{s.id}</span>,
               s.date,
               s.customer_name || "زبون عادي",
               (s.subtotal || 0).toFixed(2) + " ر.س",
-              <span style={{ color: "#88dd44" }}>
-                {(s.taxAmount || s.tax_amount || 0).toFixed(2)} ر.س
-              </span>,
-              <span style={{ color: "#3a9aff", fontWeight: 700 }}>
-                {(s.total || 0).toFixed(2)} ر.س
-              </span>,
+              <span style={{ color: "#88dd44" }}>{(s.taxAmount || s.tax_amount || 0).toFixed(2)} ر.س</span>,
+              <span style={{ color: "#3a9aff", fontWeight: 700 }}>{(s.total || 0).toFixed(2)} ر.س</span>,
               s.payment,
-              s.returned ? (
-                <Badge color="#3a0a0a" text="#ff7777">
-                  مرتجعة
-                </Badge>
-              ) : (
-                <Badge color="#0a2a10" text="#44dd88">
-                  مكتملة
-                </Badge>
-              ),
+              s.returned
+                ? <Badge color="#3a0a0a" text="#ff7777">مرتجعة</Badge>
+                : <Badge color="#0a2a10" text="#44dd88">مكتملة</Badge>,
             ])}
           />
-          {filteredSales.length === 0 && (
-            <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>
-              لا توجد فواتير مطابقة للبحث
-            </div>
-          )}
+          {filteredSales.length === 0 && <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>لا توجد فواتير مطابقة للبحث</div>}
         </>
       )}
+
+      {/* تقرير المشتريات */}
       {type === "purchase" && (
         <>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3,1fr)",
-              gap: 12,
-              marginBottom: 16,
-            }}
-          >
-            <StatCard
-              label="إجمالي المشتريات (شامل الضريبة)"
-              value={totalPurchase.toFixed(2) + " ر.س"}
-              icon="purchase"
-              color="#fb923c"
-            />
-            <StatCard
-              label="ضريبة المشتريات"
-              value={totalPurchaseTax.toFixed(2) + " ر.س"}
-              icon="tax"
-              color="#88dd44"
-            />
-            <StatCard
-              label="عدد أوامر الشراء"
-              value={filteredPurchases.length}
-              icon="suppliers"
-              color="#a78bfa"
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
+            <StatCard label="إجمالي المشتريات (شامل الضريبة)" value={totalPurchase.toFixed(2) + " ر.س"} icon="purchase" color="#fb923c" />
+            <StatCard label="ضريبة المشتريات" value={totalPurchaseTax.toFixed(2) + " ر.س"} icon="tax" color="#88dd44" />
+            <StatCard label="عدد أوامر الشراء" value={filteredPurchases.length} icon="suppliers" color="#a78bfa" />
           </div>
           <Table
-            headers={[
-              "رقم الأمر",
-              "التاريخ",
-              "المورد",
-              "المجموع",
-              "الضريبة",
-              "الإجمالي",
-              "الحالة",
-            ]}
+            headers={["رقم الأمر", "التاريخ", "المورد", "المجموع", "الضريبة", "الإجمالي", "الحالة"]}
             rows={filteredPurchases.map((p) => [
               <span style={{ color: "#6aaeff", fontWeight: 700 }}>{p.id}</span>,
-              p.date,
-              p.supplierName,
+              p.date, p.supplierName,
               p.subtotal.toFixed(2) + " ر.س",
-              <span style={{ color: "#88dd44" }}>
-                {p.taxAmount.toFixed(2)} ر.س
-              </span>,
-              <span style={{ color: "#fb923c", fontWeight: 700 }}>
-                {p.total.toFixed(2)} ر.س
-              </span>,
-              <Badge color="#0a2a10" text="#44dd88">
-                {p.status}
-              </Badge>,
+              <span style={{ color: "#88dd44" }}>{p.taxAmount.toFixed(2)} ر.س</span>,
+              <span style={{ color: "#fb923c", fontWeight: 700 }}>{p.total.toFixed(2)} ر.س</span>,
+              <Badge color="#0a2a10" text="#44dd88">{p.status}</Badge>,
             ])}
           />
         </>
       )}
+
+      {/* تقرير الأصناف */}
       {type === "product" && (
-        <Table
-          headers={[
-            "الصنف",
-            "الكمية المباعة",
-            "الإيراد قبل الضريبة",
-            "الضريبة",
-            "الإيراد الكلي",
-          ]}
-          rows={Object.entries(productSales)
-            .sort((a, b) => b[1].revenue - a[1].revenue)
-            .map(([id, d]) => [
-              <span style={{ fontWeight: 700, color: "#dde8ff" }}>
-                {d.name}
-              </span>,
-              <span style={{ color: "#3a9aff", fontWeight: 700 }}>
-                {d.qty}
-              </span>,
-              d.revenue.toFixed(2) + " ر.س",
-              <span style={{ color: "#88dd44" }}>{d.tax.toFixed(2)} ر.س</span>,
-              <span style={{ color: "#44dd88", fontWeight: 700 }}>
-                {(d.revenue + d.tax).toFixed(2)} ر.س
-              </span>,
-            ])}
-        />
+        <>
+          {filterManufacturer && (
+            <div style={{ background: "#0a1a3a", border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: "#6aaeff" }}>
+              🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
+            </div>
+          )}
+          <Table
+            headers={["الصنف", "الشركة المنتجة", "الكمية المباعة", "الإيراد قبل الضريبة", "الضريبة", "الإيراد الكلي"]}
+            rows={Object.entries(productSales).sort((a, b) => b[1].revenue - a[1].revenue).map(([id, d]) => {
+              const prod = products.find((p) => p.id === id);
+              const mfr = manufacturers.find((m) => m.id === prod?.manufacturer_id);
+              return [
+                <span style={{ fontWeight: 700, color: "#dde8ff" }}>{d.name}</span>,
+                mfr ? <Badge color="#0a1a3a" text="#6aaeff">{mfr.name}</Badge> : <span style={{ color: "#3a5a8a", fontSize: 11 }}>—</span>,
+                <span style={{ color: "#3a9aff", fontWeight: 700 }}>{d.qty}</span>,
+                d.revenue.toFixed(2) + " ر.س",
+                <span style={{ color: "#88dd44" }}>{d.tax.toFixed(2)} ر.س</span>,
+                <span style={{ color: "#44dd88", fontWeight: 700 }}>{(d.revenue + d.tax).toFixed(2)} ر.س</span>,
+              ];
+            })}
+          />
+        </>
       )}
+
+      {/* تقرير شهري */}
       {type === "monthly" && (
         <Table
-          headers={[
-            "الشهر",
-            "عدد الفواتير",
-            "المبيعات قبل الضريبة",
-            "ضريبة المبيعات",
-            "المبيعات الكلية",
-          ]}
-          rows={Object.entries(salesByMonth)
-            .sort()
-            .reverse()
-            .map(([m, d]) => [
-              <span style={{ fontWeight: 700, color: "#dde8ff" }}>{m}</span>,
-              d.count,
-              d.subtotal.toFixed(2) + " ر.س",
-              <span style={{ color: "#88dd44" }}>{d.tax.toFixed(2)} ر.س</span>,
-              <span style={{ color: "#3a9aff", fontWeight: 700 }}>
-                {d.total.toFixed(2)} ر.س
-              </span>,
-            ])}
+          headers={["الشهر", "عدد الفواتير", "المبيعات قبل الضريبة", "ضريبة المبيعات", "المبيعات الكلية"]}
+          rows={Object.entries(salesByMonth).sort().reverse().map(([m, d]) => [
+            <span style={{ fontWeight: 700, color: "#dde8ff" }}>{m}</span>,
+            d.count,
+            d.subtotal.toFixed(2) + " ر.س",
+            <span style={{ color: "#88dd44" }}>{d.tax.toFixed(2)} ر.س</span>,
+            <span style={{ color: "#3a9aff", fontWeight: 700 }}>{d.total.toFixed(2)} ر.س</span>,
+          ])}
         />
       )}
 
+      {/* تقرير المرتجعات */}
       {type === "returns" && (
         <>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4,1fr)",
-              gap: 12,
-              marginBottom: 16,
-            }}
-          >
-            <StatCard
-              label="عدد المرتجعات"
-              value={filteredReturns.length}
-              icon="returns"
-              color="#ff7744"
-            />
-            <StatCard
-              label="مرتجعات المبيعات"
-              value={totalReturnsSales.toFixed(2) + " ر.س"}
-              icon="pos"
-              color="#3a9aff"
-            />
-            <StatCard
-              label="مرتجعات المشتريات"
-              value={totalReturnsPurchases.toFixed(2) + " ر.س"}
-              icon="purchase"
-              color="#fb923c"
-            />
-            <StatCard
-              label="الضريبة المستردة"
-              value={totalReturnsTax.toFixed(2) + " ر.س"}
-              icon="tax"
-              color="#88dd44"
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
+            <StatCard label="عدد المرتجعات" value={filteredReturns.length} icon="returns" color="#ff7744" />
+            <StatCard label="مرتجعات المبيعات" value={totalReturnsSales.toFixed(2) + " ر.س"} icon="pos" color="#3a9aff" />
+            <StatCard label="مرتجعات المشتريات" value={totalReturnsPurchases.toFixed(2) + " ر.س"} icon="purchase" color="#fb923c" />
+            <StatCard label="الضريبة المستردة" value={totalReturnsTax.toFixed(2) + " ر.س"} icon="tax" color="#88dd44" />
           </div>
           <Table
             headers={["رقم المرتجع", "التاريخ", "النوع", "العميل / المورد", "السبب", "الإجمالي"]}
-            rows={filteredReturns
-              .sort((a, b) => new Date(b.date) - new Date(a.date))
-              .map((r) => [
-                <span style={{ color: "#6aaeff", fontWeight: 700 }}>{r.id}</span>,
-                r.date,
-                r.type === "sales" ? (
-                  <Badge color="#0a2040" text="#3a9aff">مرتجع مبيعات</Badge>
-                ) : (
-                  <Badge color="#1a1000" text="#fb923c">مرتجع مشتريات</Badge>
-                ),
-                r.type === "sales"
-                  ? (r.customer_name || "زبون عادي")
-                  : (r.supplier_name || "—"),
-                <span>
-                  {r.reason || "—"}
-                  {isAutoReturn(r) && (
-                    <span style={{ marginRight: 6 }}>
-                      <Badge color="#1a0a00" text="#ff7744">تلقائي</Badge>
-                    </span>
-                  )}
-                </span>,
-                <span style={{ color: "#ff7744", fontWeight: 700 }}>
-                  {(r.total || 0).toFixed(2)} ر.س
-                </span>,
-              ])}
+            rows={filteredReturns.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
+              <span style={{ color: "#6aaeff", fontWeight: 700 }}>{r.id}</span>,
+              r.date,
+              r.type === "sales"
+                ? <Badge color="#0a2040" text="#3a9aff">مرتجع مبيعات</Badge>
+                : <Badge color="#1a1000" text="#fb923c">مرتجع مشتريات</Badge>,
+              r.type === "sales" ? (r.customer_name || "زبون عادي") : (r.supplier_name || "—"),
+              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color="#1a0a00" text="#ff7744">تلقائي</Badge></span>}</span>,
+              <span style={{ color: "#ff7744", fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
+            ])}
           />
-          {filteredReturns.length === 0 && (
-            <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>
-              لا توجد مرتجعات في هذه الفترة
-            </div>
-          )}
+          {filteredReturns.length === 0 && <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>لا توجد مرتجعات في هذه الفترة</div>}
         </>
       )}
 
-      {/* ===== Modal تفاصيل الفاتورة ===== */}
+      {/* Modal تفاصيل الفاتورة */}
       {showInvoiceDetail && (
-        <Modal
-          open
-          title={`تفاصيل الفاتورة — ${showInvoiceDetail.id}`}
-          onClose={() => setShowInvoiceDetail(null)}
-          wide
-        >
+        <Modal open title={`تفاصيل الفاتورة — ${showInvoiceDetail.id}`} onClose={() => setShowInvoiceDetail(null)} wide>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 13, color: "#4a6a8a" }}>
             <span>التاريخ: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.date}</span></span>
             <span>العميل: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.customer_name || "زبون عادي"}</span></span>
             <span>طريقة الدفع: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.payment}</span></span>
           </div>
-
           <div style={{ overflowX: "auto", marginBottom: 14 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -12408,41 +12205,30 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
                     <td style={{ padding: "8px 10px", color: "#c0d0f0", fontSize: 13 }}>{item.name}</td>
                     <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13, textAlign: "center" }}>{item.qty}</td>
                     <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13, textAlign: "center" }}>{item.price}</td>
-                    <td style={{ padding: "8px 10px", color: "#dde8ff", fontSize: 13, textAlign: "center", fontWeight: 700 }}>
-                      {(item.price * item.qty).toFixed(2)}
-                    </td>
+                    <td style={{ padding: "8px 10px", color: "#dde8ff", fontSize: 13, textAlign: "center", fontWeight: 700 }}>{(item.price * item.qty).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
           <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", marginBottom: 5 }}>
-              <span>قبل الضريبة</span>
-              <span>{(showInvoiceDetail.subtotal || 0).toFixed(2)} ر.س</span>
+              <span>قبل الضريبة</span><span>{(showInvoiceDetail.subtotal || 0).toFixed(2)} ر.س</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", marginBottom: 5 }}>
-              <span>الضريبة</span>
-              <span>{(showInvoiceDetail.taxAmount || showInvoiceDetail.tax_amount || 0).toFixed(2)} ر.س</span>
+              <span>الضريبة</span><span>{(showInvoiceDetail.taxAmount || showInvoiceDetail.tax_amount || 0).toFixed(2)} ر.س</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
-              <span>الإجمالي</span>
-              <span>{(showInvoiceDetail.total || 0).toFixed(2)} ر.س</span>
+              <span>الإجمالي</span><span>{(showInvoiceDetail.total || 0).toFixed(2)} ر.س</span>
             </div>
           </div>
-
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <Btn variant="ghost" onClick={() => setShowInvoiceDetail(null)}>إغلاق</Btn>
             <Btn icon="print" onClick={() => setShowPrint(showInvoiceDetail)}>إعادة الطباعة</Btn>
           </div>
         </Modal>
       )}
-
-      {/* إعادة استخدام كومبوننت الطباعة الموجود في المشروع */}
-      {showPrint && (
-        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />
-      )}
+      {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />}
     </div>
   );
 }
