@@ -4237,14 +4237,14 @@ const LABEL_SIZES = [
   }, []);
 
   const printLabels = (invoiceItems) => {
-    setPrintItems(invoiceItems.map((i) => ({ ...i, copies: i.qty + (i.bonusQty || 0) })));
+    setPrintItems(invoiceItems.map((i) => ({ ...i, copies: i.qty + (i.bonusQty || 0), selected: true })));
     setShowPrintModal(true);
   };
 
   const doPrint = () => {
     const size = LABEL_SIZES.find((s) => s.id === (pharmSettings.label_size || "50x30")) || LABEL_SIZES[1];
     const labels = [];
-    printItems.forEach((item) => {
+    printItems.filter((item) => item.selected !== false).forEach((item) => {
       for (let c = 0; c < item.copies; c++) {
         labels.push(item);
       }
@@ -5174,6 +5174,26 @@ const LABEL_SIZES = [
           title="طباعة ملصقات الباركود"
           onClose={() => setShowPrintModal(false)}
         >
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            marginBottom: 10, padding: "6px 10px", background: "#0a1020", borderRadius: 8,
+          }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={printItems.length > 0 && printItems.every((i) => i.selected !== false)}
+                onChange={(e) =>
+                  setPrintItems((prev) => prev.map((i) => ({ ...i, selected: e.target.checked })))
+                }
+                style={{ width: 16, height: 16, cursor: "pointer" }}
+              />
+              <span style={{ color: "#dde8ff", fontSize: 13, fontWeight: 600 }}>تحديد الكل</span>
+            </label>
+            <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+              {printItems.filter((i) => i.selected !== false).length} / {printItems.length} محدد
+            </span>
+          </div>
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
             {printItems.map((item, idx) => (
               <div
@@ -5186,9 +5206,24 @@ const LABEL_SIZES = [
                   background: "#080e1a",
                   borderRadius: 8,
                   border: "1px solid #1d2d4a",
+                  opacity: item.selected === false ? 0.5 : 1,
                 }}
               >
-                <span style={{ color: "#dde8ff", fontSize: 13 }}>{item.name}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={item.selected !== false}
+                    onChange={(e) =>
+                      setPrintItems((prev) =>
+                        prev.map((i, pi) =>
+                          pi === idx ? { ...i, selected: e.target.checked } : i
+                        )
+                      )
+                    }
+                    style={{ width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  <span style={{ color: "#dde8ff", fontSize: 13 }}>{item.name}</span>
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ color: "#4a6a8a", fontSize: 12 }}>عدد النسخ</span>
                   <input
@@ -5214,9 +5249,25 @@ const LABEL_SIZES = [
                       textAlign: "center",
                     }}
                   />
+                  <button
+                    onClick={() => setPrintItems((prev) => prev.filter((_, pi) => pi !== idx))}
+                    title="حذف الصنف من القائمة"
+                    style={{
+                      width: 26, height: 26, borderRadius: 6, border: "1px solid #4a1a1a",
+                      background: "#1a0a0a", color: "#ff5566", fontSize: 14, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
             ))}
+            {printItems.length === 0 && (
+              <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20, fontSize: 13 }}>
+                لا توجد أصناف في القائمة
+              </div>
+            )}
           </div>
 
           <div
@@ -5230,8 +5281,12 @@ const LABEL_SIZES = [
             <Btn variant="ghost" onClick={() => setShowPrintModal(false)}>
               إلغاء
             </Btn>
-            <Btn icon="printer" onClick={doPrint}>
-              طباعة
+            <Btn
+              icon="printer"
+              onClick={doPrint}
+              disabled={printItems.filter((i) => i.selected !== false).length === 0}
+            >
+              طباعة ({printItems.filter((i) => i.selected !== false).length})
             </Btn>
           </div>
         </Modal>
