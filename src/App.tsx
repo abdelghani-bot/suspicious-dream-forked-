@@ -1261,7 +1261,7 @@ export default function PharmacyPro() {
   setIsLoading(true);
   
   try {
-    const [p, s, c, sa, pu, ret, cp, inv] = await Promise.all([
+    const [p, s, c, sa, pu, ret, cp, inv, mfr] = await Promise.all([
       supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
