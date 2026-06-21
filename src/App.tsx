@@ -1296,6 +1296,48 @@ export default function PharmacyPro() {
 };
 loadData();
   }, [pharmacyId]);
+
+  // ✅ تم نقل هذا البلوك لفوق الـ early returns لتفادي خطأ React #310
+  // (الـ hooks لازم تتنفذ بنفس الترتيب في كل render، مش بشكل شرطي)
+  const essentialAlerts = useEssentialAlerts(products);
+  const tabAlertCounts = useMemo(() => {
+    const lowStockCount   = products.filter((p) => p.stock <= (p.min_stock || p.minStock || 0)).length;
+    const expiringCount   = products.filter((p) => {
+      if (!p.expiry) return false;
+      const diff = (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24);
+      return diff < 90 && diff > 0;
+    }).length;
+    const supplierDueCount = (suppliers || []).filter((s) => {
+      const supPurchases = (purchases || []).filter((p) => p.supplier === s.id && p.payment_status !== "مسددة");
+      return supPurchases.some((po) => {
+        const due = new Date(po.date);
+        due.setDate(due.getDate() + (s.payment_terms || 30));
+        const daysLeft = Math.floor((due - new Date()) / (1000 * 60 * 60 * 24));
+        return daysLeft <= 5;
+      });
+    }).length;
+    const disappearedCount = (customers || []).filter((c) => {
+      if (!c.lastVisit) return false;
+      const days = (new Date() - new Date(c.lastVisit)) / (1000 * 60 * 60 * 24);
+      return days > 45 && days < 365 && (c.visits || 0) > 0;
+    }).length;
+    const newCustomersCount = (customers || []).filter((c) => {
+      if (!c.created_at) return false;
+      const days = (new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24);
+      return days <= 7;
+    }).length;
+    const now = new Date();
+    const quarterEndMonth = [2, 5, 8, 11].find((m) => m >= now.getMonth()) ?? 2;
+    const qEnd = new Date(now.getFullYear(), quarterEndMonth + 1, 0);
+    const taxDaysLeft = Math.ceil((qEnd - now) / (1000 * 60 * 60 * 24));
+    return {
+      products: lowStockCount + expiringCount + essentialAlerts.length,
+      suppliers: supplierDueCount,
+      customers: disappearedCount + newCustomersCount,
+      tax_report: taxDaysLeft <= 14 ? 1 : 0,
+    };
+  }, [products, suppliers, purchases, customers, essentialAlerts]);
+
   if (!currentUser)
     return (
       <Login
@@ -1335,44 +1377,6 @@ if (isLoading) return (
     </div>
   </div>
 );
-  const essentialAlerts = useEssentialAlerts(products);
-  const tabAlertCounts = useMemo(() => {
-    const lowStockCount   = products.filter((p) => p.stock <= (p.min_stock || p.minStock || 0)).length;
-    const expiringCount   = products.filter((p) => {
-      if (!p.expiry) return false;
-      const diff = (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24);
-      return diff < 90 && diff > 0;
-    }).length;
-    const supplierDueCount = (suppliers || []).filter((s) => {
-      const supPurchases = (purchases || []).filter((p) => p.supplier === s.id && p.payment_status !== "مسددة");
-      return supPurchases.some((po) => {
-        const due = new Date(po.date);
-        due.setDate(due.getDate() + (s.payment_terms || 30));
-        const daysLeft = Math.floor((due - new Date()) / (1000 * 60 * 60 * 24));
-        return daysLeft <= 5;
-      });
-    }).length;
-    const disappearedCount = (customers || []).filter((c) => {
-      if (!c.lastVisit) return false;
-      const days = (new Date() - new Date(c.lastVisit)) / (1000 * 60 * 60 * 24);
-      return days > 45 && days < 365 && (c.visits || 0) > 0;
-    }).length;
-    const newCustomersCount = (customers || []).filter((c) => {
-      if (!c.created_at) return false;
-      const days = (new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24);
-      return days <= 7;
-    }).length;
-    const now = new Date();
-    const quarterEndMonth = [2, 5, 8, 11].find((m) => m >= now.getMonth()) ?? 2;
-    const qEnd = new Date(now.getFullYear(), quarterEndMonth + 1, 0);
-    const taxDaysLeft = Math.ceil((qEnd - now) / (1000 * 60 * 60 * 24));
-    return {
-      products: lowStockCount + expiringCount + essentialAlerts.length,
-      suppliers: supplierDueCount,
-      customers: disappearedCount + newCustomersCount,
-      tax_report: taxDaysLeft <= 14 ? 1 : 0,
-    };
-  }, [products, suppliers, purchases, customers, essentialAlerts]);
 
   const TABS = [
     { id: "dashboard", label: "الرئيسية", icon: "dashboard" },
