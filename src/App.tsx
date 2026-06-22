@@ -2521,7 +2521,10 @@ const emptyInvoice = () => ({
   cart: [],
   selCustomer: null,
   payment: "نقدي",
+  paymentMode: "single",
+  splitPayment: { cash: 0, card: 0, transfer: 0, credit: 0 },
   discount: 0,
+  discountType: "percent",
   prescriptionImg: null,
   search: "",
   success: false,
@@ -2595,6 +2598,7 @@ function POS({
       clearInterval(autoSaveCountdownRef.current);
     };
   }, [activeTab, inv.cart.length]);
+
   const addTab = () => {
     if (invoices.length >= MAX_INVOICES) {
       showToast(`الحد الأقصى ${MAX_INVOICES} فواتير`, "error");
@@ -2603,16 +2607,18 @@ function POS({
     setInvoices((p) => [...p, emptyInvoice()]);
     setActiveTab(invoices.length);
   };
-useEffect(() => {
-  const handler = (e) => {
-    if (e.key === "F2") {
-      e.preventDefault();
-      addTab();
-    }
-  };
-  window.addEventListener("keydown", handler);
-  return () => window.removeEventListener("keydown", handler);
-}, [addTab]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "F2") {
+        e.preventDefault();
+        addTab();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [addTab]);
+
   const closeTab = (idx) => {
     if (invoices.length === 1) {
       setInvoices([emptyInvoice()]);
@@ -2624,17 +2630,13 @@ useEffect(() => {
   };
 
   const addToCart = (p) => {
-    // للجوكر والفرص الضائعة — تجاوز فحص المخزون
     if (!p.isMissed && !p.isJoker) {
-      // حساب الـ stock الفعلي بالوحدة المطلوبة
       const effectiveStock =
         p.isPartial && p.unitDivision > 1 ? p.stock * p.unitDivision : p.stock;
-
       if (effectiveStock <= 0) {
         showToast("المخزون نفد!", "error");
         return;
       }
-
       if (p.expiry) {
         const expDate = new Date(p.expiry);
         const today = new Date();
@@ -2648,18 +2650,15 @@ useEffect(() => {
         }
       }
     }
-
     setInv((prev) => {
       const ex = prev.cart.find((i) => i.id === p.id);
       if (ex) {
-        // حساب الحد الأقصى
         const prod = products.find((x) => x.id === p.id);
         const maxQty =
           p.isPartial && p.unitDivision > 1
-            ? prod?.stock * p.unitDivision // 1 علبة × 100 = 100 حبة
+            ? prod?.stock * p.unitDivision
             : prod?.stock || 99;
         const step = p.isPartial ? 1 / p.unitDivision : 1;
-
         if (ex.qty + step > maxQty) {
           showToast("لا يوجد مخزون كافٍ", "error");
           return prev;
@@ -2711,11 +2710,10 @@ useEffect(() => {
   };
 
   const filtered = products.filter((p) => {
-    const str = (v) => (v == null ? "" : String(v));
     return (
-      (p.name||"").includes(inv.search) ||
-(p.barcode||"").includes(inv.search) ||
-(p.id||"").includes(inv.search)
+      (p.name || "").includes(inv.search) ||
+      (p.barcode || "").includes(inv.search) ||
+      (p.id || "").includes(inv.search)
     );
   });
 
@@ -2730,25 +2728,14 @@ useEffect(() => {
   const missedTotal = inv.cart
     .filter((i) => i.isMissed)
     .reduce((s, i) => s + i.price * i.qty, 0);
+
   const discountAmt =
-    Math.round((((subtotal + taxAmount) * inv.discount) / 100) * 100) / 100;
+    inv.discountType === "value"
+      ? Math.min(Math.max(inv.discount || 0, 0), subtotal + taxAmount)
+      : Math.round((((subtotal + taxAmount) * (inv.discount || 0)) / 100) * 100) / 100;
+
   const total = subtotal + taxAmount - discountAmt;
-  {
-    missedTotal > 0 && (
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          color: "#ffaa44",
-          fontSize: 12,
-          marginBottom: 4,
-        }}
-      >
-        <span>⚠ فرص ضائعة</span>
-        <span>{missedTotal.toFixed(2)} ر.س</span>
-      </div>
-    );
-  }
+
   const completeSale = async () => {
     if (!currentShift) {
       showToast("يرجى فتح شفت أولاً", "error");
@@ -2758,9 +2745,26 @@ useEffect(() => {
       showToast("السلة فارغة!", "error");
       return;
     }
-    if (inv.payment === "آجل" && !inv.selCustomer) {
+
+    if (inv.paymentMode === "single" && inv.payment === "آجل" && !inv.selCustomer) {
       showToast("لا يمكن تسجيل بيع آجل لزبون عادي — اختر عميلاً أولاً", "error");
       return;
+    }
+
+    if (inv.paymentMode === "split") {
+      const { cash, card, transfer, credit } = inv.splitPayment;
+      const splitTotal = Math.round((cash + card + transfer + credit) * 100) / 100;
+      if (Math.abs(splitTotal - total) > 0.01) {
+        showToast(
+          `مجموع الدفع (${splitTotal.toFixed(2)}) لا يساوي الإجمالي (${total.toFixed(2)}) ر.س`,
+          "error"
+        );
+        return;
+      }
+      if (credit > 0 && !inv.selCustomer) {
+        showToast("لا يمكن تسجيل مبلغ آجل لزبون عادي — اختر عميلاً أولاً", "error");
+        return;
+      }
     }
 
     const id =
@@ -2790,7 +2794,10 @@ useEffect(() => {
         name: i.name,
         qty: i.qty,
         price: newFifoResults[i.id]?.salePrice ?? i.price,
-        cost: newFifoResults[i.id]?.soldBatches?.[0]?.cost ?? products.find((x) => x.id === i.id)?.cost ?? 0,
+        cost:
+          newFifoResults[i.id]?.soldBatches?.[0]?.cost ??
+          products.find((x) => x.id === i.id)?.cost ??
+          0,
         taxable: i.taxable,
         dose: i.dose,
         gtin: i.gtin || i.barcode,
@@ -2802,13 +2809,15 @@ useEffect(() => {
           i.expiry ||
           newFifoResults[i.id]?.soldBatches?.[0]?.expiry_date ||
           null,
-        category: i.main_category || i.mainCategory || i.category || "أخرى", // ✅ أضف هذ
+        category: i.main_category || i.mainCategory || i.category || "أخرى",
       })),
       subtotal,
       tax_amount: taxAmount,
       discount_amt: discountAmt,
+      discount_type: inv.discountType,
       total,
-      payment: inv.payment,
+      payment: inv.paymentMode === "split" ? "مختلط" : inv.payment,
+      payment_split: inv.paymentMode === "split" ? inv.splitPayment : null,
       shift: currentShift?.id,
       returned: false,
       pharmacy_id: pharmacyId,
@@ -2839,6 +2848,7 @@ useEffect(() => {
         }
       }
     }
+
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = inv.cart.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
@@ -2875,7 +2885,7 @@ useEffect(() => {
         };
       })
     );
-    // تسجيل الفرص الضائعة
+
     const missedItems = inv.cart.filter((i) => i.isMissed);
     if (missedItems.length > 0) {
       const missedRecords = missedItems.map((i) => ({
@@ -2893,6 +2903,7 @@ useEffect(() => {
       }));
       await supabase.from("missed_sales").insert(missedRecords);
     }
+
     setInv({ ...emptyInvoice(), success: true });
     setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
     setShowPrint(invoice);
@@ -2971,6 +2982,7 @@ useEffect(() => {
           </button>
         )}
       </div>
+
       {autoSaveWarning && (
         <div
           style={{
@@ -3214,175 +3226,203 @@ useEffect(() => {
               </div>
             )}
             {inv.search && (
-  <div
-    style={{
-      position: "absolute",
-      top: "100%",
-      right: 0,
-      left: 0,
-      background: "#0f1623",
-      border: "1px solid #1d2d4a",
-      borderRadius: 8,
-      zIndex: 100,
-      maxHeight: 240,
-      overflowY: "auto",
-      marginTop: 4,
-    }}
-  >
-    <div
-      style={{
-        padding: "5px 14px",
-        fontSize: 10,
-        color: "#3a5a7a",
-        borderBottom: "1px solid #1a2a3a",
-        background: "#0a121f",
-      }}
-    >
-      ↓↑ تنقل · Enter إضافة · Esc إلغاء
-    </div>
-    {filtered.slice(0, 8).map((p, idx) => {
-      const effectiveStock =
-        p.unitDivision > 1 ? p.stock * p.unitDivision : p.stock;
-      const outOfStock = effectiveStock <= 0;
-      const stockColor = outOfStock
-        ? "#dd4444"
-        : p.stock <= (p.minStock || 0)
-        ? "#f59e0b"
-        : "#44dd88";
-      return (
-        <div
-          key={p.id}
-          style={{
-            padding: "7px 14px",
-            cursor: "pointer",
-            borderBottom: "1px solid #1a2a3a",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            background: idx === highlightedIdx ? "#1a2a4a" : "transparent",
-          }}
-          onMouseEnter={() => setHighlightedIdx(idx)}
-          onMouseLeave={() => setHighlightedIdx(-1)}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: stockColor,
-                flexShrink: 0,
-              }}
-            />
-            <div style={{ minWidth: 0 }}>
               <div
                 style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "#dde8ff",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  position: "absolute",
+                  top: "100%",
+                  right: 0,
+                  left: 0,
+                  background: "#0f1623",
+                  border: "1px solid #1d2d4a",
+                  borderRadius: 8,
+                  zIndex: 100,
+                  maxHeight: 240,
+                  overflowY: "auto",
+                  marginTop: 4,
                 }}
               >
-                {p.nameAr || p.name}
-              </div>
-              <div style={{ fontSize: 10, color: "#4a6a8a" }}>
-                {p.mainCategory || p.category} · مخزون: {p.stock}
-                {p.unitDivision > 1 && (
-                  <span style={{ color: "#f59e0b" }}> ÷{p.unitDivision}</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 5, alignItems: "center", flexShrink: 0 }}>
-            {outOfStock ? (
-              <button
-                onClick={() => {
-                  addToCart({ ...p, isMissed: true, qty: 1 });
-                  setInv((x) => ({ ...x, search: "" }));
-                }}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 6,
-                  background: "#2a1a00",
-                  border: "1px solid #7a4a00",
-                  color: "#ffaa44",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                }}
-                title="تسجيل كفرصة ضائعة"
-              >
-                ⚠ فائت
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => {
-                    addToCart({ ...p, isPartial: false });
-                    setInv((x) => ({ ...x, search: "" }));
-                  }}
+                <div
                   style={{
-                    padding: "4px 10px",
-                    borderRadius: 6,
-                    background: "#142a5a",
-                    border: "1px solid #2a6aef",
-                    color: "#6aaeff",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
+                    padding: "5px 14px",
+                    fontSize: 10,
+                    color: "#3a5a7a",
+                    borderBottom: "1px solid #1a2a3a",
+                    background: "#0a121f",
                   }}
                 >
-                  {p.price?.toFixed(2)} ر.س
-                </button>
-                {p.unitDivision > 1 && (
-                  <button
-                    onClick={() => {
-                      const partialQty =
-                        Math.round((1 / p.unitDivision) * 10000) / 10000;
-                      const partialPrice =
-                        Math.round((p.price / p.unitDivision) * 100) / 100;
-                      addToCart({
-                        ...p,
-                        qty: partialQty,
-                        price: partialPrice,
-                        isPartial: true,
-                        partialLabel: `1/${p.unitDivision}`,
-                      });
-                      setInv((x) => ({ ...x, search: "" }));
-                    }}
+                  ↓↑ تنقل · Enter إضافة · Esc إلغاء
+                </div>
+                {filtered.slice(0, 8).map((p, idx) => {
+                  const effectiveStock =
+                    p.unitDivision > 1 ? p.stock * p.unitDivision : p.stock;
+                  const outOfStock = effectiveStock <= 0;
+                  const stockColor = outOfStock
+                    ? "#dd4444"
+                    : p.stock <= (p.minStock || 0)
+                    ? "#f59e0b"
+                    : "#44dd88";
+                  return (
+                    <div
+                      key={p.id}
+                      style={{
+                        padding: "7px 14px",
+                        cursor: "pointer",
+                        borderBottom: "1px solid #1a2a3a",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        background:
+                          idx === highlightedIdx ? "#1a2a4a" : "transparent",
+                      }}
+                      onMouseEnter={() => setHighlightedIdx(idx)}
+                      onMouseLeave={() => setHighlightedIdx(-1)}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          minWidth: 0,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: "50%",
+                            background: stockColor,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              color: "#dde8ff",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {p.nameAr || p.name}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#4a6a8a" }}>
+                            {p.mainCategory || p.category} · مخزون: {p.stock}
+                            {p.unitDivision > 1 && (
+                              <span style={{ color: "#f59e0b" }}>
+                                {" "}
+                                ÷{p.unitDivision}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 5,
+                          alignItems: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {outOfStock ? (
+                          <button
+                            onClick={() => {
+                              addToCart({ ...p, isMissed: true, qty: 1 });
+                              setInv((x) => ({ ...x, search: "" }));
+                            }}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 6,
+                              background: "#2a1a00",
+                              border: "1px solid #7a4a00",
+                              color: "#ffaa44",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                            title="تسجيل كفرصة ضائعة"
+                          >
+                            ⚠ فائت
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                addToCart({ ...p, isPartial: false });
+                                setInv((x) => ({ ...x, search: "" }));
+                              }}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                background: "#142a5a",
+                                border: "1px solid #2a6aef",
+                                color: "#6aaeff",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {p.price?.toFixed(2)} ر.س
+                            </button>
+                            {p.unitDivision > 1 && (
+                              <button
+                                onClick={() => {
+                                  const partialQty =
+                                    Math.round(
+                                      (1 / p.unitDivision) * 10000
+                                    ) / 10000;
+                                  const partialPrice =
+                                    Math.round(
+                                      (p.price / p.unitDivision) * 100
+                                    ) / 100;
+                                  addToCart({
+                                    ...p,
+                                    qty: partialQty,
+                                    price: partialPrice,
+                                    isPartial: true,
+                                    partialLabel: `1/${p.unitDivision}`,
+                                  });
+                                  setInv((x) => ({ ...x, search: "" }));
+                                }}
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: 6,
+                                  background: "#0a2a10",
+                                  border: "1px solid #2a6a2a",
+                                  color: "#44dd88",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                1/{p.unitDivision} —{" "}
+                                {(p.price / p.unitDivision).toFixed(2)} ر.س
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <div
                     style={{
-                      padding: "4px 10px",
-                      borderRadius: 6,
-                      background: "#0a2a10",
-                      border: "1px solid #2a6a2a",
-                      color: "#44dd88",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
+                      padding: 12,
+                      color: "#4a6a8a",
+                      textAlign: "center",
                     }}
                   >
-                    1/{p.unitDivision} — {(p.price / p.unitDivision).toFixed(2)} ر.س
-                  </button>
+                    لا يوجد نتائج
+                  </div>
                 )}
-              </>
+              </div>
             )}
-          </div>
-        </div>
-      );
-    })}
-    {filtered.length === 0 && (
-      <div style={{ padding: 12, color: "#4a6a8a", textAlign: "center" }}>
-        لا يوجد نتائج
-      </div>
-    )}
-  </div>
-)}
           </div>
         </div>
 
@@ -3398,11 +3438,13 @@ useEffect(() => {
           <select
             value={inv.selCustomer ? String(inv.selCustomer.id) : ""}
             onChange={(e) => {
-              const chosen = customers.find((c) => String(c.id) === e.target.value) || null;
+              const chosen =
+                customers.find((c) => String(c.id) === e.target.value) || null;
               setInv((p) => ({
                 ...p,
                 selCustomer: chosen,
-                payment: (!chosen && p.payment === "آجل") ? "نقدي" : p.payment,
+                payment:
+                  !chosen && p.payment === "آجل" ? "نقدي" : p.payment,
               }));
             }}
             style={{
@@ -3595,11 +3637,13 @@ useEffect(() => {
                                     : 1;
                                   return {
                                     ...i,
-                                    qty: Math.min(
-                                      Math.round((i.qty + step) * 10000) /
-                                        10000,
-                                      maxQty
-                                    ),
+                                    qty:
+                                      Math.min(
+                                        Math.round(
+                                          (i.qty + step) * 10000
+                                        ) / 10000,
+                                        maxQty
+                                      ),
                                   };
                                 }),
                               }));
@@ -3616,7 +3660,9 @@ useEffect(() => {
                                     ...i,
                                     qty: Math.max(
                                       step,
-                                      Math.round((i.qty - step) * 10000) / 10000
+                                      Math.round(
+                                        (i.qty - step) * 10000
+                                      ) / 10000
                                     ),
                                   };
                                 }),
@@ -3653,10 +3699,13 @@ useEffect(() => {
                                             10000
                                         ) / 10000,
                                         i.isPartial && i.unitDivision > 1
-                                          ? products.find((x) => x.id === i.id)
-                                              ?.stock * i.unitDivision || 99
-                                          : products.find((x) => x.id === i.id)
-                                              ?.stock || 99
+                                          ? products.find(
+                                              (x) => x.id === i.id
+                                            )?.stock *
+                                              i.unitDivision || 99
+                                          : products.find(
+                                              (x) => x.id === i.id
+                                            )?.stock || 99
                                       ),
                                     }
                                   : i
@@ -3685,7 +3734,6 @@ useEffect(() => {
                         fontSize: 13,
                       }}
                     >
-                      {/* ← عرض سعر البيع من الدفعة الأقدم */}
                       {(
                         fifoResults?.[item.id]?.salePrice ?? item.price
                       ).toFixed(2)}
@@ -3729,7 +3777,7 @@ useEffect(() => {
           )}
         </div>
 
-        {/* الإجمالي */}
+        {/* الإجمالي والدفع */}
         <div
           style={{
             padding: "12px 16px",
@@ -3737,37 +3785,196 @@ useEffect(() => {
             background: "#080e1a",
           }}
         >
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {["نقدي", "بطاقة", "تحويل", "آجل"].map((m) => {
-              const isAjilLocked = m === "آجل" && !inv.selCustomer;
-              return (
-              <button
-                key={m}
-                disabled={isAjilLocked}
-                title={isAjilLocked ? "اختر عميلاً أولاً لتفعيل البيع الآجل" : undefined}
-                onClick={() => {
-                  if (isAjilLocked) { showToast("لا يمكن تسجيل بيع آجل لزبون عادي — اختر عميلاً أولاً", "error"); return; }
-                  setInv((p) => ({ ...p, payment: m }));
-                }}
-                style={{
-                  flex: 1,
-                  padding: "7px 0",
-                  borderRadius: 7,
-                  border: "1px solid",
-                  borderColor: inv.payment === m ? "#2a6aef" : "#1d2d4a",
-                  background: inv.payment === m ? "#142a5a" : "transparent",
-                  color: isAjilLocked ? "#2a3a4a" : (inv.payment === m ? "#6aaeff" : "#4a6a8a"),
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: isAjilLocked ? "not-allowed" : "pointer",
-                  opacity: isAjilLocked ? 0.5 : 1,
-                }}
-              >
-                {m}
-              </button>
-              );
-            })}
+          {/* ===== وسيلة الدفع ===== */}
+          <div style={{ marginBottom: 10 }}>
+            {/* Toggle: دفعة واحدة / تقسيم */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              {[
+                { mode: "single", label: "دفعة واحدة" },
+                { mode: "split", label: "⇄ تقسيم الدفع" },
+              ].map(({ mode, label }) => (
+                <button
+                  key={mode}
+                  onClick={() => setInv((p) => ({ ...p, paymentMode: mode }))}
+                  style={{
+                    flex: 1,
+                    padding: "6px 0",
+                    borderRadius: 7,
+                    border: "1px solid",
+                    borderColor:
+                      inv.paymentMode === mode ? "#2a6aef" : "#1d2d4a",
+                    background:
+                      inv.paymentMode === mode ? "#142a5a" : "transparent",
+                    color:
+                      inv.paymentMode === mode ? "#6aaeff" : "#4a6a8a",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* دفعة واحدة */}
+            {inv.paymentMode === "single" && (
+              <div style={{ display: "flex", gap: 6 }}>
+                {["نقدي", "بطاقة", "تحويل", "آجل"].map((m) => {
+                  const isAjilLocked = m === "آجل" && !inv.selCustomer;
+                  return (
+                    <button
+                      key={m}
+                      disabled={isAjilLocked}
+                      title={
+                        isAjilLocked
+                          ? "اختر عميلاً أولاً لتفعيل البيع الآجل"
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (isAjilLocked) {
+                          showToast(
+                            "لا يمكن تسجيل بيع آجل لزبون عادي — اختر عميلاً أولاً",
+                            "error"
+                          );
+                          return;
+                        }
+                        setInv((p) => ({ ...p, payment: m }));
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: "7px 0",
+                        borderRadius: 7,
+                        border: "1px solid",
+                        borderColor:
+                          inv.payment === m ? "#2a6aef" : "#1d2d4a",
+                        background:
+                          inv.payment === m ? "#142a5a" : "transparent",
+                        color: isAjilLocked
+                          ? "#2a3a4a"
+                          : inv.payment === m
+                          ? "#6aaeff"
+                          : "#4a6a8a",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: isAjilLocked ? "not-allowed" : "pointer",
+                        opacity: isAjilLocked ? 0.5 : 1,
+                      }}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* تقسيم الدفع */}
+            {inv.paymentMode === "split" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {[
+                  { key: "cash", label: "نقدي", color: "#44dd88" },
+                  { key: "card", label: "بطاقة", color: "#6aaeff" },
+                  { key: "transfer", label: "تحويل", color: "#aa88ff" },
+                  {
+                    key: "credit",
+                    label: "آجل",
+                    color: "#ffaa44",
+                    locked: !inv.selCustomer,
+                  },
+                ].map(({ key, label, color, locked }) => (
+                  <div
+                    key={key}
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <span
+                      style={{
+                        color,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        width: 40,
+                        textAlign: "right",
+                      }}
+                    >
+                      {label}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={locked}
+                      value={inv.splitPayment[key] || ""}
+                      placeholder="0.00"
+                      onChange={(e) =>
+                        setInv((p) => ({
+                          ...p,
+                          splitPayment: {
+                            ...p.splitPayment,
+                            [key]: parseFloat(e.target.value) || 0,
+                          },
+                        }))
+                      }
+                      style={{
+                        flex: 1,
+                        background: locked ? "#0a0f1a" : "#080e1a",
+                        border: `1px solid ${locked ? "#1a2a3a" : "#1d2d4a"}`,
+                        borderRadius: 7,
+                        padding: "5px 10px",
+                        color: locked ? "#2a3a4a" : "#dde8ff",
+                        fontSize: 13,
+                        outline: "none",
+                        cursor: locked ? "not-allowed" : "text",
+                      }}
+                    />
+                    <span
+                      style={{ color: "#3a5a7a", fontSize: 11, width: 40 }}
+                    >
+                      ر.س
+                    </span>
+                  </div>
+                ))}
+                {/* مؤشر المجموع */}
+                {(() => {
+                  const { cash = 0, card = 0, transfer = 0, credit = 0 } =
+                    inv.splitPayment;
+                  const splitTotal =
+                    Math.round((cash + card + transfer + credit) * 100) / 100;
+                  const diff = Math.round((total - splitTotal) * 100) / 100;
+                  const ok = Math.abs(diff) < 0.01;
+                  return (
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "5px 8px",
+                        borderRadius: 6,
+                        background: ok ? "#0a2a10" : "#2a0a0a",
+                        border: `1px solid ${ok ? "#2a6a2a" : "#6a2a2a"}`,
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: ok ? "#44dd88" : "#dd4444",
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {ok
+                          ? "✓ المجموع صحيح"
+                          : diff > 0
+                          ? `متبقي: ${diff.toFixed(2)} ر.س`
+                          : `زيادة: ${Math.abs(diff).toFixed(2)} ر.س`}
+                      </span>
+                      <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                        {splitTotal.toFixed(2)} / {total.toFixed(2)} ر.س
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
+
+          {/* ===== الخصم ===== */}
           <div
             style={{
               display: "flex",
@@ -3776,12 +3983,46 @@ useEffect(() => {
               marginBottom: 10,
             }}
           >
-            <label style={{ color: "#4a6a8a", fontSize: 12 }}>خصم %</label>
+            <div
+              style={{
+                display: "flex",
+                borderRadius: 7,
+                overflow: "hidden",
+                border: "1px solid #1d2d4a",
+              }}
+            >
+              {[
+                { type: "percent", label: "%" },
+                { type: "value", label: "ر.س" },
+              ].map(({ type, label }) => (
+                <button
+                  key={type}
+                  onClick={() =>
+                    setInv((p) => ({ ...p, discountType: type, discount: 0 }))
+                  }
+                  style={{
+                    padding: "5px 10px",
+                    background:
+                      inv.discountType === type ? "#142a5a" : "transparent",
+                    color:
+                      inv.discountType === type ? "#6aaeff" : "#4a6a8a",
+                    border: "none",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label style={{ color: "#4a6a8a", fontSize: 12 }}>خصم</label>
             <input
               type="number"
               min="0"
-              max="100"
-              value={inv.discount}
+              max={inv.discountType === "percent" ? 100 : undefined}
+              value={inv.discount || ""}
+              placeholder="0"
               onChange={(e) =>
                 setInv((p) => ({ ...p, discount: +e.target.value }))
               }
@@ -3793,7 +4034,7 @@ useEffect(() => {
                 color: "#dde8ff",
                 fontSize: 13,
                 outline: "none",
-                width: 70,
+                width: 80,
               }}
             />
             {inv.cart.length > 0 && (
@@ -3812,6 +4053,8 @@ useEffect(() => {
               </button>
             )}
           </div>
+
+          {/* ===== الأرقام ===== */}
           <div
             style={{
               background: "#0a1020",
@@ -3844,7 +4087,7 @@ useEffect(() => {
               <span>ضريبة 15%</span>
               <span>{taxAmount.toFixed(2)} ر.س</span>
             </div>
-            {inv.discount > 0 && (
+            {discountAmt > 0 && (
               <div
                 style={{
                   display: "flex",
@@ -3854,8 +4097,27 @@ useEffect(() => {
                   marginBottom: 4,
                 }}
               >
-                <span>خصم {inv.discount}%</span>
+                <span>
+                  خصم{" "}
+                  {inv.discountType === "percent"
+                    ? `${inv.discount}%`
+                    : `${inv.discount} ر.س`}
+                </span>
                 <span>- {discountAmt.toFixed(2)} ر.س</span>
+              </div>
+            )}
+            {missedTotal > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: "#ffaa44",
+                  fontSize: 12,
+                  marginBottom: 4,
+                }}
+              >
+                <span>⚠ فرص ضائعة</span>
+                <span>{missedTotal.toFixed(2)} ر.س</span>
               </div>
             )}
             <div
@@ -3874,6 +4136,7 @@ useEffect(() => {
               <span>{total.toFixed(2)} ر.س</span>
             </div>
           </div>
+
           <Btn
             size="lg"
             onClick={completeSale}
