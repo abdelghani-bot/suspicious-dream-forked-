@@ -2603,7 +2603,16 @@ function POS({
     setInvoices((p) => [...p, emptyInvoice()]);
     setActiveTab(invoices.length);
   };
-
+useEffect(() => {
+  const handler = (e) => {
+    if (e.key === "F2") {
+      e.preventDefault();
+      addTab();
+    }
+  };
+  window.addEventListener("keydown", handler);
+  return () => window.removeEventListener("keydown", handler);
+}, [addTab]);
   const closeTab = (idx) => {
     if (invoices.length === 1) {
       setInvoices([emptyInvoice()]);
@@ -3205,199 +3214,175 @@ function POS({
               </div>
             )}
             {inv.search && (
+  <div
+    style={{
+      position: "absolute",
+      top: "100%",
+      right: 0,
+      left: 0,
+      background: "#0f1623",
+      border: "1px solid #1d2d4a",
+      borderRadius: 8,
+      zIndex: 100,
+      maxHeight: 240,
+      overflowY: "auto",
+      marginTop: 4,
+    }}
+  >
+    <div
+      style={{
+        padding: "5px 14px",
+        fontSize: 10,
+        color: "#3a5a7a",
+        borderBottom: "1px solid #1a2a3a",
+        background: "#0a121f",
+      }}
+    >
+      ↓↑ تنقل · Enter إضافة · Esc إلغاء
+    </div>
+    {filtered.slice(0, 8).map((p, idx) => {
+      const effectiveStock =
+        p.unitDivision > 1 ? p.stock * p.unitDivision : p.stock;
+      const outOfStock = effectiveStock <= 0;
+      const stockColor = outOfStock
+        ? "#dd4444"
+        : p.stock <= (p.minStock || 0)
+        ? "#f59e0b"
+        : "#44dd88";
+      return (
+        <div
+          key={p.id}
+          style={{
+            padding: "7px 14px",
+            cursor: "pointer",
+            borderBottom: "1px solid #1a2a3a",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            background: idx === highlightedIdx ? "#1a2a4a" : "transparent",
+          }}
+          onMouseEnter={() => setHighlightedIdx(idx)}
+          onMouseLeave={() => setHighlightedIdx(-1)}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: stockColor,
+                flexShrink: 0,
+              }}
+            />
+            <div style={{ minWidth: 0 }}>
               <div
                 style={{
-                  position: "absolute",
-                  top: "100%",
-                  right: 0,
-                  left: 0,
-                  background: "#0f1623",
-                  border: "1px solid #1d2d4a",
-                  borderRadius: 8,
-                  zIndex: 100,
-                  maxHeight: 200,
-                  overflowY: "auto",
-                  marginTop: 4,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#dde8ff",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
               >
-                {filtered.slice(0, 8).map((p, idx) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      padding: "8px 14px",
-                      cursor: p.stock === 0 ? "not-allowed" : "pointer",
-                      opacity: p.stock === 0 ? 0.5 : 1,
-                      borderBottom: "1px solid #1a2a3a",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      background:
-                        idx === highlightedIdx ? "#1a2a4a" : "transparent",
-                    }}
-                    onMouseEnter={() => setHighlightedIdx(idx)}
-                    onMouseLeave={() => setHighlightedIdx(-1)}
-                  >
-                    {/* الصف الأول: اسم الصنف والأزرار */}
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: p.isMissed ? "#ffaa44" : "#dde8ff",
-                            textDecoration: p.isMissed
-                              ? "line-through"
-                              : "none",
-                          }}
-                        >
-                          {p.nameAr || p.name}
-                          {p.isPartial && (
-                            <span
-                              style={{
-                                fontSize: 10,
-                                color: "#44dd88",
-                                marginRight: 6,
-                              }}
-                            >
-                              ({p.partialLabel})
-                            </span>
-                          )}
-                          {p.isMissed && (
-                            <span
-                              style={{
-                                fontSize: 10,
-                                color: "#ffaa44",
-                                marginRight: 6,
-                              }}
-                            >
-                              ⚠ فرصة ضائعة
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>
-                          {p.mainCategory || p.category} | مخزون: {p.stock}
-                          {p.unitDivision > 1 && (
-                            <span style={{ color: "#f59e0b", marginRight: 6 }}>
-                              ÷{p.unitDivision}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 5,
-                          alignItems: "center",
-                        }}
-                      >
-                        {/* زر وحدة كاملة */}
-                        <button
-                          onClick={() => {
-                            if (p.stock > 0) {
-                              addToCart({ ...p, isPartial: false });
-                              setInv((x) => ({ ...x, search: "" }));
-                            }
-                          }}
-                          disabled={p.stock === 0}
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: 6,
-                            background: "#142a5a",
-                            border: "1px solid #2a6aef",
-                            color: "#6aaeff",
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: p.stock === 0 ? "not-allowed" : "pointer",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {p.price?.toFixed(2)} ر.س
-                        </button>
-
-                        {/* زر جزء - لو unitDivision > 1 */}
-                        {p.unitDivision > 1 && (
-                          <button
-                            onClick={() => {
-                              if (p.stock > 0) {
-                                const partialQty =
-                                  Math.round((1 / p.unitDivision) * 10000) /
-                                  10000;
-                                const partialPrice =
-                                  Math.round((p.price / p.unitDivision) * 100) /
-                                  100;
-                                addToCart({
-                                  ...p,
-                                  qty: partialQty,
-                                  price: partialPrice,
-                                  isPartial: true,
-                                  partialLabel: `1/${p.unitDivision}`,
-                                });
-                                setInv((x) => ({ ...x, search: "" }));
-                              }
-                            }}
-                            disabled={p.stock === 0}
-                            style={{
-                              padding: "4px 10px",
-                              borderRadius: 6,
-                              background: "#0a2a10",
-                              border: "1px solid #2a6a2a",
-                              color: "#44dd88",
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: p.stock === 0 ? "not-allowed" : "pointer",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            1/{p.unitDivision} —{" "}
-                            {(p.price / p.unitDivision).toFixed(2)} ر.س
-                          </button>
-                        )}
-
-                        {/* زر فرصة ضائعة */}
-                        <button
-                          onClick={() => {
-                            addToCart({ ...p, isMissed: true, qty: 1 });
-                            setInv((x) => ({ ...x, search: "" }));
-                          }}
-                          style={{
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            background: "#2a1a00",
-                            border: "1px solid #7a4a00",
-                            color: "#ffaa44",
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            whiteSpace: "nowrap",
-                          }}
-                          title="تسجيل كفرصة ضائعة"
-                        >
-                          ⚠ فائت
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {filtered.length === 0 && (
-                  <div
-                    style={{
-                      padding: 12,
-                      color: "#4a6a8a",
-                      textAlign: "center",
-                    }}
-                  >
-                    لا يوجد نتائج
-                  </div>
+                {p.nameAr || p.name}
+              </div>
+              <div style={{ fontSize: 10, color: "#4a6a8a" }}>
+                {p.mainCategory || p.category} · مخزون: {p.stock}
+                {p.unitDivision > 1 && (
+                  <span style={{ color: "#f59e0b" }}> ÷{p.unitDivision}</span>
                 )}
               </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 5, alignItems: "center", flexShrink: 0 }}>
+            {outOfStock ? (
+              <button
+                onClick={() => {
+                  addToCart({ ...p, isMissed: true, qty: 1 });
+                  setInv((x) => ({ ...x, search: "" }));
+                }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  background: "#2a1a00",
+                  border: "1px solid #7a4a00",
+                  color: "#ffaa44",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+                title="تسجيل كفرصة ضائعة"
+              >
+                ⚠ فائت
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    addToCart({ ...p, isPartial: false });
+                    setInv((x) => ({ ...x, search: "" }));
+                  }}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    background: "#142a5a",
+                    border: "1px solid #2a6aef",
+                    color: "#6aaeff",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {p.price?.toFixed(2)} ر.س
+                </button>
+                {p.unitDivision > 1 && (
+                  <button
+                    onClick={() => {
+                      const partialQty =
+                        Math.round((1 / p.unitDivision) * 10000) / 10000;
+                      const partialPrice =
+                        Math.round((p.price / p.unitDivision) * 100) / 100;
+                      addToCart({
+                        ...p,
+                        qty: partialQty,
+                        price: partialPrice,
+                        isPartial: true,
+                        partialLabel: `1/${p.unitDivision}`,
+                      });
+                      setInv((x) => ({ ...x, search: "" }));
+                    }}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 6,
+                      background: "#0a2a10",
+                      border: "1px solid #2a6a2a",
+                      color: "#44dd88",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    1/{p.unitDivision} — {(p.price / p.unitDivision).toFixed(2)} ر.س
+                  </button>
+                )}
+              </>
             )}
+          </div>
+        </div>
+      );
+    })}
+    {filtered.length === 0 && (
+      <div style={{ padding: 12, color: "#4a6a8a", textAlign: "center" }}>
+        لا يوجد نتائج
+      </div>
+    )}
+  </div>
+)}
           </div>
         </div>
 
