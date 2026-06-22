@@ -2516,6 +2516,10 @@ function sellFromBatches(product, qtyToSell) {
 }
 // ==================== POS ====================
 const MAX_INVOICES = 8;
+const CART_ROW_HEIGHT = 49; // ارتفاع تقريبي لكل صف في جدول السلة
+const CART_VISIBLE_ROWS = 8; // 🔧 CHANGED: عدد الأصناف الظاهرة قبل ظهور السكرول
+const CART_HEADER_HEIGHT = 34; // ارتفاع رأس الجدول (thead)
+const CART_AREA_HEIGHT = CART_HEADER_HEIGHT + CART_ROW_HEIGHT * CART_VISIBLE_ROWS; // 🔧 CHANGED
 
 const emptyInvoice = () => ({
   cart: [],
@@ -2992,6 +2996,7 @@ function POS({
             alignItems: "center",
             color: "#fcd34d",
             fontSize: 13,
+            flexShrink: 0, // 🔧 CHANGED: لا يسمح لهذا التنبيه بأخذ مساحة من السلة عند ظهوره
           }}
         >
           <span>
@@ -3014,6 +3019,7 @@ function POS({
         </div>
       )}
 
+      {/* 🔧 CHANGED: الكارت الأب — overflowY:auto كحل أخير لو الشاشة قصيرة جدًا، وminHeight:0 ضروري حتى يعمل flex بشكل صحيح مع overflow */}
       <div
         style={{
           background: "#0f1623",
@@ -3021,18 +3027,20 @@ function POS({
           borderRadius: 16,
           display: "flex",
           flexDirection: "column",
-          overflow: "hidden",
+          overflowY: "auto",
           flex: 1,
+          minHeight: 0,
         }}
       >
-        {/* بحث */}
+        {/* بحث — 🔧 CHANGED: padding مصغّر + flexShrink:0 لضمان عدم تمدده */}
         <div
           style={{
-            padding: "12px 16px",
+            padding: "8px 16px",
             borderBottom: "1px solid #1d2d4a",
             display: "flex",
             flexDirection: "column",
-            gap: 8,
+            gap: 6,
+            flexShrink: 0,
           }}
         >
           <BarcodeScanner
@@ -3423,13 +3431,14 @@ function POS({
           </div>
         </div>
 
-        {/* العميل */}
+        {/* العميل — 🔧 CHANGED: flexShrink:0 ليبقى ثابت الحجم */}
         <div
           style={{
-            padding: "8px 16px",
+            padding: "6px 16px",
             borderBottom: "1px solid #1d2d4a",
             display: "flex",
             gap: 8,
+            flexShrink: 0,
           }}
         >
           <select
@@ -3493,8 +3502,17 @@ function POS({
           />
         </div>
 
-        {/* السلة */}
-        <div style={{ flex: 2, overflowY: "auto", padding: "6px 16px" }}>
+        {/* السلة — 🔧 CHANGED: ارتفاع ثابت = 8 أصناف بالضبط + سكرول داخلي خاص بها فقط */}
+        <div
+          style={{
+            height: CART_AREA_HEIGHT,
+            minHeight: CART_AREA_HEIGHT,
+            maxHeight: CART_AREA_HEIGHT,
+            flexShrink: 0,
+            overflowY: "auto",
+            padding: "6px 16px",
+          }}
+        >
           {inv.cart.length === 0 ? (
             <div
               style={{
@@ -3522,6 +3540,9 @@ function POS({
                         color: "#4a6a8a",
                         fontSize: 12,
                         fontWeight: 600,
+                        position: "sticky", // 🔧 CHANGED: رأس الجدول يثبت أثناء السكرول داخل السلة
+                        top: 0,
+                        background: "#0f1623",
                       }}
                     >
                       {h}
@@ -3774,12 +3795,13 @@ function POS({
           )}
         </div>
 
-        {/* الإجمالي والدفع */}
+        {/* الإجمالي والدفع — 🔧 CHANGED: flexShrink:0 لضمان ظهوره كاملاً دومًا أسفل السلة */}
         <div
           style={{
             padding: "12px 16px",
             borderTop: "1px solid #1d2d4a",
             background: "#080e1a",
+            flexShrink: 0,
           }}
         >
           {/* ===== وسيلة الدفع ===== */}
