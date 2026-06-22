@@ -2613,15 +2613,20 @@ function POS({
   };
 
   useEffect(() => {
-    const handler = (e) => {
-      if (e.key === "F2") {
-        e.preventDefault();
-        addTab();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [addTab]);
+  const handler = (e) => {
+    if (e.key === "F2") {
+      e.preventDefault();
+      addTab();
+    }
+    // ✅ NEW: F1 لإتمام البيع
+    if (e.key === "F1") {
+      e.preventDefault();
+      completeSale();
+    }
+  };
+  window.addEventListener("keydown", handler);
+  return () => window.removeEventListener("keydown", handler);
+}, [addTab, completeSale]); // ✅ أضف completeSale
 
   const closeTab = (idx) => {
     if (invoices.length === 1) {
