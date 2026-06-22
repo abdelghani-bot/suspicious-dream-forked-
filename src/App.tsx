@@ -1237,6 +1237,36 @@ export default function PharmacyPro() {
   const [toast, setToast] = useState(null);
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
   const [posActiveTab, setPosActiveTab] = useState(0);
+  const [posPromos, setPosPromos] = useState([]);
+  const [posDiscountRules, setPosDiscountRules] = useState([
+    { days: 90,  discount: 50, color: "#ff4444" },
+    { days: 120, discount: 25, color: "#ff7744" },
+    { days: 150, discount: 20, color: "#ffaa44" },
+    { days: 180, discount: 15, color: "#f59e0b" },
+  ]);
+  const posProductEarliestExpiry = useMemo(() => {
+    const map = {};
+    (purchases || []).forEach((pu) => {
+      const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
+      items.forEach((item) => {
+        const expiry = item.expiry_date || item.expiry;
+        if (!expiry || !item.id) return;
+        if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
+      });
+    });
+    (products || []).forEach((p) => {
+      if (p.expiry && (!map[p.id] || p.expiry < map[p.id])) map[p.id] = p.expiry;
+    });
+    return map;
+  }, [purchases, products]);
+  // تحميل العروض وقواعد الخصم للـ POS
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase.from("promotions").select("*").eq("pharmacy_id", pharmacyId).order("end_date")
+      .then(({ data }) => { if (data) setPosPromos(data); });
+    supabase.from("promo_rules").select("*").eq("pharmacy_id", pharmacyId).order("days")
+      .then(({ data }) => { if (data && data.length > 0) setPosDiscountRules(data); });
+  }, [pharmacyId]);
   const [isLoading, setIsLoading] = useState(false);
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
@@ -1635,6 +1665,9 @@ if (isLoading) return (
             activeTab={posActiveTab}
             setActiveTab={setPosActiveTab}
             pharmacyId={pharmacyId}
+            promos={posPromos}
+            discountRules={posDiscountRules}
+            productEarliestExpiry={posProductEarliestExpiry}
           />
         )}
         {tab === "purchase" && (
@@ -2542,6 +2575,40 @@ const emptyInvoice = () => ({
   openedAt: Date.now(),
 });
 
+// ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
+function getEffectivePrice(product, promos, discountRules, productEarliestExpiry) {
+  const today = new Date().toISOString().split("T")[0];
+  // 1. عروض يدوية نشطة
+  const manualPromo = (promos || []).find(
+    (p) =>
+      p.product_id === product.id &&
+      p.start_date <= today &&
+      p.end_date >= today
+  );
+  if (manualPromo) {
+    return {
+      price: +(product.price * (1 - manualPromo.discount / 100)).toFixed(2),
+      discountPct: manualPromo.discount,
+      source: "manual",
+    };
+  }
+  // 2. عروض تلقائية (غير دواء + صلاحية قريبة)
+  const cat = product.main_category || product.category || "";
+  if (cat !== "دواء") {
+    const expiry = (productEarliestExpiry || {})[product.id] || product.expiry || null;
+    const autoPct = calcAutoDiscount(expiry, discountRules);
+    if (autoPct > 0) {
+      return {
+        price: +(product.price * (1 - autoPct / 100)).toFixed(2),
+        discountPct: autoPct,
+        source: "auto",
+      };
+    }
+  }
+  // 3. السعر الأصلي
+  return { price: product.price, discountPct: 0, source: null };
+}
+
 function POS({
   products,
   setProducts,
@@ -2558,6 +2625,9 @@ function POS({
   activeTab,
   setActiveTab,
   pharmacyId,
+  promos,
+  discountRules,
+  productEarliestExpiry,
 }) {
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
@@ -2686,9 +2756,21 @@ function POS({
       const initQty = p.isPartial
         ? Math.round((1 / p.unitDivision) * 10000) / 10000
         : 1;
+      // تطبيق العرض التلقائي أو اليدوي على السعر
+      const effective = p.isMissed || p.isJoker
+        ? { price: p.price, discountPct: 0, source: null }
+        : getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
       return {
         ...prev,
-        cart: [...prev.cart, { ...p, qty: initQty, dose: "" }],
+        cart: [...prev.cart, {
+          ...p,
+          qty: initQty,
+          dose: "",
+          price: effective.price,
+          originalPrice: p.price,
+          discountPct: effective.discountPct,
+          discountSource: effective.source,
+        }],
       };
     });
   };
@@ -3378,7 +3460,18 @@ function POS({
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {p.price?.toFixed(2)} ر.س
+                              {(() => {
+                                const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
+                                return eff.discountPct > 0 ? (
+                                  <span>
+                                    <span style={{ textDecoration: "line-through", color: "#4a6a8a", fontSize: 10, marginLeft: 4 }}>{p.price?.toFixed(2)}</span>
+                                    <span style={{ color: "#44dd88" }}> {eff.price?.toFixed(2)} ر.س</span>
+                                    <span style={{ background: "#ff7744", color: "#fff", borderRadius: 8, padding: "1px 5px", fontSize: 10, marginRight: 4 }}>-{eff.discountPct}%</span>
+                                  </span>
+                                ) : (
+                                  <span>{p.price?.toFixed(2)} ر.س</span>
+                                );
+                              })()}
                             </button>
                             {p.unitDivision > 1 && (
                               <button
@@ -3573,6 +3666,16 @@ function POS({
                       >
                         {item.name}
                       </div>
+                      {item.discountPct > 0 && (
+                        <div style={{ fontSize: 10, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ background: item.discountSource === "auto" ? "#ff7744" : "#2a6aef", color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
+                            -{item.discountPct}% {item.discountSource === "auto" ? "⏰" : "✋"}
+                          </span>
+                          {item.originalPrice && item.originalPrice !== item.price && (
+                            <span style={{ textDecoration: "line-through", color: "#4a6a8a" }}>{item.originalPrice?.toFixed(2)}</span>
+                          )}
+                        </div>
+                      )}
                       <input
                         value={item.dose}
                         onChange={(e) =>
@@ -10889,6 +10992,12 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     });
   }, [pharmacyId]);
   const [incentiveSearch, setIncentiveSearch] = useState("");
+  const [showAutoConfig, setShowAutoConfig] = useState(false);
+  const [autoPromoConfig, setAutoPromoConfig] = useState({
+    excludeCategories: ["دواء"],
+    minDiscount: 0,
+    requireStock: true,
+  });
 
   const blankPromo = { product_id: "", discount: "", start_date: new Date().toISOString().split("T")[0], end_date: "", note: "" };
   const [promoForm, setPromoForm] = useState(blankPromo);
@@ -10937,10 +11046,11 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
   const autoPromoProducts = products.filter((p) => {
     const cat = p.main_category || p.category || "";
-    if (cat === "دواء") return false;
+    if (autoPromoConfig.excludeCategories.includes(cat)) return false;
+    if (autoPromoConfig.requireStock && (p.stock || 0) <= 0) return false;
     const expiry = getProductExpiry(p);
     const disc = calcAutoDiscount(expiry, discountRules);
-    return disc > 0 && (p.stock || 0) > 0;
+    return disc > 0 && disc >= autoPromoConfig.minDiscount;
   }).map((p) => {
     const expiry = getProductExpiry(p);
     return { ...p, expiry, autoDiscount: calcAutoDiscount(expiry, discountRules) };
@@ -11066,11 +11176,68 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <div style={cardStyle("#1a2a1a")}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ color: "#44dd88", fontWeight: 700 }}>📋 منطق الخصم التدرجي التلقائي</div>
-              <button onClick={() => { setEditRules(discountRules.map(r => ({...r}))); setShowRulesEditor(true); }}
-                style={{ background: "#0a1a2a", border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: "#3a9aff", fontSize: 12, cursor: "pointer" }}>
-                ✏️ تعديل القواعد
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setShowAutoConfig((v) => !v)}
+                  style={{ background: "#1a0a2a", border: "1px solid #4a1a6a", borderRadius: 8, padding: "5px 14px", color: "#a78bfa", fontSize: 12, cursor: "pointer" }}>
+                  ⚙️ شرط الإضافة
+                </button>
+                <button onClick={() => { setEditRules(discountRules.map(r => ({...r}))); setShowRulesEditor(true); }}
+                  style={{ background: "#0a1a2a", border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: "#3a9aff", fontSize: 12, cursor: "pointer" }}>
+                  ✏️ تعديل القواعد
+                </button>
+              </div>
             </div>
+            {/* كارت إعدادات شرط الإضافة التلقائية */}
+            {showAutoConfig && (
+              <div style={{ background: "#0a0a1a", border: "1px solid #2a1a4a", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+                <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>⚙️ شروط الإضافة للقائمة التلقائية</div>
+                {/* الفئات المستثناة */}
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 6 }}>الفئات المستثناة (لن تظهر في العروض التلقائية):</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {["دواء", "مستلزمات طبية", "مستحضرات تجميل", "أخرى"].map((cat) => {
+                      const excluded = autoPromoConfig.excludeCategories.includes(cat);
+                      return (
+                        <div key={cat} onClick={() => setAutoPromoConfig((p) => ({
+                          ...p,
+                          excludeCategories: excluded
+                            ? p.excludeCategories.filter((c) => c !== cat)
+                            : [...p.excludeCategories, cat],
+                        }))} style={{ padding: "4px 12px", borderRadius: 20, cursor: "pointer",
+                          background: excluded ? "#2a0a0a" : "#0a1a0a",
+                          border: `1px solid ${excluded ? "#6a2a2a" : "#1a4a1a"}`,
+                          color: excluded ? "#ff7744" : "#44dd88", fontSize: 12 }}>
+                          {excluded ? "✕ " : "✓ "}{cat}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* الحد الأدنى للخصم */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>أقل خصم يظهر في القائمة:</span>
+                  <input type="number" min="0" max="100" value={autoPromoConfig.minDiscount}
+                    onChange={(e) => setAutoPromoConfig((p) => ({ ...p, minDiscount: +e.target.value }))}
+                    style={{ width: 60, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>%</span>
+                </div>
+                {/* اشتراط المخزون */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>إظهار الأصناف المنتهية المخزون:</span>
+                  <div onClick={() => setAutoPromoConfig((p) => ({ ...p, requireStock: !p.requireStock }))}
+                    style={{ width: 36, height: 20, borderRadius: 10, cursor: "pointer",
+                      background: autoPromoConfig.requireStock ? "#2a6a2a" : "#6a2a2a",
+                      position: "relative", transition: "background 0.2s" }}>
+                    <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff",
+                      position: "absolute", top: 3,
+                      left: autoPromoConfig.requireStock ? 3 : 19, transition: "left 0.2s" }} />
+                  </div>
+                  <span style={{ color: autoPromoConfig.requireStock ? "#44dd88" : "#ff7744", fontSize: 11 }}>
+                    {autoPromoConfig.requireStock ? "مخفية" : "ظاهرة"}
+                  </span>
+                </div>
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
               {[...discountRules].sort((a,b) => a.days - b.days).map((r) => (
                 <div key={r.days} style={{ background: "#080e1a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
