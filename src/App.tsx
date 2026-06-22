@@ -1195,79 +1195,6 @@ function parseGS1Barcode(raw) {
 
   return result;
 }
-// ==================== THEMES ====================
-const THEMES = {
-  dark: {
-    id: "dark",
-    label: "🌙",
-    appBg: "#060c16",
-    sidebarBg: "#0a0f1c",
-    sidebarBorder: "#141e30",
-    sidebarLogoBox: "linear-gradient(135deg,#1e4fbf,#0a2a7f)",
-    sidebarLogoColor: "#8ab0ff",
-    sidebarTitle: "#dde8ff",
-    sidebarSubtitle: "#2a5a8a",
-    sidebarUserBox: "#0d1520",
-    sidebarUserName: "#8aa0cc",
-    sidebarUserRole: "#2a4a6a",
-    tabActive: "#14233a",
-    tabActiveBorder: "#2a6aef",
-    tabActiveColor: "#6aaeff",
-    tabColor: "#4a6a8a",
-    mainText: "#dde8ff",
-    shiftOpen: { bg: "#0a2010", border: "#1a5020", color: "#44aa66", sub: "#2a7a46" },
-    shiftClosed: { bg: "#1a0a00", border: "#4a2a00", color: "#ffaa44" },
-    logoutBtn: { bg: "#1a0a0a", border: "#3a1010", color: "#aa4444" },
-    alertBadge: { bg: "#3a1010", color: "#ff6a6a" },
-  },
-  light: {
-    id: "light",
-    label: "☀️",
-    appBg: "#f0f4f8",
-    sidebarBg: "#ffffff",
-    sidebarBorder: "#e2e8f0",
-    sidebarLogoBox: "linear-gradient(135deg,#3b82f6,#1d4ed8)",
-    sidebarLogoColor: "#ffffff",
-    sidebarTitle: "#1e293b",
-    sidebarSubtitle: "#64748b",
-    sidebarUserBox: "#f1f5f9",
-    sidebarUserName: "#334155",
-    sidebarUserRole: "#94a3b8",
-    tabActive: "#eff6ff",
-    tabActiveBorder: "#3b82f6",
-    tabActiveColor: "#1d4ed8",
-    tabColor: "#64748b",
-    mainText: "#1e293b",
-    shiftOpen: { bg: "#f0fdf4", border: "#86efac", color: "#16a34a", sub: "#4ade80" },
-    shiftClosed: { bg: "#fff7ed", border: "#fed7aa", color: "#ea580c" },
-    logoutBtn: { bg: "#fef2f2", border: "#fecaca", color: "#dc2626" },
-    alertBadge: { bg: "#fee2e2", color: "#dc2626" },
-  },
-  pink: {
-    id: "pink",
-    label: "🌸",
-    appBg: "#fdf2f8",
-    sidebarBg: "#fff0f7",
-    sidebarBorder: "#f9a8d4",
-    sidebarLogoBox: "linear-gradient(135deg,#ec4899,#be185d)",
-    sidebarLogoColor: "#ffffff",
-    sidebarTitle: "#831843",
-    sidebarSubtitle: "#db2777",
-    sidebarUserBox: "#fce7f3",
-    sidebarUserName: "#9d174d",
-    sidebarUserRole: "#db2777",
-    tabActive: "#fdf2f8",
-    tabActiveBorder: "#ec4899",
-    tabActiveColor: "#be185d",
-    tabColor: "#db2777",
-    mainText: "#831843",
-    shiftOpen: { bg: "#f0fdf4", border: "#86efac", color: "#16a34a", sub: "#4ade80" },
-    shiftClosed: { bg: "#fff7ed", border: "#fed7aa", color: "#ea580c" },
-    logoutBtn: { bg: "#fdf2f8", border: "#f9a8d4", color: "#be185d" },
-    alertBadge: { bg: "#fce7f3", color: "#be185d" },
-  },
-};
-
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
@@ -1307,8 +1234,6 @@ export default function PharmacyPro() {
       });
   }, [pharmacyId]);
   const [tab, setTab] = useState("dashboard");
-  const [themeId, setThemeId] = useStorage("ph_theme", "dark");
-  const TH = THEMES[themeId] || THEMES.dark;
   const [toast, setToast] = useState(null);
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
   const [posActiveTab, setPosActiveTab] = useState(0);
@@ -1509,11 +1434,10 @@ if (isLoading) return (
       dir="rtl"
       style={{
         fontFamily: "'Tajawal',sans-serif",
-        background: TH.appBg,
+        background: "#060c16",
         minHeight: "100vh",
-        color: TH.mainText,
+        color: "#dde8ff",
         display: "flex",
-        transition: "background 0.3s, color 0.3s",
       }}
     >
       <link
@@ -1526,8 +1450,8 @@ if (isLoading) return (
       <nav
         style={{
           width: 210,
-          background: TH.sidebarBg,
-          borderLeft: `1px solid ${TH.sidebarBorder}`,
+          background: "#0a0f1c",
+          borderLeft: "1px solid #141e30",
           flexShrink: 0,
           display: "flex",
           flexDirection: "column",
@@ -1535,70 +1459,49 @@ if (isLoading) return (
           top: 0,
           height: "100vh",
           overflowY: "auto",
-          transition: "background 0.3s",
         }}
       >
         <div
           style={{
-            padding: "16px 16px 12px",
-            borderBottom: `1px solid ${TH.sidebarBorder}`,
+            padding: "20px 16px 16px",
+            borderBottom: "1px solid #141e30",
           }}
         >
-          {/* Logo + Theme Switcher */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div
               style={{
                 width: 36,
                 height: 36,
                 borderRadius: 10,
-                background: TH.sidebarLogoBox,
+                background: "linear-gradient(135deg,#1e4fbf,#0a2a7f)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: TH.sidebarLogoColor,
+                color: "#8ab0ff",
                 flexShrink: 0,
               }}
             >
               <IC n="pill" s={18} />
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: TH.sidebarTitle, lineHeight: 1.2 }}>
-                صيدلية برو
-              </div>
-              <div style={{ fontSize: 10, color: TH.sidebarSubtitle }}>نظام متكامل</div>
-            </div>
-          </div>
-
-          {/* Theme Buttons */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {Object.values(THEMES).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setThemeId(t.id)}
-                title={t.id === "dark" ? "داكن" : t.id === "light" ? "فاتح" : "وردي"}
+            <div>
+              <div
                 style={{
-                  flex: 1,
-                  padding: "5px 0",
                   fontSize: 14,
-                  borderRadius: 8,
-                  border: themeId === t.id
-                    ? `2px solid ${TH.tabActiveBorder}`
-                    : `2px solid ${TH.sidebarBorder}`,
-                  background: themeId === t.id ? TH.tabActive : "transparent",
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                  lineHeight: 1,
+                  fontWeight: 800,
+                  color: "#dde8ff",
+                  lineHeight: 1.2,
                 }}
               >
-                {t.label}
-              </button>
-            ))}
+                صيدلية برو
+              </div>
+              <div style={{ fontSize: 10, color: "#2a5a8a" }}>نظام متكامل</div>
+            </div>
           </div>
-
           <div
             style={{
+              marginTop: 12,
               padding: "8px 10px",
-              background: TH.sidebarUserBox,
+              background: "#0d1520",
               borderRadius: 8,
               display: "flex",
               alignItems: "center",
@@ -1611,7 +1514,7 @@ if (isLoading) return (
                 style={{
                   fontSize: 12,
                   fontWeight: 700,
-                  color: TH.sidebarUserName,
+                  color: "#8aa0cc",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -1619,7 +1522,7 @@ if (isLoading) return (
               >
                 {currentUser.name}
               </div>
-              <div style={{ fontSize: 10, color: TH.sidebarUserRole }}>
+              <div style={{ fontSize: 10, color: "#2a4a6a" }}>
                 {currentUser.role === "admin" ? "مدير" : "صيدلاني"}
               </div>
             </div>
@@ -1637,10 +1540,11 @@ if (isLoading) return (
                 gap: 10,
                 padding: "10px 16px",
                 width: "100%",
-                background: tab === t.id ? TH.tabActive : "transparent",
-                borderRight: tab === t.id ? `3px solid ${TH.tabActiveBorder}` : "3px solid transparent",
+                background: tab === t.id ? "#14233a" : "transparent",
+                borderRight:
+                  tab === t.id ? "3px solid #2a6aef" : "3px solid transparent",
                 border: "none",
-                color: tab === t.id ? TH.tabActiveColor : TH.tabColor,
+                color: tab === t.id ? "#6aaeff" : "#4a6a8a",
                 fontSize: 13,
                 fontWeight: tab === t.id ? 700 : 400,
                 cursor: "pointer",
@@ -1653,7 +1557,7 @@ if (isLoading) return (
               {tabAlertCounts[t.id] > 0 && (
                 <span style={{
                   fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, padding: "0 4px",
-                  borderRadius: 99, background: TH.alertBadge.bg, color: TH.alertBadge.color,
+                  borderRadius: 99, background: "#3a1010", color: "#ff6a6a",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontFamily: "monospace",
                 }}>
@@ -1664,31 +1568,31 @@ if (isLoading) return (
           ))}
         </div>
 
-        <div style={{ padding: "12px 16px", borderTop: `1px solid ${TH.sidebarBorder}` }}>
+        <div style={{ padding: "12px 16px", borderTop: "1px solid #141e30" }}>
           {currentShift ? (
             <div
               style={{
-                background: TH.shiftOpen.bg,
-                border: `1px solid ${TH.shiftOpen.border}`,
+                background: "#0a2010",
+                border: "1px solid #1a5020",
                 borderRadius: 8,
                 padding: "8px 10px",
                 marginBottom: 10,
-                color: TH.shiftOpen.color,
+                color: "#44aa66",
                 fontSize: 11,
               }}
             >
               <div style={{ fontWeight: 700 }}>شفت مفتوح</div>
-              <div style={{ color: TH.shiftOpen.sub }}>{currentShift.start}</div>
+              <div style={{ color: "#2a7a46" }}>{currentShift.start}</div>
             </div>
           ) : (
             <div
               style={{
-                background: TH.shiftClosed.bg,
-                border: `1px solid ${TH.shiftClosed.border}`,
+                background: "#1a0a00",
+                border: "1px solid #4a2a00",
                 borderRadius: 8,
                 padding: "8px 10px",
                 marginBottom: 10,
-                color: TH.shiftClosed.color,
+                color: "#ffaa44",
                 fontSize: 11,
               }}
             >
@@ -1707,10 +1611,10 @@ if (isLoading) return (
               gap: 8,
               width: "100%",
               padding: "9px 10px",
-              background: TH.logoutBtn.bg,
-              border: `1px solid ${TH.logoutBtn.border}`,
+              background: "#1a0a0a",
+              border: "1px solid #3a1010",
               borderRadius: 8,
-              color: TH.logoutBtn.color,
+              color: "#aa4444",
               fontSize: 13,
               fontWeight: 600,
               cursor: "pointer",
