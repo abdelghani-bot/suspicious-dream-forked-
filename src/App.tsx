@@ -13400,14 +13400,15 @@ function AttendanceModule({ pharmacyId }) {
     setLoading(false);
   }
 
-  async function loadPharmacists() {
-    const { data } = await supabase
-      .from("pharmacists")
-      .select("name")
-      .eq("pharmacy_id", pharmacyId)
-      .order("name");
-    if (data) setPharmacists(data.map((p) => p.name));
-  }
+ async function loadPharmacists() {
+  const { data } = await supabase
+    .from("users")            
+    .select("name")
+    .eq("pharmacy_id", pharmacyId)
+    .eq("role", "pharmacist")
+    .order("name");
+  if (data) setPharmacists(data.map((p) => p.name));
+}
 
   async function loadTodayLogs() {
     const today = new Date().toISOString().split("T")[0];
