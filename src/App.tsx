@@ -2522,7 +2522,7 @@ const emptyInvoice = () => ({
   selCustomer: null,
   payment: "نقدي",
   paymentMode: "single",
-  splitPayment: { cash: 0, card: 0, transfer: 0, credit: 0 },
+  splitPayment: { card: 0, transfer: 0 },
   discount: 0,
   discountType: "percent",
   prescriptionImg: null,
@@ -2752,17 +2752,10 @@ function POS({
     }
 
     if (inv.paymentMode === "split") {
-      const { cash, card, transfer, credit } = inv.splitPayment;
-      const splitTotal = Math.round((cash + card + transfer + credit) * 100) / 100;
-      if (Math.abs(splitTotal - total) > 0.01) {
-        showToast(
-          `مجموع الدفع (${splitTotal.toFixed(2)}) لا يساوي الإجمالي (${total.toFixed(2)}) ر.س`,
-          "error"
-        );
-        return;
-      }
-      if (credit > 0 && !inv.selCustomer) {
-        showToast("لا يمكن تسجيل مبلغ آجل لزبون عادي — اختر عميلاً أولاً", "error");
+      const { card, transfer } = inv.splitPayment;
+      const cash = Math.round((total - card - transfer) * 100) / 100;
+      if (cash < 0) {
+        showToast("مجموع البطاقة والتحويل أكبر من الإجمالي", "error");
         return;
       }
     }
@@ -2817,7 +2810,11 @@ function POS({
       discount_type: inv.discountType,
       total,
       payment: inv.paymentMode === "split" ? "مختلط" : inv.payment,
-      payment_split: inv.paymentMode === "split" ? inv.splitPayment : null,
+      payment_split: inv.paymentMode === "split" ? {
+        card: inv.splitPayment.card,
+        transfer: inv.splitPayment.transfer,
+        cash: Math.round((total - inv.splitPayment.card - inv.splitPayment.transfer) * 100) / 100,
+      } : null,
       shift: currentShift?.id,
       returned: false,
       pharmacy_id: pharmacyId,
@@ -3869,109 +3866,117 @@ function POS({
             )}
 
             {/* تقسيم الدفع */}
-            {inv.paymentMode === "split" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {[
-                  { key: "cash", label: "نقدي", color: "#44dd88" },
-                  { key: "card", label: "بطاقة", color: "#6aaeff" },
-                  { key: "transfer", label: "تحويل", color: "#aa88ff" },
-                  {
-                    key: "credit",
-                    label: "آجل",
-                    color: "#ffaa44",
-                    locked: !inv.selCustomer,
-                  },
-                ].map(({ key, label, color, locked }) => (
-                  <div
-                    key={key}
-                    style={{ display: "flex", alignItems: "center", gap: 8 }}
-                  >
-                    <span
-                      style={{
-                        color,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        width: 40,
-                        textAlign: "right",
-                      }}
-                    >
-                      {label}
+            {inv.paymentMode === "split" && (() => {
+              const card = inv.splitPayment.card || 0;
+              const transfer = inv.splitPayment.transfer || 0;
+              const cash = Math.round((total - card - transfer) * 100) / 100;
+              const isOverpaid = cash < 0;
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {/* بطاقة */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: "#6aaeff", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
+                      بطاقة
                     </span>
                     <input
                       type="number"
                       min="0"
                       step="0.01"
-                      disabled={locked}
-                      value={inv.splitPayment[key] || ""}
+                      value={card || ""}
                       placeholder="0.00"
                       onChange={(e) =>
                         setInv((p) => ({
                           ...p,
-                          splitPayment: {
-                            ...p.splitPayment,
-                            [key]: parseFloat(e.target.value) || 0,
-                          },
+                          splitPayment: { ...p.splitPayment, card: parseFloat(e.target.value) || 0 },
                         }))
                       }
                       style={{
                         flex: 1,
-                        background: locked ? "#0a0f1a" : "#080e1a",
-                        border: `1px solid ${locked ? "#1a2a3a" : "#1d2d4a"}`,
+                        background: "#080e1a",
+                        border: "1px solid #1d2d4a",
                         borderRadius: 7,
                         padding: "5px 10px",
-                        color: locked ? "#2a3a4a" : "#dde8ff",
+                        color: "#dde8ff",
                         fontSize: 13,
                         outline: "none",
-                        cursor: locked ? "not-allowed" : "text",
                       }}
                     />
-                    <span
-                      style={{ color: "#3a5a7a", fontSize: 11, width: 40 }}
-                    >
-                      ر.س
+                    <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
+                  </div>
+
+                  {/* تحويل */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: "#aa88ff", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
+                      تحويل
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={transfer || ""}
+                      placeholder="0.00"
+                      onChange={(e) =>
+                        setInv((p) => ({
+                          ...p,
+                          splitPayment: { ...p.splitPayment, transfer: parseFloat(e.target.value) || 0 },
+                        }))
+                      }
+                      style={{
+                        flex: 1,
+                        background: "#080e1a",
+                        border: "1px solid #1d2d4a",
+                        borderRadius: 7,
+                        padding: "5px 10px",
+                        color: "#dde8ff",
+                        fontSize: 13,
+                        outline: "none",
+                      }}
+                    />
+                    <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
+                  </div>
+
+                  {/* نقدي — محسوب تلقائياً */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: "#44dd88", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
+                      نقدي
+                    </span>
+                    <div style={{
+                      flex: 1,
+                      background: "#0a1a10",
+                      border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`,
+                      borderRadius: 7,
+                      padding: "5px 10px",
+                      color: isOverpaid ? "#dd4444" : "#44dd88",
+                      fontSize: 13,
+                      fontWeight: 700,
+                    }}>
+                      {isOverpaid ? "⚠ تجاوز الإجمالي" : `${cash.toFixed(2)}`}
+                    </div>
+                    <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
+                  </div>
+
+                  {/* شريط الملخص */}
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    padding: "5px 10px",
+                    borderRadius: 6,
+                    background: isOverpaid ? "#2a0a0a" : "#0a1a10",
+                    border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`,
+                    marginTop: 2,
+                  }}>
+                    <span style={{ color: isOverpaid ? "#dd4444" : "#44dd88", fontSize: 12, fontWeight: 700 }}>
+                      {isOverpaid
+                        ? `⚠ زيادة ${Math.abs(cash).toFixed(2)} ر.س`
+                        : "✓ الحساب مظبوط"}
+                    </span>
+                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                      نقدي {cash <= 0 ? "0.00" : cash.toFixed(2)} + بطاقة {card.toFixed(2)} + تحويل {transfer.toFixed(2)} = {total.toFixed(2)} ر.س
                     </span>
                   </div>
-                ))}
-                {/* مؤشر المجموع */}
-                {(() => {
-                  const { cash = 0, card = 0, transfer = 0, credit = 0 } =
-                    inv.splitPayment;
-                  const splitTotal =
-                    Math.round((cash + card + transfer + credit) * 100) / 100;
-                  const diff = Math.round((total - splitTotal) * 100) / 100;
-                  const ok = Math.abs(diff) < 0.01;
-                  return (
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        padding: "5px 8px",
-                        borderRadius: 6,
-                        background: ok ? "#0a2a10" : "#2a0a0a",
-                        border: `1px solid ${ok ? "#2a6a2a" : "#6a2a2a"}`,
-                      }}
-                    >
-                      <span
-                        style={{
-                          color: ok ? "#44dd88" : "#dd4444",
-                          fontSize: 12,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {ok
-                          ? "✓ المجموع صحيح"
-                          : diff > 0
-                          ? `متبقي: ${diff.toFixed(2)} ر.س`
-                          : `زيادة: ${Math.abs(diff).toFixed(2)} ر.س`}
-                      </span>
-                      <span style={{ color: "#4a6a8a", fontSize: 12 }}>
-                        {splitTotal.toFixed(2)} / {total.toFixed(2)} ر.س
-                      </span>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* ===== الخصم ===== */}
