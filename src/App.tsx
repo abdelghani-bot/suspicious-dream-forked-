@@ -7887,7 +7887,9 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       ...blank, ...p,
       nameAr: p.nameAr || p.name_ar || p.name || "",
       nameEn: p.nameEn || p.name_en || "",
-      price: String(p.price), cost: String(p.cost),
+      // السعر المخزن قبل الضريبة، نعرضه شامل الضريبة للمستخدم
+      price: String(p.taxable ? Math.round((p.price * 1.15) * 100) / 100 : p.price),
+      cost: String(p.cost),
       minStock: String(p.min_stock || p.minStock || ""),
       maxStock: String(p.max_stock || p.maxStock || ""),
       unitDivision: p.unit_division || p.unitDivision || 1,
@@ -7972,7 +7974,10 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       category: form.mainCategory, main_category: form.mainCategory,
       sub_category1: form.subCategory1, sub_category2: form.subCategory2,
       unit: form.unit, unit_division: +form.unitDivision || 1,
-      price: +form.price, cost: +form.cost, taxable: form.taxable,
+      // السعر المدخل شامل الضريبة، نحفظ السعر قبل الضريبة
+      price: form.taxable ? Math.round((+form.price / 1.15) * 100) / 100 : +form.price,
+      cost: +form.cost,
+      taxable: form.taxable,
       min_stock: +form.minStock, max_stock: +form.maxStock,
       active_ingredient: selectedIngredients[0]?.name_ar || "",
       concentration: selectedIngredients[0]?.concentration || "",
@@ -8228,7 +8233,23 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
           <Input label="وحدة البيع" value={form.unit} onChange={(v) => F("unit", v)} placeholder="قرص / كبسولة..." />
           <Input label="تقسيم الوحدة" value={form.unitDivision === 1 ? "" : String(form.unitDivision)} onChange={(v) => F("unitDivision", v ? +v : 1)} type="number" placeholder="فارغ = بدون تقسيم" />
-          <Input label="سعر البيع *" value={form.price} onChange={(v) => F("price", v)} type="number" placeholder="0.00" />
+
+          {/* ── حقل السعر مع hint الضريبة ── */}
+          <div>
+            <Input
+              label={`سعر البيع * ${form.taxable ? "(شامل الضريبة 15%)" : ""}`}
+              value={form.price}
+              onChange={(v) => F("price", v)}
+              type="number"
+              placeholder="0.00"
+            />
+            {form.taxable && form.price && +form.price > 0 && (
+              <div style={{ fontSize: 11, color: "#44dd88", marginTop: 4, padding: "4px 8px", background: "#0a1a0a", borderRadius: 4 }}>
+                قبل الضريبة: {(+form.price / 1.15).toFixed(2)} ر.س &nbsp;·&nbsp; الضريبة: {(+form.price - +form.price / 1.15).toFixed(2)} ر.س
+              </div>
+            )}
+          </div>
+
           <Input label="سعر التكلفة" value={form.cost} onChange={(v) => F("cost", v)} type="number" placeholder="0.00" />
           <Input label="الحد الأدنى للمخزون" value={form.minStock} onChange={(v) => F("minStock", v)} type="number" placeholder="10" />
           <Input label="الحد الأقصى للمخزون" value={form.maxStock} onChange={(v) => F("maxStock", v)} type="number" placeholder="100" />
