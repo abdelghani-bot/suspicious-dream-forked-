@@ -2612,13 +2612,12 @@ function POS({
     setActiveTab(invoices.length);
   };
 
-  useEffect(() => {
+ useEffect(() => {
   const handler = (e) => {
     if (e.key === "F2") {
       e.preventDefault();
       addTab();
     }
-    // ✅ NEW: F1 لإتمام البيع
     if (e.key === "F1") {
       e.preventDefault();
       completeSale();
@@ -2626,8 +2625,7 @@ function POS({
   };
   window.addEventListener("keydown", handler);
   return () => window.removeEventListener("keydown", handler);
-}, [addTab;
-
+}, [addTab]);
   const closeTab = (idx) => {
     if (invoices.length === 1) {
       setInvoices([emptyInvoice()]);
