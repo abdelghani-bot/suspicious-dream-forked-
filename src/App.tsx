@@ -1397,6 +1397,7 @@ if (isLoading) return (
     { id: "target", label: "🎯 تارجت المبيعات", icon: "target" },
     { id: "treasury", label: "الخزنة", icon: "money" },
     { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
+    { id: "attendance", label: "الحضور والانصراف", icon: "shift" },
   ];
 
   return (
@@ -1772,6 +1773,9 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
           />
         )}
+{tab === "attendance" && (
+  <AttendanceModule pharmacyId={pharmacyId} />
+)}
       </main>
     </div>
   );
@@ -13304,16 +13308,9 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   );
 }
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "../supabaseClient";
-
 // ── helpers ──────────────────────────────────────────────────────────────────
-const CITY_COORDS = { lat: 24.7136, lon: 46.6753 }; // الرياض – عدّل حسب موقع الصيدلية
-
 function isRamadan() {
-  // تقريب بسيط – يمكن استبداله بمكتبة هجري دقيقة
   const now = new Date();
-  const y = now.getFullYear();
-  // تواريخ رمضان 2025 / 2026 تقريبية
   const ranges = [
     { start: new Date("2025-03-01"), end: new Date("2025-03-30") },
     { start: new Date("2026-02-18"), end: new Date("2026-03-19") },
@@ -13344,11 +13341,11 @@ function fmtHours(h) {
 
 // ── أسماء الصلوات من API ──────────────────────────────────────────────────
 const API_KEY_MAP = { Fajr: "الفجر", Dhuhr: "الظهر", Asr: "العصر", Maghrib: "المغرب", Isha: "العشاء" };
-const ACTIVE_PRAYERS = ["الظهر", "العصر", "المغرب", "العشاء"]; // الفجر مستبعد
+const ACTIVE_PRAYERS = ["الظهر", "العصر", "المغرب", "العشاء"];
 
 async function fetchPrayerTimes() {
   const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-  const url = `https://api.aladhan.com/v1/timings/${today}?latitude=${CITY_COORDS.lat}&longitude=${CITY_COORDS.lon}&method=4`;
+  const url = `https://api.aladhan.com/v1/timings/${today}?latitude=24.7136&longitude=46.6753&method=4`;
   const res = await fetch(url);
   const json = await res.json();
   const timings = json.data.timings;
@@ -13360,7 +13357,6 @@ async function fetchPrayerTimes() {
     d.setHours(h, m, 0, 0);
     result[ar] = d.toISOString();
   });
-  // الجمعة: يوم الجمعة نستبدل الظهر بالجمعة
   if (new Date().getDay() === 5 && result["الظهر"]) {
     result["الجمعة"] = result["الظهر"];
     delete result["الظهر"];
@@ -13369,14 +13365,14 @@ async function fetchPrayerTimes() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-export default function AttendanceModule() {
-  const [tab, setTab] = useState("attendance"); // attendance | settings | report
+function AttendanceModule({ pharmacyId }) {
+  const [tab, setTab] = useState("attendance");
   const [pharmacists, setPharmacists] = useState([]);
   const [todayLogs, setTodayLogs] = useState([]);
   const [prayerTimes, setPrayerTimes] = useState({});
   const [prayerSettings, setPrayerSettings] = useState([]);
   const [prayerBreaks, setPrayerBreaks] = useState([]);
-  const [activePrayerPopup, setActivePrayerPopup] = useState(null); // { prayer, log }
+  const [activePrayerPopup, setActivePrayerPopup] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -13384,14 +13380,11 @@ export default function AttendanceModule() {
   const ramadan = isRamadan();
   const intervalRef = useRef(null);
 
-  // ── load initial data ───────────────────────────────────────────────────
   useEffect(() => {
-    loadAll();
-    // eslint-disable-next-line
-  }, []);
+    if (pharmacyId) loadAll();
+  }, [pharmacyId]);
 
   useEffect(() => {
-    // فحص كل دقيقة إذا حان وقت صلاة
     intervalRef.current = setInterval(checkPrayerAlerts, 30000);
     return () => clearInterval(intervalRef.current);
   }, [prayerTimes, prayerSettings, todayLogs, prayerBreaks]);
@@ -13409,7 +13402,11 @@ export default function AttendanceModule() {
   }
 
   async function loadPharmacists() {
-    const { data } = await supabase.from("pharmacists").select("name").order("name");
+    const { data } = await supabase
+      .from("pharmacists")
+      .select("name")
+      .eq("pharmacy_id", pharmacyId)
+      .order("name");
     if (data) setPharmacists(data.map((p) => p.name));
   }
 
@@ -13418,13 +13415,18 @@ export default function AttendanceModule() {
     const { data } = await supabase
       .from("attendance_logs")
       .select("*")
+      .eq("pharmacy_id", pharmacyId)
       .eq("date", today)
       .order("check_in");
     if (data) setTodayLogs(data);
   }
 
   async function loadPrayerSettings() {
-    const { data } = await supabase.from("prayer_settings").select("*").order("id");
+    const { data } = await supabase
+      .from("prayer_settings")
+      .select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .order("id");
     if (data) setPrayerSettings(data);
   }
 
@@ -13433,6 +13435,7 @@ export default function AttendanceModule() {
     const { data } = await supabase
       .from("prayer_breaks")
       .select("*")
+      .eq("pharmacy_id", pharmacyId)
       .eq("date", today)
       .order("prayer_time");
     if (data) setPrayerBreaks(data);
@@ -13442,12 +13445,12 @@ export default function AttendanceModule() {
     const { data } = await supabase
       .from("attendance_logs")
       .select("*, prayer_breaks(*)")
+      .eq("pharmacy_id", pharmacyId)
       .eq("date", date)
       .order("check_in");
     if (data) setReportLogs(data);
   }
 
-  // ── check prayer alerts ─────────────────────────────────────────────────
   const checkPrayerAlerts = useCallback(() => {
     const now = new Date();
     Object.entries(prayerTimes).forEach(([name, isoTime]) => {
@@ -13456,12 +13459,10 @@ export default function AttendanceModule() {
       const pTime = new Date(isoTime);
       const allowed = ramadan ? setting.ramadan_allowed_minutes : setting.allowed_minutes;
       const deadlineTime = new Date(pTime.getTime() + allowed * 60000);
-      // إذا تجاوزنا وقت الصلاة بـ 1 دقيقة → فتح الـ popup للصيادلة الحاضرين
       const minutesAfter = (now - pTime) / 60000;
       if (minutesAfter >= 1 && minutesAfter <= allowed + 5) {
         todayLogs.forEach((log) => {
           if (!log.check_out) {
-            // هل فيه break مسجّل لهذه الصلاة لهذا الصيدلي النهارده؟
             const existing = prayerBreaks.find(
               (b) => b.prayer_name === name && b.pharmacist_name === log.pharmacist_name
             );
@@ -13474,15 +13475,13 @@ export default function AttendanceModule() {
     });
   }, [prayerTimes, prayerSettings, todayLogs, prayerBreaks, ramadan]);
 
-  // ── check-in ─────────────────────────────────────────────────────────────
   async function handleCheckIn(pharmacistName) {
     const today = new Date().toISOString().split("T")[0];
-    const existing = todayLogs.find(
-      (l) => l.pharmacist_name === pharmacistName && !l.check_out
-    );
+    const existing = todayLogs.find((l) => l.pharmacist_name === pharmacistName && !l.check_out);
     if (existing) return showToast(`${pharmacistName} مسجّل بالفعل`, "warn");
 
     const { error } = await supabase.from("attendance_logs").insert({
+      pharmacy_id: pharmacyId,
       pharmacist_name: pharmacistName,
       date: today,
       check_in: new Date().toISOString(),
@@ -13493,12 +13492,10 @@ export default function AttendanceModule() {
     }
   }
 
-  // ── check-out ─────────────────────────────────────────────────────────────
   async function handleCheckOut(log) {
     const now = new Date();
     const totalMinutes = diffMin(log.check_in, now.toISOString());
     const totalHours = totalMinutes / 60;
-    // حساب الخصومات من prayer_breaks
     const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
     const totalDeductions = myBreaks.reduce((s, b) => s + (b.deducted_minutes || 0), 0) / 60;
     const netHours = Math.max(0, totalHours - totalDeductions);
@@ -13511,14 +13508,14 @@ export default function AttendanceModule() {
         total_deductions: +totalDeductions.toFixed(2),
         net_hours: +netHours.toFixed(2),
       })
-      .eq("id", log.id);
+      .eq("id", log.id)
+      .eq("pharmacy_id", pharmacyId);
     if (!error) {
       showToast(`✅ تم تسجيل انصراف ${log.pharmacist_name}`);
       loadTodayLogs();
     }
   }
 
-  // ── prayer return ─────────────────────────────────────────────────────────
   async function handlePrayerReturn(popup) {
     const now = new Date();
     const allowed = popup.allowed;
@@ -13527,6 +13524,7 @@ export default function AttendanceModule() {
     const deducted = Math.max(0, actualMin - allowed);
 
     const { error } = await supabase.from("prayer_breaks").insert({
+      pharmacy_id: pharmacyId,
       attendance_id: popup.log.id,
       pharmacist_name: popup.log.pharmacist_name,
       date: new Date().toISOString().split("T")[0],
@@ -13546,7 +13544,6 @@ export default function AttendanceModule() {
     }
   }
 
-  // ── save prayer settings ──────────────────────────────────────────────────
   async function savePrayerSetting(setting) {
     const { error } = await supabase
       .from("prayer_settings")
@@ -13556,7 +13553,8 @@ export default function AttendanceModule() {
         is_active: setting.is_active,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", setting.id);
+      .eq("id", setting.id)
+      .eq("pharmacy_id", pharmacyId);
     if (!error) showToast("✅ تم حفظ الإعدادات");
     loadPrayerSettings();
   }
@@ -13566,9 +13564,6 @@ export default function AttendanceModule() {
     setTimeout(() => setToast(null), 3500);
   }
 
-  const today = new Date().toISOString().split("T")[0];
-
-  // ══════════════════════════════════════════════════════════════════════════
   return (
     <div dir="rtl" style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif", minHeight: "100vh", background: "#f0f4f8", padding: 0 }}>
 
@@ -13584,7 +13579,6 @@ export default function AttendanceModule() {
             </p>
           </div>
         </div>
-        {/* Tabs */}
         <div style={{ display: "flex", gap: 4 }}>
           {[["attendance", "📋 الحضور"], ["settings", "⚙️ إعدادات الصلوات"], ["report", "📊 التقارير"]].map(([key, label]) => (
             <button key={key} onClick={() => { setTab(key); if (key === "report") loadReport(selectedDate); }}
@@ -13595,13 +13589,11 @@ export default function AttendanceModule() {
         </div>
       </div>
 
-      {/* ── Body ── */}
       <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
 
         {/* ════ TAB: ATTENDANCE ════ */}
         {tab === "attendance" && (
           <div>
-            {/* Prayer Times Bar */}
             <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 18, boxShadow: "0 1px 4px #0001" }}>
               <p style={{ margin: "0 0 10px", fontWeight: 600, color: "#374151", fontSize: 13 }}>🕌 مواقيت الصلوات اليوم</p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -13622,7 +13614,6 @@ export default function AttendanceModule() {
               </div>
             </div>
 
-            {/* Check-in buttons */}
             <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 18, boxShadow: "0 1px 4px #0001" }}>
               <p style={{ margin: "0 0 12px", fontWeight: 600, color: "#374151", fontSize: 13 }}>👤 تسجيل الحضور</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -13644,7 +13635,6 @@ export default function AttendanceModule() {
               </div>
             </div>
 
-            {/* Today logs */}
             <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", boxShadow: "0 1px 4px #0001" }}>
               <p style={{ margin: "0 0 12px", fontWeight: 600, color: "#374151", fontSize: 13 }}>📋 سجل اليوم</p>
               {todayLogs.length === 0
@@ -13692,7 +13682,6 @@ export default function AttendanceModule() {
                   </table>
                 </div>}
 
-              {/* Prayer breaks summary */}
               {prayerBreaks.length > 0 && (
                 <div style={{ marginTop: 14 }}>
                   <p style={{ margin: "0 0 8px", fontWeight: 600, color: "#374151", fontSize: 12 }}>🕌 سجل فترات الصلاة</p>
@@ -13717,7 +13706,6 @@ export default function AttendanceModule() {
           <div style={{ background: "#fff", borderRadius: 12, padding: "18px 20px", boxShadow: "0 1px 4px #0001" }}>
             <p style={{ margin: "0 0 4px", fontWeight: 700, color: "#111827", fontSize: 15 }}>⚙️ إعدادات وقت الصلوات</p>
             <p style={{ margin: "0 0 18px", color: "#6b7280", fontSize: 12 }}>حدد الوقت المسموح لكل صلاة (بالدقائق). التأخير عن هذا الوقت يُخصم من ساعات العمل.</p>
-
             {prayerSettings.map((s) => (
               <PrayerSettingRow key={s.id} setting={s} onSave={savePrayerSetting} ramadan={ramadan} />
             ))}
@@ -13769,12 +13757,10 @@ export default function AttendanceModule() {
         )}
       </div>
 
-      {/* ════ PRAYER POPUP ════ */}
       {activePrayerPopup && (
         <PrayerReturnPopup popup={activePrayerPopup} onReturn={handlePrayerReturn} onDismiss={() => setActivePrayerPopup(null)} />
       )}
 
-      {/* ════ TOAST ════ */}
       {toast && (
         <div style={{
           position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
@@ -13797,16 +13783,12 @@ function PrayerSettingRow({ setting, onSave, ramadan }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid #f3f4f6", flexWrap: "wrap" }}>
       <div style={{ width: 70, fontWeight: 700, color: "#111827", fontSize: 14 }}>{setting.prayer_name}</div>
-
-      {/* تفعيل */}
       <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#6b7280" }}>
         <input type="checkbox" checked={local.is_active}
           onChange={(e) => setLocal({ ...local, is_active: e.target.checked })}
           style={{ width: 16, height: 16 }} />
         تفعيل
       </label>
-
-      {/* وقت عادي */}
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151" }}>
         وقت مسموح:
         <input type="number" min={5} max={120} value={local.allowed_minutes}
@@ -13814,8 +13796,6 @@ function PrayerSettingRow({ setting, onSave, ramadan }) {
           style={{ width: 60, border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 8px", textAlign: "center" }} />
         <span style={{ color: "#9ca3af" }}>دقيقة</span>
       </label>
-
-      {/* وقت رمضان */}
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151" }}>
         🌙 رمضان:
         <input type="number" min={5} max={120} value={local.ramadan_allowed_minutes}
@@ -13823,7 +13803,6 @@ function PrayerSettingRow({ setting, onSave, ramadan }) {
           style={{ width: 60, border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 8px", textAlign: "center", background: ramadan ? "#fffbeb" : "#fff" }} />
         <span style={{ color: "#9ca3af" }}>دقيقة</span>
       </label>
-
       {changed && (
         <button onClick={() => onSave(local)}
           style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 7, padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -13837,7 +13816,6 @@ function PrayerSettingRow({ setting, onSave, ramadan }) {
 // ── Prayer Return Popup ───────────────────────────────────────────────────────
 function PrayerReturnPopup({ popup, onReturn, onDismiss }) {
   const [elapsed, setElapsed] = useState(0);
-  const deadline = new Date(popup.deadlineTime);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -13856,7 +13834,6 @@ function PrayerReturnPopup({ popup, onReturn, onDismiss }) {
         <div style={{ fontSize: 40, marginBottom: 8 }}>🕌</div>
         <h3 style={{ margin: "0 0 4px", color: "#111827", fontSize: 18 }}>وقت صلاة {popup.prayer}</h3>
         <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 14 }}>{popup.log.pharmacist_name} – الوقت المسموح: {popup.allowed} دقيقة</p>
-
         {late
           ? <div style={{ background: "#fee2e2", borderRadius: 10, padding: "10px 16px", marginBottom: 16, color: "#dc2626", fontWeight: 700 }}>
             ⚠️ تأخير {elapsed - popup.allowed} دقيقة – سيُخصم من وقت العمل
@@ -13864,7 +13841,6 @@ function PrayerReturnPopup({ popup, onReturn, onDismiss }) {
           : <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "10px 16px", marginBottom: 16, color: "#059669", fontWeight: 600 }}>
             متبقي: {remaining} دقيقة قبل احتساب التأخير
           </div>}
-
         <button onClick={() => onReturn(popup)}
           style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "12px 28px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%", marginBottom: 10 }}>
           ✅ {popup.log.pharmacist_name} – رجع من الصلاة
