@@ -3531,7 +3531,7 @@ function POS({
           </div>
         </div>
 
-        {/* العميل — 🔧 CHANGED: flexShrink:0 ليبقى ثابت الحجم */}
+{/* العميل — search بدل dropdown */}
         <div
           style={{
             padding: "6px 16px",
@@ -3541,37 +3541,171 @@ function POS({
             flexShrink: 0,
           }}
         >
-          <select
-            value={inv.selCustomer ? String(inv.selCustomer.id) : ""}
-            onChange={(e) => {
-              const chosen =
-                customers.find((c) => String(c.id) === e.target.value) || null;
-              setInv((p) => ({
-                ...p,
-                selCustomer: chosen,
-                payment:
-                  !chosen && p.payment === "آجل" ? "نقدي" : p.payment,
-              }));
-            }}
-            style={{
-              flex: 1,
-              background: "#080e1a",
-              border: "1px solid #1d2d4a",
-              borderRadius: 8,
-              padding: "7px 10px",
-              color: "#dde8ff",
-              fontSize: 13,
-              outline: "none",
-            }}
-          >
-            <option value="">زبون عادي</option>
-            {customers.map((c) => (
-              <option key={c.id} value={String(c.id)}>
-                {c.name}
-                {c.taxId ? ` — ${c.taxId}` : ""}
-              </option>
-            ))}
-          </select>
+          <div style={{ flex: 1, position: "relative" }}>
+            <input
+              value={inv.customerSearch ?? (inv.selCustomer ? inv.selCustomer.name : "")}
+              onChange={(e) => {
+                setInv((p) => ({
+                  ...p,
+                  customerSearch: e.target.value,
+                  selCustomer: e.target.value === "" ? null : p.selCustomer,
+                  payment: e.target.value === "" && p.payment === "آجل" ? "نقدي" : p.payment,
+                }));
+              }}
+              onFocus={() => setInv((p) => ({ ...p, customerSearchOpen: true }))}
+              onBlur={() => setTimeout(() => setInv((p) => ({ ...p, customerSearchOpen: false })), 150)}
+              placeholder="🔍 ابحث عن عميل بالاسم أو الجوال..."
+              style={{
+                width: "100%",
+                background: "#080e1a",
+                border: `1px solid ${inv.selCustomer ? "#2a6aef" : "#1d2d4a"}`,
+                borderRadius: 8,
+                padding: "7px 10px",
+                color: "#dde8ff",
+                fontSize: 13,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {/* زر مسح العميل */}
+            {inv.selCustomer && (
+              <button
+                onClick={() => setInv((p) => ({
+                  ...p,
+                  selCustomer: null,
+                  customerSearch: "",
+                  payment: p.payment === "آجل" ? "نقدي" : p.payment,
+                }))}
+                style={{
+                  position: "absolute",
+                  left: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  color: "#5a2a2a",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            )}
+            {/* Dropdown النتائج */}
+            {inv.customerSearchOpen && (
+              <div style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                left: 0,
+                background: "#0f1623",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                zIndex: 200,
+                maxHeight: 220,
+                overflowY: "auto",
+                marginTop: 4,
+                boxShadow: "0 8px 24px #0006",
+              }}>
+                {/* زبون عادي دايماً أول خيار */}
+                <div
+                  onMouseDown={() => {
+                    setInv((p) => ({
+                      ...p,
+                      selCustomer: null,
+                      customerSearch: "",
+                      payment: p.payment === "آجل" ? "نقدي" : p.payment,
+                      customerSearchOpen: false,
+                    }));
+                  }}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    borderBottom: "1px solid #1a2a3a",
+                    color: "#4a6a8a",
+                    fontSize: 13,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <span>👤</span> زبون عادي
+                </div>
+                {customers
+                  .filter((c) => {
+                    const q = (inv.customerSearch || "").toLowerCase();
+                    if (!q) return true;
+                    return (
+                      (c.name || "").toLowerCase().includes(q) ||
+                      (c.phone || "").includes(q) ||
+                      (c.taxId || "").includes(q)
+                    );
+                  })
+                  .slice(0, 10)
+                  .map((c) => (
+                    <div
+                      key={c.id}
+                      onMouseDown={() => {
+                        setInv((p) => ({
+                          ...p,
+                          selCustomer: c,
+                          customerSearch: c.name,
+                          customerSearchOpen: false,
+                        }));
+                      }}
+                      style={{
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        borderBottom: "1px solid #1a2a3a",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>
+                          {c.name}
+                        </div>
+                        {(c.phone || c.taxId) && (
+                          <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                            {c.phone && <span>{c.phone}</span>}
+                            {c.phone && c.taxId && <span> · </span>}
+                            {c.taxId && <span>{c.taxId}</span>}
+                          </div>
+                        )}
+                      </div>
+                      {c.credit > 0 && (
+                        <span style={{
+                          fontSize: 11,
+                          background: "#2a1010",
+                          color: "#ff6a6a",
+                          borderRadius: 6,
+                          padding: "2px 8px",
+                          fontWeight: 700,
+                        }}>
+                          آجل: {c.credit?.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                {customers.filter((c) => {
+                  const q = (inv.customerSearch || "").toLowerCase();
+                  if (!q) return true;
+                  return (
+                    (c.name || "").toLowerCase().includes(q) ||
+                    (c.phone || "").includes(q) ||
+                    (c.taxId || "").includes(q)
+                  );
+                }).length === 0 && (
+                  <div style={{ padding: 12, color: "#4a6a8a", textAlign: "center", fontSize: 13 }}>
+                    لا يوجد عملاء مطابقون
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => fileRef.current.click()}
             style={{
@@ -3582,6 +3716,7 @@ function POS({
               color: inv.prescriptionImg ? "#44dd88" : "#4a6a8a",
               cursor: "pointer",
               fontSize: 12,
+              flexShrink: 0,
             }}
           >
             {inv.prescriptionImg ? "✓ وصفة" : "📎 وصفة"}
@@ -3601,7 +3736,6 @@ function POS({
             }}
           />
         </div>
-
         {/* السلة — 🔧 CHANGED: ارتفاع ثابت = 8 أصناف بالضبط + سكرول داخلي خاص بها فقط */}
         <div
           style={{
