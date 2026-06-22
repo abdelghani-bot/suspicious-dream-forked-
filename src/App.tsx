@@ -2517,7 +2517,7 @@ function sellFromBatches(product, qtyToSell) {
 // ==================== POS ====================
 const MAX_INVOICES = 8;
 const CART_ROW_HEIGHT = 49; // ارتفاع تقريبي لكل صف في جدول السلة
-const CART_VISIBLE_ROWS = 8; // 🔧 CHANGED: عدد الأصناف الظاهرة قبل ظهور السكرول
+const CART_VISIBLE_ROWS = 5; // 🔧 CHANGED: عدد الأصناف الظاهرة قبل ظهور السكرول
 const CART_HEADER_HEIGHT = 34; // ارتفاع رأس الجدول (thead)
 const CART_AREA_HEIGHT = CART_HEADER_HEIGHT + CART_ROW_HEIGHT * CART_VISIBLE_ROWS; // 🔧 CHANGED
 
@@ -2626,7 +2626,7 @@ function POS({
   };
   window.addEventListener("keydown", handler);
   return () => window.removeEventListener("keydown", handler);
-}, [addTab, completeSale]); // ✅ أضف completeSale
+}, [addTab;
 
   const closeTab = (idx) => {
     if (invoices.length === 1) {
