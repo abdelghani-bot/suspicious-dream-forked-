@@ -1427,6 +1427,8 @@ if (isLoading) return (
     { id: "treasury", label: "الخزنة", icon: "money" },
     { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
     { id: "attendance", label: "الحضور والانصراف", icon: "shift" },
+    { id: "loyalty",     label: "نقاط الولاء",    icon: "star" },
+    { id: "permissions", label: "الصلاحيات",       icon: "settings" },
   ];
 
   return (
@@ -1809,6 +1811,21 @@ if (isLoading) return (
 {tab === "attendance" && (
   <AttendanceModule pharmacyId={pharmacyId} />
 )}
+    {tab === "loyalty" && (
+  <LoyaltyModule
+    customers={customers}
+    sales={sales}
+    products={products}
+    pharmacyId={pharmacyId}
+    showToast={showToast}
+  />
+)}
+{tab === "permissions" && (
+  <PermissionsModule
+    pharmacyId={pharmacyId}
+    showToast={showToast}
+  />
+)}    
       </main>
     </div>
   );
@@ -14251,4 +14268,927 @@ function PrayerReturnPopup({ popup, onReturn, onDismiss }) {
       </div>
     </div>
   );
+}
+// ==================== LOYALTY POINTS MODULE ====================
+function LoyaltyModule({
+  customers,
+  sales,
+  products,
+  pharmacyId,
+  showToast,
+}: {
+  customers: any[];
+  sales: any[];
+  products: any[];
+  pharmacyId: string;
+  showToast: (msg: string, type?: string) => void;
+}) {
+  // ── State ──
+  const [tab, setTab] = useState<"customers" | "settings" | "transactions">("customers");
+  const [settings, setSettings] = useState<any>({
+    mode: "profit",
+    profit_rate: 10,
+    sales_rate: 3,
+    sales_per: 100,
+    min_redeem: 10,
+    expiry_months: 12,
+  });
+  const [loyaltyMap, setLoyaltyMap] = useState<Record<string, any>>({});
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [redeemModal, setRedeemModal] = useState<any>(null);
+  const [redeemAmount, setRedeemAmount] = useState("");
+  const [adjustModal, setAdjustModal] = useState<any>(null);
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
+
+  // ── Load ──
+  useEffect(() => {
+    if (!pharmacyId) return;
+    const load = async () => {
+      setLoading(true);
+      const [sRes, pRes, tRes] = await Promise.all([
+        supabase.from("loyalty_settings").select("*").eq("pharmacy_id", pharmacyId).maybeSingle(),
+        supabase.from("loyalty_points").select("*").eq("pharmacy_id", pharmacyId),
+        supabase.from("loyalty_transactions").select("*").eq("pharmacy_id", pharmacyId).order("created_at", { ascending: false }).limit(200),
+      ]);
+      if (sRes.data) setSettings(sRes.data);
+      if (pRes.data) {
+        const map: Record<string, any> = {};
+        pRes.data.forEach((r: any) => { map[r.customer_id] = r; });
+        setLoyaltyMap(map);
+      }
+      if (tRes.data) setTransactions(tRes.data);
+      setLoading(false);
+    };
+    load();
+  }, [pharmacyId]);
+
+  // ── حساب النقاط المكتسبة من فاتورة ──
+  const calcEarnedPoints = (sale: any): number => {
+    if (settings.mode === "profit") {
+      const items = (() => {
+        try { return typeof sale.items === "string" ? JSON.parse(sale.items) : sale.items || []; }
+        catch { return []; }
+      })();
+      const profit = items.reduce((sum: number, it: any) => {
+        const cost = it.cost ?? products.find((p: any) => p.id === it.id)?.cost ?? 0;
+        return sum + (it.price - cost) * (it.qty || 0);
+      }, 0) - (sale.discount_amt ?? sale.discountAmt ?? 0);
+      return Math.max(0, profit * (settings.profit_rate / 100));
+    } else {
+      // sales mode: X ريال لكل Y ريال
+      const subtotal = sale.subtotal ?? sale.total ?? 0;
+      return Math.floor(subtotal / settings.sales_per) * settings.sales_rate;
+    }
+  };
+
+  // ── إضافة نقاط لعميل (من فاتورة) ──
+  const earnPoints = async (customerId: string, saleId: string, points: number) => {
+    if (!customerId || points <= 0) return;
+    const current = loyaltyMap[customerId] || { points: 0, total_earned: 0, total_redeemed: 0 };
+    const newPoints = (current.points || 0) + points;
+    const newEarned = (current.total_earned || 0) + points;
+
+    await supabase.from("loyalty_points").upsert({
+      pharmacy_id: pharmacyId,
+      customer_id: customerId,
+      points: newPoints,
+      total_earned: newEarned,
+      total_redeemed: current.total_redeemed || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "pharmacy_id,customer_id" });
+
+    await supabase.from("loyalty_transactions").insert({
+      pharmacy_id: pharmacyId,
+      customer_id: customerId,
+      type: "earn",
+      amount: points,
+      ref_sale_id: saleId,
+      note: `نقاط مكتسبة من فاتورة ${saleId}`,
+    });
+
+    setLoyaltyMap((p) => ({
+      ...p,
+      [customerId]: { ...current, points: newPoints, total_earned: newEarned },
+    }));
+  };
+
+  // ── استبدال نقاط ──
+  const redeemPoints = async () => {
+    const amount = parseFloat(redeemAmount);
+    if (!amount || amount <= 0) return showToast("أدخل مبلغ صحيح", "error");
+    const current = loyaltyMap[redeemModal.id] || {};
+    if (amount > (current.points || 0)) return showToast("النقاط غير كافية", "error");
+    if (amount < settings.min_redeem) return showToast(`الحد الأدنى للاستبدال ${settings.min_redeem} ريال`, "warn");
+
+    const newPoints = (current.points || 0) - amount;
+    const newRedeemed = (current.total_redeemed || 0) + amount;
+
+    await supabase.from("loyalty_points").upsert({
+      pharmacy_id: pharmacyId,
+      customer_id: redeemModal.id,
+      points: newPoints,
+      total_earned: current.total_earned || 0,
+      total_redeemed: newRedeemed,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "pharmacy_id,customer_id" });
+
+    await supabase.from("loyalty_transactions").insert({
+      pharmacy_id: pharmacyId,
+      customer_id: redeemModal.id,
+      type: "redeem",
+      amount: -amount,
+      note: "استبدال نقاط",
+    });
+
+    setLoyaltyMap((p) => ({ ...p, [redeemModal.id]: { ...current, points: newPoints, total_redeemed: newRedeemed } }));
+    setTransactions((p) => [{ id: Date.now(), customer_id: redeemModal.id, type: "redeem", amount: -amount, note: "استبدال نقاط", created_at: new Date().toISOString() }, ...p]);
+    showToast(`تم استبدال ${amount} ريال نقاط ✓`);
+    setRedeemModal(null);
+    setRedeemAmount("");
+  };
+
+  // ── تعديل يدوي ──
+  const adjustPoints = async () => {
+    const amount = parseFloat(adjustAmount);
+    if (!amount) return showToast("أدخل مبلغ", "error");
+    const current = loyaltyMap[adjustModal.id] || { points: 0, total_earned: 0, total_redeemed: 0 };
+    const newPoints = Math.max(0, (current.points || 0) + amount);
+
+    await supabase.from("loyalty_points").upsert({
+      pharmacy_id: pharmacyId,
+      customer_id: adjustModal.id,
+      points: newPoints,
+      total_earned: amount > 0 ? (current.total_earned || 0) + amount : current.total_earned || 0,
+      total_redeemed: current.total_redeemed || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "pharmacy_id,customer_id" });
+
+    await supabase.from("loyalty_transactions").insert({
+      pharmacy_id: pharmacyId,
+      customer_id: adjustModal.id,
+      type: "adjust",
+      amount,
+      note: adjustNote || "تعديل يدوي",
+    });
+
+    setLoyaltyMap((p) => ({ ...p, [adjustModal.id]: { ...current, points: newPoints } }));
+    setTransactions((p) => [{ id: Date.now(), customer_id: adjustModal.id, type: "adjust", amount, note: adjustNote || "تعديل يدوي", created_at: new Date().toISOString() }, ...p]);
+    showToast("تم التعديل ✓");
+    setAdjustModal(null);
+    setAdjustAmount("");
+    setAdjustNote("");
+  };
+
+  // ── حفظ الإعدادات ──
+  const saveSettings = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("loyalty_settings").upsert({ ...settings, pharmacy_id: pharmacyId }, { onConflict: "pharmacy_id" });
+    setSaving(false);
+    if (error) return showToast("خطأ في الحفظ", "error");
+    showToast("تم حفظ الإعدادات ✓");
+  };
+
+  // ── ألوان ──
+  const VAR = { bg: "#0f1623", border: "#1d2d4a", text: "#dde8ff", muted: "#4a6a9a", accent: "#3a9aff" };
+
+  const typeLabel: Record<string, { label: string; color: string }> = {
+    earn:   { label: "مكتسبة",  color: "#44dd88" },
+    redeem: { label: "مستبدلة", color: "#ff7777" },
+    adjust: { label: "تعديل",   color: "#ffaa44" },
+  };
+
+  // ── إحصائيات ──
+  const totalPointsInSystem = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.points || 0), 0);
+  const totalEverEarned     = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.total_earned || 0), 0);
+  const totalRedeemed       = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.total_redeemed || 0), 0);
+  const activeMembers       = Object.values(loyaltyMap).filter((v: any) => v.points > 0).length;
+
+  const filtered = customers.filter((c) =>
+    (c.name || "").includes(search) || (c.phone || "").includes(search)
+  );
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: VAR.muted }}>
+      جاري التحميل...
+    </div>
+  );
+
+  return (
+    <div>
+      {/* ── Header ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: VAR.text }}>
+          🌟 نقاط الولاء
+        </h2>
+        <div style={{ display: "flex", gap: 8 }}>
+          {(["customers", "transactions", "settings"] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              padding: "7px 16px", borderRadius: 8, border: "1px solid",
+              borderColor: tab === t ? VAR.accent : VAR.border,
+              background: tab === t ? "#0a1a30" : "transparent",
+              color: tab === t ? VAR.accent : VAR.muted,
+              fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}>
+              {t === "customers" ? "العملاء" : t === "transactions" ? "السجل" : "الإعدادات"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── إحصائيات ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "إجمالي النقاط الحالية", value: totalPointsInSystem.toFixed(1) + " ر.س", color: "#3a9aff" },
+          { label: "إجمالي المكتسبة", value: totalEverEarned.toFixed(1) + " ر.س", color: "#44dd88" },
+          { label: "إجمالي المستبدلة", value: totalRedeemed.toFixed(1) + " ر.س", color: "#ff7777" },
+          { label: "أعضاء نشطون", value: activeMembers, color: "#ffaa44" },
+        ].map((s, i) => (
+          <div key={i} style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, padding: "16px 18px" }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ════ TAB: CUSTOMERS ════ */}
+      {tab === "customers" && (
+        <div>
+          <div style={{ marginBottom: 14 }}>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="بحث باسم العميل أو رقم الجوال..."
+              style={{ background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 14px", color: VAR.text, fontSize: 14, outline: "none", width: 300, boxSizing: "border-box" as any }}
+            />
+          </div>
+
+          <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#080e1a", borderBottom: `1px solid ${VAR.border}` }}>
+                  {["العميل", "النقاط الحالية (ر.س)", "إجمالي مكتسبة", "إجمالي مستبدلة", ""].map((h, i) => (
+                    <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: "#2a3a5a" }}>لا يوجد عملاء</td></tr>
+                ) : filtered.map((c, i) => {
+                  const lp = loyaltyMap[c.id] || { points: 0, total_earned: 0, total_redeemed: 0 };
+                  return (
+                    <tr key={c.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : "#080e16" }}>
+                      <td style={{ padding: "11px 16px" }}>
+                        <div style={{ fontWeight: 700, color: VAR.text, fontSize: 14 }}>{c.name}</div>
+                        <div style={{ fontSize: 11, color: VAR.muted }}>{c.phone}</div>
+                      </td>
+                      <td style={{ padding: "11px 16px" }}>
+                        <span style={{
+                          fontSize: 16, fontWeight: 800,
+                          color: lp.points >= settings.min_redeem ? "#44dd88" : VAR.muted,
+                        }}>
+                          {(lp.points || 0).toFixed(2)}
+                        </span>
+                        {lp.points >= settings.min_redeem && (
+                          <span style={{ marginRight: 6, fontSize: 10, background: "#0a2a18", color: "#44dd88", padding: "1px 6px", borderRadius: 10 }}>
+                            قابل للاستبدال
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "11px 16px", color: "#44dd88", fontSize: 13 }}>
+                        {(lp.total_earned || 0).toFixed(2)}
+                      </td>
+                      <td style={{ padding: "11px 16px", color: "#ff7777", fontSize: 13 }}>
+                        {(lp.total_redeemed || 0).toFixed(2)}
+                      </td>
+                      <td style={{ padding: "11px 16px" }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {lp.points >= settings.min_redeem && (
+                            <button onClick={() => { setRedeemModal(c); setRedeemAmount(""); }} style={{
+                              padding: "5px 12px", borderRadius: 7, border: "1px solid #1a5a30",
+                              background: "#0a2a18", color: "#44dd88", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                            }}>
+                              استبدال
+                            </button>
+                          )}
+                          <button onClick={() => { setAdjustModal(c); setAdjustAmount(""); setAdjustNote(""); }} style={{
+                            padding: "5px 12px", borderRadius: 7, border: `1px solid ${VAR.border}`,
+                            background: "transparent", color: VAR.muted, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                          }}>
+                            تعديل
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ════ TAB: TRANSACTIONS ════ */}
+      {tab === "transactions" && (
+        <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#080e1a", borderBottom: `1px solid ${VAR.border}` }}>
+                {["التاريخ", "العميل", "النوع", "المبلغ (ر.س)", "ملاحظة"].map((h, i) => (
+                  <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.length === 0 ? (
+                <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: "#2a3a5a" }}>لا يوجد سجلات</td></tr>
+              ) : transactions.slice(0, 100).map((t, i) => {
+                const customer = customers.find((c) => c.id === t.customer_id);
+                const tl = typeLabel[t.type] || { label: t.type, color: VAR.muted };
+                return (
+                  <tr key={t.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : "#080e16" }}>
+                    <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>
+                      {t.created_at ? new Date(t.created_at).toLocaleString("ar-SA") : "-"}
+                    </td>
+                    <td style={{ padding: "10px 16px", color: VAR.text, fontSize: 13, fontWeight: 600 }}>
+                      {customer?.name || t.customer_id}
+                    </td>
+                    <td style={{ padding: "10px 16px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: tl.color + "22", color: tl.color }}>
+                        {tl.label}
+                      </span>
+                    </td>
+                    <td style={{ padding: "10px 16px", fontSize: 14, fontWeight: 800, color: t.amount > 0 ? "#44dd88" : "#ff7777" }}>
+                      {t.amount > 0 ? "+" : ""}{(t.amount || 0).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>{t.note || "-"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ════ TAB: SETTINGS ════ */}
+      {tab === "settings" && (
+        <div style={{ maxWidth: 600 }}>
+          <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, padding: 24, marginBottom: 16 }}>
+            <h3 style={{ margin: "0 0 20px", color: "#6aaeff", fontSize: 15, fontWeight: 700 }}>
+              🔧 آلية احتساب النقاط
+            </h3>
+
+            {/* وضع الحساب */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 10 }}>
+                طريقة الاحتساب
+              </label>
+              <div style={{ display: "flex", gap: 10 }}>
+                {[
+                  { v: "profit", label: "نسبة من الربح 📈", desc: "العميل ياخد نقاط أكثر على المنتجات ذات هامش ربح أعلى" },
+                  { v: "sales", label: "نسبة من المبيعات 🛒", desc: "ريال لكل X ريال مشتريات — بسيط وواضح للعميل" },
+                ].map((opt) => (
+                  <div key={opt.v} onClick={() => setSettings((p: any) => ({ ...p, mode: opt.v }))} style={{
+                    flex: 1, padding: 14, borderRadius: 10, border: `2px solid`,
+                    borderColor: settings.mode === opt.v ? VAR.accent : VAR.border,
+                    background: settings.mode === opt.v ? "#0a1a30" : "transparent",
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}>
+                    <div style={{ fontWeight: 700, color: settings.mode === opt.v ? VAR.accent : VAR.text, fontSize: 14, marginBottom: 6 }}>
+                      {opt.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: VAR.muted }}>{opt.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* إعدادات وضع الربح */}
+            {settings.mode === "profit" && (
+              <div style={{ background: "#080e1a", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: VAR.muted, marginBottom: 12 }}>
+                  مثال: إذا كان الربح من الفاتورة 50 ريال والنسبة 10% — يكسب العميل 5 ريال نقاط
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <label style={{ fontSize: 13, color: VAR.text, whiteSpace: "nowrap" }}>نسبة من الربح:</label>
+                  <input
+                    type="number" min={1} max={100}
+                    value={settings.profit_rate}
+                    onChange={(e) => setSettings((p: any) => ({ ...p, profit_rate: +e.target.value }))}
+                    style={{ width: 80, background: "#0f1623", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                  />
+                  <span style={{ color: VAR.muted, fontSize: 13 }}>%</span>
+                </div>
+              </div>
+            )}
+
+            {/* إعدادات وضع المبيعات */}
+            {settings.mode === "sales" && (
+              <div style={{ background: "#080e1a", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: VAR.muted, marginBottom: 12 }}>
+                  مثال: إذا حدّدت 3 ريال لكل 100 ريال — من يشتري بـ 250 ريال يكسب 6 ريال نقاط
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" as any }}>
+                  <input
+                    type="number" min={0.1}
+                    value={settings.sales_rate}
+                    onChange={(e) => setSettings((p: any) => ({ ...p, sales_rate: +e.target.value }))}
+                    style={{ width: 70, background: "#0f1623", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                  />
+                  <span style={{ color: VAR.muted, fontSize: 13 }}>ريال لكل</span>
+                  <input
+                    type="number" min={10}
+                    value={settings.sales_per}
+                    onChange={(e) => setSettings((p: any) => ({ ...p, sales_per: +e.target.value }))}
+                    style={{ width: 80, background: "#0f1623", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                  />
+                  <span style={{ color: VAR.muted, fontSize: 13 }}>ريال مشتريات</span>
+                </div>
+              </div>
+            )}
+
+            {/* إعدادات الاستبدال */}
+            <h3 style={{ margin: "20px 0 14px", color: "#6aaeff", fontSize: 14, fontWeight: 700 }}>
+              💱 إعدادات الاستبدال
+            </h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>
+                  الحد الأدنى للاستبدال (ريال)
+                </label>
+                <input
+                  type="number" min={1}
+                  value={settings.min_redeem}
+                  onChange={(e) => setSettings((p: any) => ({ ...p, min_redeem: +e.target.value }))}
+                  style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>
+                  انتهاء النقاط (شهر)
+                </label>
+                <input
+                  type="number" min={1}
+                  value={settings.expiry_months}
+                  onChange={(e) => setSettings((p: any) => ({ ...p, expiry_months: +e.target.value }))}
+                  style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <Btn onClick={saveSettings} disabled={saving} icon="check" size="lg" style={{ width: "100%", justifyContent: "center" }}>
+            {saving ? "جارٍ الحفظ..." : "حفظ الإعدادات"}
+          </Btn>
+        </div>
+      )}
+
+      {/* ── Modal: استبدال ── */}
+      {redeemModal && (
+        <Modal open onClose={() => setRedeemModal(null)} title={`استبدال نقاط — ${redeemModal.name}`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط المتاحة</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: "#44dd88" }}>
+                {((loyaltyMap[redeemModal.id]?.points) || 0).toFixed(2)} ر.س
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>
+                المبلغ المراد استبداله (ر.س)
+              </label>
+              <input
+                type="number" min={settings.min_redeem}
+                max={loyaltyMap[redeemModal.id]?.points || 0}
+                value={redeemAmount}
+                onChange={(e) => setRedeemAmount(e.target.value)}
+                placeholder={`الحد الأدنى ${settings.min_redeem} ريال`}
+                style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn variant="ghost" onClick={() => setRedeemModal(null)} style={{ flex: 1, justifyContent: "center" }}>إلغاء</Btn>
+              <Btn onClick={redeemPoints} style={{ flex: 1, justifyContent: "center" }}>تأكيد الاستبدال</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Modal: تعديل ── */}
+      {adjustModal && (
+        <Modal open onClose={() => setAdjustModal(null)} title={`تعديل نقاط — ${adjustModal.name}`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط الحالية</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: VAR.accent }}>
+                {((loyaltyMap[adjustModal.id]?.points) || 0).toFixed(2)} ر.س
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>
+                المبلغ (موجب للإضافة، سالب للخصم)
+              </label>
+              <input
+                type="number"
+                value={adjustAmount}
+                onChange={(e) => setAdjustAmount(e.target.value)}
+                placeholder="مثال: 10 أو -5"
+                style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>سبب التعديل</label>
+              <input
+                value={adjustNote}
+                onChange={(e) => setAdjustNote(e.target.value)}
+                placeholder="مثال: تعويض عميل..."
+                style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn variant="ghost" onClick={() => setAdjustModal(null)} style={{ flex: 1, justifyContent: "center" }}>إلغاء</Btn>
+              <Btn variant="secondary" onClick={adjustPoints} style={{ flex: 1, justifyContent: "center" }}>حفظ التعديل</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+// ==================== PERMISSIONS MODULE ====================
+// ── أقسام النظام ──
+const SYSTEM_SECTIONS = [
+  { id: "dashboard",         label: "الرئيسية",             icon: "📊" },
+  { id: "pos",               label: "نقطة البيع",           icon: "🛒" },
+  { id: "purchase",          label: "فواتير الشراء",        icon: "📦" },
+  { id: "returns",           label: "المرتجعات",            icon: "↩️" },
+  { id: "products",          label: "الأصناف والمخزون",    icon: "💊" },
+  { id: "suppliers",         label: "الموردون",             icon: "🏭" },
+  { id: "customers",         label: "العملاء",              icon: "👥" },
+  { id: "loyalty",           label: "نقاط الولاء",         icon: "🌟" },
+  { id: "reports",           label: "التقارير",             icon: "📈" },
+  { id: "tax_report",        label: "التقرير الضريبي",     icon: "🧾" },
+  { id: "promotions",        label: "العروض والخصومات",    icon: "🏷️" },
+  { id: "treasury",          label: "الخزنة",              icon: "💰" },
+  { id: "shift",             label: "الشفتات",             icon: "🕐" },
+  { id: "target",            label: "تارجت المبيعات",      icon: "🎯" },
+  { id: "inventory_count",   label: "الجرد",               icon: "📋" },
+  { id: "expiry_report",     label: "تقرير الصلاحيات",    icon: "⚠️" },
+  { id: "attendance",        label: "الحضور والانصراف",   icon: "⏱️" },
+  { id: "pharmacy_settings", label: "بيانات الصيدلية",    icon: "⚙️" },
+  { id: "rasd_settings",     label: "إعدادات رصد",         icon: "🔗" },
+];
+
+// ── الأدوار الافتراضية ──
+const DEFAULT_ROLES = ["pharmacist", "cashier"];
+
+function PermissionsModule({
+  pharmacyId,
+  showToast,
+}: {
+  pharmacyId: string;
+  showToast: (msg: string, type?: string) => void;
+}) {
+  const [perms, setPerms] = useState<Record<string, Record<string, { can_view: boolean; can_edit: boolean }>>>({});
+  const [roles, setRoles] = useState<string[]>(DEFAULT_ROLES);
+  const [selectedRole, setSelectedRole] = useState("pharmacist");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [addRoleModal, setAddRoleModal] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  const VAR = { bg: "#0f1623", border: "#1d2d4a", text: "#dde8ff", muted: "#4a6a9a", accent: "#3a9aff" };
+
+  // ── تحميل الصلاحيات ──
+  useEffect(() => {
+    if (!pharmacyId) return;
+    const load = async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from("role_permissions")
+        .select("*")
+        .eq("pharmacy_id", pharmacyId);
+
+      const map: Record<string, Record<string, { can_view: boolean; can_edit: boolean }>> = {};
+      const foundRoles = new Set<string>(DEFAULT_ROLES);
+
+      if (data) {
+        data.forEach((r: any) => {
+          foundRoles.add(r.role);
+          if (!map[r.role]) map[r.role] = {};
+          map[r.role][r.section] = { can_view: r.can_view, can_edit: r.can_edit };
+        });
+      }
+
+      // إعداد قيم افتراضية للأقسام التي مفيش ليها سجل
+      [...foundRoles].forEach((role) => {
+        if (!map[role]) map[role] = {};
+        SYSTEM_SECTIONS.forEach((sec) => {
+          if (!map[role][sec.id]) {
+            // الكاشير — POS بس بشكل افتراضي
+            map[role][sec.id] = {
+              can_view: role === "cashier" ? sec.id === "pos" : true,
+              can_edit: role === "cashier" ? sec.id === "pos" : sec.id !== "pharmacy_settings" && sec.id !== "rasd_settings",
+            };
+          }
+        });
+      });
+
+      setRoles([...foundRoles]);
+      setPerms(map);
+      setLoading(false);
+    };
+    load();
+  }, [pharmacyId]);
+
+  // ── تغيير صلاحية ──
+  const togglePerm = (section: string, type: "can_view" | "can_edit") => {
+    setPerms((prev) => {
+      const rolePerms = { ...(prev[selectedRole] || {}) };
+      const current = rolePerms[section] || { can_view: false, can_edit: false };
+
+      let updated = { ...current };
+      if (type === "can_view") {
+        updated.can_view = !current.can_view;
+        if (!updated.can_view) updated.can_edit = false; // لو أخفى القسم، مينفعش يعدّل
+      } else {
+        updated.can_edit = !current.can_edit;
+        if (updated.can_edit) updated.can_view = true; // لازم يشوف عشان يعدّل
+      }
+
+      return { ...prev, [selectedRole]: { ...rolePerms, [section]: updated } };
+    });
+    setDirty(true);
+  };
+
+  // ── تفعيل/تعطيل الكل ──
+  const toggleAll = (type: "view_all" | "edit_all" | "none") => {
+    setPerms((prev) => {
+      const rolePerms = { ...(prev[selectedRole] || {}) };
+      SYSTEM_SECTIONS.forEach((sec) => {
+        if (type === "view_all") rolePerms[sec.id] = { can_view: true, can_edit: rolePerms[sec.id]?.can_edit ?? false };
+        else if (type === "edit_all") rolePerms[sec.id] = { can_view: true, can_edit: true };
+        else rolePerms[sec.id] = { can_view: false, can_edit: false };
+      });
+      return { ...prev, [selectedRole]: rolePerms };
+    });
+    setDirty(true);
+  };
+
+  // ── حفظ ──
+  const save = async () => {
+    setSaving(true);
+    const rows = SYSTEM_SECTIONS.map((sec) => ({
+      pharmacy_id: pharmacyId,
+      role: selectedRole,
+      section: sec.id,
+      can_view: perms[selectedRole]?.[sec.id]?.can_view ?? true,
+      can_edit: perms[selectedRole]?.[sec.id]?.can_edit ?? false,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from("role_permissions")
+      .upsert(rows, { onConflict: "pharmacy_id,role,section" });
+
+    setSaving(false);
+    if (error) return showToast("خطأ في الحفظ", "error");
+    showToast(`تم حفظ صلاحيات ${roleLabel(selectedRole)} ✓`);
+    setDirty(false);
+  };
+
+  // ── إضافة دور جديد ──
+  const addRole = () => {
+    const name = newRoleName.trim();
+    if (!name) return;
+    if (roles.includes(name)) return showToast("الدور موجود بالفعل", "warn");
+
+    const defaultPerms: Record<string, { can_view: boolean; can_edit: boolean }> = {};
+    SYSTEM_SECTIONS.forEach((sec) => {
+      defaultPerms[sec.id] = { can_view: true, can_edit: false };
+    });
+
+    setRoles((p) => [...p, name]);
+    setPerms((p) => ({ ...p, [name]: defaultPerms }));
+    setSelectedRole(name);
+    setAddRoleModal(false);
+    setNewRoleName("");
+    setDirty(true);
+    showToast(`تم إضافة دور "${name}" — احفظ لحفظ التغييرات`);
+  };
+
+  const roleLabel = (r: string) =>
+    r === "pharmacist" ? "صيدلاني" : r === "cashier" ? "كاشير" : r;
+
+  const currentRolePerms = perms[selectedRole] || {};
+  const viewCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_view).length;
+  const editCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_edit).length;
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: VAR.muted }}>
+      جاري التحميل...
+    </div>
+  );
+
+  return (
+    <div>
+      {/* ── Header ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: VAR.text }}>
+          🔐 توزيع الصلاحيات
+        </h2>
+        {dirty && (
+          <Btn onClick={save} disabled={saving} icon="check">
+            {saving ? "جارٍ الحفظ..." : "حفظ التغييرات"}
+          </Btn>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+        {/* ── Sidebar: الأدوار ── */}
+        <div style={{ width: 200, flexShrink: 0 }}>
+          <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden", marginBottom: 10 }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${VAR.border}`, fontSize: 12, color: VAR.muted, fontWeight: 700 }}>
+              الأدوار
+            </div>
+            {roles.map((role) => (
+              <button key={role} onClick={() => { setSelectedRole(role); setDirty(false); }} style={{
+                display: "block", width: "100%", padding: "12px 16px", textAlign: "right",
+                background: selectedRole === role ? "#14233a" : "transparent",
+                borderRight: selectedRole === role ? "3px solid #2a6aef" : "3px solid transparent",
+                border: "none", color: selectedRole === role ? "#6aaeff" : VAR.muted,
+                fontSize: 13, fontWeight: selectedRole === role ? 700 : 400, cursor: "pointer",
+              }}>
+                {roleLabel(role)}
+                {role === "admin" && <span style={{ fontSize: 10, color: "#ffaa44", marginRight: 4 }}>👑</span>}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setAddRoleModal(true)} style={{
+            width: "100%", padding: "9px 14px", borderRadius: 10, border: `1px dashed ${VAR.border}`,
+            background: "transparent", color: VAR.muted, fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}>
+            + إضافة دور
+          </button>
+        </div>
+
+        {/* ── Content ── */}
+        <div style={{ flex: 1 }}>
+          {/* إحصائيات الدور */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: VAR.accent }}>{viewCount}</div>
+              <div style={{ fontSize: 11, color: VAR.muted }}>قسم مرئي</div>
+            </div>
+            <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#44dd88" }}>{editCount}</div>
+              <div style={{ fontSize: 11, color: VAR.muted }}>قسم قابل للتعديل</div>
+            </div>
+            <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#ff7777" }}>{SYSTEM_SECTIONS.length - viewCount}</div>
+              <div style={{ fontSize: 11, color: VAR.muted }}>قسم مخفي</div>
+            </div>
+          </div>
+
+          {/* أزرار سريعة */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            <button onClick={() => toggleAll("edit_all")} style={{
+              padding: "6px 14px", borderRadius: 7, border: `1px solid #1a5a30`,
+              background: "#0a2a18", color: "#44dd88", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}>✅ تفعيل الكل</button>
+            <button onClick={() => toggleAll("view_all")} style={{
+              padding: "6px 14px", borderRadius: 7, border: `1px solid #1d3a6a`,
+              background: "#0a1a30", color: VAR.accent, fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}>👁️ عرض بدون تعديل</button>
+            <button onClick={() => toggleAll("none")} style={{
+              padding: "6px 14px", borderRadius: 7, border: `1px solid #4a1010`,
+              background: "#1a0a0a", color: "#ff7777", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}>🚫 إخفاء الكل</button>
+          </div>
+
+          {/* جدول الصلاحيات */}
+          <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "12px 20px", background: "#080e1a", borderBottom: `1px solid ${VAR.border}` }}>
+              <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700 }}>القسم</div>
+              <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>عرض 👁️</div>
+              <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>تعديل ✏️</div>
+            </div>
+
+            {SYSTEM_SECTIONS.map((sec, i) => {
+              const p = currentRolePerms[sec.id] || { can_view: false, can_edit: false };
+              return (
+                <div key={sec.id} style={{
+                  display: "grid", gridTemplateColumns: "1fr 120px 120px",
+                  padding: "13px 20px", alignItems: "center",
+                  borderBottom: i < SYSTEM_SECTIONS.length - 1 ? `1px solid #0a1020` : "none",
+                  background: i % 2 === 0 ? "transparent" : "#080e16",
+                  opacity: !p.can_view ? 0.55 : 1, transition: "opacity 0.15s",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>{sec.icon}</span>
+                    <span style={{ fontSize: 14, color: p.can_view ? VAR.text : VAR.muted, fontWeight: p.can_view ? 600 : 400 }}>
+                      {sec.label}
+                    </span>
+                  </div>
+
+                  {/* Toggle: عرض */}
+                  <div style={{ display: "flex", justifyContent: "center" }}>
+                    <button onClick={() => togglePerm(sec.id, "can_view")} style={{
+                      width: 48, height: 26, borderRadius: 13, border: "none",
+                      background: p.can_view ? "#1a5a30" : "#2a1020",
+                      cursor: "pointer", position: "relative", transition: "background 0.2s",
+                    }}>
+                      <div style={{
+                        position: "absolute", top: 3,
+                        right: p.can_view ? 3 : 22,
+                        width: 20, height: 20, borderRadius: "50%",
+                        background: p.can_view ? "#44dd88" : "#ff5555",
+                        transition: "right 0.2s",
+                      }} />
+                    </button>
+                  </div>
+
+                  {/* Toggle: تعديل */}
+                  <div style={{ display: "flex", justifyContent: "center" }}>
+                    <button onClick={() => togglePerm(sec.id, "can_edit")} disabled={!p.can_view} style={{
+                      width: 48, height: 26, borderRadius: 13, border: "none",
+                      background: p.can_edit ? "#1a3a6a" : "#1a1a2a",
+                      cursor: p.can_view ? "pointer" : "not-allowed",
+                      position: "relative", transition: "background 0.2s",
+                      opacity: p.can_view ? 1 : 0.4,
+                    }}>
+                      <div style={{
+                        position: "absolute", top: 3,
+                        right: p.can_edit ? 3 : 22,
+                        width: 20, height: 20, borderRadius: "50%",
+                        background: p.can_edit ? "#3a9aff" : "#3a3a5a",
+                        transition: "right 0.2s",
+                      }} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* زر الحفظ في الأسفل */}
+          {dirty && (
+            <div style={{ marginTop: 16 }}>
+              <Btn onClick={save} disabled={saving} icon="check" size="lg" style={{ width: "100%", justifyContent: "center" }}>
+                {saving ? "جارٍ الحفظ..." : `حفظ صلاحيات ${roleLabel(selectedRole)}`}
+              </Btn>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Modal: إضافة دور ── */}
+      {addRoleModal && (
+        <Modal open onClose={() => setAddRoleModal(false)} title="إضافة دور جديد">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>
+                اسم الدور (بالعربي أو الإنجليزي)
+              </label>
+              <input
+                value={newRoleName}
+                onChange={(e) => setNewRoleName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addRole()}
+                placeholder="مثال: مراجع، محاسب، مدير فرع..."
+                style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+              />
+            </div>
+            <div style={{ fontSize: 12, color: VAR.muted, background: "#080e1a", borderRadius: 8, padding: 12 }}>
+              💡 سيتم إنشاء الدور بصلاحية عرض لجميع الأقسام بدون تعديل. تقدر تضبطها بعدين.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn variant="ghost" onClick={() => setAddRoleModal(false)} style={{ flex: 1, justifyContent: "center" }}>إلغاء</Btn>
+              <Btn onClick={addRole} style={{ flex: 1, justifyContent: "center" }}>إضافة</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ==================== HELPER: تحقق من صلاحية قسم ====================
+// استخدمه في App.tsx قبل عرض أي تاب
+// مثال: if (!hasPermission(userPerms, currentUser.role, "reports")) return null;
+function hasPermission(
+  perms: Record<string, Record<string, { can_view: boolean; can_edit: boolean }>>,
+  role: string,
+  section: string,
+  type: "view" | "edit" = "view"
+): boolean {
+  if (role === "admin") return true; // الأدمن عنده كل الصلاحيات دايماً
+  const p = perms?.[role]?.[section];
+  if (!p) return type === "view"; // افتراضي: عرض ✓ تعديل ✗
+  return type === "view" ? p.can_view : p.can_edit;
 }
