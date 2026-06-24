@@ -2979,7 +2979,58 @@ function POS({
     }
 
     setSales((p) => [...p, invoice]);
+// ── نقاط الولاء ──
+if (inv.selCustomer?.id) {
+  const loyaltySettings = await supabase
+    .from("loyalty_settings")
+    .select("*")
+    .eq("pharmacy_id", pharmacyId)
+    .maybeSingle()
+    .then(({ data }) => data);
 
+  if (loyaltySettings) {
+    let points = 0;
+    if (loyaltySettings.mode === "profit") {
+      const profit = invoice.items.reduce((sum, it) => {
+        return sum + (it.price - (it.cost || 0)) * (it.qty || 0);
+      }, 0) - (invoice.discount_amt || 0);
+      points = Math.max(0, profit * (loyaltySettings.profit_rate / 100));
+    } else {
+      points = Math.floor(invoice.subtotal / loyaltySettings.sales_per) * loyaltySettings.sales_rate;
+    }
+
+    if (points > 0) {
+      const { data: current } = await supabase
+        .from("loyalty_points")
+        .select("*")
+        .eq("pharmacy_id", pharmacyId)
+        .eq("customer_id", inv.selCustomer.id)
+        .maybeSingle();
+
+      const prev = current || { points: 0, total_earned: 0, total_redeemed: 0 };
+
+      await supabase.from("loyalty_points").upsert({
+        pharmacy_id: pharmacyId,
+        customer_id: inv.selCustomer.id,
+        points: (prev.points || 0) + points,
+        total_earned: (prev.total_earned || 0) + points,
+        total_redeemed: prev.total_redeemed || 0,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "pharmacy_id,customer_id" });
+
+      await supabase.from("loyalty_transactions").insert({
+        pharmacy_id: pharmacyId,
+        customer_id: inv.selCustomer.id,
+        type: "earn",
+        amount: points,
+        ref_sale_id: invoice.id,
+        note: `نقاط مكتسبة من فاتورة ${invoice.id}`,
+      });
+
+      showToast(`🌟 ${inv.selCustomer.name} كسب ${points.toFixed(1)} ريال نقاط`);
+    }
+  }
+}
     setProducts((p) =>
       p.map((x) => {
         const ci = inv.cart.find((i) => i.id === x.id && !i.isMissed);
