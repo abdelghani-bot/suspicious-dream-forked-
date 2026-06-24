@@ -3024,6 +3024,7 @@ if (inv.selCustomer?.id) {
         type: "earn",
         amount: points,
         ref_sale_id: invoice.id,
+        earned_mode: loyaltySettings.mode,
         note: `نقاط مكتسبة من فاتورة ${invoice.id}`,
       });
 
@@ -14466,6 +14467,7 @@ function LoyaltyModule({
       type: "earn",
       amount: points,
       ref_sale_id: saleId,
+      earned_mode: settings.mode,
       note: `نقاط مكتسبة من فاتورة ${saleId}`,
     });
 
@@ -14545,7 +14547,7 @@ function LoyaltyModule({
   // ── حفظ الإعدادات ──
   const saveSettings = async () => {
     setSaving(true);
-    const { error } = await supabase.from("loyalty_settings").upsert({ ...settings, pharmacy_id: pharmacyId }, { onConflict: "pharmacy_id" });
+    const { error } = await supabase.from("loyalty_settings").upsert({ ...settings, pharmacy_id: pharmacyId, mode_changed_at: new Date().toISOString()}, { onConflict: "pharmacy_id" });
     setSaving(false);
     if (error) return showToast("خطأ في الحفظ", "error");
     showToast("تم حفظ الإعدادات ✓");
