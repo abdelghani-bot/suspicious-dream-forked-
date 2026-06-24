@@ -4501,7 +4501,6 @@ if (inv.selCustomer?.id) {
     <span>- {pointsToRedeem.toFixed(2)} ر.س</span>
   </div>
 )}
-                >
                 <span>
                   خصم{" "}
                   {inv.discountType === "percent"
