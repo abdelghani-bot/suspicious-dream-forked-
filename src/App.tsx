@@ -12412,6 +12412,20 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   });
   const [editingCard, setEditingCard] = useState(false);
   const [closingSaved, setClosingSaved] = useState(false);
+  const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(0);
+
+useEffect(() => {
+  if (!pharmacyId) return;
+  supabase
+    .from("treasury_entries")
+    .select("amount")
+    .eq("pharmacy_id", pharmacyId)
+    .eq("date", today)
+    .eq("sub_type", "loyalty_redeem")
+    .then(({ data }) => {
+      if (data) setLoyaltyRedeemed(data.reduce((s, r) => s + (r.amount || 0), 0));
+    });
+}, [today, pharmacyId]);
   const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1", recurrence: "monthly", due_month: "1" });
   const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
   
@@ -12470,7 +12484,7 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   // ── حسابات المصروفات ──
   const variableTotal = closingForm.variable_expenses.reduce((a, e) => a + (+e.amount || 0), 0);
   const fixedPaidTotal = fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).reduce((a, f) => a + f.amount, 0);
-  const totalExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal;
+  const totalExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal + loyaltyRedeemed;
   // ── تعديل مبيعات البطاقة الفعلية وتسوية الفرق في الكاش ──
   const hasCardAdjust = closingForm.card_actual !== "" && !isNaN(+closingForm.card_actual);
   const cardActual = hasCardAdjust ? +closingForm.card_actual : todayCard;
@@ -12725,6 +12739,12 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
 
             <div style={{ ...rowStyle, gap: 12 }}>
               <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" as const }}>🪙 نثريات</span>
+              {loyaltyRedeemed > 0 && (
+  <div style={rowStyle}>
+    <span style={{ color: "#8aaabb", fontSize: 13 }}>🌟 استبدال نقاط نقدي</span>
+    <span style={{ color: "#ff7744", fontWeight: 700 }}>{loyaltyRedeemed.toFixed(2)} ر.س</span>
+  </div>
+)}
               <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
                 <input value={closingForm.petty_note} onChange={(e) => setClosingForm((p) => ({ ...p, petty_note: e.target.value }))}
                   placeholder="وصف..." style={{ ...inputStyle, width: 140 }} />
