@@ -14485,40 +14485,66 @@ function LoyaltyModule({
   };
 
   // ── استبدال نقاط ──
-  const redeemPoints = async () => {
-    const amount = parseFloat(redeemAmount);
-    if (!amount || amount <= 0) return showToast("أدخل مبلغ صحيح", "error");
-    const current = loyaltyMap[redeemModal.id] || {};
-    if (amount > (current.points || 0)) return showToast("النقاط غير كافية", "error");
-    if (amount < settings.min_redeem) return showToast(`الحد الأدنى للاستبدال ${settings.min_redeem} ريال`, "warn");
+const redeemPoints = async () => {
+  const amount = parseFloat(redeemAmount);
+  if (!amount || amount <= 0) return showToast("أدخل مبلغ صحيح", "error");
+  const current = loyaltyMap[redeemModal.id] || {};
+  if (amount > (current.points || 0)) return showToast("النقاط غير كافية", "error");
+  if (amount < settings.min_redeem) return showToast(`الحد الأدنى للاستبدال ${settings.min_redeem} ريال`, "warn");
 
-    const newPoints = (current.points || 0) - amount;
-    const newRedeemed = (current.total_redeemed || 0) + amount;
+  const newPoints = (current.points || 0) - amount;
+  const newRedeemed = (current.total_redeemed || 0) + amount;
 
-    await supabase.from("loyalty_points").upsert({
-      pharmacy_id: pharmacyId,
-      customer_id: redeemModal.id,
-      points: newPoints,
-      total_earned: current.total_earned || 0,
-      total_redeemed: newRedeemed,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "pharmacy_id,customer_id" });
+  // 1. تحديث نقاط العميل
+  await supabase.from("loyalty_points").upsert({
+    pharmacy_id: pharmacyId,
+    customer_id: redeemModal.id,
+    points: newPoints,
+    total_earned: current.total_earned || 0,
+    total_redeemed: newRedeemed,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "pharmacy_id,customer_id" });
 
-    await supabase.from("loyalty_transactions").insert({
-      pharmacy_id: pharmacyId,
-      customer_id: redeemModal.id,
-      type: "redeem",
-      amount: -amount,
-      note: "استبدال نقاط",
-    });
+  // 2. تسجيل المعاملة
+  await supabase.from("loyalty_transactions").insert({
+    pharmacy_id: pharmacyId,
+    customer_id: redeemModal.id,
+    type: "redeem",
+    amount: -amount,
+    note: "استبدال نقدي",
+  });
 
-    setLoyaltyMap((p) => ({ ...p, [redeemModal.id]: { ...current, points: newPoints, total_redeemed: newRedeemed } }));
-    setTransactions((p) => [{ id: Date.now(), customer_id: redeemModal.id, type: "redeem", amount: -amount, note: "استبدال نقاط", created_at: new Date().toISOString() }, ...p]);
-    showToast(`تم استبدال ${amount} ريال نقاط ✓`);
-    setRedeemModal(null);
-    setRedeemAmount("");
-  };
+  // 3. خصم من دخل اليوم — تسجيل كمصروف
+  const today = new Date().toISOString().split("T")[0];
+  // ✅ استبدله بهذا
+await supabase.from("treasury_entries").insert({
+  pharmacy_id: pharmacyId,
+  date: today,
+  type: "expense",
+  sub_type: "loyalty_redeem",
+  amount: amount,
+  note: `استبدال نقاط نقدي — ${redeemModal.name}`,
+  method: "نقدي",
+});
 
+  // 4. تحديث الـ state
+  setLoyaltyMap((p) => ({
+    ...p,
+    [redeemModal.id]: { ...current, points: newPoints, total_redeemed: newRedeemed },
+  }));
+  setTransactions((p) => [{
+    id: Date.now(),
+    customer_id: redeemModal.id,
+    type: "redeem",
+    amount: -amount,
+    note: "استبدال نقدي",
+    created_at: new Date().toISOString(),
+  }, ...p]);
+
+  showToast(`تم صرف ${amount} ريال نقداً للعميل ✓`);
+  setRedeemModal(null);
+  setRedeemAmount("");
+};
   // ── تعديل يدوي ──
   const adjustPoints = async () => {
     const amount = parseFloat(adjustAmount);
@@ -14857,7 +14883,7 @@ function LoyaltyModule({
 
       {/* ── Modal: استبدال ── */}
       {redeemModal && (
-        <Modal open onClose={() => setRedeemModal(null)} title={`استبدال نقاط — ${redeemModal.name}`}>
+        <Modal open onClose={() => setRedeemModal(null)} title={`صرف نقدي — ${redeemModal.name}`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, textAlign: "center" }}>
               <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط المتاحة</div>
@@ -14865,6 +14891,16 @@ function LoyaltyModule({
                 {((loyaltyMap[redeemModal.id]?.points) || 0).toFixed(2)} ر.س
               </div>
             </div>
+            <div style={{
+  background: "#2a1a00",
+  border: "1px solid #7a4a00",
+  borderRadius: 8,
+  padding: "8px 12px",
+  fontSize: 12,
+  color: "#ffaa44",
+}}>
+  ⚠ سيتم خصم المبلغ من دخل اليوم كمصروف
+</div>
             <div>
               <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>
                 المبلغ المراد استبداله (ر.س)
