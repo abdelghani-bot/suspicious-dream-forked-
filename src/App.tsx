@@ -2647,6 +2647,10 @@ function POS({
   discountRules,
   productEarliestExpiry,
 }) {
+  const [customerLoyalty, setCustomerLoyalty] = useState<any>(null);
+  const [usePoints, setUsePoints] = useState(false);
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [loyaltySettings, setLoyaltySettings] = useState<any>(null);
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
   const [fifoResults, setFifoResults] = useState({});
@@ -2845,7 +2849,8 @@ function POS({
       ? Math.min(Math.max(inv.discount || 0, 0), subtotal + taxAmount)
       : Math.round((((subtotal + taxAmount) * (inv.discount || 0)) / 100) * 100) / 100;
 
-  const total = subtotal + taxAmount - discountAmt;
+  const pointsDiscount = usePoints ? pointsToRedeem : 0;
+const total = Math.max(0, subtotal + taxAmount - discountAmt - pointsDiscount);
 
   const completeSale = async () => {
     if (!currentShift) {
@@ -3646,6 +3651,9 @@ if (inv.selCustomer?.id) {
                   customerSearch: "",
                   payment: p.payment === "آجل" ? "نقدي" : p.payment,
                 }))}
+                 setCustomerLoyalty(null);
+                 setUsePoints(false);
+                 setPointsToRedeem(0);
                 style={{
                   position: "absolute",
                   left: 8,
@@ -3716,14 +3724,26 @@ if (inv.selCustomer?.id) {
                   .map((c) => (
                     <div
                       key={c.id}
-                      onMouseDown={() => {
-                        setInv((p) => ({
-                          ...p,
-                          selCustomer: c,
-                          customerSearch: c.name,
-                          customerSearchOpen: false,
-                        }));
-                      }}
+                      onMouseDown={async () => {
+  setInv((p) => ({
+    ...p,
+    selCustomer: c,
+    customerSearch: c.name,
+    customerSearchOpen: false,
+  }));
+  // جلب نقاط العميل وإعدادات الولاء
+  const [lpRes, lsRes] = await Promise.all([
+    supabase.from("loyalty_points").select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .eq("customer_id", c.id).maybeSingle(),
+    supabase.from("loyalty_settings").select("*")
+      .eq("pharmacy_id", pharmacyId).maybeSingle(),
+  ]);
+  setCustomerLoyalty(lpRes.data);
+  setLoyaltySettings(lsRes.data);
+  setUsePoints(false);
+  setPointsToRedeem(0);
+}}
                       style={{
                         padding: "8px 12px",
                         cursor: "pointer",
@@ -4314,7 +4334,44 @@ if (inv.selCustomer?.id) {
               );
             })()}
           </div>
-
+{/* ===== نقاط الولاء ===== */}
+{inv.selCustomer && customerLoyalty?.points >= (loyaltySettings?.min_redeem || 10) && (
+  <div style={{
+    background: "#0a2a18", border: "1px solid #1a5a30",
+    borderRadius: 10, padding: "10px 14px", marginBottom: 10,
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+  }}>
+    <div>
+      <div style={{ color: "#44dd88", fontSize: 12, fontWeight: 700 }}>
+        🌟 نقاط متاحة: {customerLoyalty.points.toFixed(2)} ر.س
+      </div>
+      {usePoints && (
+        <div style={{ color: "#44dd88", fontSize: 11, marginTop: 3 }}>
+          سيتم خصم {pointsToRedeem.toFixed(2)} ر.س
+        </div>
+      )}
+    </div>
+    <button
+      onClick={() => {
+        const newUse = !usePoints;
+        setUsePoints(newUse);
+        setPointsToRedeem(newUse
+          ? Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt)
+          : 0
+        );
+      }}
+      style={{
+        padding: "5px 14px", borderRadius: 7,
+        border: "1px solid #1a5a30",
+        background: usePoints ? "#44dd88" : "transparent",
+        color: usePoints ? "#000" : "#44dd88",
+        fontSize: 12, fontWeight: 700, cursor: "pointer",
+      }}
+    >
+      {usePoints ? "✓ مفعّل" : "استخدام النقاط"}
+    </button>
+  </div>
+)}
           {/* ===== الخصم ===== */}
           <div
             style={{
@@ -4438,6 +4495,16 @@ if (inv.selCustomer?.id) {
                   marginBottom: 4,
                 }}
               >
+                {usePoints && pointsToRedeem > 0 && (
+  <div style={{
+    display: "flex", justifyContent: "space-between",
+    color: "#44dd88", fontSize: 12, marginBottom: 4,
+  }}>
+    <span>🌟 نقاط ولاء</span>
+    <span>- {pointsToRedeem.toFixed(2)} ر.س</span>
+  </div>
+)}
+                >
                 <span>
                   خصم{" "}
                   {inv.discountType === "percent"
