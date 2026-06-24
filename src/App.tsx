@@ -11155,21 +11155,226 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     if (!cost || !price) return false;
     return ((price - cost) / price) * 100 >= 45;
   });
+// ── دالة طباعة Shelf Label ──
+const printShelfLabel = (items: {
+  name: string;
+  originalPrice: number;
+  discountedPrice: number;
+  discount: number;
+  endDate?: string;
+  isAuto?: boolean;
+}[]) => {
+  const labelsHTML = items.map((item) => `
+    <div class="label">
+      <div class="pharmacy-name">PharmacyPro</div>
+      <div class="product-name">${item.name}</div>
+      <div class="discount-badge">خصم ${item.discount}%</div>
+      <div class="prices">
+        <div class="old-price-box">
+          <div class="old-price-label">السعر قبل</div>
+          <div class="old-price">${item.originalPrice.toFixed(2)}</div>
+        </div>
+        <div class="arrow">◄</div>
+        <div class="new-price-box">
+          <div class="new-price-label">السعر بعد</div>
+          <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
+        </div>
+      </div>
+      ${item.endDate ? `<div class="end-date">ينتهي العرض: ${item.endDate}</div>` : ""}
+    </div>
+  `).join("");
 
-  // حفظ عرض يدوي
-  const savePromo = async () => {
-    if (!promoForm.product_id || !promoForm.discount || !promoForm.end_date) {
-      showToast("يرجى ملء جميع الحقول", "error"); return;
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  win.document.write(`
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+      <meta charset="UTF-8"/>
+      <title>Shelf Labels</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
+        .page {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8mm;
+          padding: 10mm;
+          width: 210mm;
+        }
+        .label {
+          background: #FFD700;
+          border: 3px solid #e6b800;
+          border-radius: 12px;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          min-height: 120mm;
+          justify-content: center;
+        }
+        .pharmacy-name {
+          font-size: 11px;
+          color: #7a6000;
+          font-weight: 600;
+          letter-spacing: 1px;
+        }
+        .product-name {
+          font-size: 18px;
+          font-weight: 900;
+          color: #1a1a00;
+          text-align: center;
+          line-height: 1.3;
+        }
+        .discount-badge {
+          background: #cc0000;
+          color: #fff;
+          font-size: 20px;
+          font-weight: 900;
+          padding: 4px 20px;
+          border-radius: 20px;
+        }
+        .prices {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          justify-content: center;
+          margin-top: 4px;
+        }
+        .old-price-box {
+          background: #cc0000;
+          border-radius: 10px;
+          padding: 10px 14px;
+          text-align: center;
+          flex: 1;
+        }
+        .old-price-label {
+          color: #ffaaaa;
+          font-size: 11px;
+          margin-bottom: 2px;
+        }
+        .old-price {
+          color: #fff;
+          font-size: 22px;
+          font-weight: 900;
+          text-decoration: line-through;
+          text-decoration-color: #ffaaaa;
+          text-decoration-thickness: 3px;
+        }
+        .arrow {
+          color: #7a6000;
+          font-size: 22px;
+        }
+        .new-price-box {
+          background: #1a5c00;
+          border-radius: 10px;
+          padding: 10px 14px;
+          text-align: center;
+          flex: 1;
+        }
+        .new-price-label {
+          color: #aaffaa;
+          font-size: 11px;
+          margin-bottom: 2px;
+        }
+        .new-price {
+          color: #fff;
+          font-size: 28px;
+          font-weight: 900;
+        }
+        .end-date {
+          font-size: 12px;
+          color: #5a4400;
+          background: #fff3;
+          padding: 3px 10px;
+          border-radius: 6px;
+        }
+        @media print {
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          @page { size: A4; margin: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="page">${labelsHTML}</div>
+      <script>
+        window.onload = () => {
+          window.print();
+          window.onafterprint = () => window.close();
+        };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+};
+
+// ── طباعة تلقائية عند دخول صنف جديد للعروض التلقائية ──
+useEffect(() => {
+  if (!pharmacyId || autoPromoProducts.length === 0) return;
+
+  const storageKey = `printed_auto_promos_${pharmacyId}`;
+  const stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
+  // { product_id: discount_percent }
+
+  const newItems: typeof autoPromoProducts = [];
+
+  autoPromoProducts.forEach((p) => {
+    const prevDiscount = stored[p.id];
+    // لو مش موجود أو الخصم اتغير → يطبع
+    if (prevDiscount === undefined || prevDiscount !== p.autoDiscount) {
+      newItems.push(p);
+      stored[p.id] = p.autoDiscount;
     }
-    const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
-    const { data, error } = await supabase.from("promotions").insert([row]).select();
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setPromos((p) => [...p, data[0]]);
-    setPromoForm(blankPromo);
-    setShowPromoForm(false);
-    showToast("تم إضافة العرض ✓");
-  };
+  });
 
+  if (newItems.length === 0) return;
+
+  // حفظ في localStorage
+  localStorage.setItem(storageKey, JSON.stringify(stored));
+
+  // طباعة تلقائية بدون نافذة تأكيد
+  printShelfLabel(
+    newItems.map((p) => ({
+      name: p.name || p.nameAr || "",
+      originalPrice: p.price,
+      discountedPrice: parseFloat((p.price * (1 - p.autoDiscount / 100)).toFixed(2)),
+      discount: p.autoDiscount,
+      isAuto: true,
+    }))
+  );
+}, [autoPromoProducts, pharmacyId]);
+
+// ── في savePromo — بعد الحفظ الناجح أضف طباعة ──
+const savePromo = async () => {
+  if (!promoForm.product_id || !promoForm.discount || !promoForm.end_date) {
+    showToast("يرجى ملء جميع الحقول", "error"); return;
+  }
+  const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
+  const { data, error } = await supabase.from("promotions").insert([row]).select();
+  if (error) { showToast("خطأ: " + error.message, "error"); return; }
+  
+  setPromos((p) => [...p, data[0]]);
+  setPromoForm(blankPromo);
+  setShowPromoForm(false);
+  showToast("تم إضافة العرض ✓");
+
+  // ── طباعة shelf label للعرض اليدوي ──
+  const prod = products.find((p) => p.id === promoForm.product_id);
+  if (prod) {
+    printShelfLabel([{
+      name: prod.name || prod.nameAr || "",
+      originalPrice: prod.price,
+      discountedPrice: parseFloat((prod.price * (1 - +promoForm.discount / 100)).toFixed(2)),
+      discount: +promoForm.discount,
+      endDate: promoForm.end_date,
+      isAuto: false,
+    }]);
+  }
+};
   // حفظ صنف محفز
   const saveIncentive = async () => {
     if (!incentiveForm.product_id) { showToast("اختر صنفاً", "error"); return; }
