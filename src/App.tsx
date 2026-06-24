@@ -2647,10 +2647,6 @@ function POS({
   discountRules,
   productEarliestExpiry,
 }) {
-  const [customerLoyalty, setCustomerLoyalty] = useState<any>(null);
-  const [usePoints, setUsePoints] = useState(false);
-  const [pointsToRedeem, setPointsToRedeem] = useState(0);
-  const [loyaltySettings, setLoyaltySettings] = useState<any>(null);
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
   const [fifoResults, setFifoResults] = useState({});
@@ -2659,6 +2655,13 @@ function POS({
   const [autoSaveCountdown, setAutoSaveCountdown] = useState(180);
   const autoSaveTimerRef = useRef(null);
   const autoSaveCountdownRef = useRef(null);
+
+  // ── نقاط الولاء ──
+  const [customerLoyalty, setCustomerLoyalty] = useState<any>(null);
+  const [usePoints, setUsePoints] = useState(false);
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [loyaltySettings, setLoyaltySettings] = useState<any>(null);
+
   const inv = invoices[activeTab] || emptyInvoice();
   const setInv = (updater) => {
     setInvoices((prev) =>
@@ -2849,8 +2852,9 @@ function POS({
       ? Math.min(Math.max(inv.discount || 0, 0), subtotal + taxAmount)
       : Math.round((((subtotal + taxAmount) * (inv.discount || 0)) / 100) * 100) / 100;
 
+  // ── الإجمالي بعد خصم نقاط الولاء ──
   const pointsDiscount = usePoints ? pointsToRedeem : 0;
-const total = Math.max(0, subtotal + taxAmount - discountAmt - pointsDiscount);
+  const total = Math.max(0, subtotal + taxAmount - discountAmt - pointsDiscount);
 
   const completeSale = async () => {
     if (!currentShift) {
@@ -2935,6 +2939,7 @@ const total = Math.max(0, subtotal + taxAmount - discountAmt - pointsDiscount);
       returned: false,
       pharmacy_id: pharmacyId,
       cashier_name: currentUser?.name || "",
+      points_redeemed: pointsDiscount > 0 ? pointsDiscount : null,
     };
 
     const { error: saleError } = await supabase.from("sales").insert(invoice);
@@ -2984,59 +2989,87 @@ const total = Math.max(0, subtotal + taxAmount - discountAmt - pointsDiscount);
     }
 
     setSales((p) => [...p, invoice]);
-// ── نقاط الولاء ──
-if (inv.selCustomer?.id) {
-  const loyaltySettings = await supabase
-    .from("loyalty_settings")
-    .select("*")
-    .eq("pharmacy_id", pharmacyId)
-    .maybeSingle()
-    .then(({ data }) => data);
 
-  if (loyaltySettings) {
-    let points = 0;
-    if (loyaltySettings.mode === "profit") {
-      const profit = invoice.items.reduce((sum, it) => {
-        return sum + (it.price - (it.cost || 0)) * (it.qty || 0);
-      }, 0) - (invoice.discount_amt || 0);
-      points = Math.max(0, profit * (loyaltySettings.profit_rate / 100));
-    } else {
-      points = Math.floor(invoice.subtotal / loyaltySettings.sales_per) * loyaltySettings.sales_rate;
-    }
-
-    if (points > 0) {
-      const { data: current } = await supabase
-        .from("loyalty_points")
-        .select("*")
-        .eq("pharmacy_id", pharmacyId)
-        .eq("customer_id", inv.selCustomer.id)
-        .maybeSingle();
-
-      const prev = current || { points: 0, total_earned: 0, total_redeemed: 0 };
-
+    // ── استبدال نقاط في الفاتورة ──
+    if (usePoints && pointsToRedeem > 0 && inv.selCustomer?.id) {
+      const prev = customerLoyalty || { points: 0, total_earned: 0, total_redeemed: 0 };
       await supabase.from("loyalty_points").upsert({
         pharmacy_id: pharmacyId,
         customer_id: inv.selCustomer.id,
-        points: (prev.points || 0) + points,
-        total_earned: (prev.total_earned || 0) + points,
-        total_redeemed: prev.total_redeemed || 0,
+        points: Math.max(0, (prev.points || 0) - pointsToRedeem),
+        total_earned: prev.total_earned || 0,
+        total_redeemed: (prev.total_redeemed || 0) + pointsToRedeem,
         updated_at: new Date().toISOString(),
       }, { onConflict: "pharmacy_id,customer_id" });
 
       await supabase.from("loyalty_transactions").insert({
         pharmacy_id: pharmacyId,
         customer_id: inv.selCustomer.id,
-        type: "earn",
-        amount: points,
+        type: "redeem",
+        amount: -pointsToRedeem,
         ref_sale_id: invoice.id,
-        earned_mode: loyaltySettings.mode,
-        note: `نقاط مكتسبة من فاتورة ${invoice.id}`,
+        note: `استبدال نقاط في فاتورة ${invoice.id}`,
       });
 
-      showToast(`🌟 ${inv.selCustomer.name} كسب ${points.toFixed(1)} ريال نقاط`);
+      setUsePoints(false);
+      setPointsToRedeem(0);
+      setCustomerLoyalty(null);
     }
-  }
-}
+
+    // ── كسب نقاط الولاء ──
+    if (inv.selCustomer?.id) {
+      const ls = loyaltySettings || await supabase
+        .from("loyalty_settings")
+        .select("*")
+        .eq("pharmacy_id", pharmacyId)
+        .maybeSingle()
+        .then(({ data }) => data);
+
+      if (ls) {
+        let points = 0;
+        if (ls.mode === "profit") {
+          const profit = invoice.items.reduce((sum, it) => {
+            return sum + (it.price - (it.cost || 0)) * (it.qty || 0);
+          }, 0) - (invoice.discount_amt || 0);
+          points = Math.max(0, profit * (ls.profit_rate / 100));
+        } else {
+          points = Math.floor(invoice.subtotal / ls.sales_per) * ls.sales_rate;
+        }
+
+        if (points > 0) {
+          const { data: current } = await supabase
+            .from("loyalty_points")
+            .select("*")
+            .eq("pharmacy_id", pharmacyId)
+            .eq("customer_id", inv.selCustomer.id)
+            .maybeSingle();
+
+          const prev = current || { points: 0, total_earned: 0, total_redeemed: 0 };
+
+          await supabase.from("loyalty_points").upsert({
+            pharmacy_id: pharmacyId,
+            customer_id: inv.selCustomer.id,
+            points: (prev.points || 0) + points,
+            total_earned: (prev.total_earned || 0) + points,
+            total_redeemed: prev.total_redeemed || 0,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "pharmacy_id,customer_id" });
+
+          await supabase.from("loyalty_transactions").insert({
+            pharmacy_id: pharmacyId,
+            customer_id: inv.selCustomer.id,
+            type: "earn",
+            amount: points,
+            ref_sale_id: invoice.id,
+            earned_mode: ls.mode,
+            note: `نقاط مكتسبة من فاتورة ${invoice.id}`,
+          });
+
+          showToast(`🌟 ${inv.selCustomer.name} كسب ${points.toFixed(1)} ريال نقاط`);
+        }
+      }
+    }
+
     setProducts((p) =>
       p.map((x) => {
         const ci = inv.cart.find((i) => i.id === x.id && !i.isMissed);
@@ -3160,7 +3193,7 @@ if (inv.selCustomer?.id) {
             alignItems: "center",
             color: "#fcd34d",
             fontSize: 13,
-            flexShrink: 0, // 🔧 CHANGED: لا يسمح لهذا التنبيه بأخذ مساحة من السلة عند ظهوره
+            flexShrink: 0,
           }}
         >
           <span>
@@ -3183,7 +3216,6 @@ if (inv.selCustomer?.id) {
         </div>
       )}
 
-      {/* 🔧 CHANGED: الكارت الأب — overflowY:auto كحل أخير لو الشاشة قصيرة جدًا، وminHeight:0 ضروري حتى يعمل flex بشكل صحيح مع overflow */}
       <div
         style={{
           background: "#0f1623",
@@ -3196,7 +3228,7 @@ if (inv.selCustomer?.id) {
           minHeight: 0,
         }}
       >
-        {/* بحث — 🔧 CHANGED: padding مصغّر + flexShrink:0 لضمان عدم تمدده */}
+        {/* بحث */}
         <div
           style={{
             padding: "8px 16px",
@@ -3605,8 +3637,7 @@ if (inv.selCustomer?.id) {
             )}
           </div>
         </div>
-
-{/* العميل — search بدل dropdown */}
+       {/* العميل — search بدل dropdown */}
         <div
           style={{
             padding: "6px 16px",
@@ -3645,12 +3676,17 @@ if (inv.selCustomer?.id) {
             {/* زر مسح العميل */}
             {inv.selCustomer && (
               <button
-                onClick={() => setInv((p) => ({
-                  ...p,
-                  selCustomer: null,
-                  customerSearch: "",
-                  payment: p.payment === "آجل" ? "نقدي" : p.payment,
-                }))}
+                onClick={() => {
+                  setInv((p) => ({
+                    ...p,
+                    selCustomer: null,
+                    customerSearch: "",
+                    payment: p.payment === "آجل" ? "نقدي" : p.payment,
+                  }));
+                  setCustomerLoyalty(null);
+                  setUsePoints(false);
+                  setPointsToRedeem(0);
+                }}
                 style={{
                   position: "absolute",
                   left: 8,
@@ -3693,6 +3729,9 @@ if (inv.selCustomer?.id) {
                       payment: p.payment === "آجل" ? "نقدي" : p.payment,
                       customerSearchOpen: false,
                     }));
+                    setCustomerLoyalty(null);
+                    setUsePoints(false);
+                    setPointsToRedeem(0);
                   }}
                   style={{
                     padding: "8px 12px",
@@ -3722,25 +3761,25 @@ if (inv.selCustomer?.id) {
                     <div
                       key={c.id}
                       onMouseDown={async () => {
-  setInv((p) => ({
-    ...p,
-    selCustomer: c,
-    customerSearch: c.name,
-    customerSearchOpen: false,
-  }));
-  // جلب نقاط العميل وإعدادات الولاء
-  const [lpRes, lsRes] = await Promise.all([
-    supabase.from("loyalty_points").select("*")
-      .eq("pharmacy_id", pharmacyId)
-      .eq("customer_id", c.id).maybeSingle(),
-    supabase.from("loyalty_settings").select("*")
-      .eq("pharmacy_id", pharmacyId).maybeSingle(),
-  ]);
-  setCustomerLoyalty(lpRes.data);
-  setLoyaltySettings(lsRes.data);
-  setUsePoints(false);
-  setPointsToRedeem(0);
-}}
+                        setInv((p) => ({
+                          ...p,
+                          selCustomer: c,
+                          customerSearch: c.name,
+                          customerSearchOpen: false,
+                        }));
+                        // جلب نقاط العميل وإعدادات الولاء
+                        const [lpRes, lsRes] = await Promise.all([
+                          supabase.from("loyalty_points").select("*")
+                            .eq("pharmacy_id", pharmacyId)
+                            .eq("customer_id", c.id).maybeSingle(),
+                          supabase.from("loyalty_settings").select("*")
+                            .eq("pharmacy_id", pharmacyId).maybeSingle(),
+                        ]);
+                        setCustomerLoyalty(lpRes.data);
+                        setLoyaltySettings(lsRes.data);
+                        setUsePoints(false);
+                        setPointsToRedeem(0);
+                      }}
                       style={{
                         padding: "8px 12px",
                         cursor: "pointer",
@@ -3823,7 +3862,8 @@ if (inv.selCustomer?.id) {
             }}
           />
         </div>
-        {/* السلة — 🔧 CHANGED: ارتفاع ثابت = 8 أصناف بالضبط + سكرول داخلي خاص بها فقط */}
+
+        {/* السلة */}
         <div
           style={{
             height: CART_AREA_HEIGHT,
@@ -3861,7 +3901,7 @@ if (inv.selCustomer?.id) {
                         color: "#4a6a8a",
                         fontSize: 12,
                         fontWeight: 600,
-                        position: "sticky", // 🔧 CHANGED: رأس الجدول يثبت أثناء السكرول داخل السلة
+                        position: "sticky",
                         top: 0,
                         background: "#0f1623",
                       }}
@@ -4126,7 +4166,7 @@ if (inv.selCustomer?.id) {
           )}
         </div>
 
-        {/* الإجمالي والدفع — 🔧 CHANGED: flexShrink:0 لضمان ظهوره كاملاً دومًا أسفل السلة */}
+        {/* الإجمالي والدفع */}
         <div
           style={{
             padding: "12px 16px",
@@ -4137,7 +4177,6 @@ if (inv.selCustomer?.id) {
         >
           {/* ===== وسيلة الدفع ===== */}
           <div style={{ marginBottom: 10 }}>
-            {/* Toggle: دفعة واحدة / تقسيم */}
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
               {[
                 { mode: "single", label: "دفعة واحدة" },
@@ -4167,7 +4206,6 @@ if (inv.selCustomer?.id) {
               ))}
             </div>
 
-            {/* دفعة واحدة */}
             {inv.paymentMode === "single" && (
               <div style={{ display: "flex", gap: 6 }}>
                 {["نقدي", "بطاقة", "تحويل", "آجل"].map((m) => {
@@ -4218,7 +4256,6 @@ if (inv.selCustomer?.id) {
               </div>
             )}
 
-            {/* تقسيم الدفع */}
             {inv.paymentMode === "split" && (() => {
               const card = inv.splitPayment.card || 0;
               const transfer = inv.splitPayment.transfer || 0;
@@ -4226,102 +4263,50 @@ if (inv.selCustomer?.id) {
               const isOverpaid = cash < 0;
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {/* بطاقة */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ color: "#6aaeff", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
                       بطاقة
                     </span>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={card || ""}
-                      placeholder="0.00"
+                      type="number" min="0" step="0.01" value={card || ""} placeholder="0.00"
                       onChange={(e) =>
                         setInv((p) => ({
                           ...p,
                           splitPayment: { ...p.splitPayment, card: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{
-                        flex: 1,
-                        background: "#080e1a",
-                        border: "1px solid #1d2d4a",
-                        borderRadius: 7,
-                        padding: "5px 10px",
-                        color: "#dde8ff",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
+                      style={{ flex: 1, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }}
                     />
                     <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
-
-                  {/* تحويل */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ color: "#aa88ff", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
                       تحويل
                     </span>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={transfer || ""}
-                      placeholder="0.00"
+                      type="number" min="0" step="0.01" value={transfer || ""} placeholder="0.00"
                       onChange={(e) =>
                         setInv((p) => ({
                           ...p,
                           splitPayment: { ...p.splitPayment, transfer: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{
-                        flex: 1,
-                        background: "#080e1a",
-                        border: "1px solid #1d2d4a",
-                        borderRadius: 7,
-                        padding: "5px 10px",
-                        color: "#dde8ff",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
+                      style={{ flex: 1, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }}
                     />
                     <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
-
-                  {/* نقدي — محسوب تلقائياً */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ color: "#44dd88", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
                       نقدي
                     </span>
-                    <div style={{
-                      flex: 1,
-                      background: "#0a1a10",
-                      border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`,
-                      borderRadius: 7,
-                      padding: "5px 10px",
-                      color: isOverpaid ? "#dd4444" : "#44dd88",
-                      fontSize: 13,
-                      fontWeight: 700,
-                    }}>
+                    <div style={{ flex: 1, background: "#0a1a10", border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`, borderRadius: 7, padding: "5px 10px", color: isOverpaid ? "#dd4444" : "#44dd88", fontSize: 13, fontWeight: 700 }}>
                       {isOverpaid ? "⚠ تجاوز الإجمالي" : `${cash.toFixed(2)}`}
                     </div>
                     <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
-
-                  {/* شريط الملخص */}
-                  <div style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "5px 10px",
-                    borderRadius: 6,
-                    background: isOverpaid ? "#2a0a0a" : "#0a1a10",
-                    border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`,
-                    marginTop: 2,
-                  }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 10px", borderRadius: 6, background: isOverpaid ? "#2a0a0a" : "#0a1a10", border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`, marginTop: 2 }}>
                     <span style={{ color: isOverpaid ? "#dd4444" : "#44dd88", fontSize: 12, fontWeight: 700 }}>
-                      {isOverpaid
-                        ? `⚠ زيادة ${Math.abs(cash).toFixed(2)} ر.س`
-                        : "✓ الحساب مظبوط"}
+                      {isOverpaid ? `⚠ زيادة ${Math.abs(cash).toFixed(2)} ر.س` : "✓ الحساب مظبوط"}
                     </span>
                     <span style={{ color: "#4a6a8a", fontSize: 12 }}>
                       نقدي {cash <= 0 ? "0.00" : cash.toFixed(2)} + بطاقة {card.toFixed(2)} + تحويل {transfer.toFixed(2)} = {total.toFixed(2)} ر.س
@@ -4331,44 +4316,54 @@ if (inv.selCustomer?.id) {
               );
             })()}
           </div>
-{/* ===== نقاط الولاء ===== */}
-{inv.selCustomer && customerLoyalty?.points >= (loyaltySettings?.min_redeem || 10) && (
-  <div style={{
-    background: "#0a2a18", border: "1px solid #1a5a30",
-    borderRadius: 10, padding: "10px 14px", marginBottom: 10,
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-  }}>
-    <div>
-      <div style={{ color: "#44dd88", fontSize: 12, fontWeight: 700 }}>
-        🌟 نقاط متاحة: {customerLoyalty.points.toFixed(2)} ر.س
-      </div>
-      {usePoints && (
-        <div style={{ color: "#44dd88", fontSize: 11, marginTop: 3 }}>
-          سيتم خصم {pointsToRedeem.toFixed(2)} ر.س
-        </div>
-      )}
-    </div>
-    <button
-      onClick={() => {
-        const newUse = !usePoints;
-        setUsePoints(newUse);
-        setPointsToRedeem(newUse
-          ? Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt)
-          : 0
-        );
-      }}
-      style={{
-        padding: "5px 14px", borderRadius: 7,
-        border: "1px solid #1a5a30",
-        background: usePoints ? "#44dd88" : "transparent",
-        color: usePoints ? "#000" : "#44dd88",
-        fontSize: 12, fontWeight: 700, cursor: "pointer",
-      }}
-    >
-      {usePoints ? "✓ مفعّل" : "استخدام النقاط"}
-    </button>
-  </div>
-)}
+
+          {/* ===== نقاط الولاء ===== */}
+          {inv.selCustomer && customerLoyalty?.points >= (loyaltySettings?.min_redeem || 10) && (
+            <div style={{
+              background: "#0a2a18",
+              border: "1px solid #1a5a30",
+              borderRadius: 10,
+              padding: "10px 14px",
+              marginBottom: 10,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}>
+              <div>
+                <div style={{ color: "#44dd88", fontSize: 12, fontWeight: 700 }}>
+                  🌟 نقاط متاحة: {customerLoyalty.points.toFixed(2)} ر.س
+                </div>
+                {usePoints && (
+                  <div style={{ color: "#44dd88", fontSize: 11, marginTop: 3 }}>
+                    سيتم خصم {pointsToRedeem.toFixed(2)} ر.س من الفاتورة
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  const newUse = !usePoints;
+                  setUsePoints(newUse);
+                  setPointsToRedeem(newUse
+                    ? Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt)
+                    : 0
+                  );
+                }}
+                style={{
+                  padding: "5px 14px",
+                  borderRadius: 7,
+                  border: "1px solid #1a5a30",
+                  background: usePoints ? "#44dd88" : "transparent",
+                  color: usePoints ? "#000" : "#44dd88",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {usePoints ? "✓ مفعّل" : "استخدام النقاط"}
+              </button>
+            </div>
+          )}
+
           {/* ===== الخصم ===== */}
           <div
             style={{
@@ -4458,84 +4453,33 @@ if (inv.selCustomer?.id) {
               marginBottom: 10,
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#4a6a8a",
-                fontSize: 12,
-                marginBottom: 4,
-              }}
-            >
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>
               <span>قبل الضريبة</span>
               <span>{subtotal.toFixed(2)} ر.س</span>
             </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#88dd44",
-                fontSize: 12,
-                marginBottom: 4,
-              }}
-            >
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", fontSize: 12, marginBottom: 4 }}>
               <span>ضريبة 15%</span>
               <span>{taxAmount.toFixed(2)} ر.س</span>
             </div>
             {discountAmt > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  color: "#ffaa44",
-                  fontSize: 12,
-                  marginBottom: 4,
-                }}
-              >
-                {usePoints && pointsToRedeem > 0 && (
-  <div style={{
-    display: "flex", justifyContent: "space-between",
-    color: "#44dd88", fontSize: 12, marginBottom: 4,
-  }}>
-    <span>🌟 نقاط ولاء</span>
-    <span>- {pointsToRedeem.toFixed(2)} ر.س</span>
-  </div>
-)}
-                <span>
-                  خصم{" "}
-                  {inv.discountType === "percent"
-                    ? `${inv.discount}%`
-                    : `${inv.discount} ر.س`}
-                </span>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#ffaa44", fontSize: 12, marginBottom: 4 }}>
+                <span>خصم {inv.discountType === "percent" ? `${inv.discount}%` : `${inv.discount} ر.س`}</span>
                 <span>- {discountAmt.toFixed(2)} ر.س</span>
               </div>
             )}
+            {usePoints && pointsToRedeem > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#44dd88", fontSize: 12, marginBottom: 4 }}>
+                <span>🌟 نقاط ولاء</span>
+                <span>- {pointsToRedeem.toFixed(2)} ر.س</span>
+              </div>
+            )}
             {missedTotal > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  color: "#ffaa44",
-                  fontSize: 12,
-                  marginBottom: 4,
-                }}
-              >
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#ffaa44", fontSize: 12, marginBottom: 4 }}>
                 <span>⚠ فرص ضائعة</span>
                 <span>{missedTotal.toFixed(2)} ر.س</span>
               </div>
             )}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "#dde8ff",
-                fontSize: 18,
-                fontWeight: 800,
-                borderTop: "1px solid #1d2d4a",
-                paddingTop: 8,
-                marginTop: 4,
-              }}
-            >
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontSize: 18, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 8, marginTop: 4 }}>
               <span>الإجمالي</span>
               <span>{total.toFixed(2)} ر.س</span>
             </div>
@@ -4558,7 +4502,7 @@ if (inv.selCustomer?.id) {
       )}
     </div>
   );
-}
+} 
 // ==================== PRINT RECEIPT ====================
 function PrintReceipt({ invoice, onClose }) {
   const printArea = useRef();
