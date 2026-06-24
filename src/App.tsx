@@ -3649,11 +3649,10 @@ if (inv.selCustomer?.id) {
                   ...p,
                   selCustomer: null,
                   customerSearch: "",
-                  payment: p.payment === "آجل" ? "نقدي" : p.payment,
-                }))}
-                 setCustomerLoyalty(null);
+                  payment: p.payment === "آجل" ? "نقدي" : p.payment,setCustomerLoyalty(null);
                  setUsePoints(false);
                  setPointsToRedeem(0);
+                }))}
                 style={{
                   position: "absolute",
                   left: 8,
