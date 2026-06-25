@@ -2387,6 +2387,7 @@ const [myTarget, setMyTarget] = useState(null);
     </>
   )}
 </div>
+      </div>
       {/* ── ROW 1.5: تايم لاين حركة اليوم ── */}
       <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
         حركة اليوم بالساعة
