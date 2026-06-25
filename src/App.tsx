@@ -1646,6 +1646,7 @@ if (isLoading) return (
             suppliers={suppliers}
             shifts={shifts}
             currentUser={currentUser}
+            pharmacyId={pharmacyId}
             setTab={setTab}
             creditPayments={creditPayments}
             treasuryEntries={treasuryEntries}
@@ -1890,6 +1891,7 @@ function Dashboard({
   suppliers = [],
   shifts,
   currentUser,
+  pharmacyID,
   setTab,
   creditPayments = [],
   treasuryEntries = [],
@@ -1924,7 +1926,36 @@ function Dashboard({
     };
     fetchMissed();
   }, [today, monthKey]);
+const [myTarget, setMyTarget] = useState(null);
 
+  useEffect(() => {
+    if (!pharmacyId || !currentUser?.name) return;
+    supabase
+      .from("monthly_targets")
+      .select("target_amount")
+      .eq("pharmacy_id", pharmacyId)
+      .eq("pharmacist_name", currentUser.name)
+      .eq("month", monthKey)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.error(error); setMyTarget(0); return; }
+        setMyTarget(data?.target_amount || 0);
+      });
+  }, [pharmacyId, currentUser?.name, monthKey]);
+
+  const myMonthSales = sales.filter(
+    (s) => (s.created_at || s.date || "").startsWith(monthKey) &&
+           !s.returned &&
+           s.cashier_name === currentUser?.name
+  );
+  const myAchieved = myMonthSales.reduce((a, s) => a + (s.total || 0), 0);
+
+  const lastDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const daysLeftInMonth = lastDayOfMonth - new Date().getDate();
+
+  const targetProgress = myTarget > 0 ? Math.min((myAchieved / myTarget) * 100, 100) : 0;
+  const targetRemaining = Math.max((myTarget || 0) - myAchieved, 0);
+  const requiredDaily = daysLeftInMonth > 0 ? targetRemaining / daysLeftInMonth : targetRemaining;
   // ── حسابات المبيعات ──
   const todaySales    = sales.filter((s) => s.date === today && !s.returned);
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
@@ -2320,33 +2351,42 @@ function Dashboard({
           {renderSalesStats()}
         </div>
 
-        {/* Target Card */}
-        <div style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: VAR.muted }}>تارجت الشهر</div>
-          <div>
-            <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
-              {S("73%")}
-            </div>
-            <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>{S("من 80,000 ريال")}</div>
-          </div>
-          <div style={{ height: 6, background: VAR.surface2, borderRadius: 99, overflow: "hidden" }}>
-            <div style={{
-              height: "100%", width: "73%", borderRadius: 99,
-              background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
-              boxShadow: "0 0 8px rgba(0,200,150,0.4)",
-            }} />
-          </div>
-          <div style={{ fontSize: 11, color: VAR.muted }}>
-            متبقي <strong style={{ color: VAR.warn }}>{S("21,600 ريال")}</strong> في 11 يوم
-          </div>
-          <div style={{ borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
-            <div style={{ fontSize: 10, color: VAR.muted, marginBottom: 4 }}>المطلوب يومياً</div>
-            <div style={{ fontFamily: "monospace", fontSize: 22, color: VAR.warn, fontWeight: 700 }}>
-              {S("1,963")} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
-            </div>
-          </div>
+       {/* Target Card */}
+<div style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+  <div style={{ fontSize: 11, fontWeight: 700, color: VAR.muted }}>تارجت الشهر</div>
+  {myTarget === null ? (
+    <div style={{ color: VAR.muted, fontSize: 12 }}>جاري التحميل...</div>
+  ) : myTarget === 0 ? (
+    <div style={{ color: VAR.muted, fontSize: 12 }}>لم يتم تحديد تارجت لك هذا الشهر</div>
+  ) : (
+    <>
+      <div>
+        <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
+          {S(`${targetProgress.toFixed(0)}%`)}
+        </div>
+        <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>
+          {S(`من ${myTarget.toLocaleString()} ريال`)}
         </div>
       </div>
+      <div style={{ height: 6, background: VAR.surface2, borderRadius: 99, overflow: "hidden" }}>
+        <div style={{
+          height: "100%", width: `${targetProgress}%`, borderRadius: 99,
+          background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
+          boxShadow: "0 0 8px rgba(0,200,150,0.4)",
+        }} />
+      </div>
+      <div style={{ fontSize: 11, color: VAR.muted }}>
+        متبقي <strong style={{ color: VAR.warn }}>{S(`${targetRemaining.toFixed(0)} ريال`)}</strong> في {daysLeftInMonth} يوم
+      </div>
+      <div style={{ borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
+        <div style={{ fontSize: 10, color: VAR.muted, marginBottom: 4 }}>المطلوب يومياً</div>
+        <div style={{ fontFamily: "monospace", fontSize: 22, color: VAR.warn, fontWeight: 700 }}>
+          {S(requiredDaily.toFixed(0))} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
+        </div>
+      </div>
+    </>
+  )}
+</div>
 
       {/* ── ROW 1.5: تايم لاين حركة اليوم ── */}
       <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
