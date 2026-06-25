@@ -13627,15 +13627,20 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     .maybeSingle();
 
   if (!existing.data) {
-    await supabase.from("attendance_logs").insert({
+  const { error: attError } = await supabase
+    .from("attendance_logs")
+    .insert({
       pharmacy_id: pharmacyId,
       pharmacist_name: currentUser.name,
       date: today,
-      shift_number: 1,
       shift_id: sh.id,
       check_in: new Date().toISOString(),
-      check_out: null,
     });
+  if (attError) showToast("خطأ في تسجيل الحضور: " + attError.message, "error");
+  else showToast("تم فتح الشفت وتسجيل الحضور ✓");
+} else {
+  showToast("تم فتح الشفت ✓");
+}
   }
 
   showToast("تم فتح الشفت ✓");
