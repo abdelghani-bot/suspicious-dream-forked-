@@ -2619,7 +2619,8 @@ const [myTarget, setMyTarget] = useState(null);
       </div>
     </div>
   );
-}
+      }
+      }
       //   ==================== FIFO Helper ====================
 function sellFromBatches(product, qtyToSell) {
   const batches = product.batches?.length
