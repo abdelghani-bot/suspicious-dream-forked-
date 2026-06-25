@@ -1927,6 +1927,9 @@ function Dashboard({
   const todaySales    = sales.filter((s) => s.date === today && !s.returned);
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
   const todayCreditPaid = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
+  const todayReturnsForDash = sales
+  .filter((s) => s.date === today && s.returned)
+  .reduce((a, s) => a + (s.total || 0), 0);
   const todayRev = todayCashSales.reduce((a, s) => a + s.total, 0);
   const todayAjilTotal = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
   const todayAvgInvoice = todayCashSales.length > 0 ? todayRev / todayCashSales.length : 0;
@@ -2496,6 +2499,7 @@ function Dashboard({
             { label: "شبكة / صراف",   val: "0",                        type: "in" },
             { label: "سداد الآجل",    val: todayCreditPaid.toFixed(0), type: "in" },
             { label: "مصاريف نثرية",  val: "0",                        type: "out" },
+            { label: "مرتجعات", val: todayReturnsForDash.toFixed(0), type: "out" },
           ].map((row, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
               <span style={{ color: VAR.muted }}>{row.label}</span>
@@ -2507,7 +2511,7 @@ function Dashboard({
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
             <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
             <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
-              + {S((todayRev + todayCreditPaid).toFixed(0))}
+              + {S((todayRev + todayCreditPaid - todayReturnsForDash).toFixed(0))}
             </span>
           </div>
         </div>
@@ -12867,7 +12871,10 @@ useEffect(() => {
   const todayTransfer = todaySales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
   const todayAjil = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
   const todayCreditIncome = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
-  const todaySalesIncome = todayCash + todayCard + todayTransfer + todayCreditIncome;
+  const todayReturns = (entries || []).filter(
+  (e) => e.date === today && e.type === "expense" && e.sub_type === "sales_return"
+).reduce((a, e) => a + e.amount, 0);
+  const todaySalesIncome = todayCash + todayCard + todayTransfer + todayCreditIncome - todayReturns;
 
   // ── رصيد الخزنة اللحظي من كل السجلات ──
   const calcBalance = (method) => {
@@ -12911,7 +12918,7 @@ useEffect(() => {
   const cardDiff = hasCardAdjust ? cardActual - todayCard : 0; // موجب = البطاقة زادت عن المحسوب (الكاش ينقص بنفس القيمة)
   const cashAfterAdjust = todayCash + todayCreditIncome - cardDiff;
 
-  const totalIncome = todaySalesIncome + (+closingForm.extra_income || 0);
+  const totalIncome = todaySalesIncome + (+closingForm.extra_income || 0) - todayReturns;
   const netCash = totalIncome - totalExpenses;
 
   // ── حساب القسط الشهري الفعلي حسب نوع التكرار ──
@@ -13094,6 +13101,12 @@ useEffect(() => {
                   </button>
                 </div>
               </div>
+              {todayReturns > 0 && (
+  <div style={rowStyle}>
+    <span style={{ color: "#8aaabb", fontSize: 13 }}>↩️ مرتجعات نقدي</span>
+    <span style={{ color: "#ff4444", fontWeight: 700 }}>− {todayReturns.toFixed(2)} ر.س</span>
+  </div>
+)}
               {editingCard && (
                 <div style={{ width: "100%", background: "#080e1a", border: "1px solid #1d3a6a", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ display: "flex", gap: 8 }}>
