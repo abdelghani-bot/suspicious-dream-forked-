@@ -1809,7 +1809,13 @@ if (isLoading) return (
           />
         )}
 {tab === "attendance" && (
-  <AttendanceModule pharmacyId={pharmacyId} />
+  <AttendanceModule
+  pharmacyId={pharmacyId}
+  shifts={shifts}
+  setShifts={setShifts}
+  currentUser={currentUser}
+  showToast={showToast}
+/>
 )}
     {tab === "loyalty" && (
   <LoyaltyModule
