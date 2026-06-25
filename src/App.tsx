@@ -13589,23 +13589,23 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     : [];
   const shiftRevenue = shiftSales.reduce((a, s) => a + s.total, 0);
 
-  const openShift = async () => {
+ const openShift = async () => {
   if (currentShift) {
     showToast("يوجد شفت مفتوح بالفعل", "warn");
     return;
   }
   const sh = {
-  id: "SH-" + Date.now(),
-  user: currentUser.name,
-  role: currentUser.role,
-  start_time: new Date().toISOString(),
-  end_time: null,
-  open_cash: +openCash,
-  close_cash: null,
-  sales: 0,
-  notes: "",
-  pharmacy_id: pharmacyId,
-};
+    id: "SH-" + Date.now(),
+    user: currentUser.name,
+    role: currentUser.role,
+    start_time: new Date().toISOString(),
+    end_time: null,
+    open_cash: +openCash,
+    close_cash: null,
+    sales: 0,
+    notes: "",
+    pharmacy_id: pharmacyId,
+  };
 
   const { error } = await supabase.from("shifts").insert(sh);
   if (error) {
@@ -13613,31 +13613,49 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     return;
   }
   setShifts((p) => [...p, sh]);
+
+  // ✅ تسجيل حضور تلقائي
+  const today = new Date().toISOString().split("T")[0];
+  const existing = await supabase
+    .from("attendance_logs")
+    .select("id")
+    .eq("pharmacy_id", pharmacyId)
+    .eq("pharmacist_name", currentUser.name)
+    .eq("date", today)
+    .is("check_out", null)
+    .maybeSingle();
+
+  if (!existing.data) {
+    await supabase.from("attendance_logs").insert({
+      pharmacy_id: pharmacyId,
+      pharmacist_name: currentUser.name,
+      date: today,
+      shift_number: 1,
+      shift_id: sh.id,
+      check_in: new Date().toISOString(),
+      check_out: null,
+    });
+  }
+
   showToast("تم فتح الشفت ✓");
 };
-  const closeShift = async () => {
-   const hasOpenItems = invoices?.some((inv) => inv.cart.length > 0);
+ const closeShift = async () => {
+  const hasOpenItems = invoices?.some((inv) => inv.cart.length > 0);
   if (hasOpenItems) {
     showToast("⚠️ يوجد فاتورة مفتوحة بأصناف — أتمم البيع أو امسح السلة أولاً", "error");
     return;
-  } 
+  }
   if (!closeCash) {
     showToast("يرجى إدخال النقد الفعلي عند الإغلاق", "error");
-  await supabase
-  .from("attendance_logs")
-  .update({ check_out: new Date().toISOString() })
-  .eq("pharmacy_id", pharmacyId)
-  .eq("pharmacist_name", currentUser.name)
-  .eq("date", today)
-  .is("check_out", null);
     return;
   }
+
   const updates = {
-  end_time: new Date().toISOString(),
-  close_cash: +closeCash,
-  sales: shiftRevenue,
-  notes,
-};
+    end_time: new Date().toISOString(),
+    close_cash: +closeCash,
+    sales: shiftRevenue,
+    notes,
+  };
 
   const { error } = await supabase
     .from("shifts")
@@ -13648,11 +13666,21 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     showToast("فشل إغلاق الشفت: " + error.message, "error");
     return;
   }
+
   setShifts((p) =>
-    p.map((s) =>
-      s.id === currentShift.id ? { ...s, ...updates } : s
-    )
+    p.map((s) => (s.id === currentShift.id ? { ...s, ...updates } : s))
   );
+
+  // ✅ تسجيل انصراف تلقائي
+  const today = new Date().toISOString().split("T")[0];
+  await supabase
+    .from("attendance_logs")
+    .update({ check_out: new Date().toISOString() })
+    .eq("pharmacy_id", pharmacyId)
+    .eq("pharmacist_name", currentUser.name)
+    .eq("date", today)
+    .is("check_out", null);
+
   showToast("تم إغلاق الشفت وتسليمه ✓");
 };
   return (
