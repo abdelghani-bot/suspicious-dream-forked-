@@ -14658,66 +14658,6 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     globalToast={showToast}
   />
 )}
-          {/* Modal إضافة دوام */}
-          {showScheduleForm && (
-            <div style={{ position: "fixed", inset: 0, background: "#0008", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-              <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, width: 400, maxWidth: "90vw" }}>
-                <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 16 }}>➕ إضافة دوام</div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div>
-                    <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>الصيدلي</label>
-                    <select value={scheduleForm.pharmacist_name} onChange={(e) => setScheduleForm((p: any) => ({ ...p, pharmacist_name: e.target.value }))} style={{ ...inputStyle }}>
-                      <option value="">اختر...</option>
-                      {pharmacists.map((n) => <option key={n} value={n}>{n}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <div>
-                      <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>اليوم</label>
-                      <select value={scheduleForm.day_of_week} onChange={(e) => setScheduleForm((p: any) => ({ ...p, day_of_week: +e.target.value }))} style={{ ...inputStyle }}>
-                        {DAY_NAMES.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>رقم الشفت</label>
-                      <select value={scheduleForm.shift_number} onChange={(e) => setScheduleForm((p: any) => ({ ...p, shift_number: +e.target.value }))} style={{ ...inputStyle }}>
-                        <option value={1}>شفت 1</option>
-                        <option value={2}>شفت 2</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input type="checkbox" checked={scheduleForm.is_off} onChange={(e) => setScheduleForm((p: any) => ({ ...p, is_off: e.target.checked }))} id="is_off" />
-                    <label htmlFor="is_off" style={{ fontSize: 13, color: C.muted, cursor: "pointer" }}>يوم إجازة</label>
-                  </div>
-
-                  {!scheduleForm.is_off && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      <div>
-                        <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>وقت البداية</label>
-                        <input type="time" value={scheduleForm.shift_start} onChange={(e) => setScheduleForm((p: any) => ({ ...p, shift_start: e.target.value }))} style={{ ...inputStyle }} />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>وقت النهاية</label>
-                        <input type="time" value={scheduleForm.shift_end} onChange={(e) => setScheduleForm((p: any) => ({ ...p, shift_end: e.target.value }))} style={{ ...inputStyle }} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
-                  <button onClick={() => setShowScheduleForm(false)} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 18px", color: C.muted, cursor: "pointer" }}>إلغاء</button>
-                  <button onClick={saveSchedule} style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 18px", color: C.green, fontWeight: 700, cursor: "pointer" }}>حفظ</button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ════ TAB: PRAYER SETTINGS ════ */}
       {tab === "settings" && (
         <div style={cardStyle}>
