@@ -14643,39 +14643,9 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     todayDow={todayDow}
     C={C}
     onSaved={loadWorkSchedules}
-    globalToast={globalToast}
+    globalToast={showToast}
   />
 )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {schedules.sort((a, b) => a.day_of_week - b.day_of_week || a.shift_number - b.shift_number).map((s) => {
-                      const hours = s.is_off ? 0 : (() => {
-                        const [sh, sm] = s.shift_start.split(":").map(Number);
-                        const [eh, em] = s.shift_end.split(":").map(Number);
-                        return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
-                      })();
-                      return (
-                        <tr key={s.id} style={{ borderBottom: `1px solid ${C.bg2}`, background: s.day_of_week === todayDow ? "#0a1a2a" : "transparent" }}>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.day_of_week === todayDow ? C.accent : C.text, fontWeight: s.day_of_week === todayDow ? 700 : 400 }}>
-                            {DAY_NAMES[s.day_of_week]}
-                            {s.day_of_week === todayDow && <span style={{ fontSize: 10, marginRight: 4, color: C.accent }}>← اليوم</span>}
-                          </td>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: C.muted }}>شفت {s.shift_number}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.is_off ? C.muted : C.green }}>{s.is_off ? "—" : s.shift_start}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.is_off ? C.muted : C.red }}>{s.is_off ? "—" : s.shift_end}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.is_off ? C.muted : C.orange }}>{s.is_off ? "إجازة" : `${hours.toFixed(1)} س`}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                            <button onClick={() => deleteSchedule(s.id)} style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer", fontSize: 14 }}>✕</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-
           {/* Modal إضافة دوام */}
           {showScheduleForm && (
             <div style={{ position: "fixed", inset: 0, background: "#0008", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
