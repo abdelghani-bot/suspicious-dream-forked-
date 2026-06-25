@@ -1648,6 +1648,7 @@ if (isLoading) return (
             currentUser={currentUser}
             setTab={setTab}
             creditPayments={creditPayments}
+            treasuryEntries={treasuryEntries}
           />
         )}
         {tab === "pos" && (
@@ -1891,6 +1892,7 @@ function Dashboard({
   currentUser,
   setTab,
   creditPayments = [],
+  treasuryEntries = [],
 }) {
   const alerts = useEssentialAlerts(products);
   const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
@@ -1936,6 +1938,20 @@ function Dashboard({
   const todayRev = todayCashSales.reduce((a, s) => a + s.total, 0);
   const todayAjilTotal = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
   const todayAvgInvoice = todayCashSales.length > 0 ? todayRev / todayCashSales.length : 0;
+
+  // ── مبيعات الشبكة اليوم (فواتير بطاقة كاملة + جزء الكارت من الفواتير المختلطة) ──
+  const todayNetworkSales = todaySales.reduce((a, s) => {
+    if (s.payment === "بطاقة") return a + (s.total || 0);
+    if (s.payment === "مختلط" && s.payment_split) return a + (s.payment_split.card || 0);
+    return a;
+  }, 0);
+  // مبيعات الكاش الصافية لعرض منفصل عن الشبكة في كارت خزنة اليوم (todayRev يبقى الإجمالي الشامل ويُستخدم في "صافي اليوم")
+  const todayCashOnlySales = todayRev - todayNetworkSales;
+
+  // ── النثريات المسجّلة اليوم من سجل الخزنة ──
+  const todayPettyExpenses = (treasuryEntries || [])
+    .filter((e) => e.date === today && e.type === "expense" && e.sub_type === "petty")
+    .reduce((a, e) => a + (e.amount || 0), 0);
 
   const monthSales    = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned);
   const monthCashSales = monthSales.filter((s) => s.payment !== "آجل");
@@ -2508,11 +2524,11 @@ function Dashboard({
         <div style={{ ...card, padding: 16 }}>
           <div style={{ fontSize: 11, color: VAR.muted, fontWeight: 600, marginBottom: 12 }}>خزنة اليوم</div>
           {[
-            { label: "مبيعات كاش",    val: todayRev.toFixed(0),        type: "in" },
-            { label: "شبكة / صراف",   val: "0",                        type: "in" },
-            { label: "سداد الآجل",    val: todayCreditPaid.toFixed(0), type: "in" },
-            { label: "مصاريف نثرية",  val: "0",                        type: "out" },
-            { label: "مرتجعات", val: todayReturnsForDash.toFixed(0), type: "out" },
+            { label: "مبيعات كاش",    val: todayCashOnlySales.toFixed(0), type: "in" },
+            { label: "شبكة / صراف",   val: todayNetworkSales.toFixed(0),  type: "in" },
+            { label: "سداد الآجل",    val: todayCreditPaid.toFixed(0),    type: "in" },
+            { label: "مصاريف نثرية",  val: todayPettyExpenses.toFixed(0), type: "out" },
+            { label: "مرتجعات",       val: todayReturnsForDash.toFixed(0), type: "out" },
           ].map((row, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
               <span style={{ color: VAR.muted }}>{row.label}</span>
@@ -2524,7 +2540,7 @@ function Dashboard({
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
             <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
             <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
-              + {S((todayRev + todayCreditPaid - todayReturnsForDash).toFixed(0))}
+              + {S((todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0))}
             </span>
           </div>
         </div>
@@ -2534,9 +2550,9 @@ function Dashboard({
           <div style={{ fontSize: 11, fontWeight: 700, color: VAR.muted, marginBottom: 2 }}>إجراءات سريعة</div>
           {[
             { icon: "💊", label: "فاتورة بيع جديدة",  tab: "pos",       bg: "rgba(0,200,150,0.15)" },
-            { icon: "📦", label: "استلام مشتريات",     tab: "purchases", bg: "rgba(59,130,246,0.15)" },
+            { icon: "📦", label: "استلام مشتريات",     tab: "purchase",  bg: "rgba(59,130,246,0.15)" },
             { icon: "🔄", label: "تسجيل مرتجع",        tab: "returns",   bg: "rgba(245,158,11,0.15)" },
-            { icon: "🔒", label: "تقفيل الشفت",         tab: "shifts",    bg: "rgba(239,68,68,0.15)" },
+            { icon: "🔒", label: "تقفيل الشفت",         tab: "shift",     bg: "rgba(239,68,68,0.15)" },
           ].map((btn) => (
             <button
               key={btn.tab}
