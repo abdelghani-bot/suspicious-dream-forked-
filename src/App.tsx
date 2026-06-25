@@ -13570,7 +13570,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   );
 }
 // ==================== SHIFT MODULE ====================
-function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId }) {
+function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices }) {
   const [openCash, setOpenCash] = useState("500");
   const [closeCash, setCloseCash] = useState("");
   const [notes, setNotes] = useState("");
@@ -13610,8 +13610,20 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   showToast("تم فتح الشفت ✓");
 };
   const closeShift = async () => {
+   const hasOpenItems = invoices?.some((inv) => inv.cart.length > 0);
+  if (hasOpenItems) {
+    showToast("⚠️ يوجد فاتورة مفتوحة بأصناف — أتمم البيع أو امسح السلة أولاً", "error");
+    return;
+  } 
   if (!closeCash) {
     showToast("يرجى إدخال النقد الفعلي عند الإغلاق", "error");
+  await supabase
+  .from("attendance_logs")
+  .update({ check_out: new Date().toISOString() })
+  .eq("pharmacy_id", pharmacyId)
+  .eq("pharmacist_name", currentUser.name)
+  .eq("date", today)
+  .is("check_out", null);
     return;
   }
   const updates = {
