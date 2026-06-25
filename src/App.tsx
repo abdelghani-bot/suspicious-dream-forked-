@@ -2359,7 +2359,7 @@ const [myTarget, setMyTarget] = useState(null);
   ) : myTarget === 0 ? (
     <div style={{ color: VAR.muted, fontSize: 12 }}>لم يتم تحديد تارجت لك هذا الشهر</div>
   ) : (
-    <>
+    <React.Fragment>
       <div>
         <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
           {S(`${targetProgress.toFixed(0)}%`)}
@@ -2384,10 +2384,9 @@ const [myTarget, setMyTarget] = useState(null);
           {S(requiredDaily.toFixed(0))} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
         </div>
       </div>
-    </>
+    </React.Fragment>
   )}
 </div>
-
       {/* ── ROW 1.5: تايم لاين حركة اليوم ── */}
       <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
         حركة اليوم بالساعة
@@ -2620,7 +2619,7 @@ const [myTarget, setMyTarget] = useState(null);
     </div>
   );
       }
-      }
+      
       //   ==================== FIFO Helper ====================
 function sellFromBatches(product, qtyToSell) {
   const batches = product.batches?.length
