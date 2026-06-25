@@ -2384,7 +2384,7 @@ const [myTarget, setMyTarget] = useState(null);
           {S(requiredDaily.toFixed(0))} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
         </div>
       </div>
-    </>
+    </><div>
   )}
 </div>
       {/* ── ROW 1.5: تايم لاين حركة اليوم ── */}
