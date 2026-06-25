@@ -1928,7 +1928,7 @@ function Dashboard({
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
   const todayCreditPaid = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
   const todayReturnsForDash = sales
-  .filter((s) => s.date === today && s.returned)
+  .filter((s) => s.returned && s.returnDate === today)
   .reduce((a, s) => a + (s.total || 0), 0);
   const todayRev = todayCashSales.reduce((a, s) => a + s.total, 0);
   const todayAjilTotal = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
@@ -6662,6 +6662,7 @@ function ReturnsModule({
         .update({
           items: updatedItems,
           returned: allReturned, // علم فقط لو كل البنود رجعت بالكامل
+          returnDate: allReturned ? today : undefined,
         })
         .eq("id", selInvoice.id);
 
@@ -6672,7 +6673,9 @@ function ReturnsModule({
 
       setSales((prev) =>
         prev.map((s) =>
-          s.id === selInvoice.id ? { ...s, items: updatedItems, returned: allReturned } : s
+          s.id === selInvoice.id
+            ? { ...s, items: updatedItems, returned: allReturned, returnDate: allReturned ? today : s.returnDate }
+            : s
         )
       );
 
@@ -12918,7 +12921,7 @@ useEffect(() => {
   const cardDiff = hasCardAdjust ? cardActual - todayCard : 0; // موجب = البطاقة زادت عن المحسوب (الكاش ينقص بنفس القيمة)
   const cashAfterAdjust = todayCash + todayCreditIncome - cardDiff;
 
-  const totalIncome = todaySalesIncome + (+closingForm.extra_income || 0) - todayReturns;
+  const totalIncome = todaySalesIncome + (+closingForm.extra_income || 0);
   const netCash = totalIncome - totalExpenses;
 
   // ── حساب القسط الشهري الفعلي حسب نوع التكرار ──
