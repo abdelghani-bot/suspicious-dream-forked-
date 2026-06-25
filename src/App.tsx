@@ -1806,6 +1806,7 @@ if (isLoading) return (
             currentUser={currentUser}
             showToast={showToast}
             pharmacyId={pharmacyId}
+            invoices={invoices}
           />
         )}
 {tab === "attendance" && (
