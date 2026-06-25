@@ -13974,7 +13974,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
   };
 
   const saveWeekSchedule = async () => {
-    if (!selectedPharmacist) { globalToast("اختر الصيدلي أولاً", "error"); return; }
+    if (!selectedPharmacist) { globalToast("اختر الصيدلي أولاً"); return; }
     setSaving(true);
 
     // حذف الجدول القديم للصيدلي
@@ -14012,12 +14012,12 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
       }
     });
 
-    if (rows.length === 0) { globalToast("لا يوجد بيانات للحفظ", "error"); setSaving(false); return; }
+    if (rows.length === 0) { globalToast("لا يوجد بيانات للحفظ"); setSaving(false); return; }
 
     const { error } = await supabase.from("work_schedules").insert(rows);
     setSaving(false);
 
-    if (error) { globalToast("خطأ في الحفظ: " + error.message, "error"); return; }
+    if (error) { globalToast("خطأ في الحفظ: " + error.message); return; }
     globalToast(`✓ تم حفظ جدول ${selectedPharmacist}`);
     onSaved();
   };
