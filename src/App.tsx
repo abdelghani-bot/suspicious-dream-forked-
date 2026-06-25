@@ -14655,7 +14655,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     todayDow={todayDow}
     C={C}
     onSaved={loadWorkSchedules}
-    globalToast={showToast}
+    globalToast={globalToast}
   />
 )}
       {/* ════ TAB: PRAYER SETTINGS ════ */}
