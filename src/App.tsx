@@ -12984,7 +12984,7 @@ useEffect(() => {
   // ── حسابات المصروفات ──
   const variableTotal = closingForm.variable_expenses.reduce((a, e) => a + (+e.amount || 0), 0);
   const fixedPaidTotal = fixedExpenses.filter((f) => closingForm.fixed_paid[f.id]).reduce((a, f) => a + f.amount, 0);
-  const totalExpenses = (+closingForm.petty || 0) + variableTotal + fixedPaidTotal + loyaltyRedeemed;
+  const totalExpenses = (+closingForm.petty || 0) + variableTotal + loyaltyRedeemed;
   // ── تعديل مبيعات البطاقة الفعلية وتسوية الفرق في الكاش ──
   const hasCardAdjust = closingForm.card_actual !== "" && !isNaN(+closingForm.card_actual);
   const cardActual = hasCardAdjust ? +closingForm.card_actual : todayCard;
@@ -13280,30 +13280,6 @@ useEffect(() => {
               + إضافة مصروف متغير
             </button>
 
-            {fixedExpenses.length > 0 && (
-              <div style={{ marginTop: 14, borderTop: "1px solid #2a1000", paddingTop: 12 }}>
-                <div style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🔒 مصاريف ثابتة — علّم المدفوع اليوم</div>
-                {fixedExpenses.map((f) => {
-                  const due = isDueThisMonth(f);
-                  return (
-                  <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", opacity: due ? 1 : 0.5 }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                      <input type="checkbox" checked={!!closingForm.fixed_paid[f.id]}
-                        onChange={(e) => setClosingForm((p) => ({ ...p, fixed_paid: { ...p.fixed_paid, [f.id]: e.target.checked } }))}
-                        style={{ width: 16, height: 16, accentColor: "#ffaa44" }} />
-                      <span style={{ color: "#dde8ff", fontSize: 13 }}>{f.name}</span>
-                      <span style={{ fontSize: 10, color: "#7a8aaa", background: "#0a1020", padding: "2px 6px", borderRadius: 5 }}>
-                        {recurrenceLabel[f.recurrence || "monthly"]}
-                      </span>
-                      {!due && <span style={{ fontSize: 10, color: "#4a6a8a" }}>(غير مستحق هذا الشهر)</span>}
-                    </label>
-                    <span style={{ color: closingForm.fixed_paid[f.id] ? "#ff7744" : "#4a6a8a", fontWeight: 700 }}>{f.amount} ر.س</span>
-                  </div>
-                  );
-                })}
-              </div>
-            )}
-
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a1000" }}>
               <span style={{ color: "#4a6a8a", fontSize: 12, marginLeft: 12 }}>إجمالي المصروفات</span>
               <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{totalExpenses.toFixed(2)} ر.س</span>
@@ -13509,40 +13485,60 @@ useEffect(() => {
                   <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{monthFixedTotal.toFixed(2)} ر.س</span>
                 </div>
                 {fixedExpenses.map((f) => {
-                  const due = isDueThisMonth(f);
-                  const rec = f.recurrence || "monthly";
-                  return (
-                  <div key={f.id} style={cardStyle(due ? "#3a2000" : "#1d2d4a")}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ color: "#dde8ff", fontWeight: 700 }}>{f.name}</span>
-                          <span style={{ fontSize: 10, color: "#7a8aaa", background: "#0a1020", padding: "2px 6px", borderRadius: 5 }}>
-                            {recurrenceLabel[rec]}
-                          </span>
-                        </div>
-                        <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
-                          يوم {f.due_day}{rec !== "monthly" ? ` من شهر الاستحقاق` : " من كل شهر"}
-                          {due && Math.abs(+f.due_day - currentDay) <= 3 && <span style={{ color: "#ffaa44", marginRight: 8 }}>⏰ مستحقة قريباً</span>}
-                          {!due && <span style={{ color: "#4a6a8a", marginRight: 8 }}>غير مستحقة هذا الشهر</span>}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "left" as const }}>
-                        <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{f.amount} ر.س</div>
-                        {rec !== "monthly" && (
-                          <div style={{ color: "#4a6a8a", fontSize: 10 }}>≈ {monthlyShare(f).toFixed(2)} ر.س / شهر</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  );
-                })}
-              </>
-            )
-          }
+  const due = isDueThisMonth(f);
+  const rec = f.recurrence || "monthly";
+  return (
+    <div key={f.id} style={cardStyle(due ? "#3a2000" : "#1d2d4a")}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#dde8ff", fontWeight: 700 }}>{f.name}</span>
+            <span style={{ fontSize: 10, color: "#7a8aaa", background: "#0a1020", padding: "2px 6px", borderRadius: 5 }}>
+              {recurrenceLabel[rec]}
+            </span>
+          </div>
+          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+            يوم {f.due_day}{rec !== "monthly" ? ` من شهر الاستحقاق` : " من كل شهر"}
+            {due && Math.abs(+f.due_day - currentDay) <= 3 && <span style={{ color: "#ffaa44", marginRight: 8 }}>⏰ مستحقة قريباً</span>}
+            {!due && <span style={{ color: "#4a6a8a", marginRight: 8 }}>غير مستحقة هذا الشهر</span>}
+          </div>
         </div>
-      )}
-
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ textAlign: "left" as const }}>
+            <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{f.amount} ر.س</div>
+            {rec !== "monthly" && (
+              <div style={{ color: "#4a6a8a", fontSize: 10 }}>≈ {monthlyShare(f).toFixed(2)} ر.س / شهر</div>
+            )}
+          </div>
+          <button
+            onClick={async () => {
+              const { error } = await supabase.from("treasury_entries").insert([{
+                type: "expense", sub_type: "fixed", method: "نقدي",
+                amount: f.amount, note: f.name, date: today,
+                pharmacy_id: pharmacyId, created_by: currentUser.name
+              }]);
+              if (error) { showToast("خطأ: " + error.message, "error"); return; }
+              setEntries((p) => [...p, { type: "expense", sub_type: "fixed", method: "نقدي", amount: f.amount, note: f.name, date: today }]);
+              showToast(`تم سداد ${f.name} ✓`);
+            }}
+            style={{ background: "#1a3a1a", border: "1px solid #2a6a2a", borderRadius: 8, padding: "6px 14px", color: "#44dd88", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+            💳 سداد
+          </button>
+          <button
+            onClick={async () => {
+              if (!confirm(`حذف "${f.name}"؟`)) return;
+              await supabase.from("fixed_expenses").delete().eq("id", f.id);
+              setFixedExpenses((p) => p.filter((x) => x.id !== f.id));
+              showToast("تم الحذف");
+            }}
+            style={{ background: "#3a0a0a", border: "none", borderRadius: 8, padding: "6px 10px", color: "#ff4444", cursor: "pointer", fontSize: 14 }}>
+            🗑
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+})}
       {/* ══════════ التراخيص ══════════ */}
       {activeTab === "licenses" && (
         <div>
