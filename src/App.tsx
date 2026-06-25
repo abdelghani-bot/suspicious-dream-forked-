@@ -13641,7 +13641,6 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
 } else {
   showToast("تم فتح الشفت ✓");
 }
-  }
 
   showToast("تم فتح الشفت ✓");
 };
