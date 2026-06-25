@@ -2616,7 +2616,6 @@ const [myTarget, setMyTarget] = useState(null);
           ))}
         </div>
        </div>
-      </div>
     </div>
   );
 }
