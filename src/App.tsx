@@ -1930,6 +1930,9 @@ function Dashboard({
   const todayReturnsForDash = sales
   .filter((s) => s.returned && s.returnDate === today)
   .reduce((a, s) => a + (s.total || 0), 0);
+  const monthReturnsForDash = sales
+  .filter((s) => s.returned && s.returnDate?.startsWith(monthKey))
+  .reduce((a, s) => a + (s.total || 0), 0);
   const todayRev = todayCashSales.reduce((a, s) => a + s.total, 0);
   const todayAjilTotal = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
   const todayAvgInvoice = todayCashSales.length > 0 ? todayRev / todayCashSales.length : 0;
@@ -2080,10 +2083,14 @@ function Dashboard({
   const maxHourCount = Math.max(...activeHours.map((b) => b.count), 1);
 
   // ── معلومات الشفت الحالي ──
-  const currentShift = shifts?.find((s) => !s.end_time) || null;
+  const currentShift = shifts?.find((s) => !s.end_time && s.user === currentUser?.name) || null;
   const shiftSales   = currentShift
-    ? sales.filter((s) => s.shift_id === currentShift.id && !s.returned)
+    ? sales.filter((s) => s.shift === currentShift.id && !s.returned)
     : [];
+  const shiftReturns = currentShift
+    ? sales.filter((s) => s.shift === currentShift.id && s.returned)
+    : [];
+  const shiftReturnsTotal = shiftReturns.reduce((a, s) => a + (s.total || 0), 0);
   const shiftItems   = shiftSales.flatMap((s) => {
     try { return typeof s.items === "string" ? JSON.parse(s.items) : s.items || []; }
     catch { return []; }
@@ -2182,18 +2189,23 @@ function Dashboard({
     const avgInv     = isToday ? todayAvgInvoice : monthAvgInvoice;
     const creditPaid = isToday ? todayCreditPaid : monthCreditCollected;
     const ajilTotal  = isToday ? todayAjilTotal  : monthAjilTotal;
+    const returns    = isToday ? todayReturnsForDash : monthReturnsForDash;
+    const returnsCnt = isToday
+      ? sales.filter((s) => s.returned && s.returnDate === today).length
+      : sales.filter((s) => s.returned && s.returnDate?.startsWith(monthKey)).length;
 
     return (
       <>
-        {/* 4 stat cells */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", borderBottom: `1px solid ${VAR.border}` }}>
+        {/* 5 stat cells */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderBottom: `1px solid ${VAR.border}` }}>
           {[
             { label: "إجمالي المبيعات", val: rev.toFixed(0) + " ر.س", color: VAR.accent, sub: `${invoices.length} فاتورة` },
             { label: "سداد الآجل",      val: creditPaid.toFixed(0) + " ر.س", color: VAR.accent2, sub: `مديونية ${ajilTotal.toFixed(0)}` },
+            { label: "مرتجع المبيعات",  val: returns.toFixed(0) + " ر.س", color: VAR.danger, sub: `${returnsCnt} فاتورة مرتجعة` },
             { label: "الفرص الضائعة",   val: missed.toFixed(0) + " ر.س", color: VAR.warn, sub: `${missedCnt} صنف مفقود` },
             { label: "متوسط الفاتورة",  val: avgInv.toFixed(1) + " ر.س", color: VAR.text, sub: "ريال" },
           ].map((cell, i) => (
-            <div key={i} style={{ padding: "14px 16px", borderLeft: i < 3 ? `1px solid ${VAR.border}` : "none" }}>
+            <div key={i} style={{ padding: "14px 16px", borderLeft: i < 4 ? `1px solid ${VAR.border}` : "none" }}>
               <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600, marginBottom: 4, letterSpacing: "0.05em" }}>
                 {cell.label}
               </div>
@@ -2476,16 +2488,17 @@ function Dashboard({
               {S(`${shiftSales.length}`)}
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: VAR.border }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 1, background: VAR.border }}>
             {[
               { label: "فواتير الشفت",           val: shiftSales.length },
               { label: "متوسط الأصناف/فاتورة",   val: avgItemsPerInvoice },
               { label: "عملاء مسجلين",            val: shiftSales.filter((s) => s.customer_id).length + " / " + shiftSales.length },
               { label: "مبيعات الشفت",            val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
+              { label: "مرتجع الشفت",             val: S(shiftReturnsTotal.toFixed(0) + " ر.س"), color: VAR.danger },
             ].map((stat, i) => (
-              <div key={i} style={{ background: VAR.surface, padding: "8px 14px" }}>
+              <div key={i} style={{ background: VAR.surface, padding: "8px 10px" }}>
                 <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
-                <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 600, color: VAR.text, marginTop: 2 }}>{stat.val}</div>
+                <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: stat.color || VAR.text, marginTop: 2 }}>{stat.val}</div>
               </div>
             ))}
           </div>
