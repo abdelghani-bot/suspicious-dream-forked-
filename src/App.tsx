@@ -1891,7 +1891,7 @@ function Dashboard({
   suppliers = [],
   shifts,
   currentUser,
-  pharmacyID,
+  pharmacyId,
   setTab,
   creditPayments = [],
   treasuryEntries = [],
