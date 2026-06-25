@@ -13849,7 +13849,6 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     </div>
   );
 }
-import { useState, useEffect, useCallback, useRef } from "react";
 // ── helpers ──────────────────────────────────────────────────────────────────
 function isRamadan() {
   const now = new Date();
@@ -13860,29 +13859,26 @@ function isRamadan() {
   return ranges.some((r) => now >= r.start && now <= r.end);
 }
 
-function fmt(ts) {
+function fmt(ts: string | null) {
   if (!ts) return "--:--";
-  return new Date(ts).toLocaleTimeString("ar-SA", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return new Date(ts).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
-function diffMin(a, b) {
+function diffMin(a: string, b: string) {
   if (!a || !b) return 0;
-  return Math.round((new Date(b) - new Date(a)) / 60000);
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000);
 }
 
-function fmtHours(h) {
+function fmtHours(h: number) {
   if (!h && h !== 0) return "٠:٠٠";
-  const hrs = Math.floor(h);
-  const mins = Math.round((h - hrs) * 60);
+  const hrs = Math.floor(Math.abs(h));
+  const mins = Math.round((Math.abs(h) - hrs) * 60);
   return `${hrs}:${String(mins).padStart(2, "0")}`;
 }
 
-// ── أسماء الصلوات من API ──────────────────────────────────────────────────
-const API_KEY_MAP = { Fajr: "الفجر", Dhuhr: "الظهر", Asr: "العصر", Maghrib: "المغرب", Isha: "العشاء" };
+const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+const API_KEY_MAP: Record<string, string> = { Fajr: "الفجر", Dhuhr: "الظهر", Asr: "العصر", Maghrib: "المغرب", Isha: "العشاء" };
 const ACTIVE_PRAYERS = ["الظهر", "العصر", "المغرب", "العشاء"];
 
 async function fetchPrayerTimes() {
@@ -13891,10 +13887,10 @@ async function fetchPrayerTimes() {
   const res = await fetch(url);
   const json = await res.json();
   const timings = json.data.timings;
-  const result = {};
+  const result: Record<string, string> = {};
   Object.entries(API_KEY_MAP).forEach(([en, ar]) => {
     if (!ACTIVE_PRAYERS.includes(ar)) return;
-    const [h, m] = timings[en].split(":").map(Number);
+    const [h, m] = (timings[en] as string).split(":").map(Number);
     const d = new Date();
     d.setHours(h, m, 0, 0);
     result[ar] = d.toISOString();
@@ -13906,25 +13902,43 @@ async function fetchPrayerTimes() {
   return result;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-function AttendanceModule({ pharmacyId }) {
-  const [tab, setTab] = useState("attendance");
-  const [pharmacists, setPharmacists] = useState([]);
-  const [todayLogs, setTodayLogs] = useState([]);
-  const [prayerTimes, setPrayerTimes] = useState({});
-  const [prayerSettings, setPrayerSettings] = useState([]);
-  const [prayerBreaks, setPrayerBreaks] = useState([]);
-  const [activePrayerPopup, setActivePrayerPopup] = useState(null);
+// ══════════════════════════════════════════════════════════════════════════════
+function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToast: globalToast }: {
+  pharmacyId: string;
+  shifts: any[];
+  setShifts: (fn: any) => void;
+  currentUser: any;
+  showToast: (msg: string, type?: string) => void;
+}) {
+  const [tab, setTab] = useState<"attendance" | "schedule" | "settings" | "report" | "monthly">("attendance");
+  const [pharmacists, setPharmacists] = useState<string[]>([]);
+  const [todayLogs, setTodayLogs] = useState<any[]>([]);
+  const [prayerTimes, setPrayerTimes] = useState<Record<string, string>>({});
+  const [prayerSettings, setPrayerSettings] = useState<any[]>([]);
+  const [prayerBreaks, setPrayerBreaks] = useState<any[]>([]);
+  const [activePrayerPopup, setActivePrayerPopup] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
-  const [reportLogs, setReportLogs] = useState([]);
+  const [reportLogs, setReportLogs] = useState<any[]>([]);
+  const [workSchedules, setWorkSchedules] = useState<any[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [monthlyLogs, setMonthlyLogs] = useState<any[]>([]);
+  const [scheduleForm, setScheduleForm] = useState<any>({ pharmacist_name: "", day_of_week: 0, shift_number: 1, shift_start: "09:00", shift_end: "21:00", is_off: false });
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
   const ramadan = isRamadan();
-  const intervalRef = useRef(null);
+  const intervalRef = useRef<any>(null);
 
-  useEffect(() => {
-    if (pharmacyId) loadAll();
-  }, [pharmacyId]);
+  const today = new Date().toISOString().split("T")[0];
+  const todayDow = new Date().getDay();
+
+  // ── ألوان النظام الداكن ──
+  const C = {
+    bg: "#0f1623", bg2: "#080e1a", border: "#1d2d4a",
+    text: "#dde8ff", muted: "#4a6a9a", accent: "#3a9aff",
+    green: "#44dd88", red: "#ff5555", orange: "#ffaa44", purple: "#a78bfa",
+  };
+
+  useEffect(() => { if (pharmacyId) loadAll(); }, [pharmacyId]);
 
   useEffect(() => {
     intervalRef.current = setInterval(checkPrayerAlerts, 30000);
@@ -13933,65 +13947,152 @@ function AttendanceModule({ pharmacyId }) {
 
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadPharmacists(), loadTodayLogs(), loadPrayerSettings(), loadPrayerBreaks()]);
+    await Promise.all([loadPharmacists(), loadTodayLogs(), loadPrayerSettings(), loadPrayerBreaks(), loadWorkSchedules()]);
     try {
       const pt = await fetchPrayerTimes();
       setPrayerTimes(pt);
     } catch {
-      showToast("تعذّر تحميل مواقيت الصلاة – تحقق من الإنترنت", "error");
+      globalToast("تعذّر تحميل مواقيت الصلاة", "error");
     }
     setLoading(false);
   }
 
- async function loadPharmacists() {
-  const { data } = await supabase
-    .from("users")            
-    .select("name")
-    .eq("pharmacy_id", pharmacyId)
-    .eq("role", "pharmacist")
-    .order("name");
-  if (data) setPharmacists(data.map((p) => p.name));
-}
+  async function loadPharmacists() {
+    const { data } = await supabase.from("users").select("name").eq("pharmacy_id", pharmacyId).eq("role", "pharmacist").order("name");
+    if (data) setPharmacists(data.map((p: any) => p.name));
+  }
 
   async function loadTodayLogs() {
-    const today = new Date().toISOString().split("T")[0];
-    const { data } = await supabase
-      .from("attendance_logs")
-      .select("*")
-      .eq("pharmacy_id", pharmacyId)
-      .eq("date", today)
-      .order("check_in");
+    const { data } = await supabase.from("attendance_logs").select("*").eq("pharmacy_id", pharmacyId).eq("date", today).order("check_in");
     if (data) setTodayLogs(data);
   }
 
   async function loadPrayerSettings() {
-    const { data } = await supabase
-      .from("prayer_settings")
-      .select("*")
-      .eq("pharmacy_id", pharmacyId)
-      .order("id");
+    const { data } = await supabase.from("prayer_settings").select("*").eq("pharmacy_id", pharmacyId).order("id");
     if (data) setPrayerSettings(data);
   }
 
   async function loadPrayerBreaks() {
-    const today = new Date().toISOString().split("T")[0];
-    const { data } = await supabase
-      .from("prayer_breaks")
-      .select("*")
-      .eq("pharmacy_id", pharmacyId)
-      .eq("date", today)
-      .order("prayer_time");
+    const { data } = await supabase.from("prayer_breaks").select("*").eq("pharmacy_id", pharmacyId).eq("date", today).order("prayer_time");
     if (data) setPrayerBreaks(data);
   }
 
-  async function loadReport(date) {
-    const { data } = await supabase
-      .from("attendance_logs")
-      .select("*, prayer_breaks(*)")
-      .eq("pharmacy_id", pharmacyId)
-      .eq("date", date)
-      .order("check_in");
+  async function loadWorkSchedules() {
+    const { data } = await supabase.from("work_schedules").select("*").eq("pharmacy_id", pharmacyId).order("pharmacist_name");
+    if (data) setWorkSchedules(data);
+  }
+
+  async function loadReport(date: string) {
+    const { data } = await supabase.from("attendance_logs").select("*, prayer_breaks(*)").eq("pharmacy_id", pharmacyId).eq("date", date).order("check_in");
     if (data) setReportLogs(data);
+  }
+
+  async function loadMonthlyReport(month: string) {
+    const { data } = await supabase.from("attendance_logs").select("*, prayer_breaks(*)").eq("pharmacy_id", pharmacyId).gte("date", month + "-01").lte("date", month + "-31").order("date");
+    if (data) setMonthlyLogs(data);
+  }
+
+  // ── منطق جدول الدوام: إيجاد الشفت المتوقع للصيدلي الآن ──
+  function getExpectedShift(pharmacistName: string, dow: number, shiftNumber: number) {
+    return workSchedules.find(
+      (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off
+    );
+  }
+
+  function getCurrentShiftNumber(pharmacistName: string) {
+    const now = new Date();
+    const nowTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const todaySchedules = workSchedules.filter((s) => s.pharmacist_name === pharmacistName && s.day_of_week === todayDow && !s.is_off);
+    for (const s of todaySchedules) {
+      if (nowTime >= s.shift_start && nowTime <= s.shift_end) return s.shift_number;
+    }
+    // لو مش في وقت شفت، رجّع أقرب شفت
+    if (todaySchedules.length > 0) return todaySchedules[0].shift_number;
+    return 1;
+  }
+
+  function calcLateMinutes(pharmacistName: string, shiftNum: number, checkInTime: string) {
+    const schedule = getExpectedShift(pharmacistName, new Date(checkInTime).getDay(), shiftNum);
+    if (!schedule) return 0;
+    const [expH, expM] = schedule.shift_start.split(":").map(Number);
+    const expected = new Date(checkInTime);
+    expected.setHours(expH, expM, 0, 0);
+    const actual = new Date(checkInTime);
+    const diff = Math.round((actual.getTime() - expected.getTime()) / 60000);
+    return Math.max(0, diff);
+  }
+
+  // ── حضور (مرتبط بالشفت) ──
+  async function handleCheckIn(pharmacistName: string) {
+    const shiftNum = getCurrentShiftNumber(pharmacistName);
+    const existing = todayLogs.find((l) => l.pharmacist_name === pharmacistName && l.shift_number === shiftNum && !l.check_out);
+    if (existing) { globalToast(`${pharmacistName} مسجّل بالفعل في شفت ${shiftNum}`, "warn"); return; }
+
+    // إيجاد الشفت المفتوح للمستخدم الحالي
+    const openShift = shifts.find((s) => !s.end_time && s.user === pharmacistName);
+    const schedule = getExpectedShift(pharmacistName, todayDow, shiftNum);
+    const lateMin = calcLateMinutes(pharmacistName, shiftNum, new Date().toISOString());
+
+    const { error } = await supabase.from("attendance_logs").insert({
+      pharmacy_id: pharmacyId,
+      pharmacist_name: pharmacistName,
+      date: today,
+      check_in: new Date().toISOString(),
+      shift_id: openShift?.id || null,
+      shift_number: shiftNum,
+      expected_start: schedule?.shift_start || null,
+      late_minutes: lateMin,
+    });
+
+    if (!error) {
+      if (lateMin > 0) globalToast(`⚠️ ${pharmacistName} تأخر ${lateMin} دقيقة`, "warn");
+      else globalToast(`✅ تم تسجيل حضور ${pharmacistName} - شفت ${shiftNum}`);
+      loadTodayLogs();
+    }
+  }
+
+  // ── انصراف (مرتبط بقفل الشفت) ──
+  async function handleCheckOut(log: any) {
+    const now = new Date();
+    const totalMinutes = diffMin(log.check_in, now.toISOString());
+    const totalHours = totalMinutes / 60;
+    const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
+    const totalDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
+    const netHours = Math.max(0, totalHours - totalDeductions);
+
+    const { error } = await supabase.from("attendance_logs").update({
+      check_out: now.toISOString(),
+      total_hours: +totalHours.toFixed(2),
+      total_deductions: +totalDeductions.toFixed(2),
+      net_hours: +netHours.toFixed(2),
+    }).eq("id", log.id).eq("pharmacy_id", pharmacyId);
+
+    if (!error) {
+      globalToast(`✅ تم تسجيل انصراف ${log.pharmacist_name}`);
+      loadTodayLogs();
+    }
+  }
+
+  // ── حفظ جدول دوام ──
+  async function saveSchedule() {
+    if (!scheduleForm.pharmacist_name) { globalToast("اختر الصيدلي", "error"); return; }
+    const { error } = await supabase.from("work_schedules").upsert({
+      ...scheduleForm,
+      pharmacy_id: pharmacyId,
+      shift_start: scheduleForm.is_off ? null : scheduleForm.shift_start,
+      shift_end: scheduleForm.is_off ? null : scheduleForm.shift_end,
+    }, { onConflict: "pharmacy_id,pharmacist_name,day_of_week,shift_number" });
+    if (!error) {
+      globalToast("تم حفظ جدول الدوام ✓");
+      loadWorkSchedules();
+      setShowScheduleForm(false);
+    } else globalToast("خطأ: " + error.message, "error");
+  }
+
+  async function deleteSchedule(id: string) {
+    await supabase.from("work_schedules").delete().eq("id", id);
+    loadWorkSchedules();
+    globalToast("تم الحذف ✓");
   }
 
   const checkPrayerAlerts = useCallback(() => {
@@ -14001,398 +14102,545 @@ function AttendanceModule({ pharmacyId }) {
       if (!setting?.is_active) return;
       const pTime = new Date(isoTime);
       const allowed = ramadan ? setting.ramadan_allowed_minutes : setting.allowed_minutes;
-      const deadlineTime = new Date(pTime.getTime() + allowed * 60000);
-      const minutesAfter = (now - pTime) / 60000;
+      const minutesAfter = (now.getTime() - pTime.getTime()) / 60000;
       if (minutesAfter >= 1 && minutesAfter <= allowed + 5) {
         todayLogs.forEach((log) => {
           if (!log.check_out) {
-            const existing = prayerBreaks.find(
-              (b) => b.prayer_name === name && b.pharmacist_name === log.pharmacist_name
-            );
-            if (!existing) {
-              setActivePrayerPopup({ prayer: name, prayerTime: isoTime, log, allowed, deadlineTime });
-            }
+            const existing = prayerBreaks.find((b) => b.prayer_name === name && b.pharmacist_name === log.pharmacist_name);
+            if (!existing) setActivePrayerPopup({ prayer: name, prayerTime: isoTime, log, allowed });
           }
         });
       }
     });
   }, [prayerTimes, prayerSettings, todayLogs, prayerBreaks, ramadan]);
 
-  async function handleCheckIn(pharmacistName) {
-    const today = new Date().toISOString().split("T")[0];
-    const existing = todayLogs.find((l) => l.pharmacist_name === pharmacistName && !l.check_out);
-    if (existing) return showToast(`${pharmacistName} مسجّل بالفعل`, "warn");
-
-    const { error } = await supabase.from("attendance_logs").insert({
-      pharmacy_id: pharmacyId,
-      pharmacist_name: pharmacistName,
-      date: today,
-      check_in: new Date().toISOString(),
-    });
-    if (!error) {
-      showToast(`✅ تم تسجيل حضور ${pharmacistName}`);
-      loadTodayLogs();
-    }
-  }
-
-  async function handleCheckOut(log) {
-    const now = new Date();
-    const totalMinutes = diffMin(log.check_in, now.toISOString());
-    const totalHours = totalMinutes / 60;
-    const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
-    const totalDeductions = myBreaks.reduce((s, b) => s + (b.deducted_minutes || 0), 0) / 60;
-    const netHours = Math.max(0, totalHours - totalDeductions);
-
-    const { error } = await supabase
-      .from("attendance_logs")
-      .update({
-        check_out: now.toISOString(),
-        total_hours: +totalHours.toFixed(2),
-        total_deductions: +totalDeductions.toFixed(2),
-        net_hours: +netHours.toFixed(2),
-      })
-      .eq("id", log.id)
-      .eq("pharmacy_id", pharmacyId);
-    if (!error) {
-      showToast(`✅ تم تسجيل انصراف ${log.pharmacist_name}`);
-      loadTodayLogs();
-    }
-  }
-
-  async function handlePrayerReturn(popup) {
+  async function handlePrayerReturn(popup: any) {
     const now = new Date();
     const allowed = popup.allowed;
-    const pTime = new Date(popup.prayerTime);
-    const actualMin = diffMin(pTime.toISOString(), now.toISOString());
+    const actualMin = diffMin(popup.prayerTime, now.toISOString());
     const deducted = Math.max(0, actualMin - allowed);
-
     const { error } = await supabase.from("prayer_breaks").insert({
-      pharmacy_id: pharmacyId,
-      attendance_id: popup.log.id,
-      pharmacist_name: popup.log.pharmacist_name,
-      date: new Date().toISOString().split("T")[0],
-      prayer_name: popup.prayer,
-      prayer_time: popup.prayerTime,
-      return_time: now.toISOString(),
-      allowed_minutes: allowed,
-      actual_minutes: actualMin,
-      deducted_minutes: deducted,
+      pharmacy_id: pharmacyId, attendance_id: popup.log.id,
+      pharmacist_name: popup.log.pharmacist_name, date: today,
+      prayer_name: popup.prayer, prayer_time: popup.prayerTime,
+      return_time: now.toISOString(), allowed_minutes: allowed,
+      actual_minutes: actualMin, deducted_minutes: deducted,
     });
     if (!error) {
-      if (deducted > 0)
-        showToast(`⚠️ تأخير ${deducted} دقيقة بعد صلاة ${popup.prayer} – سيُخصم من وقت العمل`, "warn");
-      else showToast(`✅ تم تسجيل عودة ${popup.log.pharmacist_name} بعد صلاة ${popup.prayer}`);
+      if (deducted > 0) globalToast(`⚠️ تأخير ${deducted} دقيقة بعد ${popup.prayer}`, "warn");
+      else globalToast(`✅ عودة ${popup.log.pharmacist_name} بعد صلاة ${popup.prayer}`);
       setActivePrayerPopup(null);
       loadPrayerBreaks();
     }
   }
 
-  async function savePrayerSetting(setting) {
-    const { error } = await supabase
-      .from("prayer_settings")
-      .update({
-        allowed_minutes: setting.allowed_minutes,
-        ramadan_allowed_minutes: setting.ramadan_allowed_minutes,
-        is_active: setting.is_active,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", setting.id)
-      .eq("pharmacy_id", pharmacyId);
-    if (!error) showToast("✅ تم حفظ الإعدادات");
-    loadPrayerSettings();
+  // ── حساب التقرير الشهري لكل صيدلي ──
+  function calcMonthlyStats(pharmacistName: string) {
+    const logs = monthlyLogs.filter((l) => l.pharmacist_name === pharmacistName);
+    const totalNet = logs.reduce((s, l) => s + (l.net_hours || 0), 0);
+    const totalLate = logs.reduce((s, l) => s + (l.late_minutes || 0), 0);
+    const daysWorked = logs.filter((l) => l.check_out).length;
+
+    // حساب الساعات المطلوبة من جدول الدوام
+    const year = parseInt(selectedMonth.split("-")[0]);
+    const month = parseInt(selectedMonth.split("-")[1]) - 1;
+    let requiredHours = 0;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dow = new Date(year, month, d).getDay();
+      const daySchedules = workSchedules.filter((s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && !s.is_off);
+      daySchedules.forEach((s) => {
+        const [sh, sm] = s.shift_start.split(":").map(Number);
+        const [eh, em] = s.shift_end.split(":").map(Number);
+        requiredHours += (eh * 60 + em - (sh * 60 + sm)) / 60;
+      });
+    }
+
+    return { totalNet, totalLate, daysWorked, requiredHours };
   }
 
-  function showToast(msg, type = "success") {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  }
+  const uniquePharmacists = [...new Set(monthlyLogs.map((l) => l.pharmacist_name))];
+
+  // ── جدول الدوام مجمّع لكل صيدلي ──
+  const scheduleByPharmacist: Record<string, any[]> = {};
+  workSchedules.forEach((s) => {
+    if (!scheduleByPharmacist[s.pharmacist_name]) scheduleByPharmacist[s.pharmacist_name] = [];
+    scheduleByPharmacist[s.pharmacist_name].push(s);
+  });
+
+  const cardStyle: React.CSSProperties = { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 12 };
+  const inputStyle: React.CSSProperties = { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", color: C.text, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" };
+
+  if (loading) return <div style={{ textAlign: "center", color: C.muted, padding: 60 }}>جاري التحميل...</div>;
 
   return (
-    <div dir="rtl" style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif", minHeight: "100vh", background: "#f0f4f8", padding: 0 }}>
+    <div style={{ fontFamily: "'Cairo', sans-serif", color: C.text }}>
 
-      {/* ── Header ── */}
-      <div style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #2d6a9f 100%)", color: "#fff", padding: "18px 24px 0" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-          <span style={{ fontSize: 28 }}>🕐</span>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>نظام الحضور والانصراف</h2>
-            <p style={{ margin: 0, fontSize: 12, opacity: 0.75 }}>
-              {new Date().toLocaleDateString("ar-SA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-              {ramadan && <span style={{ marginRight: 8, background: "#f59e0b", color: "#1f2937", borderRadius: 4, padding: "1px 6px", fontSize: 11 }}>🌙 رمضان</span>}
-            </p>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          {[["attendance", "📋 الحضور"], ["settings", "⚙️ إعدادات الصلوات"], ["report", "📊 التقارير"]].map(([key, label]) => (
-            <button key={key} onClick={() => { setTab(key); if (key === "report") loadReport(selectedDate); }}
-              style={{ background: tab === key ? "#fff" : "transparent", color: tab === key ? "#1e3a5f" : "#ffffffcc", border: "none", padding: "8px 16px", borderRadius: "8px 8px 0 0", fontWeight: tab === key ? 700 : 400, cursor: "pointer", fontSize: 13 }}>
-              {label}
-            </button>
-          ))}
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🕐 الحضور والانصراف</h2>
+        <div style={{ fontSize: 12, color: C.muted }}>
+          {new Date().toLocaleDateString("ar-SA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          {ramadan && <span style={{ marginRight: 8, background: "#f59e0b22", color: "#f59e0b", borderRadius: 4, padding: "2px 8px" }}>🌙 رمضان</span>}
         </div>
       </div>
 
-      <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: C.bg2, borderRadius: 10, padding: 4 }}>
+        {[
+          { k: "attendance", l: "📋 الحضور" },
+          { k: "schedule",   l: "📅 جدول الدوام" },
+          { k: "settings",   l: "⚙️ الصلوات" },
+          { k: "report",     l: "📊 تقرير يومي" },
+          { k: "monthly",    l: "📈 تقرير شهري" },
+        ].map((t) => (
+          <button key={t.k} onClick={() => {
+            setTab(t.k as any);
+            if (t.k === "report") loadReport(selectedDate);
+            if (t.k === "monthly") loadMonthlyReport(selectedMonth);
+          }} style={{
+            flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
+            background: tab === t.k ? C.bg : "transparent",
+            color: tab === t.k ? C.accent : C.muted,
+            fontSize: 11, fontWeight: tab === t.k ? 700 : 400, cursor: "pointer",
+          }}>{t.l}</button>
+        ))}
+      </div>
 
-        {/* ════ TAB: ATTENDANCE ════ */}
-        {tab === "attendance" && (
-          <div>
-            <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 18, boxShadow: "0 1px 4px #0001" }}>
-              <p style={{ margin: "0 0 10px", fontWeight: 600, color: "#374151", fontSize: 13 }}>🕌 مواقيت الصلوات اليوم</p>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {Object.entries(prayerTimes).length === 0
-                  ? <span style={{ color: "#9ca3af", fontSize: 13 }}>جاري تحميل المواقيت…</span>
-                  : Object.entries(prayerTimes).map(([name, time]) => {
-                    const setting = prayerSettings.find((s) => s.prayer_name === name);
-                    const allowed = ramadan ? setting?.ramadan_allowed_minutes : setting?.allowed_minutes;
-                    return (
-                      <div key={name} style={{ background: setting?.is_active ? "#eff6ff" : "#f3f4f6", border: `1px solid ${setting?.is_active ? "#bfdbfe" : "#e5e7eb"}`, borderRadius: 8, padding: "6px 12px", textAlign: "center", minWidth: 90 }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>{name}</div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: "#1e40af" }}>{fmt(time)}</div>
-                        {setting?.is_active && <div style={{ fontSize: 11, color: "#059669" }}>مسموح: {allowed} د</div>}
-                        {!setting?.is_active && <div style={{ fontSize: 11, color: "#9ca3af" }}>معطّل</div>}
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-
-            <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 18, boxShadow: "0 1px 4px #0001" }}>
-              <p style={{ margin: "0 0 12px", fontWeight: 600, color: "#374151", fontSize: 13 }}>👤 تسجيل الحضور</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                {pharmacists.map((name) => {
-                  const log = todayLogs.find((l) => l.pharmacist_name === name && !l.check_out);
-                  const done = todayLogs.find((l) => l.pharmacist_name === name && l.check_out);
+      {/* ════ TAB: ATTENDANCE ════ */}
+      {tab === "attendance" && (
+        <div>
+          {/* مواقيت الصلاة */}
+          <div style={cardStyle}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.accent, marginBottom: 10 }}>🕌 مواقيت الصلاة</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {Object.entries(prayerTimes).length === 0
+                ? <span style={{ color: C.muted, fontSize: 12 }}>جاري تحميل المواقيت...</span>
+                : Object.entries(prayerTimes).map(([name, time]) => {
+                  const setting = prayerSettings.find((s) => s.prayer_name === name);
+                  const allowed = ramadan ? setting?.ramadan_allowed_minutes : setting?.allowed_minutes;
                   return (
-                    <button key={name}
-                      onClick={() => !log && !done && handleCheckIn(name)}
-                      style={{
-                        padding: "10px 18px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 14, cursor: log || done ? "default" : "pointer",
-                        background: done ? "#d1fae5" : log ? "#dbeafe" : "#f3f4f6",
-                        color: done ? "#065f46" : log ? "#1e40af" : "#374151",
-                      }}>
-                      {done ? "✅" : log ? "🟢" : "⚪"} {name}
-                    </button>
+                    <div key={name} style={{ background: C.bg2, border: `1px solid ${setting?.is_active ? "#1a4a8a" : C.border}`, borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 85 }}>
+                      <div style={{ fontSize: 11, color: C.muted }}>{name}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: C.accent }}>{fmt(time)}</div>
+                      {setting?.is_active && <div style={{ fontSize: 10, color: C.green }}>مسموح: {allowed} د</div>}
+                    </div>
                   );
                 })}
+            </div>
+          </div>
+
+          {/* تسجيل الحضور */}
+          <div style={cardStyle}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 12 }}>👤 تسجيل الحضور</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {pharmacists.map((name) => {
+                const shiftNum = getCurrentShiftNumber(name);
+                const activeLog = todayLogs.find((l) => l.pharmacist_name === name && l.shift_number === shiftNum && !l.check_out);
+                const doneLog = todayLogs.find((l) => l.pharmacist_name === name && l.shift_number === shiftNum && l.check_out);
+                const schedule = getExpectedShift(name, todayDow, shiftNum);
+
+                return (
+                  <div key={name} style={{ background: C.bg2, border: `1px solid ${activeLog ? "#1a5a3a" : doneLog ? "#1a3a5a" : C.border}`, borderRadius: 10, padding: "12px 16px", minWidth: 160 }}>
+                    <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>{name}</div>
+                    {schedule && (
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
+                        شفت {shiftNum}: {schedule.shift_start} - {schedule.shift_end}
+                      </div>
+                    )}
+                    {!activeLog && !doneLog && (
+                      <button onClick={() => handleCheckIn(name)} style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 7, padding: "6px 14px", color: C.green, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
+                        ✅ تسجيل حضور
+                      </button>
+                    )}
+                    {activeLog && (
+                      <div>
+                        <div style={{ fontSize: 11, color: C.green, marginBottom: 6 }}>🟢 حضر {fmt(activeLog.check_in)}</div>
+                        {activeLog.late_minutes > 0 && <div style={{ fontSize: 11, color: C.orange, marginBottom: 6 }}>⚠️ تأخر {activeLog.late_minutes} دقيقة</div>}
+                        <button onClick={() => handleCheckOut(activeLog)} style={{ background: "#2a0a0a", border: "1px solid #5a1a1a", borderRadius: 7, padding: "6px 14px", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
+                          🔴 تسجيل انصراف
+                        </button>
+                      </div>
+                    )}
+                    {doneLog && (
+                      <div style={{ fontSize: 11, color: C.muted }}>
+                        <div>🟢 {fmt(doneLog.check_in)}</div>
+                        <div>🔴 {fmt(doneLog.check_out)}</div>
+                        <div style={{ color: C.accent, fontWeight: 700 }}>صافي: {fmtHours(doneLog.net_hours)} س</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* سجل اليوم */}
+          <div style={cardStyle}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 12 }}>📋 سجل اليوم</div>
+            {todayLogs.length === 0
+              ? <div style={{ color: C.muted, textAlign: "center", padding: 30 }}>لا يوجد حضور مسجّل اليوم</div>
+              : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                      {["الصيدلي", "شفت", "الحضور", "التأخير", "الانصراف", "ساعات", "خصومات", "صافي"].map((h) => (
+                        <th key={h} style={{ padding: "8px 10px", textAlign: "center", color: C.muted, fontWeight: 600 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {todayLogs.map((log) => {
+                      const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
+                      const liveDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0);
+                      const liveTotal = log.check_out ? log.total_hours : diffMin(log.check_in, new Date().toISOString()) / 60;
+                      const liveNet = Math.max(0, liveTotal - liveDeductions / 60);
+                      return (
+                        <tr key={log.id} style={{ borderBottom: `1px solid ${C.bg2}` }}>
+                          <td style={{ padding: "10px", fontWeight: 700, color: C.text }}>{log.pharmacist_name}</td>
+                          <td style={{ padding: "10px", textAlign: "center", color: C.muted }}>{log.shift_number || 1}</td>
+                          <td style={{ padding: "10px", textAlign: "center", color: C.green }}>{fmt(log.check_in)}</td>
+                          <td style={{ padding: "10px", textAlign: "center", color: log.late_minutes > 0 ? C.orange : C.muted }}>
+                            {log.late_minutes > 0 ? `${log.late_minutes} د` : "—"}
+                          </td>
+                          <td style={{ padding: "10px", textAlign: "center", color: log.check_out ? C.red : C.muted }}>{fmt(log.check_out)}</td>
+                          <td style={{ padding: "10px", textAlign: "center" }}>{fmtHours(liveTotal)}</td>
+                          <td style={{ padding: "10px", textAlign: "center", color: liveDeductions > 0 ? C.red : C.muted }}>
+                            {liveDeductions > 0 ? `-${liveDeductions} د` : "—"}
+                          </td>
+                          <td style={{ padding: "10px", textAlign: "center", fontWeight: 700, color: C.accent }}>{fmtHours(liveNet)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+
+            {/* فترات الصلاة */}
+            {prayerBreaks.length > 0 && (
+              <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>🕌 فترات الصلاة</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {prayerBreaks.map((b) => (
+                    <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : "#0a1a10", border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                      <strong style={{ color: C.text }}>{b.pharmacist_name}</strong>
+                      <span style={{ color: C.muted }}> – {b.prayer_name} · {fmt(b.prayer_time)} ← {fmt(b.return_time)}</span>
+                      {b.deducted_minutes > 0
+                        ? <span style={{ color: C.red }}> ⚠️ خصم {b.deducted_minutes} د</span>
+                        : <span style={{ color: C.green }}> ✅</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════ TAB: SCHEDULE ════ */}
+      {tab === "schedule" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ color: C.muted, fontSize: 13 }}>جدول دوام الصيادلة حسب اليوم والشفت</div>
+            <button onClick={() => setShowScheduleForm(true)} style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 16px", color: C.green, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              + إضافة دوام
+            </button>
+          </div>
+
+          {/* عرض جدول الدوام لكل صيدلي */}
+          {Object.entries(scheduleByPharmacist).length === 0
+            ? <div style={{ ...cardStyle, textAlign: "center", color: C.muted, padding: 40 }}>لا يوجد جدول دوام — أضف دوام للصيادلة</div>
+            : Object.entries(scheduleByPharmacist).map(([name, schedules]) => (
+              <div key={name} style={cardStyle}>
+                <div style={{ fontWeight: 700, color: C.text, fontSize: 14, marginBottom: 12 }}>👤 {name}</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                      {["اليوم", "شفت", "البداية", "النهاية", "الساعات", ""].map((h) => (
+                        <th key={h} style={{ padding: "6px 10px", textAlign: "center", color: C.muted, fontWeight: 600 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {schedules.sort((a, b) => a.day_of_week - b.day_of_week || a.shift_number - b.shift_number).map((s) => {
+                      const hours = s.is_off ? 0 : (() => {
+                        const [sh, sm] = s.shift_start.split(":").map(Number);
+                        const [eh, em] = s.shift_end.split(":").map(Number);
+                        return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+                      })();
+                      return (
+                        <tr key={s.id} style={{ borderBottom: `1px solid ${C.bg2}`, background: s.day_of_week === todayDow ? "#0a1a2a" : "transparent" }}>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.day_of_week === todayDow ? C.accent : C.text, fontWeight: s.day_of_week === todayDow ? 700 : 400 }}>
+                            {DAY_NAMES[s.day_of_week]}
+                            {s.day_of_week === todayDow && <span style={{ fontSize: 10, marginRight: 4, color: C.accent }}>← اليوم</span>}
+                          </td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: C.muted }}>شفت {s.shift_number}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.is_off ? C.muted : C.green }}>{s.is_off ? "—" : s.shift_start}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.is_off ? C.muted : C.red }}>{s.is_off ? "—" : s.shift_end}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: s.is_off ? C.muted : C.orange }}>{s.is_off ? "إجازة" : `${hours.toFixed(1)} س`}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                            <button onClick={() => deleteSchedule(s.id)} style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer", fontSize: 14 }}>✕</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
+          {/* Modal إضافة دوام */}
+          {showScheduleForm && (
+            <div style={{ position: "fixed", inset: 0, background: "#0008", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+              <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, width: 400, maxWidth: "90vw" }}>
+                <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 16 }}>➕ إضافة دوام</div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>الصيدلي</label>
+                    <select value={scheduleForm.pharmacist_name} onChange={(e) => setScheduleForm((p: any) => ({ ...p, pharmacist_name: e.target.value }))} style={{ ...inputStyle }}>
+                      <option value="">اختر...</option>
+                      {pharmacists.map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>اليوم</label>
+                      <select value={scheduleForm.day_of_week} onChange={(e) => setScheduleForm((p: any) => ({ ...p, day_of_week: +e.target.value }))} style={{ ...inputStyle }}>
+                        {DAY_NAMES.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>رقم الشفت</label>
+                      <select value={scheduleForm.shift_number} onChange={(e) => setScheduleForm((p: any) => ({ ...p, shift_number: +e.target.value }))} style={{ ...inputStyle }}>
+                        <option value={1}>شفت 1</option>
+                        <option value={2}>شفت 2</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input type="checkbox" checked={scheduleForm.is_off} onChange={(e) => setScheduleForm((p: any) => ({ ...p, is_off: e.target.checked }))} id="is_off" />
+                    <label htmlFor="is_off" style={{ fontSize: 13, color: C.muted, cursor: "pointer" }}>يوم إجازة</label>
+                  </div>
+
+                  {!scheduleForm.is_off && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>وقت البداية</label>
+                        <input type="time" value={scheduleForm.shift_start} onChange={(e) => setScheduleForm((p: any) => ({ ...p, shift_start: e.target.value }))} style={{ ...inputStyle }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>وقت النهاية</label>
+                        <input type="time" value={scheduleForm.shift_end} onChange={(e) => setScheduleForm((p: any) => ({ ...p, shift_end: e.target.value }))} style={{ ...inputStyle }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
+                  <button onClick={() => setShowScheduleForm(false)} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 18px", color: C.muted, cursor: "pointer" }}>إلغاء</button>
+                  <button onClick={saveSchedule} style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 18px", color: C.green, fontWeight: 700, cursor: "pointer" }}>حفظ</button>
+                </div>
               </div>
             </div>
+          )}
+        </div>
+      )}
 
-            <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", boxShadow: "0 1px 4px #0001" }}>
-              <p style={{ margin: "0 0 12px", fontWeight: 600, color: "#374151", fontSize: 13 }}>📋 سجل اليوم</p>
-              {todayLogs.length === 0
-                ? <p style={{ color: "#9ca3af", fontSize: 13, textAlign: "center", padding: "20px 0" }}>لا يوجد حضور مسجّل اليوم</p>
-                : <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      {/* ════ TAB: PRAYER SETTINGS ════ */}
+      {tab === "settings" && (
+        <div style={cardStyle}>
+          <div style={{ fontWeight: 700, color: C.text, fontSize: 14, marginBottom: 4 }}>⚙️ إعدادات وقت الصلوات</div>
+          <div style={{ color: C.muted, fontSize: 12, marginBottom: 16 }}>التأخير عن الوقت المسموح يُخصم من ساعات العمل</div>
+          {prayerSettings.map((s) => (
+            <PrayerSettingRow key={s.id} setting={s} onSave={async (updated: any) => {
+              await supabase.from("prayer_settings").update({ allowed_minutes: updated.allowed_minutes, ramadan_allowed_minutes: updated.ramadan_allowed_minutes, is_active: updated.is_active, updated_at: new Date().toISOString() }).eq("id", updated.id).eq("pharmacy_id", pharmacyId);
+              globalToast("تم حفظ الإعدادات ✓");
+              loadPrayerSettings();
+            }} ramadan={ramadan} C={C} />
+          ))}
+        </div>
+      )}
+
+      {/* ════ TAB: DAILY REPORT ════ */}
+      {tab === "report" && (
+        <div>
+          <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12 }}>
+            <label style={{ fontWeight: 600, fontSize: 13, color: C.text }}>📅 اختر التاريخ:</label>
+            <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); loadReport(e.target.value); }}
+              style={{ ...inputStyle, width: "auto" }} />
+          </div>
+
+          {reportLogs.length === 0
+            ? <div style={{ ...cardStyle, textAlign: "center", color: C.muted, padding: 40 }}>لا يوجد سجلات لهذا اليوم</div>
+            : reportLogs.map((log) => (
+              <div key={log.id} style={cardStyle}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div>
+                    <strong style={{ fontSize: 15, color: C.text }}>{log.pharmacist_name}</strong>
+                    <span style={{ fontSize: 11, color: C.muted, marginRight: 8 }}>شفت {log.shift_number || 1}</span>
+                    {log.expected_start && <span style={{ fontSize: 11, color: C.muted }}>· متوقع: {log.expected_start}</span>}
+                  </div>
+                  <span style={{ background: "#0a1a3a", color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 13, fontWeight: 700 }}>
+                    صافي: {fmtHours(log.net_hours)} س
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 20, fontSize: 13, color: C.muted, flexWrap: "wrap" }}>
+                  <span>🟢 حضور: <strong style={{ color: C.green }}>{fmt(log.check_in)}</strong></span>
+                  <span>🔴 انصراف: <strong style={{ color: C.red }}>{fmt(log.check_out)}</strong></span>
+                  <span>⏱ إجمالي: <strong style={{ color: C.text }}>{fmtHours(log.total_hours)}</strong></span>
+                  {log.late_minutes > 0 && <span>⚠️ تأخير: <strong style={{ color: C.orange }}>{log.late_minutes} د</strong></span>}
+                  {log.total_deductions > 0 && <span>🕌 خصم صلاة: <strong style={{ color: C.red }}>{fmtHours(log.total_deductions)}</strong></span>}
+                </div>
+                {log.prayer_breaks?.length > 0 && (
+                  <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                    <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>فترات الصلاة:</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {log.prayer_breaks.map((b: any) => (
+                        <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : "#0a1a10", border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 6, padding: "4px 10px", fontSize: 12 }}>
+                          {b.prayer_name}: {fmt(b.prayer_time)} ← {fmt(b.return_time)}
+                          {b.deducted_minutes > 0 ? <span style={{ color: C.red }}> ⚠️ -{b.deducted_minutes}د</span> : <span style={{ color: C.green }}> ✅</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
+      )}
+
+      {/* ════ TAB: MONTHLY REPORT ════ */}
+      {tab === "monthly" && (
+        <div>
+          <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12 }}>
+            <label style={{ fontWeight: 600, fontSize: 13, color: C.text }}>📅 اختر الشهر:</label>
+            <input type="month" value={selectedMonth} onChange={(e) => { setSelectedMonth(e.target.value); loadMonthlyReport(e.target.value); }}
+              style={{ ...inputStyle, width: "auto" }} />
+          </div>
+
+          {monthlyLogs.length === 0
+            ? <div style={{ ...cardStyle, textAlign: "center", color: C.muted, padding: 40 }}>لا يوجد سجلات لهذا الشهر</div>
+            : uniquePharmacists.map((name) => {
+              const { totalNet, totalLate, daysWorked, requiredHours } = calcMonthlyStats(name);
+              const diff = totalNet - requiredHours;
+              const pharmLogs = monthlyLogs.filter((l) => l.pharmacist_name === name);
+              return (
+                <div key={name} style={cardStyle}>
+                  {/* رأس الصيدلي */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <strong style={{ fontSize: 15, color: C.text }}>👤 {name}</strong>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <span style={{ background: "#0a1a3a", color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
+                        فعلي: {fmtHours(totalNet)} س
+                      </span>
+                      <span style={{ background: diff >= 0 ? "#0a2a18" : "#2a0a0a", color: diff >= 0 ? C.green : C.red, borderRadius: 6, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
+                        {diff >= 0 ? "+" : ""}{fmtHours(Math.abs(diff))} {diff >= 0 ? "زيادة" : "نقص"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* إحصائيات */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
+                    {[
+                      { label: "أيام العمل", val: daysWorked + " يوم", color: C.text },
+                      { label: "ساعات مطلوبة", val: fmtHours(requiredHours) + " س", color: C.muted },
+                      { label: "ساعات فعلية", val: fmtHours(totalNet) + " س", color: C.accent },
+                      { label: "إجمالي التأخير", val: totalLate + " د", color: totalLate > 0 ? C.orange : C.muted },
+                    ].map((stat) => (
+                      <div key={stat.label} style={{ background: C.bg2, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: C.muted, marginBottom: 4 }}>{stat.label}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: stat.color }}>{stat.val}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* تفاصيل الأيام */}
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                     <thead>
-                      <tr style={{ background: "#f8fafc" }}>
-                        {["الصيدلي", "الحضور", "الانصراف", "ساعات عمل", "خصومات", "صافي"].map((h) => (
-                          <th key={h} style={{ padding: "8px 12px", textAlign: "center", color: "#6b7280", fontWeight: 600, borderBottom: "1px solid #e5e7eb" }}>{h}</th>
+                      <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                        {["التاريخ", "اليوم", "شفت", "الحضور", "التأخير", "الانصراف", "صافي"].map((h) => (
+                          <th key={h} style={{ padding: "6px 8px", textAlign: "center", color: C.muted, fontWeight: 600 }}>{h}</th>
                         ))}
-                        <th style={{ padding: "8px 12px", borderBottom: "1px solid #e5e7eb" }}></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {todayLogs.map((log) => {
-                        const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
-                        const liveDeductions = myBreaks.reduce((s, b) => s + (b.deducted_minutes || 0), 0);
-                        const nowIso = new Date().toISOString();
-                        const liveTotal = log.check_out ? log.total_hours : diffMin(log.check_in, nowIso) / 60;
-                        const liveNet = Math.max(0, liveTotal - liveDeductions / 60);
+                      {pharmLogs.map((log) => {
+                        const dow = new Date(log.date).getDay();
                         return (
-                          <tr key={log.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                            <td style={{ padding: "10px 12px", fontWeight: 600, color: "#111827" }}>{log.pharmacist_name}</td>
-                            <td style={{ padding: "10px 12px", textAlign: "center", color: "#059669" }}>{fmt(log.check_in)}</td>
-                            <td style={{ padding: "10px 12px", textAlign: "center", color: log.check_out ? "#dc2626" : "#9ca3af" }}>{fmt(log.check_out)}</td>
-                            <td style={{ padding: "10px 12px", textAlign: "center" }}>{fmtHours(liveTotal)}</td>
-                            <td style={{ padding: "10px 12px", textAlign: "center", color: liveDeductions > 0 ? "#dc2626" : "#9ca3af" }}>
-                              {liveDeductions > 0 ? `-${liveDeductions} د` : "—"}
+                          <tr key={log.id} style={{ borderBottom: `1px solid ${C.bg2}` }}>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.muted }}>{log.date}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: dow === 5 ? C.orange : C.text }}>{DAY_NAMES[dow]}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.muted }}>{log.shift_number || 1}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.green }}>{fmt(log.check_in)}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: log.late_minutes > 0 ? C.orange : C.muted }}>
+                              {log.late_minutes > 0 ? `${log.late_minutes} د` : "—"}
                             </td>
-                            <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 700, color: "#1e40af" }}>{fmtHours(liveNet)}</td>
-                            <td style={{ padding: "10px 12px", textAlign: "center" }}>
-                              {!log.check_out && (
-                                <button onClick={() => handleCheckOut(log)}
-                                  style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-                                  انصراف
-                                </button>
-                              )}
-                              {log.check_out && <span style={{ color: "#9ca3af", fontSize: 12 }}>منصرف</span>}
-                            </td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.red }}>{fmt(log.check_out)}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", fontWeight: 700, color: C.accent }}>{fmtHours(log.net_hours)}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
-                </div>}
-
-              {prayerBreaks.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <p style={{ margin: "0 0 8px", fontWeight: 600, color: "#374151", fontSize: 12 }}>🕌 سجل فترات الصلاة</p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {prayerBreaks.map((b) => (
-                      <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#fff7ed" : "#f0fdf4", border: `1px solid ${b.deducted_minutes > 0 ? "#fed7aa" : "#bbf7d0"}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
-                        <strong>{b.pharmacist_name}</strong> – {b.prayer_name} · {fmt(b.prayer_time)} → {fmt(b.return_time)}
-                        {b.deducted_minutes > 0
-                          ? <span style={{ color: "#dc2626", marginRight: 6 }}> ⚠️ خصم {b.deducted_minutes} د</span>
-                          : <span style={{ color: "#059669", marginRight: 6 }}> ✅ في الوقت</span>}
-                      </div>
-                    ))}
-                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ════ TAB: SETTINGS ════ */}
-        {tab === "settings" && (
-          <div style={{ background: "#fff", borderRadius: 12, padding: "18px 20px", boxShadow: "0 1px 4px #0001" }}>
-            <p style={{ margin: "0 0 4px", fontWeight: 700, color: "#111827", fontSize: 15 }}>⚙️ إعدادات وقت الصلوات</p>
-            <p style={{ margin: "0 0 18px", color: "#6b7280", fontSize: 12 }}>حدد الوقت المسموح لكل صلاة (بالدقائق). التأخير عن هذا الوقت يُخصم من ساعات العمل.</p>
-            {prayerSettings.map((s) => (
-              <PrayerSettingRow key={s.id} setting={s} onSave={savePrayerSetting} ramadan={ramadan} />
-            ))}
-          </div>
-        )}
-
-        {/* ════ TAB: REPORT ════ */}
-        {tab === "report" && (
-          <div>
-            <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 16, boxShadow: "0 1px 4px #0001", display: "flex", alignItems: "center", gap: 12 }}>
-              <label style={{ fontWeight: 600, fontSize: 13, color: "#374151" }}>📅 اختر التاريخ:</label>
-              <input type="date" value={selectedDate}
-                onChange={(e) => { setSelectedDate(e.target.value); loadReport(e.target.value); }}
-                style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 12px", fontSize: 13, color: "#111827" }} />
-            </div>
-
-            {reportLogs.length === 0
-              ? <div style={{ background: "#fff", borderRadius: 12, padding: 40, textAlign: "center", color: "#9ca3af" }}>لا يوجد سجلات لهذا اليوم</div>
-              : reportLogs.map((log) => (
-                <div key={log.id} style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 12, boxShadow: "0 1px 4px #0001" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <strong style={{ fontSize: 15, color: "#111827" }}>{log.pharmacist_name}</strong>
-                    <span style={{ background: "#eff6ff", color: "#1e40af", borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>
-                      صافي: {fmtHours(log.net_hours)} ساعة
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", gap: 20, fontSize: 13, color: "#6b7280", flexWrap: "wrap" }}>
-                    <span>🟢 حضور: <strong style={{ color: "#059669" }}>{fmt(log.check_in)}</strong></span>
-                    <span>🔴 انصراف: <strong style={{ color: "#dc2626" }}>{fmt(log.check_out)}</strong></span>
-                    <span>⏱ إجمالي: <strong>{fmtHours(log.total_hours)}</strong></span>
-                    {log.total_deductions > 0 && <span>⚠️ خصومات: <strong style={{ color: "#dc2626" }}>{fmtHours(log.total_deductions)}</strong></span>}
-                  </div>
-                  {log.prayer_breaks?.length > 0 && (
-                    <div style={{ marginTop: 10, borderTop: "1px dashed #e5e7eb", paddingTop: 10 }}>
-                      <p style={{ margin: "0 0 6px", fontSize: 12, color: "#6b7280" }}>فترات الصلاة:</p>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {log.prayer_breaks.map((b) => (
-                          <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#fff7ed" : "#f0fdf4", border: `1px solid ${b.deducted_minutes > 0 ? "#fed7aa" : "#bbf7d0"}`, borderRadius: 6, padding: "4px 10px", fontSize: 12 }}>
-                            {b.prayer_name}: {fmt(b.prayer_time)} ← {fmt(b.return_time)}
-                            {b.deducted_minutes > 0 ? <span style={{ color: "#dc2626" }}> ⚠️ -{b.deducted_minutes}د</span> : <span style={{ color: "#059669" }}> ✅</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-          </div>
-        )}
-      </div>
-
-      {activePrayerPopup && (
-        <PrayerReturnPopup popup={activePrayerPopup} onReturn={handlePrayerReturn} onDismiss={() => setActivePrayerPopup(null)} />
+              );
+            })}
+        </div>
       )}
 
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-          background: toast.type === "error" ? "#dc2626" : toast.type === "warn" ? "#f59e0b" : "#059669",
-          color: "#fff", borderRadius: 10, padding: "12px 24px", fontSize: 14, fontWeight: 600,
-          boxShadow: "0 4px 16px #0003", zIndex: 9999, maxWidth: 420, textAlign: "center"
-        }}>
-          {toast.msg}
+      {/* Prayer Popup */}
+      {activePrayerPopup && (
+        <div style={{ position: "fixed", inset: 0, background: "#0008", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
+          <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, maxWidth: 380, width: "90%", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>🕌</div>
+            <h3 style={{ margin: "0 0 4px", color: C.text, fontSize: 18 }}>وقت صلاة {activePrayerPopup.prayer}</h3>
+            <p style={{ margin: "0 0 16px", color: C.muted, fontSize: 14 }}>{activePrayerPopup.log.pharmacist_name} – الوقت المسموح: {activePrayerPopup.allowed} دقيقة</p>
+            <button onClick={() => handlePrayerReturn(activePrayerPopup)}
+              style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 10, padding: "12px 28px", color: C.green, fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%", marginBottom: 10 }}>
+              ✅ {activePrayerPopup.log.pharmacist_name} – رجع من الصلاة
+            </button>
+            <button onClick={() => setActivePrayerPopup(null)}
+              style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 20px", color: C.muted, fontSize: 13, cursor: "pointer" }}>
+              تجاهل مؤقتاً
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ── Prayer Setting Row Component ──────────────────────────────────────────────
-function PrayerSettingRow({ setting, onSave, ramadan }) {
+// ── Prayer Setting Row ──────────────────────────────────────────────────────
+function PrayerSettingRow({ setting, onSave, ramadan, C }: any) {
   const [local, setLocal] = useState({ ...setting });
   const changed = JSON.stringify(local) !== JSON.stringify(setting);
-
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid #f3f4f6", flexWrap: "wrap" }}>
-      <div style={{ width: 70, fontWeight: 700, color: "#111827", fontSize: 14 }}>{setting.prayer_name}</div>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#6b7280" }}>
-        <input type="checkbox" checked={local.is_active}
-          onChange={(e) => setLocal({ ...local, is_active: e.target.checked })}
-          style={{ width: 16, height: 16 }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+      <div style={{ width: 70, fontWeight: 700, color: C.text, fontSize: 14 }}>{setting.prayer_name}</div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: C.muted }}>
+        <input type="checkbox" checked={local.is_active} onChange={(e) => setLocal({ ...local, is_active: e.target.checked })} style={{ width: 16, height: 16 }} />
         تفعيل
       </label>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text }}>
         وقت مسموح:
-        <input type="number" min={5} max={120} value={local.allowed_minutes}
-          onChange={(e) => setLocal({ ...local, allowed_minutes: +e.target.value })}
-          style={{ width: 60, border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 8px", textAlign: "center" }} />
-        <span style={{ color: "#9ca3af" }}>دقيقة</span>
+        <input type="number" min={5} max={120} value={local.allowed_minutes} onChange={(e) => setLocal({ ...local, allowed_minutes: +e.target.value })}
+          style={{ width: 60, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", color: C.text, textAlign: "center", outline: "none" }} />
+        <span style={{ color: C.muted }}>دقيقة</span>
       </label>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text }}>
         🌙 رمضان:
-        <input type="number" min={5} max={120} value={local.ramadan_allowed_minutes}
-          onChange={(e) => setLocal({ ...local, ramadan_allowed_minutes: +e.target.value })}
-          style={{ width: 60, border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 8px", textAlign: "center", background: ramadan ? "#fffbeb" : "#fff" }} />
-        <span style={{ color: "#9ca3af" }}>دقيقة</span>
+        <input type="number" min={5} max={120} value={local.ramadan_allowed_minutes} onChange={(e) => setLocal({ ...local, ramadan_allowed_minutes: +e.target.value })}
+          style={{ width: 60, background: ramadan ? "#1a1500" : C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", color: C.text, textAlign: "center", outline: "none" }} />
+        <span style={{ color: C.muted }}>دقيقة</span>
       </label>
       {changed && (
-        <button onClick={() => onSave(local)}
-          style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 7, padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={() => onSave(local)} style={{ background: "#0a1a3a", border: "1px solid #1a4a8a", borderRadius: 7, padding: "6px 16px", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           حفظ
         </button>
       )}
-    </div>
-  );
-}
-
-// ── Prayer Return Popup ───────────────────────────────────────────────────────
-function PrayerReturnPopup({ popup, onReturn, onDismiss }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      const diff = Math.round((new Date() - new Date(popup.prayerTime)) / 60000);
-      setElapsed(diff);
-    }, 15000);
-    return () => clearInterval(t);
-  }, [popup]);
-
-  const remaining = popup.allowed - elapsed;
-  const late = elapsed > popup.allowed;
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "#0008", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 28, maxWidth: 380, width: "90%", textAlign: "center", boxShadow: "0 8px 32px #0004" }}>
-        <div style={{ fontSize: 40, marginBottom: 8 }}>🕌</div>
-        <h3 style={{ margin: "0 0 4px", color: "#111827", fontSize: 18 }}>وقت صلاة {popup.prayer}</h3>
-        <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 14 }}>{popup.log.pharmacist_name} – الوقت المسموح: {popup.allowed} دقيقة</p>
-        {late
-          ? <div style={{ background: "#fee2e2", borderRadius: 10, padding: "10px 16px", marginBottom: 16, color: "#dc2626", fontWeight: 700 }}>
-            ⚠️ تأخير {elapsed - popup.allowed} دقيقة – سيُخصم من وقت العمل
-          </div>
-          : <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "10px 16px", marginBottom: 16, color: "#059669", fontWeight: 600 }}>
-            متبقي: {remaining} دقيقة قبل احتساب التأخير
-          </div>}
-        <button onClick={() => onReturn(popup)}
-          style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "12px 28px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%", marginBottom: 10 }}>
-          ✅ {popup.log.pharmacist_name} – رجع من الصلاة
-        </button>
-        <button onClick={onDismiss}
-          style={{ background: "#f3f4f6", color: "#6b7280", border: "none", borderRadius: 10, padding: "8px 20px", fontSize: 13, cursor: "pointer" }}>
-          تجاهل مؤقتاً
-        </button>
-      </div>
     </div>
   );
 }
