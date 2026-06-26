@@ -1694,6 +1694,13 @@ if (isLoading) return (
           </button>
         </div>
       </nav>
+  {/* GRADIENT DIVIDER */}
+<div style={{
+  width: 1,
+  background: "linear-gradient(to bottom, transparent, #1e3a6a 20%, #2a6aef 50%, #1e3a6a 80%, transparent)",
+  flexShrink: 0,
+  opacity: 0.4,
+}} />
 
       {/* MAIN CONTENT */}
       {tab === "pharmacy_settings" && (
