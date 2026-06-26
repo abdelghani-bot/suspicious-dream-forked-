@@ -1418,28 +1418,39 @@ if (isLoading) return (
   </div>
 );
 
-  const TABS = [
-    { id: "dashboard", label: "الرئيسية", icon: "dashboard" },
-    { id: "pos", label: "نقطة البيع", icon: "pos" },
-    { id: "purchase", label: "فواتير الشراء", icon: "purchase" },
-    { id: "returns", label: "المرتجعات", icon: "returns" },
-    { id: "rasd_settings", label: "إعدادات رصد", icon: "settings" },
-    { id: "expiry_report", label: "تقرير الصلاحيات", icon: "alert" },
-    { id: "inventory_count", label: "الجرد", icon: "count" },
-    { id: "products", label: "الأصناف", icon: "inventory" },
-    { id: "suppliers", label: "الموردون", icon: "suppliers" },
-    { id: "customers", label: "العملاء", icon: "customers" },
-    { id: "reports", label: "التقارير", icon: "reports" },
-    { id: "tax_report", label: "تقرير ضريبي", icon: "tax" },
-    { id: "shift", label: "الشفتات", icon: "shift" },
-    { id: "promotions", label: "العروض", icon: "tag" },
-    { id: "target", label: "🎯 تارجت المبيعات", icon: "target" },
-    { id: "treasury", label: "الخزنة", icon: "money" },
-    { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
-    { id: "attendance", label: "الحضور والانصراف", icon: "shift" },
-    { id: "loyalty",     label: "نقاط الولاء",    icon: "star" },
-    { id: "permissions", label: "الصلاحيات",       icon: "settings" },
-  ];
+ const TABS = [
+  // ── الرئيسية ──
+  { id: "dashboard", label: "الرئيسية", icon: "dashboard" },
+
+  // ── الفريق والالتزام ──
+  { id: "shift",      label: "الشفتات",            icon: "shift" },
+  { id: "attendance", label: "الحضور والانصراف",   icon: "shift" },
+
+  // ── العملاء والمبيعات ──
+  { id: "customers",  label: "العملاء",             icon: "customers" },
+  { id: "loyalty",    label: "نقاط الولاء",         icon: "star" },
+  { id: "pos",        label: "نقطة البيع",          icon: "pos" },
+  { id: "returns",    label: "المرتجعات",           icon: "returns" },
+  { id: "promotions", label: "العروض",              icon: "tag" },
+  { id: "target",     label: "🎯 تارجت المبيعات",  icon: "target" },
+
+  // ── المخزون والموردين ──
+  { id: "purchase",        label: "فواتير الشراء",  icon: "purchase" },
+  { id: "products",        label: "الأصناف",         icon: "inventory" },
+  { id: "suppliers",       label: "الموردون",        icon: "suppliers" },
+  { id: "inventory_count", label: "الجرد",           icon: "count" },
+
+  // ── التقارير ──
+  { id: "expiry_report", label: "تقرير تواريخ الصلاحية", icon: "alert" },
+  { id: "reports",       label: "التقارير",               icon: "reports" },
+  { id: "tax_report",    label: "تقرير ضريبي",            icon: "tax" },
+
+  // ── الإدارة ──
+  { id: "treasury",          label: "الخزنة",           icon: "money" },
+  { id: "pharmacy_settings", label: "بيانات الصيدلية",  icon: "settings" },
+  { id: "permissions",       label: "الصلاحيات",        icon: "settings" },
+  { id: "rasd_settings",     label: "إعدادات رصد",      icon: "settings" },
+];
 
   return (
     <div
@@ -1542,42 +1553,73 @@ if (isLoading) return (
         </div>
 
         <div style={{ flex: 1, padding: "8px 0" }}>
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 16px",
-                width: "100%",
-                background: tab === t.id ? "#14233a" : "transparent",
-                borderRight:
-                  tab === t.id ? "3px solid #2a6aef" : "3px solid transparent",
-                border: "none",
-                color: tab === t.id ? "#6aaeff" : "#4a6a8a",
-                fontSize: 13,
-                fontWeight: tab === t.id ? 700 : 400,
-                cursor: "pointer",
-                textAlign: "right",
-                transition: "all 0.12s",
-              }}
-            >
-              <IC n={t.icon} s={16} />
-              <span style={{ flex: 1 }}>{t.label}</span>
-              {tabAlertCounts[t.id] > 0 && (
-                <span style={{
-                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, padding: "0 4px",
-                  borderRadius: 99, background: "#3a1010", color: "#ff6a6a",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontFamily: "monospace",
-                }}>
-                  {tabAlertCounts[t.id]}
-                </span>
-              )}
-            </button>
-          ))}
+          {(() => {
+  const groups = [
+    { label: null, ids: ["dashboard"] },
+    { label: "الفريق والالتزام", ids: ["shift", "attendance"] },
+    { label: "العملاء والمبيعات", ids: ["customers", "loyalty", "pos", "returns", "promotions", "target"] },
+    { label: "المخزون والموردين", ids: ["purchase", "products", "suppliers", "inventory_count"] },
+    { label: "التقارير", ids: ["expiry_report", "reports", "tax_report"] },
+    { label: "الإدارة", ids: ["treasury", "pharmacy_settings", "permissions", "rasd_settings"] },
+  ];
+
+  return groups.map((group, gi) => (
+    <div key={gi}>
+      {group.label && (
+        <div style={{
+          padding: "10px 16px 4px",
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#2a4a6a",
+          letterSpacing: "0.05em",
+          textTransform: "uppercase",
+          marginTop: gi === 0 ? 0 : 4,
+        }}>
+          {group.label}
+        </div>
+      )}
+      {group.ids.map((id) => {
+        const t = TABS.find((x) => x.id === id);
+        if (!t) return null;
+        return (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "9px 16px",
+              width: "100%",
+              background: tab === t.id ? "#14233a" : "transparent",
+              borderRight: tab === t.id ? "3px solid #2a6aef" : "3px solid transparent",
+              border: "none",
+              color: tab === t.id ? "#6aaeff" : "#4a6a8a",
+              fontSize: 12,
+              fontWeight: tab === t.id ? 700 : 400,
+              cursor: "pointer",
+              textAlign: "right",
+              transition: "all 0.12s",
+            }}
+          >
+            <IC n={t.icon} s={15} />
+            <span style={{ flex: 1 }}>{t.label}</span>
+            {tabAlertCounts[t.id] > 0 && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, padding: "0 4px",
+                borderRadius: 99, background: "#3a1010", color: "#ff6a6a",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontFamily: "monospace",
+              }}>
+                {tabAlertCounts[t.id]}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  ));
+})()}
         </div>
 
         <div style={{ padding: "12px 16px", borderTop: "1px solid #141e30" }}>
