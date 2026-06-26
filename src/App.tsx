@@ -1302,7 +1302,17 @@ export default function PharmacyPro() {
       supabase.from("inventory_logs").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
       supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId),
     ]);
-    setProducts(p.data ?? []);
+    setProducts(
+      (p.data ?? []).map((row) => ({
+        ...row,
+        // ── توحيد الأسماء بين الداتابيز (snake_case) والكود (camelCase) ──
+        // ملاحظة: نحتفظ بالحقول الخام (row.*) كما هي بجانب النسخة المُعدّلة،
+        // فأي كود قديم يقرأ snake_case مباشرة يستمر في العمل بدون كسر.
+        saleUnits: row.sale_units || row.unit_division || null,
+        packageType: row.package_type || row.unit || "",
+        dosageForm: row.dosage_form || "",
+      }))
+    );
     setSuppliers(s.data ?? []);
     setCustomers(c.data ?? []);
     setSales(sa.data ?? []);
@@ -2819,7 +2829,7 @@ function POS({
   const addToCart = (p) => {
     if (!p.isMissed && !p.isJoker) {
       const effectiveStock =
-        p.isPartial && p.unitDivision > 1 ? p.stock * p.unitDivision : p.stock;
+        p.isPartial && p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
       if (effectiveStock <= 0) {
         showToast("المخزون نفد!", "error");
         return;
@@ -2842,10 +2852,10 @@ function POS({
       if (ex) {
         const prod = products.find((x) => x.id === p.id);
         const maxQty =
-          p.isPartial && p.unitDivision > 1
-            ? prod?.stock * p.unitDivision
+          p.isPartial && p.saleUnits > 1
+            ? prod?.stock * p.saleUnits
             : prod?.stock || 99;
-        const step = p.isPartial ? 1 / p.unitDivision : 1;
+        const step = p.isPartial ? 1 / p.saleUnits : 1;
         if (ex.qty + step > maxQty) {
           showToast("لا يوجد مخزون كافٍ", "error");
           return prev;
@@ -2860,7 +2870,7 @@ function POS({
         };
       }
       const initQty = p.isPartial
-        ? Math.round((1 / p.unitDivision) * 10000) / 10000
+        ? Math.round((1 / p.saleUnits) * 10000) / 10000
         : 1;
       // تطبيق العرض التلقائي أو اليدوي على السعر
       const effective = p.isMissed || p.isJoker
@@ -3536,7 +3546,7 @@ function POS({
                 </div>
                 {filtered.slice(0, 8).map((p, idx) => {
                   const effectiveStock =
-                    p.unitDivision > 1 ? p.stock * p.unitDivision : p.stock;
+                    p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
                   const outOfStock = effectiveStock <= 0;
                   const stockColor = outOfStock
                     ? "#dd4444"
@@ -3591,10 +3601,10 @@ function POS({
                           </div>
                           <div style={{ fontSize: 10, color: "#4a6a8a" }}>
                             {p.mainCategory || p.category} · مخزون: {p.stock}
-                            {p.unitDivision > 1 && (
+                            {p.saleUnits > 1 && (
                               <span style={{ color: "#f59e0b" }}>
                                 {" "}
-                                ÷{p.unitDivision}
+                                ÷{p.saleUnits}
                               </span>
                             )}
                           </div>
@@ -3661,23 +3671,23 @@ function POS({
                                 );
                               })()}
                             </button>
-                            {p.unitDivision > 1 && (
+                            {p.saleUnits > 1 && (
                               <button
                                 onClick={() => {
                                   const partialQty =
                                     Math.round(
-                                      (1 / p.unitDivision) * 10000
+                                      (1 / p.saleUnits) * 10000
                                     ) / 10000;
                                   const partialPrice =
                                     Math.round(
-                                      (p.price / p.unitDivision) * 100
+                                      (p.price / p.saleUnits) * 100
                                     ) / 100;
                                   addToCart({
                                     ...p,
                                     qty: partialQty,
                                     price: partialPrice,
                                     isPartial: true,
-                                    partialLabel: `1/${p.unitDivision}`,
+                                    partialLabel: `1/${p.saleUnits}`,
                                   });
                                   setInv((x) => ({ ...x, search: "" }));
                                 }}
@@ -3693,8 +3703,8 @@ function POS({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                1/{p.unitDivision} —{" "}
-                                {(p.price / p.unitDivision).toFixed(2)} ر.س
+                                1/{p.saleUnits} —{" "}
+                                {(p.price / p.saleUnits).toFixed(2)} ر.س
                               </button>
                             )}
                           </>
@@ -4099,11 +4109,11 @@ function POS({
                                     (x) => x.id === i.id
                                   );
                                   const maxQty =
-                                    i.isPartial && i.unitDivision > 1
-                                      ? prod?.stock * i.unitDivision
+                                    i.isPartial && i.saleUnits > 1
+                                      ? prod?.stock * i.saleUnits
                                       : prod?.stock || 99;
                                   const step = i.isPartial
-                                    ? 1 / i.unitDivision
+                                    ? 1 / i.saleUnits
                                     : 1;
                                   return {
                                     ...i,
@@ -4124,7 +4134,7 @@ function POS({
                                 cart: p.cart.map((i) => {
                                   if (i.id !== item.id) return i;
                                   const step = i.isPartial
-                                    ? 1 / i.unitDivision
+                                    ? 1 / i.saleUnits
                                     : 1;
                                   return {
                                     ...i,
@@ -4164,15 +4174,15 @@ function POS({
                                         Math.round(
                                           (i.qty +
                                             (i.isPartial
-                                              ? 1 / i.unitDivision
+                                              ? 1 / i.saleUnits
                                               : 1)) *
                                             10000
                                         ) / 10000,
-                                        i.isPartial && i.unitDivision > 1
+                                        i.isPartial && i.saleUnits > 1
                                           ? products.find(
                                               (x) => x.id === i.id
                                             )?.stock *
-                                              i.unitDivision || 99
+                                              i.saleUnits || 99
                                           : products.find(
                                               (x) => x.id === i.id
                                             )?.stock || 99
@@ -8336,10 +8346,30 @@ function InventoryCount({
 }
 
 // ==================== CATEGORIES ====================
+// نوع العبوة — يصف شكل التعبئة الخارجية المباعة (مستقل عن الشكل الصيدلاني)
+const PACKAGE_TYPES = ["كرتونة", "كيس/باكيت", "علبة"];
+
 const MAIN_CATEGORIES = {
   دواء: {
     sub1: ["مستورد", "محلي"],
-    sub2: ["فموي", "موضعي", "أمبول"],
+    sub2: [
+      "أقراص",
+      "كبسولات",
+      "شراب/معلق",
+      "قطرة عين",
+      "قطرة أذن",
+      "قطرة أنف",
+      "نقط/قطارة فم",
+      "محلول موضعي",
+      "كريم/مرهم/جل",
+      "أمبولات/حقن",
+      "تحاميل",
+      "بخاخ/إسبراي",
+      "محلول استنشاق",
+      "لصقات",
+      "أكياس",
+      "لا ينطبق",
+    ],
   },
   "كوزمتك عادي": {
     sub1: [],
@@ -8390,8 +8420,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
   const blank = {
     id: "", nameAr: "", nameEn: "",
-    mainCategory: "دواء", subCategory1: "مستورد", subCategory2: "فموي",
-    unit: "قرص", unitDivision: 1,
+    mainCategory: "دواء", subCategory1: "مستورد", subCategory2: "أقراص",
+    packageType: "", saleUnits: "",
     price: "", cost: "", taxable: true,
     minStock: "", maxStock: "",
     isEssential: false, isChronic: false,
@@ -8444,7 +8474,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       cost: String(p.cost),
       minStock: String(p.min_stock || p.minStock || ""),
       maxStock: String(p.max_stock || p.maxStock || ""),
-      unitDivision: p.unit_division || p.unitDivision || 1,
+      saleUnits: p.sale_units || p.unit_division || p.saleUnits || "",
+      packageType: p.package_type || p.unit || p.packageType || "",
       mainCategory: p.main_category || p.mainCategory || "دواء",
       subCategory1: p.sub_category1 || p.subCategory1 || "",
       subCategory2: p.sub_category2 || p.subCategory2 || "",
@@ -8525,7 +8556,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       barcode: barcodes.find((b) => b.is_primary)?.base_barcode || barcodes[0]?.base_barcode || "",
       category: form.mainCategory, main_category: form.mainCategory,
       sub_category1: form.subCategory1, sub_category2: form.subCategory2,
-      unit: form.unit, unit_division: +form.unitDivision || 1,
+      package_type: form.packageType || null,
+      sale_units: form.saleUnits ? +form.saleUnits : null,
       // السعر المدخل شامل الضريبة، نحفظ السعر قبل الضريبة
       price: form.taxable ? Math.round((+form.price / 1.15) * 100) / 100 : +form.price,
       cost: +form.cost,
@@ -8783,8 +8815,11 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
             </div>
           </div>
 
-          <Input label="وحدة البيع" value={form.unit} onChange={(v) => F("unit", v)} placeholder="قرص / كبسولة..." />
-          <Input label="تقسيم الوحدة" value={form.unitDivision === 1 ? "" : String(form.unitDivision)} onChange={(v) => F("unitDivision", v ? +v : 1)} type="number" placeholder="فارغ = بدون تقسيم" />
+          <Select label="نوع العبوة" value={form.packageType} onChange={(v) => F("packageType", v)} options={["", ...PACKAGE_TYPES]} />
+          <Input label="عدد وحدات البيع" value={form.saleUnits} onChange={(v) => F("saleUnits", v)} type="number" placeholder="فارغ = بدون تقسيم" />
+          <div style={{ fontSize: 11, color: "#3a5a8a", gridColumn: "1 / -1", marginTop: -6 }}>
+            مثال: عبوة (نوع العبوة) فيها 20 قرص (عدد وحدات البيع) — يُستخدم لحساب سعر الوحدة وتفتيت البيع.
+          </div>
 
           {/* ── حقل السعر مع hint الضريبة ── */}
           <div>
