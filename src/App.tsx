@@ -11663,6 +11663,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const [manufacturers, setManufacturers] = useState([]);
   const [incentiveSupplierFilter, setIncentiveSupplierFilter] = useState("");
 
+  // ── تاريخ تغييرات الهامش (لمنع الأثر الرجعي) ──
+  const [thresholdHistory, setThresholdHistory] = useState<{ threshold: number; effective_from: string }[]>([]);
+
   const DEFAULT_RULES = [
     { days: 90,  discount: 50, color: "#ff4444" },
     { days: 120, discount: 25, color: "#ff7744" },
@@ -11693,7 +11696,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
   const blankPromo = { product_id: "", discount: "", start_date: new Date().toISOString().split("T")[0], end_date: "", note: "" };
   const [promoForm, setPromoForm] = useState(blankPromo);
-  const [incentiveForm, setIncentiveForm] = useState({ product_id: "", rate: "", fixed_amount: "", note: "" });
+  const [incentiveForm, setIncentiveForm] = useState({ rate: "", fixed_amount: "", note: "" });
+  const [selectedIncentiveProducts, setSelectedIncentiveProducts] = useState<string[]>([]); // IDs المحددة للإضافة
 
   const today = new Date().toISOString().split("T")[0];
   const monthKey = incentiveConfig.month;
@@ -11707,6 +11711,22 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     });
   };
 
+  // ── دالة تغيير الهامش مع حفظ التاريخ ──
+  const updateMarginThreshold = async (newThreshold: number) => {
+    const now = new Date().toISOString();
+    // حفظ في جدول التاريخ
+    const { error } = await supabase.from("incentive_threshold_history").insert({
+      pharmacy_id: pharmacyId,
+      threshold: newThreshold,
+      effective_from: now,
+      created_by: currentUser?.name || currentUser?.email || "",
+    });
+    if (error) { showToast("خطأ في حفظ الهامش: " + error.message, "error"); return; }
+    // تحديث الـ state
+    setThresholdHistory((prev) => [...prev, { threshold: newThreshold, effective_from: now }]);
+    setIncentiveConfig((p) => ({ ...p, marginThreshold: newThreshold }));
+  };
+
   // تحميل البيانات
   useEffect(() => {
     if (!pharmacyId) return;
@@ -11718,7 +11738,12 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       supabase.from("manufacturers").select("id, name").eq("pharmacy_id", pharmacyId).order("name"),
       // ── إعدادات الإضافة التلقائية المحفوظة ──
       supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).single(),
-    ]).then(([p, i, c, m, ps]) => {
+      // ── تاريخ تغييرات الهامش ──
+      supabase.from("incentive_threshold_history")
+        .select("threshold, effective_from")
+        .eq("pharmacy_id", pharmacyId)
+        .order("effective_from", { ascending: true }),
+    ]).then(([p, i, c, m, ps, th]) => {
       if (p.data) setPromos(p.data);
       if (i.data) setIncentiveList(i.data);
       if (c.data) setIncentiveConfig((prev) => ({ ...prev, rate: c.data.rate || 5 }));
@@ -11726,6 +11751,12 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       // ── تحميل autoPromoConfig المحفوظ ──
       if (ps.data?.auto_config) {
         setAutoPromoConfig((prev) => ({ ...prev, ...ps.data.auto_config }));
+      }
+      // ── تحميل تاريخ الهامش + تحديث القيمة الحالية من آخر سجل ──
+      if (th.data && th.data.length > 0) {
+        setThresholdHistory(th.data);
+        const latest = th.data[th.data.length - 1];
+        setIncentiveConfig((prev) => ({ ...prev, marginThreshold: latest.threshold }));
       }
     });
   }, [pharmacyId]);
@@ -11912,17 +11943,28 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     }
   };
 
-  // حفظ صنف محفز
+  // حفظ أصناف محفزة (متعددة)
   const saveIncentive = async () => {
-    if (!incentiveForm.product_id) { showToast("اختر صنفاً", "error"); return; }
-    const row = { ...incentiveForm, pharmacy_id: pharmacyId };
-    const { data, error } = await supabase.from("incentive_products").insert([row]).select();
+    if (selectedIncentiveProducts.length === 0) { showToast("اختر صنفاً على الأقل", "error"); return; }
+    // تصفية الأصناف اللي مضافة مسبقاً
+    const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
+    const toAdd = selectedIncentiveProducts.filter((id) => !alreadyAdded.has(id));
+    if (toAdd.length === 0) { showToast("الأصناف المحددة مضافة مسبقاً", "error"); return; }
+    const rows = toAdd.map((product_id) => ({
+      product_id,
+      rate: incentiveForm.rate || null,
+      fixed_amount: incentiveForm.fixed_amount || null,
+      note: incentiveForm.note || null,
+      pharmacy_id: pharmacyId,
+    }));
+    const { data, error } = await supabase.from("incentive_products").insert(rows).select();
     if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setIncentiveList((p) => [...p, data[0]]);
-    setIncentiveForm({ product_id: "", rate: "", fixed_amount: "", note: "" });
+    setIncentiveList((p) => [...p, ...data]);
+    setIncentiveForm({ rate: "", fixed_amount: "", note: "" });
+    setSelectedIncentiveProducts([]);
     setIncentiveSupplierFilter("");
     setShowIncentiveForm(false);
-    showToast("تم إضافة الصنف للقائمة ✓");
+    showToast(`تم إضافة ${data.length} صنف للقائمة المحفزة ✓`);
   };
 
   // حساب مبيعات الصيدلي من الأصناف المحفزة في الشهر
@@ -12225,6 +12267,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                 <div>
                   <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>حد الهامش التلقائي %</label>
                   <input type="number" value={incentiveConfig.marginThreshold} min="1" max="100"
+                    onBlur={(e) => {
+                      const val = +e.target.value;
+                      if (val !== incentiveConfig.marginThreshold) updateMarginThreshold(val);
+                    }}
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, marginThreshold: +e.target.value }))}
                     style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
                 </div>
@@ -12296,9 +12342,33 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
               .filter((s) => s.date?.startsWith(monthKey) && !s.returned)
               .forEach((s) => {
                 const name = s.cashier || s.user || s.created_by || "غير محدد";
+                // وقت البيعة بالظبط لتحديد الهامش الساري وقتها
+                const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
+
+                // الهامش الساري وقت البيعة — آخر سجل قبل أو عند وقت البيعة
+                const applicableThreshold = thresholdHistory.length > 0
+                  ? (thresholdHistory.filter((h) => h.effective_from <= saleDateTime).at(-1)?.threshold ?? incentiveConfig.marginThreshold)
+                  : incentiveConfig.marginThreshold;
+
+                // الأصناف ذات الهامش المرتفع بناءً على الهامش الساري وقتها
+                const validMarginIds = new Set(
+                  products.filter((p) => {
+                    const cost = p.cost || 0;
+                    const price = p.price || 0;
+                    if (!cost || !price) return false;
+                    return ((price - cost) / price) * 100 >= applicableThreshold;
+                  }).map((p) => p.id)
+                );
+
+                // الأصناف اليدوية لا تتأثر بالهامش
+                const allIncentiveIds = new Set([
+                  ...incentiveList.map((i) => i.product_id),
+                  ...validMarginIds,
+                ]);
+
                 const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
                 items.forEach((item) => {
-                  if (incentiveIds.has(item.id)) {
+                  if (allIncentiveIds.has(item.id)) {
                     if (!staffSales[name]) staffSales[name] = { total: 0, items: {} };
                     const amt = (item.price || 0) * (item.qty || 1);
                     staffSales[name].total += amt;
@@ -12471,56 +12541,157 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         </div>
       </Modal>
 
-      {/* ── Modal إضافة صنف محفز — مع فلتر الشركة المنتجة ── */}
-      <Modal open={showIncentiveForm} onClose={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); }} title="⭐ إضافة صنف للقائمة المحفزة">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      {/* ── Modal إضافة صنف محفز — مع فلتر الشركة المنتجة وتحديد متعدد ── */}
+      <Modal open={showIncentiveForm} onClose={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }} title="⭐ إضافة أصناف للقائمة المحفزة">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
 
           {/* فلتر الشركة المنتجة */}
           <div style={{ gridColumn: "1/-1" }}>
             <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>
-              🏭 فلتر بالشركة المنتجة (اختياري)
+              🏭 الشركة المنتجة
             </label>
             <select
               value={incentiveSupplierFilter}
               onChange={(e) => {
-                setIncentiveSupplierFilter(e.target.value);
-                setIncentiveForm((p) => ({ ...p, product_id: "" }));
+                const mId = e.target.value;
+                setIncentiveSupplierFilter(mId);
+                // تحديد كل أصناف الشركة تلقائياً (ما عدا المضافة مسبقاً)
+                const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
+                const ids = products
+                  .filter((p) => p.manufacturer_id === mId && !alreadyAdded.has(p.id))
+                  .map((p) => p.id);
+                setSelectedIncentiveProducts(ids);
               }}
               style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
-              <option value="">-- كل الشركات --</option>
+              <option value="">-- اختر شركة --</option>
               {manufacturers.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
           </div>
 
-          {/* اختيار الصنف — مفلتر بالشركة المنتجة */}
-          <div style={{ gridColumn: "1/-1" }}>
-            <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
-            <select value={incentiveForm.product_id}
-              onChange={(e) => setIncentiveForm((p) => ({ ...p, product_id: e.target.value }))}
-              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
-              <option value="">-- اختر صنفاً --</option>
-              {products
-                .filter((p) => !incentiveSupplierFilter || p.manufacturer_id === incentiveSupplierFilter)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>{p.name || p.nameAr}</option>
-                ))}
-            </select>
-            {incentiveSupplierFilter && (
-              <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
-                {products.filter((p) => p.manufacturer_id === incentiveSupplierFilter).length} صنف من هذه الشركة
-              </div>
-            )}
-          </div>
-
           <Input label="نسبة عمولة %" value={incentiveForm.rate} onChange={(v) => setIncentiveForm((p) => ({ ...p, rate: v }))} type="number" placeholder="اتركه فارغ لو ثابت" />
           <Input label="مبلغ ثابت (ر.س)" value={incentiveForm.fixed_amount} onChange={(v) => setIncentiveForm((p) => ({ ...p, fixed_amount: v }))} type="number" placeholder="اتركه فارغ لو نسبة" />
-          <Input label="ملاحظة" value={incentiveForm.note} onChange={(v) => setIncentiveForm((p) => ({ ...p, note: v }))} placeholder="..." />
+          <div style={{ gridColumn: "1/-1" }}>
+            <Input label="ملاحظة" value={incentiveForm.note} onChange={(v) => setIncentiveForm((p) => ({ ...p, note: v }))} placeholder="تطبق على جميع الأصناف المضافة..." />
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); }}>إلغاء</Btn>
-          <Btn icon="check" onClick={saveIncentive}>إضافة</Btn>
+
+        {/* قائمة أصناف الشركة مع checkbox */}
+        {incentiveSupplierFilter && (() => {
+          const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
+          const mfProducts = products.filter((p) => p.manufacturer_id === incentiveSupplierFilter);
+          const available = mfProducts.filter((p) => !alreadyAdded.has(p.id));
+          const allSelected = available.length > 0 && available.every((p) => selectedIncentiveProducts.includes(p.id));
+
+          return (
+            <div style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 10, overflow: "hidden" }}>
+              {/* Header القائمة */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #1d2d4a", background: "#0a1220" }}>
+                <div style={{ color: "#3a9aff", fontWeight: 700, fontSize: 13 }}>
+                  {mfProducts.length} صنف
+                  {alreadyAdded.size > 0 && (
+                    <span style={{ color: "#4a6a8a", fontWeight: 400, fontSize: 11, marginRight: 8 }}>
+                      ({mfProducts.filter(p => alreadyAdded.has(p.id)).length} مضاف مسبقاً)
+                    </span>
+                  )}
+                </div>
+                {available.length > 0 && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setSelectedIncentiveProducts(available.map((p) => p.id))}
+                      style={{ background: "none", border: "none", color: "#44dd88", fontSize: 12, cursor: "pointer" }}>
+                      تحديد الكل
+                    </button>
+                    <span style={{ color: "#1d2d4a" }}>|</span>
+                    <button onClick={() => setSelectedIncentiveProducts([])}
+                      style={{ background: "none", border: "none", color: "#ff7744", fontSize: 12, cursor: "pointer" }}>
+                      إلغاء الكل
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* الأصناف */}
+              <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                {mfProducts.length === 0 ? (
+                  <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20, fontSize: 13 }}>
+                    لا توجد أصناف لهذه الشركة
+                  </div>
+                ) : (
+                  mfProducts.map((p) => {
+                    const isAdded = alreadyAdded.has(p.id);
+                    const isSelected = selectedIncentiveProducts.includes(p.id);
+                    const margin = p.cost && p.price
+                      ? (((p.price - p.cost) / p.price) * 100).toFixed(0)
+                      : null;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          if (isAdded) return;
+                          setSelectedIncentiveProducts((prev) =>
+                            isSelected ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                          );
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 12,
+                          padding: "10px 14px", borderBottom: "1px solid #0d1928",
+                          cursor: isAdded ? "default" : "pointer",
+                          background: isAdded ? "#0a0f18" : isSelected ? "#0a1a2a" : "transparent",
+                          opacity: isAdded ? 0.5 : 1,
+                          transition: "background 0.15s",
+                        }}>
+                        {/* Checkbox */}
+                        <div style={{
+                          width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                          border: `2px solid ${isAdded ? "#2a3a4a" : isSelected ? "#3a9aff" : "#2a3a5a"}`,
+                          background: isAdded ? "#1a2a3a" : isSelected ? "#3a9aff" : "transparent",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          {(isSelected || isAdded) && (
+                            <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>
+                          )}
+                        </div>
+
+                        {/* اسم الصنف */}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ color: isAdded ? "#4a6a8a" : "#dde8ff", fontSize: 13 }}>
+                            {p.name || p.nameAr}
+                            {isAdded && <span style={{ color: "#3a5a7a", fontSize: 11, marginRight: 8 }}>• مضاف مسبقاً</span>}
+                          </div>
+                          {margin && (
+                            <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
+                              هامش: <span style={{ color: +margin >= incentiveConfig.marginThreshold ? "#a78bfa" : "#4a6a8a" }}>{margin}%</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* السعر */}
+                        <div style={{ color: "#4a6a8a", fontSize: 12, textAlign: "left" }}>
+                          {p.price} ر.س
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Footer */}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ color: "#4a6a8a", fontSize: 12 }}>
+            {selectedIncentiveProducts.length > 0 && (
+              <span style={{ color: "#3a9aff" }}>{selectedIncentiveProducts.length} صنف محدد</span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <Btn variant="ghost" onClick={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }}>إلغاء</Btn>
+            <Btn icon="check" onClick={saveIncentive}>
+              إضافة {selectedIncentiveProducts.length > 0 ? `(${selectedIncentiveProducts.length})` : ""}
+            </Btn>
+          </div>
         </div>
       </Modal>
     </div>
