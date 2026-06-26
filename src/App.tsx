@@ -1553,7 +1553,6 @@ if (isLoading) return (
         </div>
 
         <div style={{ flex: 1, padding: "8px 0" }}>
-          {(() => {
   {(() => {
   const GROUP_COLORS = {
     team:     "#22c55e",
