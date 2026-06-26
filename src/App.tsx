@@ -1471,19 +1471,19 @@ if (isLoading) return (
 
       {/* SIDEBAR */}
       <nav
-        style={{
-          width: 210,
-          background: "#0a0f1c",
-          borderLeft: "1px solid #141e30",
-          flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          position: "sticky",
-          top: 0,
-          height: "100vh",
-          overflowY: "auto",
-        }}
-      >
+  style={{
+    width: 210,
+    background: "#0a0f1c",
+    borderLeft: "none",
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    position: "sticky",
+    top: 0,
+    height: "100vh",
+    overflowY: "auto",
+  }}
+>
         <div
           style={{
             padding: "20px 16px 16px",
@@ -1554,14 +1554,28 @@ if (isLoading) return (
 
         <div style={{ flex: 1, padding: "8px 0" }}>
           {(() => {
+  {(() => {
+  const GROUP_COLORS = {
+    team:     "#22c55e",
+    sales:    "#3b82f6",
+    stock:    "#f97316",
+    reports:  "#a855f7",
+    admin:    "#eab308",
+    main:     "#2a6aef",
+  };
+
   const groups = [
-    { label: null, ids: ["dashboard"] },
-    { label: "الفريق والالتزام", ids: ["shift", "attendance"] },
-    { label: "العملاء والمبيعات", ids: ["customers", "loyalty", "pos", "returns", "promotions", "target"] },
-    { label: "المخزون والموردين", ids: ["purchase", "products", "suppliers", "inventory_count"] },
-    { label: "التقارير", ids: ["expiry_report", "reports", "tax_report"] },
-    { label: "الإدارة", ids: ["treasury", "pharmacy_settings", "permissions", "rasd_settings"] },
+    { label: null,               color: GROUP_COLORS.main,    ids: ["dashboard"] },
+    { label: "الفريق والالتزام", color: GROUP_COLORS.team,    ids: ["shift", "attendance"] },
+    { label: "العملاء والمبيعات",color: GROUP_COLORS.sales,   ids: ["customers", "loyalty", "pos", "returns", "promotions", "target"] },
+    { label: "المخزون والموردين",color: GROUP_COLORS.stock,   ids: ["purchase", "products", "suppliers", "inventory_count"] },
+    { label: "التقارير",         color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report"] },
+    { label: "الإدارة",          color: GROUP_COLORS.admin,   ids: ["treasury", "pharmacy_settings", "permissions", "rasd_settings"] },
   ];
+
+  // إيجاد لون التاب الحالي
+  const activeGroup = groups.find(g => g.ids.includes(tab));
+  const activeColor = activeGroup?.color || GROUP_COLORS.main;
 
   return groups.map((group, gi) => (
     <div key={gi}>
@@ -1570,10 +1584,10 @@ if (isLoading) return (
           padding: "10px 16px 4px",
           fontSize: 10,
           fontWeight: 700,
-          color: "#2a4a6a",
+          color: group.color,
+          opacity: 0.7,
           letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          marginTop: gi === 0 ? 0 : 4,
+          marginTop: 4,
         }}>
           {group.label}
         </div>
@@ -1581,6 +1595,7 @@ if (isLoading) return (
       {group.ids.map((id) => {
         const t = TABS.find((x) => x.id === id);
         if (!t) return null;
+        const isActive = tab === t.id;
         return (
           <button
             key={t.id}
@@ -1591,12 +1606,12 @@ if (isLoading) return (
               gap: 10,
               padding: "9px 16px",
               width: "100%",
-              background: tab === t.id ? "#14233a" : "transparent",
-              borderRight: tab === t.id ? "3px solid #2a6aef" : "3px solid transparent",
+              background: isActive ? `${group.color}18` : "transparent",
+              borderRight: isActive ? `3px solid ${group.color}` : "3px solid transparent",
               border: "none",
-              color: tab === t.id ? "#6aaeff" : "#4a6a8a",
+              color: isActive ? group.color : "#4a6a8a",
               fontSize: 12,
-              fontWeight: tab === t.id ? 700 : 400,
+              fontWeight: isActive ? 700 : 400,
               cursor: "pointer",
               textAlign: "right",
               transition: "all 0.12s",
