@@ -11649,11 +11649,19 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual | incentive
   const [promos, setPromos] = useState([]);
   const [incentiveList, setIncentiveList] = useState([]);
-  const [incentiveConfig, setIncentiveConfig] = useState({ rate: 5, month: new Date().toISOString().slice(0, 7) });
+  const [incentiveConfig, setIncentiveConfig] = useState({
+    rate: 5,
+    month: new Date().toISOString().slice(0, 7),
+    marginThreshold: 45, // ← حد الهامش التلقائي قابل للتعديل
+  });
   const [showPromoForm, setShowPromoForm] = useState(false);
   const [showIncentiveForm, setShowIncentiveForm] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [promoSearch, setPromoSearch] = useState("");
+
+  // ── الشركات المنتجة ──
+  const [manufacturers, setManufacturers] = useState([]);
+  const [incentiveSupplierFilter, setIncentiveSupplierFilter] = useState("");
 
   const DEFAULT_RULES = [
     { days: 90,  discount: 50, color: "#ff4444" },
@@ -11674,6 +11682,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       }
     });
   }, [pharmacyId]);
+
   const [incentiveSearch, setIncentiveSearch] = useState("");
   const [showAutoConfig, setShowAutoConfig] = useState(false);
   const [autoPromoConfig, setAutoPromoConfig] = useState({
@@ -11689,6 +11698,15 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const today = new Date().toISOString().split("T")[0];
   const monthKey = incentiveConfig.month;
 
+  // ── دالة حفظ autoPromoConfig في Supabase ──
+  const saveAutoConfig = async (newConfig) => {
+    await supabase.from("promo_settings").upsert({
+      pharmacy_id: pharmacyId,
+      auto_config: newConfig,
+      updated_at: new Date().toISOString(),
+    });
+  };
+
   // تحميل البيانات
   useEffect(() => {
     if (!pharmacyId) return;
@@ -11696,15 +11714,23 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       supabase.from("promotions").select("*").eq("pharmacy_id", pharmacyId).order("end_date"),
       supabase.from("incentive_products").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).single(),
-    ]).then(([p, i, c]) => {
+      // ── الشركات المنتجة مفلترة بالصيدلية ──
+      supabase.from("manufacturers").select("id, name").eq("pharmacy_id", pharmacyId).order("name"),
+      // ── إعدادات الإضافة التلقائية المحفوظة ──
+      supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).single(),
+    ]).then(([p, i, c, m, ps]) => {
       if (p.data) setPromos(p.data);
       if (i.data) setIncentiveList(i.data);
       if (c.data) setIncentiveConfig((prev) => ({ ...prev, rate: c.data.rate || 5 }));
+      if (m.data) setManufacturers(m.data);
+      // ── تحميل autoPromoConfig المحفوظ ──
+      if (ps.data?.auto_config) {
+        setAutoPromoConfig((prev) => ({ ...prev, ...ps.data.auto_config }));
+      }
     });
   }, [pharmacyId]);
 
   // الأصناف التلقائية (غير دواء + فيها صلاحية قريبة)
-  // بنجيب أقرب تاريخ صلاحية من فواتير الشراء لكل صنف
   const productEarliestExpiry = useMemo(() => {
     const map = {};
     (purchases || []).forEach((pu) => {
@@ -11715,7 +11741,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
       });
     });
-    // كمان نجيب من جدول products نفسه لو موجود
     (products || []).forEach((p) => {
       if (p.expiry && (!map[p.id] || p.expiry < map[p.id])) {
         map[p.id] = p.expiry;
@@ -11739,233 +11764,154 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     return { ...p, expiry, autoDiscount: calcAutoDiscount(expiry, discountRules) };
   }).sort((a, b) => b.autoDiscount - a.autoDiscount);
 
-  // الأصناف المحفزة — خصم > 45%
+  // ── الأصناف المحفزة — حسب marginThreshold القابل للتعديل ──
   const highMarginProducts = products.filter((p) => {
     const cost = p.cost || 0;
     const price = p.price || 0;
     if (!cost || !price) return false;
-    return ((price - cost) / price) * 100 >= 45;
+    return ((price - cost) / price) * 100 >= incentiveConfig.marginThreshold;
   });
-// ── دالة طباعة Shelf Label ──
-const printShelfLabel = (items: {
-  name: string;
-  originalPrice: number;
-  discountedPrice: number;
-  discount: number;
-  endDate?: string;
-  isAuto?: boolean;
-}[]) => {
-  const labelsHTML = items.map((item) => `
-    <div class="label">
-      <div class="pharmacy-name">PharmacyPro</div>
-      <div class="product-name">${item.name}</div>
-      <div class="discount-badge">خصم ${item.discount}%</div>
-      <div class="prices">
-        <div class="old-price-box">
-          <div class="old-price-label">السعر قبل</div>
-          <div class="old-price">${item.originalPrice.toFixed(2)}</div>
+
+  // ── دالة طباعة Shelf Label ──
+  const printShelfLabel = (items: {
+    name: string;
+    originalPrice: number;
+    discountedPrice: number;
+    discount: number;
+    endDate?: string;
+    isAuto?: boolean;
+  }[]) => {
+    const labelsHTML = items.map((item) => `
+      <div class="label">
+        <div class="pharmacy-name">PharmacyPro</div>
+        <div class="product-name">${item.name}</div>
+        <div class="discount-badge">خصم ${item.discount}%</div>
+        <div class="prices">
+          <div class="old-price-box">
+            <div class="old-price-label">السعر قبل</div>
+            <div class="old-price">${item.originalPrice.toFixed(2)}</div>
+          </div>
+          <div class="arrow">◄</div>
+          <div class="new-price-box">
+            <div class="new-price-label">السعر بعد</div>
+            <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
+          </div>
         </div>
-        <div class="arrow">◄</div>
-        <div class="new-price-box">
-          <div class="new-price-label">السعر بعد</div>
-          <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
-        </div>
+        ${item.endDate ? `<div class="end-date">ينتهي العرض: ${item.endDate}</div>` : ""}
       </div>
-      ${item.endDate ? `<div class="end-date">ينتهي العرض: ${item.endDate}</div>` : ""}
-    </div>
-  `).join("");
+    `).join("");
 
-  const win = window.open("", "_blank");
-  if (!win) return;
+    const win = window.open("", "_blank");
+    if (!win) return;
 
-  win.document.write(`
-    <!DOCTYPE html>
-    <html dir="rtl">
-    <head>
-      <meta charset="UTF-8"/>
-      <title>Shelf Labels</title>
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
-        .page {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8mm;
-          padding: 10mm;
-          width: 210mm;
-        }
-        .label {
-          background: #FFD700;
-          border: 3px solid #e6b800;
-          border-radius: 12px;
-          padding: 14px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-          min-height: 120mm;
-          justify-content: center;
-        }
-        .pharmacy-name {
-          font-size: 11px;
-          color: #7a6000;
-          font-weight: 600;
-          letter-spacing: 1px;
-        }
-        .product-name {
-          font-size: 18px;
-          font-weight: 900;
-          color: #1a1a00;
-          text-align: center;
-          line-height: 1.3;
-        }
-        .discount-badge {
-          background: #cc0000;
-          color: #fff;
-          font-size: 20px;
-          font-weight: 900;
-          padding: 4px 20px;
-          border-radius: 20px;
-        }
-        .prices {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          width: 100%;
-          justify-content: center;
-          margin-top: 4px;
-        }
-        .old-price-box {
-          background: #cc0000;
-          border-radius: 10px;
-          padding: 10px 14px;
-          text-align: center;
-          flex: 1;
-        }
-        .old-price-label {
-          color: #ffaaaa;
-          font-size: 11px;
-          margin-bottom: 2px;
-        }
-        .old-price {
-          color: #fff;
-          font-size: 22px;
-          font-weight: 900;
-          text-decoration: line-through;
-          text-decoration-color: #ffaaaa;
-          text-decoration-thickness: 3px;
-        }
-        .arrow {
-          color: #7a6000;
-          font-size: 22px;
-        }
-        .new-price-box {
-          background: #1a5c00;
-          border-radius: 10px;
-          padding: 10px 14px;
-          text-align: center;
-          flex: 1;
-        }
-        .new-price-label {
-          color: #aaffaa;
-          font-size: 11px;
-          margin-bottom: 2px;
-        }
-        .new-price {
-          color: #fff;
-          font-size: 28px;
-          font-weight: 900;
-        }
-        .end-date {
-          font-size: 12px;
-          color: #5a4400;
-          background: #fff3;
-          padding: 3px 10px;
-          border-radius: 6px;
-        }
-        @media print {
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          @page { size: A4; margin: 0; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="page">${labelsHTML}</div>
-      <script>
-        window.onload = () => {
-          window.print();
-          window.onafterprint = () => window.close();
-        };
-      </script>
-    </body>
-    </html>
-  `);
-  win.document.close();
-};
+    win.document.write(`
+      <!DOCTYPE html>
+      <html dir="rtl">
+      <head>
+        <meta charset="UTF-8"/>
+        <title>Shelf Labels</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
+          .page {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8mm;
+            padding: 10mm;
+            width: 210mm;
+          }
+          .label {
+            background: #FFD700;
+            border: 3px solid #e6b800;
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-height: 120mm;
+            justify-content: center;
+          }
+          .pharmacy-name { font-size: 11px; color: #7a6000; font-weight: 600; letter-spacing: 1px; }
+          .product-name { font-size: 18px; font-weight: 900; color: #1a1a00; text-align: center; line-height: 1.3; }
+          .discount-badge { background: #cc0000; color: #fff; font-size: 20px; font-weight: 900; padding: 4px 20px; border-radius: 20px; }
+          .prices { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: center; margin-top: 4px; }
+          .old-price-box { background: #cc0000; border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; }
+          .old-price-label { color: #ffaaaa; font-size: 11px; margin-bottom: 2px; }
+          .old-price { color: #fff; font-size: 22px; font-weight: 900; text-decoration: line-through; text-decoration-color: #ffaaaa; text-decoration-thickness: 3px; }
+          .arrow { color: #7a6000; font-size: 22px; }
+          .new-price-box { background: #1a5c00; border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; }
+          .new-price-label { color: #aaffaa; font-size: 11px; margin-bottom: 2px; }
+          .new-price { color: #fff; font-size: 28px; font-weight: 900; }
+          .end-date { font-size: 12px; color: #5a4400; background: #fff3; padding: 3px 10px; border-radius: 6px; }
+          @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            @page { size: A4; margin: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page">${labelsHTML}</div>
+        <script>
+          window.onload = () => { window.print(); window.onafterprint = () => window.close(); };
+        </script>
+      </body>
+      </html>
+    `);
+    win.document.close();
+  };
 
-// ── طباعة تلقائية عند دخول صنف جديد للعروض التلقائية ──
-useEffect(() => {
-  if (!pharmacyId || autoPromoProducts.length === 0) return;
+  // ── طباعة تلقائية عند دخول صنف جديد للعروض التلقائية ──
+  useEffect(() => {
+    if (!pharmacyId || autoPromoProducts.length === 0) return;
+    const storageKey = `printed_auto_promos_${pharmacyId}`;
+    const stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const newItems: typeof autoPromoProducts = [];
+    autoPromoProducts.forEach((p) => {
+      const prevDiscount = stored[p.id];
+      if (prevDiscount === undefined || prevDiscount !== p.autoDiscount) {
+        newItems.push(p);
+        stored[p.id] = p.autoDiscount;
+      }
+    });
+    if (newItems.length === 0) return;
+    localStorage.setItem(storageKey, JSON.stringify(stored));
+    printShelfLabel(
+      newItems.map((p) => ({
+        name: p.name || p.nameAr || "",
+        originalPrice: p.price,
+        discountedPrice: parseFloat((p.price * (1 - p.autoDiscount / 100)).toFixed(2)),
+        discount: p.autoDiscount,
+        isAuto: true,
+      }))
+    );
+  }, [autoPromoProducts, pharmacyId]);
 
-  const storageKey = `printed_auto_promos_${pharmacyId}`;
-  const stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
-  // { product_id: discount_percent }
-
-  const newItems: typeof autoPromoProducts = [];
-
-  autoPromoProducts.forEach((p) => {
-    const prevDiscount = stored[p.id];
-    // لو مش موجود أو الخصم اتغير → يطبع
-    if (prevDiscount === undefined || prevDiscount !== p.autoDiscount) {
-      newItems.push(p);
-      stored[p.id] = p.autoDiscount;
+  // حفظ عرض يدوي
+  const savePromo = async () => {
+    if (!promoForm.product_id || !promoForm.discount || !promoForm.end_date) {
+      showToast("يرجى ملء جميع الحقول", "error"); return;
     }
-  });
+    const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
+    const { data, error } = await supabase.from("promotions").insert([row]).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setPromos((p) => [...p, data[0]]);
+    setPromoForm(blankPromo);
+    setShowPromoForm(false);
+    showToast("تم إضافة العرض ✓");
+    const prod = products.find((p) => p.id === promoForm.product_id);
+    if (prod) {
+      printShelfLabel([{
+        name: prod.name || prod.nameAr || "",
+        originalPrice: prod.price,
+        discountedPrice: parseFloat((prod.price * (1 - +promoForm.discount / 100)).toFixed(2)),
+        discount: +promoForm.discount,
+        endDate: promoForm.end_date,
+        isAuto: false,
+      }]);
+    }
+  };
 
-  if (newItems.length === 0) return;
-
-  // حفظ في localStorage
-  localStorage.setItem(storageKey, JSON.stringify(stored));
-
-  // طباعة تلقائية بدون نافذة تأكيد
-  printShelfLabel(
-    newItems.map((p) => ({
-      name: p.name || p.nameAr || "",
-      originalPrice: p.price,
-      discountedPrice: parseFloat((p.price * (1 - p.autoDiscount / 100)).toFixed(2)),
-      discount: p.autoDiscount,
-      isAuto: true,
-    }))
-  );
-}, [autoPromoProducts, pharmacyId]);
-
-// ── في savePromo — بعد الحفظ الناجح أضف طباعة ──
-const savePromo = async () => {
-  if (!promoForm.product_id || !promoForm.discount || !promoForm.end_date) {
-    showToast("يرجى ملء جميع الحقول", "error"); return;
-  }
-  const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
-  const { data, error } = await supabase.from("promotions").insert([row]).select();
-  if (error) { showToast("خطأ: " + error.message, "error"); return; }
-  
-  setPromos((p) => [...p, data[0]]);
-  setPromoForm(blankPromo);
-  setShowPromoForm(false);
-  showToast("تم إضافة العرض ✓");
-
-  // ── طباعة shelf label للعرض اليدوي ──
-  const prod = products.find((p) => p.id === promoForm.product_id);
-  if (prod) {
-    printShelfLabel([{
-      name: prod.name || prod.nameAr || "",
-      originalPrice: prod.price,
-      discountedPrice: parseFloat((prod.price * (1 - +promoForm.discount / 100)).toFixed(2)),
-      discount: +promoForm.discount,
-      endDate: promoForm.end_date,
-      isAuto: false,
-    }]);
-  }
-};
   // حفظ صنف محفز
   const saveIncentive = async () => {
     if (!incentiveForm.product_id) { showToast("اختر صنفاً", "error"); return; }
@@ -11974,6 +11920,7 @@ const savePromo = async () => {
     if (error) { showToast("خطأ: " + error.message, "error"); return; }
     setIncentiveList((p) => [...p, data[0]]);
     setIncentiveForm({ product_id: "", rate: "", fixed_amount: "", note: "" });
+    setIncentiveSupplierFilter("");
     setShowIncentiveForm(false);
     showToast("تم إضافة الصنف للقائمة ✓");
   };
@@ -11998,7 +11945,6 @@ const savePromo = async () => {
     return total;
   };
 
-  // العروض النشطة
   const activePromos = promos.filter((p) => p.end_date >= today && p.start_date <= today);
   const expiredPromos = promos.filter((p) => p.end_date < today);
 
@@ -12008,7 +11954,6 @@ const savePromo = async () => {
     background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
 
-  // فلترة
   const filteredAutoPromos = autoPromoProducts.filter((p) =>
     !promoSearch || (p.name || p.nameAr || "").includes(promoSearch)
   );
@@ -12060,7 +12005,6 @@ const savePromo = async () => {
       {/* ── العروض التلقائية ── */}
       {activeTab === "auto" && (
         <div>
-          {/* قواعد الخصم — قابلة للتعديل */}
           <div style={cardStyle("#1a2a1a")}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ color: "#44dd88", fontWeight: 700 }}>📋 منطق الخصم التدرجي التلقائي</div>
@@ -12075,10 +12019,12 @@ const savePromo = async () => {
                 </button>
               </div>
             </div>
+
             {/* كارت إعدادات شرط الإضافة التلقائية */}
             {showAutoConfig && (
               <div style={{ background: "#0a0a1a", border: "1px solid #2a1a4a", borderRadius: 10, padding: 14, marginBottom: 12 }}>
                 <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>⚙️ شروط الإضافة للقائمة التلقائية</div>
+
                 {/* الفئات المستثناة */}
                 <div style={{ marginBottom: 10 }}>
                   <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 6 }}>الفئات المستثناة (لن تظهر في العروض التلقائية):</div>
@@ -12086,12 +12032,16 @@ const savePromo = async () => {
                     {["دواء", "مستلزمات طبية", "مستحضرات تجميل", "أخرى"].map((cat) => {
                       const excluded = autoPromoConfig.excludeCategories.includes(cat);
                       return (
-                        <div key={cat} onClick={() => setAutoPromoConfig((p) => ({
-                          ...p,
-                          excludeCategories: excluded
-                            ? p.excludeCategories.filter((c) => c !== cat)
-                            : [...p.excludeCategories, cat],
-                        }))} style={{ padding: "4px 12px", borderRadius: 20, cursor: "pointer",
+                        <div key={cat} onClick={() => {
+                          const updated = {
+                            ...autoPromoConfig,
+                            excludeCategories: excluded
+                              ? autoPromoConfig.excludeCategories.filter((c) => c !== cat)
+                              : [...autoPromoConfig.excludeCategories, cat],
+                          };
+                          setAutoPromoConfig(updated);
+                          saveAutoConfig(updated);
+                        }} style={{ padding: "4px 12px", borderRadius: 20, cursor: "pointer",
                           background: excluded ? "#2a0a0a" : "#0a1a0a",
                           border: `1px solid ${excluded ? "#6a2a2a" : "#1a4a1a"}`,
                           color: excluded ? "#ff7744" : "#44dd88", fontSize: 12 }}>
@@ -12101,18 +12051,28 @@ const savePromo = async () => {
                     })}
                   </div>
                 </div>
+
                 {/* الحد الأدنى للخصم */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                   <span style={{ color: "#4a6a8a", fontSize: 12 }}>أقل خصم يظهر في القائمة:</span>
                   <input type="number" min="0" max="100" value={autoPromoConfig.minDiscount}
-                    onChange={(e) => setAutoPromoConfig((p) => ({ ...p, minDiscount: +e.target.value }))}
+                    onChange={(e) => {
+                      const updated = { ...autoPromoConfig, minDiscount: +e.target.value };
+                      setAutoPromoConfig(updated);
+                      saveAutoConfig(updated);
+                    }}
                     style={{ width: 60, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
                   <span style={{ color: "#4a6a8a", fontSize: 12 }}>%</span>
                 </div>
+
                 {/* اشتراط المخزون */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#4a6a8a", fontSize: 12 }}>إظهار الأصناف المنتهية المخزون:</span>
-                  <div onClick={() => setAutoPromoConfig((p) => ({ ...p, requireStock: !p.requireStock }))}
+                  <div onClick={() => {
+                    const updated = { ...autoPromoConfig, requireStock: !autoPromoConfig.requireStock };
+                    setAutoPromoConfig(updated);
+                    saveAutoConfig(updated);
+                  }}
                     style={{ width: 36, height: 20, borderRadius: 10, cursor: "pointer",
                       background: autoPromoConfig.requireStock ? "#2a6a2a" : "#6a2a2a",
                       position: "relative", transition: "background 0.2s" }}>
@@ -12126,6 +12086,7 @@ const savePromo = async () => {
                 </div>
               </div>
             )}
+
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
               {[...discountRules].sort((a,b) => a.days - b.days).map((r) => (
                 <div key={r.days} style={{ background: "#080e1a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
@@ -12247,7 +12208,7 @@ const savePromo = async () => {
                 <div style={{ color: "#3a9aff", fontWeight: 700, marginBottom: 4 }}>⚙️ إعدادات العمولة</div>
                 <div style={{ color: "#4a6a8a", fontSize: 12 }}>نسبة الصيدلي من مبيعات الأصناف المحفزة</div>
               </div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <div>
                   <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
                   <input type="month" value={incentiveConfig.month}
@@ -12260,14 +12221,21 @@ const savePromo = async () => {
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
                     style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
                 </div>
+                {/* ── خانة حد الهامش التلقائي ── */}
+                <div>
+                  <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>حد الهامش التلقائي %</label>
+                  <input type="number" value={incentiveConfig.marginThreshold} min="1" max="100"
+                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, marginThreshold: +e.target.value }))}
+                    style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* أصناف بخصم > 45% تلقائية */}
+          {/* أصناف بهامش تلقائية — العنوان يعكس القيمة الحالية */}
           <div style={cardStyle("#1a1a2a")}>
             <div style={{ color: "#a78bfa", fontWeight: 700, marginBottom: 10 }}>
-              🎯 أصناف بهامش ربح ≥ 45% — تلقائية ({highMarginProducts.length})
+              🎯 أصناف بهامش ربح ≥ {incentiveConfig.marginThreshold}% — تلقائية ({highMarginProducts.length})
             </div>
             {highMarginProducts.length === 0
               ? <div style={{ color: "#4a6a8a", fontSize: 12 }}>لا توجد أصناف بهذا الهامش حالياً</div>
@@ -12323,8 +12291,6 @@ const savePromo = async () => {
               ...incentiveList.map((i) => i.product_id),
               ...highMarginProducts.map((p) => p.id),
             ]);
-
-            // تجميع المبيعات المحفزة لكل صيدلي
             const staffSales = {};
             sales
               .filter((s) => s.date?.startsWith(monthKey) && !s.returned)
@@ -12336,7 +12302,6 @@ const savePromo = async () => {
                     if (!staffSales[name]) staffSales[name] = { total: 0, items: {} };
                     const amt = (item.price || 0) * (item.qty || 1);
                     staffSales[name].total += amt;
-                    // تفاصيل كل صنف
                     const prod = products.find((p) => p.id === item.id);
                     const pName = prod?.name || prod?.nameAr || item.name || item.id;
                     if (!staffSales[name].items[pName]) staffSales[name].items[pName] = 0;
@@ -12368,19 +12333,11 @@ const savePromo = async () => {
                 </div>
 
                 {staffList.map(([name, data]) => {
-                  // نسبة الصيدلي من قائمة المحفزة (لو له نسبة خاصة)
-                  const customItem = incentiveList.find((i) => {
-                    const prod = products.find((p) => p.id === i.product_id);
-                    return prod && (prod.name === name || i.product_id === name);
-                  });
                   const rate = incentiveConfig.rate;
                   const commission = (data.total * rate / 100);
                   const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100).toFixed(1) : "0";
-                  const [showDetails, setShowDetails] = [false, () => {}]; // placeholder
-
                   return (
                     <div key={name} style={{ padding: "12px 0", borderBottom: "1px solid #0a1a0a" }}>
-                      {/* صف الصيدلي */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <div>
                           <div style={{ color: "#dde8ff", fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
@@ -12394,13 +12351,9 @@ const savePromo = async () => {
                           <div style={{ color: "#4a6a8a", fontSize: 11 }}>عمولة {rate}%</div>
                         </div>
                       </div>
-
-                      {/* شريط النسبة */}
                       <div style={{ background: "#080e1a", borderRadius: 4, height: 6, marginBottom: 8 }}>
                         <div style={{ background: "#44dd88", height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
                       </div>
-
-                      {/* تفاصيل الأصناف */}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         {Object.entries(data.items).map(([pName, amt]) => (
                           <div key={pName} style={{ background: "#0a1a0a", border: "1px solid #1a3a1a", borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
@@ -12413,7 +12366,6 @@ const savePromo = async () => {
                   );
                 })}
 
-                {/* إجمالي العمولات */}
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "2px solid #1a3a1a" }}>
                   <span style={{ color: "#dde8ff", fontWeight: 700 }}>إجمالي العمولات المستحقة</span>
                   <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>
@@ -12452,7 +12404,6 @@ const savePromo = async () => {
           style={{ background: "#0a1a0a", border: "1px dashed #1a4a1a", borderRadius: 8, padding: "7px 14px", color: "#44dd88", cursor: "pointer", fontSize: 12, width: "100%", marginBottom: 14 }}>
           + إضافة مرحلة
         </button>
-        {/* معاينة */}
         <div style={{ background: "#080e1a", borderRadius: 10, padding: 12, marginBottom: 16 }}>
           <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 8 }}>معاينة:</div>
           {[...editRules].sort((a, b) => a.days - b.days).map((r, i) => (
@@ -12467,7 +12418,6 @@ const savePromo = async () => {
           <Btn variant="ghost" onClick={() => setShowRulesEditor(false)}>إلغاء</Btn>
           <Btn icon="check" onClick={async () => {
             const sorted = [...editRules].sort((a, b) => a.days - b.days);
-            // احذف القديم وأضف الجديد
             await supabase.from("promo_rules").delete().eq("pharmacy_id", pharmacyId);
             const rows = sorted.map((r) => ({
               days: r.days,
@@ -12521,26 +12471,55 @@ const savePromo = async () => {
         </div>
       </Modal>
 
-      {/* Modal إضافة صنف محفز */}
-      <Modal open={showIncentiveForm} onClose={() => setShowIncentiveForm(false)} title="⭐ إضافة صنف للقائمة المحفزة">
+      {/* ── Modal إضافة صنف محفز — مع فلتر الشركة المنتجة ── */}
+      <Modal open={showIncentiveForm} onClose={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); }} title="⭐ إضافة صنف للقائمة المحفزة">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
+          {/* فلتر الشركة المنتجة */}
+          <div style={{ gridColumn: "1/-1" }}>
+            <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>
+              🏭 فلتر بالشركة المنتجة (اختياري)
+            </label>
+            <select
+              value={incentiveSupplierFilter}
+              onChange={(e) => {
+                setIncentiveSupplierFilter(e.target.value);
+                setIncentiveForm((p) => ({ ...p, product_id: "" }));
+              }}
+              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
+              <option value="">-- كل الشركات --</option>
+              {manufacturers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* اختيار الصنف — مفلتر بالشركة المنتجة */}
           <div style={{ gridColumn: "1/-1" }}>
             <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
             <select value={incentiveForm.product_id}
               onChange={(e) => setIncentiveForm((p) => ({ ...p, product_id: e.target.value }))}
               style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
               <option value="">-- اختر صنفاً --</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>{p.name || p.nameAr}</option>
-              ))}
+              {products
+                .filter((p) => !incentiveSupplierFilter || p.manufacturer_id === incentiveSupplierFilter)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>{p.name || p.nameAr}</option>
+                ))}
             </select>
+            {incentiveSupplierFilter && (
+              <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 4 }}>
+                {products.filter((p) => p.manufacturer_id === incentiveSupplierFilter).length} صنف من هذه الشركة
+              </div>
+            )}
           </div>
+
           <Input label="نسبة عمولة %" value={incentiveForm.rate} onChange={(v) => setIncentiveForm((p) => ({ ...p, rate: v }))} type="number" placeholder="اتركه فارغ لو ثابت" />
           <Input label="مبلغ ثابت (ر.س)" value={incentiveForm.fixed_amount} onChange={(v) => setIncentiveForm((p) => ({ ...p, fixed_amount: v }))} type="number" placeholder="اتركه فارغ لو نسبة" />
           <Input label="ملاحظة" value={incentiveForm.note} onChange={(v) => setIncentiveForm((p) => ({ ...p, note: v }))} placeholder="..." />
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setShowIncentiveForm(false)}>إلغاء</Btn>
+          <Btn variant="ghost" onClick={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); }}>إلغاء</Btn>
           <Btn icon="check" onClick={saveIncentive}>إضافة</Btn>
         </div>
       </Modal>
