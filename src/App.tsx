@@ -2932,7 +2932,9 @@ function POS({
           ),
         };
       }
-      const initQty = p.isPartial
+     const initQty = p.qty !== undefined
+        ? p.qty
+        : p.isPartial
         ? Math.round((1 / p.saleUnits) * 10000) / 10000
         : 1;
       // تطبيق العرض التلقائي أو اليدوي على السعر
@@ -2945,7 +2947,7 @@ function POS({
           ...p,
           qty: initQty,
           dose: "",
-          price: effective.price,
+          price: p.isPartial ? p.price : effective.price,
           originalPrice: p.price,
           discountPct: effective.discountPct,
           discountSource: effective.source,
