@@ -3771,8 +3771,7 @@ function POS({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                1/{p.saleUnits} —{" "}
-                                {(p.price / p.saleUnits).toFixed(2)} ر.س
+                                {p.price?.toFixed(2)} ر.س
                               </button>
                             )}
                           </>
@@ -4166,21 +4165,41 @@ function POS({
     }));
   }}
   onBlur={(e) => {
-    const val = parseFloat(e.target.value);
-    if (isNaN(val) || val <= 0) return;
-    // التقريب بس لما يخرج من الحقل
-    const rounded = Math.round(val / step) * step;
-    const clamped = Math.min(
-      Math.round(rounded * 10000) / 10000,
-      maxQty
-    );
+  const val = parseFloat(e.target.value);
+  if (isNaN(val) || val <= 0) {
     setInv((p) => ({
       ...p,
       cart: p.cart.map((i) =>
-        i.id === item.id ? { ...i, qty: clamped } : i
+        i.id === item.id
+          ? { ...i, qty: item.qty, qtyDisplay: undefined }
+          : i
       ),
     }));
-  }}
+    return;
+  }
+  // تحقق إن الرقم مضاعف للخطوة
+  const isValid = Math.abs(Math.round(val / step) * step - val) < 0.0001;
+  if (!isValid) {
+    showToast(`الكمية لازم مضاعف لـ ${step} (مثال: ${step}, ${step * 2}, ${step * 3}...)`, "error");
+    setInv((p) => ({
+      ...p,
+      cart: p.cart.map((i) =>
+        i.id === item.id
+          ? { ...i, qty: item.qty, qtyDisplay: undefined }
+          : i
+      ),
+    }));
+    return;
+  }
+  setInv((p) => ({
+    ...p,
+    cart: p.cart.map((i) =>
+      i.id === item.id
+        ? { ...i, qty: Math.min(val, maxQty), qtyDisplay: undefined }
+        : i
+    ),
+  }));
+}}
   style={{
     width: 52,
     background: "#0a1020",
