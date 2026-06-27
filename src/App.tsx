@@ -2918,7 +2918,7 @@ function POS({
           p.isPartial && p.saleUnits > 1
             ? prod?.stock * p.saleUnits
             : prod?.stock || 99;
-        const step = p.isPartial ? 1 / p.saleUnits : 1;
+        const step = item.saleUnits > 1 ? 1 / item.saleUnits : 1;
         if (ex.qty + step > maxQty) {
           showToast("لا يوجد مخزون كافٍ", "error");
           return prev;
@@ -4147,38 +4147,50 @@ function POS({
             </button>
 
             <input
-              type="number"
-              value={item.qty}
-              min={step}
-              step={step}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                if (isNaN(val) || val <= 0) return;
-                const rounded = Math.round(val / step) * step;
-                const clamped = Math.min(
-                  Math.round(rounded * 10000) / 10000,
-                  maxQty
-                );
-                setInv((p) => ({
-                  ...p,
-                  cart: p.cart.map((i) =>
-                    i.id === item.id ? { ...i, qty: clamped } : i
-                  ),
-                }));
-              }}
-              style={{
-                width: 52,
-                background: "#0a1020",
-                border: "1px solid #1d2d4a",
-                borderRadius: 6,
-                color: "#dde8ff",
-                fontSize: 13,
-                fontWeight: 700,
-                textAlign: "center",
-                outline: "none",
-                padding: "3px 4px",
-              }}
-            />
+  type="number"
+  value={item.qty}
+  min={step}
+  step={step}
+  onChange={(e) => {
+    const val = parseFloat(e.target.value);
+    if (isNaN(val) || val <= 0) return;
+    // يحدث الكمية مباشرة بدون تقريب
+    setInv((p) => ({
+      ...p,
+      cart: p.cart.map((i) =>
+        i.id === item.id ? { ...i, qty: val } : i
+      ),
+    }));
+  }}
+  onBlur={(e) => {
+    const val = parseFloat(e.target.value);
+    if (isNaN(val) || val <= 0) return;
+    // التقريب بس لما يخرج من الحقل
+    const rounded = Math.round(val / step) * step;
+    const clamped = Math.min(
+      Math.round(rounded * 10000) / 10000,
+      maxQty
+    );
+    setInv((p) => ({
+      ...p,
+      cart: p.cart.map((i) =>
+        i.id === item.id ? { ...i, qty: clamped } : i
+      ),
+    }));
+  }}
+  style={{
+    width: 52,
+    background: "#0a1020",
+    border: "1px solid #1d2d4a",
+    borderRadius: 6,
+    color: "#dde8ff",
+    fontSize: 13,
+    fontWeight: 700,
+    textAlign: "center",
+    outline: "none",
+    padding: "3px 4px",
+  }}
+/>
 
             <button
               onClick={() => setInv((p) => ({
