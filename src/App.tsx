@@ -2934,12 +2934,9 @@ function POS({
     }
 
     // صنف جديد
-    const initQty = p.qty !== undefined && !isNaN(p.qty)
-      ? p.qty
-      : p.saleUnits > 1
-      ? Math.round((1 / p.saleUnits) * 10000) / 10000
-      : 1;
-
+   const initQty = p.qty !== undefined && !isNaN(p.qty) && !p.isPartial
+  ? p.qty
+  : 1;
     const effective = p.isMissed || p.isJoker
       ? { price: p.price, discountPct: 0, source: null }
       : getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
@@ -3745,35 +3742,6 @@ function POS({
                                 );
                               })()}
                             </button>
-                            {p.saleUnits > 1 && (
-                              <button
-                                onClick={() => {
-  const partialQty =
-    Math.round((1 / p.saleUnits) * 10000) / 10000;
-  addToCart({
-    ...p,
-    qty: partialQty,
-    price: p.price,        // السعر الكامل للحساب
-    isPartial: true,
-    partialLabel: `1/${p.saleUnits}`,
-  });
-  setInv((x) => ({ ...x, search: "" }));
-}}
-                                style={{
-                                  padding: "4px 10px",
-                                  borderRadius: 6,
-                                  background: "#0a2a10",
-                                  border: "1px solid #2a6a2a",
-                                  color: "#44dd88",
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {p.price?.toFixed(2)} ر.س
-                              </button>
-                            )}
                           </>
                         )}
                       </div>
