@@ -3053,7 +3053,7 @@ function POS({
     for (const ci of inv.cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
-        newFifoResults[ci.id] = sellFromBatches(prod, ci.qty);
+        newFifoResults[ci.id] = sellFromBatches(prod, +ci.qty);
       }
     }
     setFifoResults(newFifoResults);
@@ -3067,7 +3067,7 @@ function POS({
       items: inv.cart.map((i) => ({
         id: i.id,
         name: i.name,
-        qty: i.qty,
+        qty: +i.qty,
         price: newFifoResults[i.id]?.salePrice ?? i.price,
         cost:
           newFifoResults[i.id]?.soldBatches?.[0]?.cost ??
@@ -3118,7 +3118,7 @@ function POS({
         const { error: stockError } = await supabase
           .from("products")
           .update({
-            stock: prod.stock - ci.qty,
+            stock: prod.stock - +ci.qty,
             batches: updatedBatches ?? prod.batches ?? [],
             price: updatedBatches?.[0]?.salePrice ?? prod.price,
           })
@@ -3128,7 +3128,6 @@ function POS({
         }
       }
     }
-
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = inv.cart.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
@@ -4079,7 +4078,7 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  return { ...i, qty: Math.max(step, Math.round((i.qty - step) * 10000) / 10000) };
+                  return { ...i, qty: Math.max(1, i.qty - 1) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}
@@ -4136,7 +4135,7 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  return { ...i, qty: Math.min(Math.round((i.qty + step) * 10000) / 10000, maxQty) };
+                  return { ...i, qty: Math.min(i.qty + 1, maxQty) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}
