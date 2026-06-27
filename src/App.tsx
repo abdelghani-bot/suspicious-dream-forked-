@@ -4097,36 +4097,63 @@ function POS({
                 }));
               }}
               onBlur={(e) => {
-                const val = parseFloat(e.target.value);
-                if (isNaN(val) || val <= 0) {
-                  setInv((p) => ({
-                    ...p,
-                    cart: p.cart.map((i) =>
-                      i.id === item.id ? { ...i, qtyDisplay: undefined } : i
-                    ),
-                  }));
-                  return;
-                }
-                const isValid = Math.abs(Math.round(val / step) * step - val) < 0.0001;
-                if (!isValid) {
-                  showToast(`الكمية لازم مضاعف لـ ${step}`, "error");
-                  setInv((p) => ({
-                    ...p,
-                    cart: p.cart.map((i) =>
-                      i.id === item.id ? { ...i, qtyDisplay: undefined } : i
-                    ),
-                  }));
-                  return;
-                }
-                setInv((p) => ({
-                  ...p,
-                  cart: p.cart.map((i) =>
-                    i.id === item.id
-                      ? { ...i, qty: Math.min(val, maxQty), qtyDisplay: undefined }
-                      : i
-                  ),
-                }));
-              }}
+  const raw = e.target.value.trim();
+  
+  // parse الكسور زي 1/3 أو 2 1/3
+  let val;
+  const fracMatch = raw.match(/^(\d+)\s+(\d+)\/(\d+)$|^(\d+)\/(\d+)$|^(\d*\.?\d+)$/);
+  if (!fracMatch) {
+    showToast("صيغة غير صحيحة", "error");
+    setInv((p) => ({
+      ...p,
+      cart: p.cart.map((i) =>
+        i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+      ),
+    }));
+    return;
+  }
+  if (fracMatch[1]) {
+    // 2 1/3
+    val = +fracMatch[1] + +fracMatch[2] / +fracMatch[3];
+  } else if (fracMatch[4]) {
+    // 1/3
+    val = +fracMatch[4] / +fracMatch[5];
+  } else {
+    // 0.33
+    val = +fracMatch[6];
+  }
+
+  if (isNaN(val) || val <= 0) {
+    setInv((p) => ({
+      ...p,
+      cart: p.cart.map((i) =>
+        i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+      ),
+    }));
+    return;
+  }
+
+  const isValid = Math.abs(Math.round(val / step) * step - val) < 0.0001;
+  if (!isValid) {
+    showToast(`الكمية لازم مضاعف لـ 1/${item.saleUnits || 1}`, "error");
+    setInv((p) => ({
+      ...p,
+      cart: p.cart.map((i) =>
+        i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+      ),
+    }));
+    return;
+  }
+
+  setInv((p) => ({
+    ...p,
+    cart: p.cart.map((i) =>
+      i.id === item.id
+        ? { ...i, qty: Math.min(val, maxQty), qtyDisplay: undefined }
+        : i
+    ),
+  }));
+}}
               style={{ width: 52, background: "#0a1020", border: "1px solid #1d2d4a", borderRadius: 6, color: "#dde8ff", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
             />
 
