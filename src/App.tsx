@@ -4068,256 +4068,155 @@ function POS({
                 </tr>
               </thead>
               <tbody>
-                {inv.cart.map((item) => (
-                  <tr
-                    key={item.id}
-                    style={{ borderBottom: "1px solid #0a101a" }}
-                  >
-                    <td style={{ padding: "8px 4px" }}>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: "#dde8ff",
-                        }}
-                      >
-                        {item.name}
-                      </div>
-                      {item.discountPct > 0 && (
-                        <div style={{ fontSize: 10, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
-                          <span style={{ background: item.discountSource === "auto" ? "#ff7744" : "#2a6aef", color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
-                            -{item.discountPct}% {item.discountSource === "auto" ? "⏰" : "✋"}
-                          </span>
-                          {item.originalPrice && item.originalPrice !== item.price && (
-                            <span style={{ textDecoration: "line-through", color: "#4a6a8a" }}>{item.originalPrice?.toFixed(2)}</span>
-                          )}
-                        </div>
-                      )}
-                      <input
-                        value={item.dose}
-                        onChange={(e) =>
-                          setInv((p) => ({
-                            ...p,
-                            cart: p.cart.map((i) =>
-                              i.id === item.id
-                                ? { ...i, dose: e.target.value }
-                                : i
-                            ),
-                          }))
-                        }
-                        placeholder="الجرعة..."
-                        style={{
-                          width: "100%",
-                          background: "transparent",
-                          border: "none",
-                          borderBottom: "1px solid #1a2a4a",
-                          color: "#6a8aaa",
-                          fontSize: 11,
-                          outline: "none",
-                          padding: "2px 0",
-                        }}
-                      />
-                      {item.expiry && (
-                        <div
-                          style={{
-                            fontSize: 10,
-                            color: "#ffaa44",
-                            marginTop: 2,
-                          }}
-                        >
-                          ينتهي: {item.expiry}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ textAlign: "center", padding: "8px 4px" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <button
-                          onClick={() =>
-                            setInv((p) => ({
-                              ...p,
-                              cart: p.cart.map((i) =>
-                                i.id === item.id
-                                  ? { ...i, qty: Math.max(1, i.qty - 1) }
-                                  : i
-                              ),
-                            }))
-                          }
-                          style={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: 4,
-                            background: "#1a2540",
-                            border: "none",
-                            color: "#5a9aff",
-                            cursor: "pointer",
-                          }}
-                        >
-                          -
-                        </button>
-                        <span
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === "ArrowRight") {
-                              e.preventDefault();
-                              setInv((p) => ({
-                                ...p,
-                                cart: p.cart.map((i) => {
-                                  if (i.id !== item.id) return i;
-                                  const prod = products.find(
-                                    (x) => x.id === i.id
-                                  );
-                                  const maxQty =
-                                    i.isPartial && i.saleUnits > 1
-                                      ? prod?.stock * i.saleUnits
-                                      : prod?.stock || 99;
-                                  const step = i.isPartial
-                                    ? 1 / i.saleUnits
-                                    : 1;
-                                  return {
-                                    ...i,
-                                    qty:
-                                      Math.min(
-                                        Math.round(
-                                          (i.qty + step) * 10000
-                                        ) / 10000,
-                                        maxQty
-                                      ),
-                                  };
-                                }),
-                              }));
-                            } else if (e.key === "ArrowLeft") {
-                              e.preventDefault();
-                              setInv((p) => ({
-                                ...p,
-                                cart: p.cart.map((i) => {
-                                  if (i.id !== item.id) return i;
-                                  const step = i.isPartial
-                                    ? 1 / i.saleUnits
-                                    : 1;
-                                  return {
-                                    ...i,
-                                    qty: Math.max(
-                                      step,
-                                      Math.round(
-                                        (i.qty - step) * 10000
-                                      ) / 10000
-                                    ),
-                                  };
-                                }),
-                              }));
-                            }
-                          }}
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#dde8ff",
-                            minWidth: 20,
-                            textAlign: "center",
-                            outline: "none",
-                            cursor: "default",
-                          }}
-                          title="← → لتغيير الكمية"
-                        >
-                          {item.qty}
-                        </span>
-                        <button
-                          onClick={() =>
-                            setInv((p) => ({
-                              ...p,
-                              cart: p.cart.map((i) =>
-                                i.id === item.id
-                                  ? {
-                                      ...i,
-                                      qty: Math.min(
-                                        Math.round(
-                                          (i.qty +
-                                            (i.isPartial
-                                              ? 1 / i.saleUnits
-                                              : 1)) *
-                                            10000
-                                        ) / 10000,
-                                        i.isPartial && i.saleUnits > 1
-                                          ? products.find(
-                                              (x) => x.id === i.id
-                                            )?.stock *
-                                              i.saleUnits || 99
-                                          : products.find(
-                                              (x) => x.id === i.id
-                                            )?.stock || 99
-                                      ),
-                                    }
-                                  : i
-                              ),
-                            }))
-                          }
-                          style={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: 4,
-                            background: "#1a2540",
-                            border: "none",
-                            color: "#5a9aff",
-                            cursor: "pointer",
-                          }}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </td>
-                    <td
-                      style={{
-                        textAlign: "center",
-                        padding: "8px 4px",
-                        color: "#2a9aff",
-                        fontSize: 13,
-                      }}
-                    >
-                      {(
-                        fifoResults?.[item.id]?.salePrice ?? item.price
-                      ).toFixed(2)}
-                    </td>
-                    <td
-                      style={{
-                        textAlign: "center",
-                        padding: "8px 4px",
-                        color: "#dde8ff",
-                        fontSize: 13,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {(
-                        (fifoResults?.[item.id]?.salePrice ?? item.price) *
-                        item.qty
-                      ).toFixed(2)}
-                    </td>
-                    <td style={{ textAlign: "center" }}>
-                      <button
-                        onClick={() =>
-                          setInv((p) => ({
-                            ...p,
-                            cart: p.cart.filter((i) => i.id !== item.id),
-                          }))
-                        }
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          color: "#5a2a2a",
-                          cursor: "pointer",
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+  {inv.cart.map((item) => {
+    const step = item.isPartial ? 1 / (item.saleUnits || 1) : 1;
+    const maxQty = products.find(x => x.id === item.id)?.stock || 99;
+
+    const displayQty = (() => {
+      if (!item.isPartial || !item.saleUnits) return item.qty;
+      const units = item.saleUnits;
+      const totalParts = Math.round(item.qty * units);
+      const whole = Math.floor(totalParts / units);
+      const remainder = totalParts % units;
+      const commonFracs = {
+        "1/2": "½", "1/3": "⅓", "2/3": "⅔",
+        "1/4": "¼", "3/4": "¾",
+      };
+      const fracKey = remainder > 0 ? `${remainder}/${units}` : "";
+      const fracDisplay = fracKey ? (commonFracs[fracKey] || fracKey) : "";
+      if (whole > 0 && fracDisplay) return `${whole} ${fracDisplay}`;
+      if (whole > 0) return whole;
+      return fracDisplay || item.qty;
+    })();
+
+    const displayPrice = item.unitPrice ?? (fifoResults?.[item.id]?.salePrice ?? item.price);
+    const displayTotal = (fifoResults?.[item.id]?.salePrice ?? item.price) * item.qty;
+
+    return (
+      <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
+
+        {/* اسم الصنف */}
+        <td style={{ padding: "8px 4px" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>
+            {item.name}
+          </div>
+          {item.isPartial && (
+            <div style={{ fontSize: 10, color: "#f59e0b", marginTop: 1 }}>
+              {item.partialLabel} من الصنف
+            </div>
+          )}
+          {item.discountPct > 0 && (
+            <div style={{ fontSize: 10, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{
+                background: item.discountSource === "auto" ? "#ff7744" : "#2a6aef",
+                color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700,
+              }}>
+                -{item.discountPct}% {item.discountSource === "auto" ? "⏰" : "✋"}
+              </span>
+              {item.originalPrice && item.originalPrice !== item.price && (
+                <span style={{ textDecoration: "line-through", color: "#4a6a8a" }}>
+                  {item.originalPrice?.toFixed(2)}
+                </span>
+              )}
+            </div>
+          )}
+          <input
+            value={item.dose}
+            onChange={(e) => setInv((p) => ({
+              ...p,
+              cart: p.cart.map((i) => i.id === item.id ? { ...i, dose: e.target.value } : i),
+            }))}
+            placeholder="الجرعة..."
+            style={{
+              width: "100%", background: "transparent", border: "none",
+              borderBottom: "1px solid #1a2a4a", color: "#6a8aaa",
+              fontSize: 11, outline: "none", padding: "2px 0",
+            }}
+          />
+          {item.expiry && (
+            <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>
+              ينتهي: {item.expiry}
+            </div>
+          )}
+        </td>
+
+        {/* الكمية */}
+        <td style={{ textAlign: "center", padding: "8px 4px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+            <button
+              onClick={() => setInv((p) => ({
+                ...p,
+                cart: p.cart.map((i) => {
+                  if (i.id !== item.id) return i;
+                  return {
+                    ...i,
+                    qty: Math.max(step, Math.round((i.qty - step) * 10000) / 10000),
+                  };
+                }),
+              }))}
+              style={{
+                width: 22, height: 22, borderRadius: 4,
+                background: "#1a2540", border: "none",
+                color: "#5a9aff", cursor: "pointer", fontWeight: 700,
+              }}
+            >
+              -
+            </button>
+
+            <span style={{
+              fontSize: 13, fontWeight: 700, color: "#dde8ff",
+              minWidth: 32, textAlign: "center",
+            }}>
+              {displayQty}
+            </span>
+
+            <button
+              onClick={() => setInv((p) => ({
+                ...p,
+                cart: p.cart.map((i) => {
+                  if (i.id !== item.id) return i;
+                  const newQty = Math.round((i.qty + step) * 10000) / 10000;
+                  return { ...i, qty: Math.min(newQty, maxQty) };
+                }),
+              }))}
+              style={{
+                width: 22, height: 22, borderRadius: 4,
+                background: "#1a2540", border: "none",
+                color: "#5a9aff", cursor: "pointer", fontWeight: 700,
+              }}
+            >
+              +
+            </button>
+          </div>
+        </td>
+
+        {/* السعر */}
+        <td style={{ textAlign: "center", padding: "8px 4px", color: "#2a9aff", fontSize: 13 }}>
+          {displayPrice.toFixed(2)}
+        </td>
+
+        {/* الإجمالي */}
+        <td style={{ textAlign: "center", padding: "8px 4px", color: "#dde8ff", fontSize: 13, fontWeight: 700 }}>
+          {displayTotal.toFixed(2)}
+        </td>
+
+        {/* حذف */}
+        <td style={{ textAlign: "center" }}>
+          <button
+            onClick={() => setInv((p) => ({
+              ...p,
+              cart: p.cart.filter((i) => i.id !== item.id),
+            }))}
+            style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}
+          >
+            ✕
+          </button>
+        </td>
+
+      </tr>
+    );
+  })}
+</tbody>
             </table>
           )}
         </div>
