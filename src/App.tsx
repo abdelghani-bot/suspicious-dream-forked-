@@ -4072,23 +4072,6 @@ function POS({
     const step = item.isPartial ? 1 / (item.saleUnits || 1) : 1;
     const maxQty = products.find(x => x.id === item.id)?.stock || 99;
 
-    const displayQty = (() => {
-      if (!item.isPartial || !item.saleUnits) return item.qty;
-      const units = item.saleUnits;
-      const totalParts = Math.round(item.qty * units);
-      const whole = Math.floor(totalParts / units);
-      const remainder = totalParts % units;
-      const commonFracs = {
-        "1/2": "½", "1/3": "⅓", "2/3": "⅔",
-        "1/4": "¼", "3/4": "¾",
-      };
-      const fracKey = remainder > 0 ? `${remainder}/${units}` : "";
-      const fracDisplay = fracKey ? (commonFracs[fracKey] || fracKey) : "";
-      if (whole > 0 && fracDisplay) return `${whole} ${fracDisplay}`;
-      if (whole > 0) return whole;
-      return fracDisplay || item.qty;
-    })();
-
     const displayPrice = item.unitPrice ?? (fifoResults?.[item.id]?.salePrice ?? item.price);
     const displayTotal = (fifoResults?.[item.id]?.salePrice ?? item.price) * item.qty;
 
@@ -4163,12 +4146,39 @@ function POS({
               -
             </button>
 
-            <span style={{
-              fontSize: 13, fontWeight: 700, color: "#dde8ff",
-              minWidth: 32, textAlign: "center",
-            }}>
-              {displayQty}
-            </span>
+            <input
+              type="number"
+              value={item.qty}
+              min={step}
+              step={step}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                if (isNaN(val) || val <= 0) return;
+                const rounded = Math.round(val / step) * step;
+                const clamped = Math.min(
+                  Math.round(rounded * 10000) / 10000,
+                  maxQty
+                );
+                setInv((p) => ({
+                  ...p,
+                  cart: p.cart.map((i) =>
+                    i.id === item.id ? { ...i, qty: clamped } : i
+                  ),
+                }));
+              }}
+              style={{
+                width: 52,
+                background: "#0a1020",
+                border: "1px solid #1d2d4a",
+                borderRadius: 6,
+                color: "#dde8ff",
+                fontSize: 13,
+                fontWeight: 700,
+                textAlign: "center",
+                outline: "none",
+                padding: "3px 4px",
+              }}
+            />
 
             <button
               onClick={() => setInv((p) => ({
