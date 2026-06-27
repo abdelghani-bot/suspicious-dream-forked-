@@ -4039,37 +4039,22 @@ function POS({
               </thead>
               <tbody>
   {inv.cart.map((item) => {
-    const step = item.isPartial ? 1 / (item.saleUnits || 1) : 1;
+    const step = item.saleUnits > 1 ? 1 / item.saleUnits : 1;
     const maxQty = products.find(x => x.id === item.id)?.stock || 99;
-
     const displayPrice = item.unitPrice ?? (fifoResults?.[item.id]?.salePrice ?? item.price);
     const displayTotal = (fifoResults?.[item.id]?.salePrice ?? item.price) * item.qty;
 
     return (
       <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
-
-        {/* اسم الصنف */}
         <td style={{ padding: "8px 4px" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>
-            {item.name}
-          </div>
-          {item.isPartial && (
-            <div style={{ fontSize: 10, color: "#f59e0b", marginTop: 1 }}>
-              {item.partialLabel} من الصنف
-            </div>
-          )}
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{item.name}</div>
           {item.discountPct > 0 && (
             <div style={{ fontSize: 10, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{
-                background: item.discountSource === "auto" ? "#ff7744" : "#2a6aef",
-                color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700,
-              }}>
+              <span style={{ background: item.discountSource === "auto" ? "#ff7744" : "#2a6aef", color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
                 -{item.discountPct}% {item.discountSource === "auto" ? "⏰" : "✋"}
               </span>
               {item.originalPrice && item.originalPrice !== item.price && (
-                <span style={{ textDecoration: "line-through", color: "#4a6a8a" }}>
-                  {item.originalPrice?.toFixed(2)}
-                </span>
+                <span style={{ textDecoration: "line-through", color: "#4a6a8a" }}>{item.originalPrice?.toFixed(2)}</span>
               )}
             </div>
           )}
@@ -4080,20 +4065,13 @@ function POS({
               cart: p.cart.map((i) => i.id === item.id ? { ...i, dose: e.target.value } : i),
             }))}
             placeholder="الجرعة..."
-            style={{
-              width: "100%", background: "transparent", border: "none",
-              borderBottom: "1px solid #1a2a4a", color: "#6a8aaa",
-              fontSize: 11, outline: "none", padding: "2px 0",
-            }}
+            style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: "#6a8aaa", fontSize: 11, outline: "none", padding: "2px 0" }}
           />
           {item.expiry && (
-            <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>
-              ينتهي: {item.expiry}
-            </div>
+            <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>ينتهي: {item.expiry}</div>
           )}
         </td>
 
-        {/* الكمية */}
         <td style={{ textAlign: "center", padding: "8px 4px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
             <button
@@ -4101,130 +4079,83 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  return {
-                    ...i,
-                    qty: Math.max(step, Math.round((i.qty - step) * 10000) / 10000),
-                  };
+                  return { ...i, qty: Math.max(step, Math.round((i.qty - step) * 10000) / 10000) };
                 }),
               }))}
-              style={{
-                width: 22, height: 22, borderRadius: 4,
-                background: "#1a2540", border: "none",
-                color: "#5a9aff", cursor: "pointer", fontWeight: 700,
-              }}
-            >
-              -
-            </button>
+              style={{ width: 22, height: 22, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}
+            >-</button>
 
             <input
-  type="number"
-  value={item.qty}
-  min={step}
-  step={step}
-  onChange={(e) => {
-    const val = parseFloat(e.target.value);
-    if (isNaN(val) || val <= 0) return;
-    // يحدث الكمية مباشرة بدون تقريب
-    setInv((p) => ({
-      ...p,
-      cart: p.cart.map((i) =>
-        i.id === item.id ? { ...i, qty: val } : i
-      ),
-    }));
-  }}
-  onBlur={(e) => {
-  const val = parseFloat(e.target.value);
-  if (isNaN(val) || val <= 0) {
-    setInv((p) => ({
-      ...p,
-      cart: p.cart.map((i) =>
-        i.id === item.id
-          ? { ...i, qty: item.qty, qtyDisplay: undefined }
-          : i
-      ),
-    }));
-    return;
-  }
-  // تحقق إن الرقم مضاعف للخطوة
-  const isValid = Math.abs(Math.round(val / step) * step - val) < 0.0001;
-  if (!isValid) {
-    showToast(`الكمية لازم مضاعف لـ ${step} (مثال: ${step}, ${step * 2}, ${step * 3}...)`, "error");
-    setInv((p) => ({
-      ...p,
-      cart: p.cart.map((i) =>
-        i.id === item.id
-          ? { ...i, qty: item.qty, qtyDisplay: undefined }
-          : i
-      ),
-    }));
-    return;
-  }
-  setInv((p) => ({
-    ...p,
-    cart: p.cart.map((i) =>
-      i.id === item.id
-        ? { ...i, qty: Math.min(val, maxQty), qtyDisplay: undefined }
-        : i
-    ),
-  }));
-}}
-  style={{
-    width: 52,
-    background: "#0a1020",
-    border: "1px solid #1d2d4a",
-    borderRadius: 6,
-    color: "#dde8ff",
-    fontSize: 13,
-    fontWeight: 700,
-    textAlign: "center",
-    outline: "none",
-    padding: "3px 4px",
-  }}
-/>
+              type="text"
+              inputMode="decimal"
+              value={item.qtyDisplay ?? item.qty}
+              onChange={(e) => {
+                setInv((p) => ({
+                  ...p,
+                  cart: p.cart.map((i) =>
+                    i.id === item.id ? { ...i, qtyDisplay: e.target.value } : i
+                  ),
+                }));
+              }}
+              onBlur={(e) => {
+                const val = parseFloat(e.target.value);
+                if (isNaN(val) || val <= 0) {
+                  setInv((p) => ({
+                    ...p,
+                    cart: p.cart.map((i) =>
+                      i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+                    ),
+                  }));
+                  return;
+                }
+                const isValid = Math.abs(Math.round(val / step) * step - val) < 0.0001;
+                if (!isValid) {
+                  showToast(`الكمية لازم مضاعف لـ ${step}`, "error");
+                  setInv((p) => ({
+                    ...p,
+                    cart: p.cart.map((i) =>
+                      i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+                    ),
+                  }));
+                  return;
+                }
+                setInv((p) => ({
+                  ...p,
+                  cart: p.cart.map((i) =>
+                    i.id === item.id
+                      ? { ...i, qty: Math.min(val, maxQty), qtyDisplay: undefined }
+                      : i
+                  ),
+                }));
+              }}
+              style={{ width: 52, background: "#0a1020", border: "1px solid #1d2d4a", borderRadius: 6, color: "#dde8ff", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
+            />
 
             <button
               onClick={() => setInv((p) => ({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  const newQty = Math.round((i.qty + step) * 10000) / 10000;
-                  return { ...i, qty: Math.min(newQty, maxQty) };
+                  return { ...i, qty: Math.min(Math.round((i.qty + step) * 10000) / 10000, maxQty) };
                 }),
               }))}
-              style={{
-                width: 22, height: 22, borderRadius: 4,
-                background: "#1a2540", border: "none",
-                color: "#5a9aff", cursor: "pointer", fontWeight: 700,
-              }}
-            >
-              +
-            </button>
+              style={{ width: 22, height: 22, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}
+            >+</button>
           </div>
         </td>
 
-        {/* السعر */}
         <td style={{ textAlign: "center", padding: "8px 4px", color: "#2a9aff", fontSize: 13 }}>
           {displayPrice.toFixed(2)}
         </td>
-
-        {/* الإجمالي */}
         <td style={{ textAlign: "center", padding: "8px 4px", color: "#dde8ff", fontSize: 13, fontWeight: 700 }}>
           {displayTotal.toFixed(2)}
         </td>
-
-        {/* حذف */}
         <td style={{ textAlign: "center" }}>
           <button
-            onClick={() => setInv((p) => ({
-              ...p,
-              cart: p.cart.filter((i) => i.id !== item.id),
-            }))}
+            onClick={() => setInv((p) => ({ ...p, cart: p.cart.filter((i) => i.id !== item.id) }))}
             style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}
-          >
-            ✕
-          </button>
+          >✕</button>
         </td>
-
       </tr>
     );
   })}
