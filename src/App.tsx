@@ -2890,72 +2890,81 @@ function POS({
   };
 
   const addToCart = (p) => {
-    if (!p.isMissed && !p.isJoker) {
-      const effectiveStock =
-        p.isPartial && p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
-      if (effectiveStock <= 0) {
-        showToast("المخزون نفد!", "error");
+  if (!p.isMissed && !p.isJoker) {
+    const effectiveStock =
+      p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
+    if (effectiveStock <= 0) {
+      showToast("المخزون نفد!", "error");
+      return;
+    }
+    if (p.expiry) {
+      const expDate = new Date(p.expiry);
+      const today = new Date();
+      if (expDate < today) {
+        showToast(`⚠️ ${p.name} - منتهي الصلاحية! (${p.expiry})`, "error");
         return;
       }
-      if (p.expiry) {
-        const expDate = new Date(p.expiry);
-        const today = new Date();
-        if (expDate < today) {
-          showToast(`⚠️ ${p.name} - منتهي الصلاحية! (${p.expiry})`, "error");
-          return;
-        }
-        const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-        if (daysLeft <= 90) {
-          showToast(`⚠️ ${p.name} - ينتهي خلال ${daysLeft} يوم`, "warning");
-        }
+      const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+      if (daysLeft <= 90) {
+        showToast(`⚠️ ${p.name} - ينتهي خلال ${daysLeft} يوم`, "warning");
       }
     }
-    setInv((prev) => {
-      const ex = prev.cart.find((i) => i.id === p.id);
-      if (ex) {
-        const prod = products.find((x) => x.id === p.id);
-        const maxQty =
-          p.isPartial && p.saleUnits > 1
-            ? prod?.stock * p.saleUnits
-            : prod?.stock || 99;
-        const step = item.saleUnits > 1 ? 1 / item.saleUnits : 1;
-        if (ex.qty + step > maxQty) {
-          showToast("لا يوجد مخزون كافٍ", "error");
-          return prev;
-        }
-        return {
-          ...prev,
-          cart: prev.cart.map((i) =>
-            i.id === p.id
-              ? { ...i, qty: Math.round((i.qty + step) * 10000) / 10000 }
-              : i
-          ),
-        };
+  }
+
+  setInv((prev) => {
+    const ex = prev.cart.find((i) => i.id === p.id);
+    if (ex) {
+      const prod = products.find((x) => x.id === p.id);
+      const step = p.saleUnits > 1 ? 1 / p.saleUnits : 1;  // ✅ p مش item
+      const maxQty = p.saleUnits > 1
+        ? (prod?.stock || 0) * p.saleUnits
+        : prod?.stock || 99;
+      if (ex.qty + step > maxQty) {
+        showToast("لا يوجد مخزون كافٍ", "error");
+        return prev;
       }
-     const initQty = p.qty !== undefined
-        ? p.qty
-        : p.isPartial
-        ? Math.round((1 / p.saleUnits) * 10000) / 10000
-        : 1;
-      // تطبيق العرض التلقائي أو اليدوي على السعر
-      const effective = p.isMissed || p.isJoker
-        ? { price: p.price, discountPct: 0, source: null }
-        : getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
       return {
         ...prev,
-        cart: [...prev.cart, {
-          ...p,
-          qty: initQty,
-          dose: "",
-          price: p.isPartial ? p.price : effective.price,
-          originalPrice: p.price,
-          discountPct: effective.discountPct,
-          discountSource: effective.source,
-        }],
+        cart: prev.cart.map((i) =>
+          i.id === p.id
+            ? { ...i, qty: Math.round((i.qty + step) * 10000) / 10000 }
+            : i
+        ),
       };
-    });
-  };
+    }
 
+    // صنف جديد
+    const initQty = p.qty !== undefined && !isNaN(p.qty)
+      ? p.qty
+      : p.saleUnits > 1
+      ? Math.round((1 / p.saleUnits) * 10000) / 10000
+      : 1;
+
+    const effective = p.isMissed || p.isJoker
+      ? { price: p.price, discountPct: 0, source: null }
+      : getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
+
+    // السعر الكامل للحساب، سعر الوحدة للعرض
+    const cartPrice = p.isPartial ? p.price : effective.price;
+    const unitPrice = p.isPartial
+      ? Math.round((p.price / p.saleUnits) * 100) / 100
+      : undefined;
+
+    return {
+      ...prev,
+      cart: [...prev.cart, {
+        ...p,
+        qty: initQty,
+        dose: "",
+        price: cartPrice,
+        unitPrice,
+        originalPrice: p.price,
+        discountPct: p.isPartial ? 0 : effective.discountPct,
+        discountSource: p.isPartial ? null : effective.source,
+      }],
+    };
+  });
+};
   const scanBarcode = (scan) => {
     let product = null;
     if (scan.type === "gs1") {
@@ -3739,23 +3748,17 @@ function POS({
                             {p.saleUnits > 1 && (
                               <button
                                 onClick={() => {
-                                  const partialQty =
-                                    Math.round(
-                                      (1 / p.saleUnits) * 10000
-                                    ) / 10000;
-                                  const partialPrice =
-                                    Math.round(
-                                      (p.price / p.saleUnits) * 100
-                                    ) / 100;
-                                  addToCart({
-                                    ...p,
-                                    qty: partialQty,
-                                    price: partialPrice,
-                                    isPartial: true,
-                                    partialLabel: `1/${p.saleUnits}`,
-                                  });
-                                  setInv((x) => ({ ...x, search: "" }));
-                                }}
+  const partialQty =
+    Math.round((1 / p.saleUnits) * 10000) / 10000;
+  addToCart({
+    ...p,
+    qty: partialQty,
+    price: p.price,        // السعر الكامل للحساب
+    isPartial: true,
+    partialLabel: `1/${p.saleUnits}`,
+  });
+  setInv((x) => ({ ...x, search: "" }));
+}}
                                 style={{
                                   padding: "4px 10px",
                                   borderRadius: 6,
