@@ -1,5 +1,4 @@
 export function PurchaseModule({
-  const { C } = useTheme();
   products,
   setProducts,
   suppliers,
@@ -8,6 +7,7 @@ export function PurchaseModule({
   showToast,
   pharmacyId,
 }) {
+  const { C } = useTheme();
   const [showNew, setShowNew] = useState(false);
   const [items, setItems] = useState([]);
   const [selSupplier, setSelSupplier] = useState("");

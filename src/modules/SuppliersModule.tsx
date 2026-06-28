@@ -1,5 +1,4 @@
 export function SuppliersModule({
-  const { C } = useTheme();
   suppliers,
   setSuppliers,
   purchases,
@@ -13,6 +12,7 @@ export function SuppliersModule({
   currentUser,
   setTreasuryEntries,
 }) {
+  const { C } = useTheme();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");

@@ -1,5 +1,6 @@
 export function ProductsModule({
-  const { C } = useTheme(); products, setProducts, suppliers, sales, purchases, showToast, pharmacyId }) {
+  products, setProducts, suppliers, sales, purchases, showToast, pharmacyId }) {
+  const { C } = useTheme();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);

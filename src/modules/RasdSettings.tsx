@@ -1,5 +1,6 @@
 export function RasdSettings({
-  const { C } = useTheme(); showToast }) {
+  showToast }) {
+  const { C } = useTheme();
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem("rasd_config");
     return saved

@@ -1,5 +1,6 @@
 export function PromotionsModule({
-  const { C } = useTheme(); products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast }) {
+  products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast }) {
+  const { C } = useTheme();
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual | incentive
   const [promos, setPromos] = useState([]);
   const [incentiveList, setIncentiveList] = useState([]);

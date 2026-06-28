@@ -1,5 +1,6 @@
 export function Reports({
-  const { C } = useTheme(); sales, purchases, products, suppliers, customers, returns = [], manufacturers = [] }) {
+  sales, purchases, products, suppliers, customers, returns = [], manufacturers = [] }) {
+  const { C } = useTheme();
   const [type, setType] = useState("sales");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(new Date().toISOString().split("T")[0]);

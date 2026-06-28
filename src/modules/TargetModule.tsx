@@ -1,5 +1,6 @@
 export function TargetModule({
-  const { C } = useTheme(); users, sales, customers, currentUser, pharmacyId, showToast }) {
+  users, sales, customers, currentUser, pharmacyId, showToast }) {
+  const { C } = useTheme();
   const [monthKey, setMonthKey] = useState(new Date().toISOString().slice(0, 7));
   const [targets, setTargets] = useState([]); // كل التارجتات لكل الشهور
   const [editing, setEditing] = useState(null);

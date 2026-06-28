@@ -1,5 +1,4 @@
 export function POS({
-  const { C } = useTheme();
   products,
   setProducts,
   customers,
@@ -19,6 +18,7 @@ export function POS({
   discountRules,
   productEarliestExpiry,
 }) {
+  const { C } = useTheme();
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
   const [fifoResults, setFifoResults] = useState({});

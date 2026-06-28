@@ -1,5 +1,6 @@
 export function CreditTab({
-  const { C } = useTheme(); customers, onPay }) {
+  customers, onPay }) {
+  const { C } = useTheme();
   const [creditData, setCreditData] = useState([]);
 
   useEffect(() => {

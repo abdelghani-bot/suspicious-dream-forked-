@@ -1,5 +1,6 @@
 export function ShiftModule({
-  const { C } = useTheme(); shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices }) {
+  shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices }) {
+  const { C } = useTheme();
   const [openCash, setOpenCash] = useState("500");
   const [closeCash, setCloseCash] = useState("");
   const [notes, setNotes] = useState("");

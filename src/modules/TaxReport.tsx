@@ -1,5 +1,6 @@
 export function TaxReport({
-  const { C } = useTheme(); sales, purchases, returns = [] }) {
+  sales, purchases, returns = [] }) {
+  const { C } = useTheme();
   const [quarter, setQuarter] = useState("Q2-2026");
   const quarters = ["Q1-2026","Q2-2026","Q3-2026","Q4-2026","Q1-2025","Q2-2025"];
   const qMap = { Q1: "01,02,03", Q2: "04,05,06", Q3: "07,08,09", Q4: "10,11,12" };

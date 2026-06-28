@@ -1,5 +1,6 @@
 export function TreasuryModule({
-  const { C } = useTheme(); sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries }) {
+  sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries }) {
+  const { C } = useTheme();
   const [activeTab, setActiveTab] = useState("today");
   const [fixedExpenses, setFixedExpenses] = useState([]);
   const [licenses, setLicenses] = useState([]);

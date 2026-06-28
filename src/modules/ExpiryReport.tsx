@@ -1,5 +1,6 @@
 export function ExpiryReport({
-  const { C } = useTheme(); purchases, onRemoveExpired }) {
+  purchases, onRemoveExpired }) {
+  const { C } = useTheme();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 

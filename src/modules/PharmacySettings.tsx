@@ -1,5 +1,6 @@
 export function PharmacySettings({
-  const { C } = useTheme(); showToast, pharmacyId }) {
+  showToast, pharmacyId }) {
+  const { C } = useTheme();
   const [settings, setSettings] = useState({});
 
   useEffect(() => {

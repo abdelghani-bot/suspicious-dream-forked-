@@ -1,5 +1,4 @@
 export function InventoryCount({
-  const { C } = useTheme();
   products,
   setProducts,
   inventoryLogs,
@@ -8,6 +7,7 @@ export function InventoryCount({
   showToast,
   pharmacyId,
 }) {
+  const { C } = useTheme();
   const [showNew, setShowNew] = useState(false);
   const [countItems, setCountItems] = useState([]);
   const [notes, setNotes] = useState("");

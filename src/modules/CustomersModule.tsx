@@ -1,5 +1,4 @@
 export function CustomersModule({
-  const { C } = useTheme();
   customers,
   setCustomers,
   showToast,
@@ -10,6 +9,7 @@ export function CustomersModule({
   currentUser,
   pharmacyId,
 }) {
+  const { C } = useTheme();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);

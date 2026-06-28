@@ -1,5 +1,6 @@
 export function AlertRow({
-  const { C } = useTheme(); text, badge, color, VAR }) {
+  text, badge, color, VAR }) {
+  const { C } = useTheme();
   return (
     <div style={{ display: "flex", alignItems: "center", padding: "6px 0", gap: 10, fontSize: 12 }}>
       <div style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />
