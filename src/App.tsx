@@ -1,4 +1,5 @@
 import { QRCodeSVG } from "qrcode.react";
+import { COLORS } from "./theme";
 import { createClient } from "@supabase/supabase-js";
 const supabase = createClient(
   "https://glcdvwpwxbhutfecljdj.supabase.co",
@@ -516,7 +517,7 @@ const Modal = ({ open, onClose, title, children, wide }) => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "rgba(5,10,20,0.8)",
+        background: "rgba(11,38,34,0.35)",
         backdropFilter: "blur(6px)",
       }}
       onClick={(e) => {
@@ -525,8 +526,8 @@ const Modal = ({ open, onClose, title, children, wide }) => {
     >
       <div
         style={{
-          background: "#0f1623",
-          border: "1px solid #1d2d4a",
+          background: COLORS.surface,
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 18,
           width: wide ? "92vw" : "580px",
           maxWidth: "95vw",
@@ -534,7 +535,7 @@ const Modal = ({ open, onClose, title, children, wide }) => {
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
-          boxShadow: "0 30px 80px rgba(0,0,0,0.6)",
+          boxShadow: "0 20px 60px rgba(11,38,34,0.18)",
         }}
       >
         <div
@@ -543,14 +544,14 @@ const Modal = ({ open, onClose, title, children, wide }) => {
             alignItems: "center",
             justifyContent: "space-between",
             padding: "18px 24px",
-            borderBottom: "1px solid #1d2d4a",
+            borderBottom: `1px solid ${COLORS.border}`,
             flexShrink: 0,
           }}
         >
           <h3
             style={{
               margin: 0,
-              color: "#dde8ff",
+              color: COLORS.textPrimary,
               fontSize: 17,
               fontWeight: 700,
             }}
@@ -560,9 +561,9 @@ const Modal = ({ open, onClose, title, children, wide }) => {
           <button
             onClick={onClose}
             style={{
-              background: "#1d2d4a",
+              background: COLORS.surfaceAlt,
               border: "none",
-              color: "#6a8aaa",
+              color: COLORS.textDim,
               cursor: "pointer",
               padding: 6,
               borderRadius: 8,
@@ -590,17 +591,17 @@ const Toast = ({ msg, type }) => (
       transform: "translateX(-50%)",
       zIndex: 9999,
       background:
-        type === "error" ? "#3a0a0a" : type === "warn" ? "#3a2a00" : "#0a2a18",
+        type === "error" ? COLORS.redSoft : type === "warn" ? COLORS.goldSoft : COLORS.greenSoft,
       border: `1px solid ${
-        type === "error" ? "#7a2020" : type === "warn" ? "#7a5a00" : "#1a6a46"
+        type === "error" ? COLORS.red : type === "warn" ? COLORS.gold : COLORS.green
       }`,
       borderRadius: 12,
       padding: "13px 28px",
       color:
-        type === "error" ? "#ff8888" : type === "warn" ? "#ffcc44" : "#44dd88",
+        type === "error" ? COLORS.red : type === "warn" ? COLORS.gold : COLORS.green,
       fontSize: 15,
       fontWeight: 700,
-      boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+      boxShadow: "0 10px 30px rgba(11,38,34,0.12)",
       whiteSpace: "nowrap",
       pointerEvents: "none",
     }}
@@ -619,18 +620,18 @@ const Btn = ({
   icon,
 }) => {
   const bg = {
-    primary: "linear-gradient(135deg,#1e4fbf,#1a3d9f)",
-    danger: "#3a1010",
-    success: "#0a2a18",
+    primary: COLORS.accent,
+    danger: COLORS.redSoft,
+    success: COLORS.greenSoft,
     ghost: "transparent",
-    secondary: "#1a2540",
+    secondary: COLORS.surfaceAlt,
   };
   const cl = {
-    primary: "#8ab0ff",
-    danger: "#ff7777",
-    success: "#44dd88",
-    ghost: "#6a8aaa",
-    secondary: "#8aa0cc",
+    primary: COLORS.accentText,
+    danger: COLORS.red,
+    success: COLORS.green,
+    ghost: COLORS.textDim,
+    secondary: COLORS.textPrimary,
   };
   const pd =
     size === "sm" ? "6px 14px" : size === "lg" ? "14px 32px" : "10px 20px";
@@ -646,12 +647,14 @@ const Btn = ({
         background: bg[variant],
         border: `1px solid ${
           variant === "ghost"
-            ? "#1d2d4a"
+            ? COLORS.border
             : variant === "danger"
-            ? "#5a2020"
+            ? COLORS.red
             : variant === "success"
-            ? "#1a5a30"
-            : "#2a4a8a"
+            ? COLORS.green
+            : variant === "primary"
+            ? COLORS.accent
+            : COLORS.border
         }`,
         borderRadius: 9,
         color: cl[variant],
@@ -680,9 +683,9 @@ const Input = ({
 }) => (
   <div style={{ display: "flex", flexDirection: "column", gap: 5, ...style }}>
     {label && (
-      <label style={{ color: "#5a7aaa", fontSize: 12, fontWeight: 600 }}>
+      <label style={{ color: COLORS.textDim, fontSize: 12, fontWeight: 600 }}>
         {label}
-        {required && <span style={{ color: "#ff6666" }}> *</span>}
+        {required && <span style={{ color: COLORS.red }}> *</span>}
       </label>
     )}
     <input
@@ -691,11 +694,11 @@ const Input = ({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       style={{
-        background: "#080e1a",
-        border: "1px solid #1d2d4a",
+        background: COLORS.surfaceAlt,
+        border: `1px solid ${COLORS.border}`,
         borderRadius: 8,
         padding: "9px 12px",
-        color: "#dde8ff",
+        color: COLORS.textPrimary,
         fontSize: 14,
         outline: "none",
         width: "100%",
@@ -708,7 +711,7 @@ const Input = ({
 const Select = ({ label, value, onChange, options, style = {} }) => (
   <div style={{ display: "flex", flexDirection: "column", gap: 5, ...style }}>
     {label && (
-      <label style={{ color: "#5a7aaa", fontSize: 12, fontWeight: 600 }}>
+      <label style={{ color: COLORS.textDim, fontSize: 12, fontWeight: 600 }}>
         {label}
       </label>
     )}
@@ -716,11 +719,11 @@ const Select = ({ label, value, onChange, options, style = {} }) => (
       value={value || ""}
       onChange={(e) => onChange(e.target.value)}
       style={{
-        background: "#080e1a",
-        border: "1px solid #1d2d4a",
+        background: COLORS.surfaceAlt,
+        border: `1px solid ${COLORS.border}`,
         borderRadius: 8,
         padding: "9px 12px",
-        color: "#dde8ff",
+        color: COLORS.textPrimary,
         fontSize: 14,
         outline: "none",
         width: "100%",
@@ -736,7 +739,7 @@ const Select = ({ label, value, onChange, options, style = {} }) => (
   </div>
 );
 
-const Badge = ({ children, color = "#1a3a6a", text = "#5a9aff" }) => (
+const Badge = ({ children, color = COLORS.blueSoft, text = COLORS.blue }) => (
   <span
     style={{
       background: color,
@@ -755,8 +758,8 @@ const Badge = ({ children, color = "#1a3a6a", text = "#5a9aff" }) => (
 const StatCard = ({ label, value, icon, color, sub }) => (
   <div
     style={{
-      background: "#0f1623",
-      border: "1px solid #1d2d4a",
+      background: COLORS.surface,
+      border: `1px solid ${COLORS.border}`,
       borderRadius: 14,
       padding: "18px 20px",
       display: "flex",
@@ -769,7 +772,7 @@ const StatCard = ({ label, value, icon, color, sub }) => (
         width: 48,
         height: 48,
         borderRadius: 12,
-        background: color + "22",
+        background: color + "1F",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -784,17 +787,17 @@ const StatCard = ({ label, value, icon, color, sub }) => (
         style={{
           fontSize: 22,
           fontWeight: 800,
-          color: "#dde8ff",
+          color: COLORS.textPrimary,
           lineHeight: 1,
         }}
       >
         {value}
       </div>
-      <div style={{ color: "#4a6a9a", fontSize: 12, marginTop: 4 }}>
+      <div style={{ color: COLORS.textDim, fontSize: 12, marginTop: 4 }}>
         {label}
       </div>
       {sub && (
-        <div style={{ color: "#2a8a5a", fontSize: 11, marginTop: 2 }}>
+        <div style={{ color: COLORS.green, fontSize: 11, marginTop: 2 }}>
           {sub}
         </div>
       )}
@@ -805,8 +808,8 @@ const StatCard = ({ label, value, icon, color, sub }) => (
 const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
   <div
     style={{
-      background: "#0f1623",
-      border: "1px solid #1d2d4a",
+      background: COLORS.surface,
+      border: `1px solid ${COLORS.border}`,
       borderRadius: 14,
       overflow: "hidden",
     }}
@@ -817,7 +820,7 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
       >
         <thead>
           <tr
-            style={{ background: "#080e1a", borderBottom: "1px solid #1d2d4a" }}
+            style={{ background: COLORS.surfaceAlt, borderBottom: `1px solid ${COLORS.border}` }}
           >
             {headers.map((h, i) => (
               <th
@@ -825,7 +828,7 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
                 style={{
                   padding: "11px 16px",
                   textAlign: "right",
-                  color: "#4a6a9a",
+                  color: COLORS.textDim,
                   fontSize: 12,
                   fontWeight: 700,
                   whiteSpace: "nowrap",
@@ -844,7 +847,7 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
                 style={{
                   padding: 40,
                   textAlign: "center",
-                  color: "#2a3a5a",
+                  color: COLORS.textDim,
                   fontSize: 14,
                 }}
               >
@@ -856,8 +859,8 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
               <tr
                 key={i}
                 style={{
-                  borderBottom: "1px solid #0a1020",
-                  background: i % 2 === 0 ? "transparent" : "#080e16",
+                  borderBottom: `1px solid ${COLORS.border}`,
+                  background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                   transition: "background 0.1s",
                 }}
               >
@@ -867,7 +870,7 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
                     style={{
                       padding: "11px 16px",
                       fontSize: 13,
-                      color: "#c0d0f0",
+                      color: COLORS.textPrimary,
                     }}
                   >
                     {cell}
@@ -925,7 +928,7 @@ const BarcodeScanner = ({
       <IC
         n="barcode"
         s={18}
-        style={{ position: "absolute", right: 10, color: "#3a5aaa" }}
+        style={{ position: "absolute", right: 10, color: COLORS.textDim }}
       />
       <input
         ref={ref}
@@ -934,11 +937,11 @@ const BarcodeScanner = ({
         onKeyDown={handleKey}
         placeholder={placeholder}
         style={{
-          background: "#080e1a",
-          border: "1px solid #2a5a9a",
+          background: COLORS.surfaceAlt,
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 8,
           padding: "9px 12px 9px 40px",
-          color: "#dde8ff",
+          color: COLORS.textPrimary,
           fontSize: 14,
           outline: "none",
           width: "100%",
@@ -971,7 +974,7 @@ const Login = ({ users, onLogin }) => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#060c16",
+        background: COLORS.appBg,
         fontFamily: "'Tajawal',sans-serif",
       }}
       dir="rtl"
@@ -982,12 +985,12 @@ const Login = ({ users, onLogin }) => {
       />
       <div
         style={{
-          background: "#0f1623",
-          border: "1px solid #1d2d4a",
+          background: COLORS.surface,
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 20,
           padding: 40,
           width: 380,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.6)",
+          boxShadow: "0 20px 60px rgba(11,38,34,0.12)",
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -996,12 +999,12 @@ const Login = ({ users, onLogin }) => {
               width: 64,
               height: 64,
               borderRadius: 16,
-              background: "linear-gradient(135deg,#1e4fbf,#0a2a7f)",
+              background: COLORS.accent,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               margin: "0 auto 16px",
-              color: "#8ab0ff",
+              color: COLORS.accentText,
             }}
           >
             <IC n="pill" s={32} />
@@ -1011,12 +1014,12 @@ const Login = ({ users, onLogin }) => {
               margin: 0,
               fontSize: 24,
               fontWeight: 900,
-              color: "#dde8ff",
+              color: COLORS.textPrimary,
             }}
           >
             صيدلية برو
           </h1>
-          <p style={{ margin: "6px 0 0", color: "#3a5a8a", fontSize: 13 }}>
+          <p style={{ margin: "6px 0 0", color: COLORS.textDim, fontSize: 13 }}>
             نظام إدارة صيدلية متكامل
           </p>
         </div>
@@ -1036,7 +1039,7 @@ const Login = ({ users, onLogin }) => {
           />
           {err && (
             <div
-              style={{ color: "#ff7777", fontSize: 13, textAlign: "center" }}
+              style={{ color: COLORS.red, fontSize: 13, textAlign: "center" }}
             >
               {err}
             </div>
@@ -1052,7 +1055,7 @@ const Login = ({ users, onLogin }) => {
         <p
           style={{
             textAlign: "center",
-            color: "#2a4a6a",
+            color: COLORS.textDim,
             fontSize: 11,
             marginTop: 20,
           }}
