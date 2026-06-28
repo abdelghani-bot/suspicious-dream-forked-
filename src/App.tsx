@@ -1198,6 +1198,119 @@ function parseGS1Barcode(raw) {
 
   return result;
 }
+// ==================== PHARMACY SHELF BACKGROUND ====================
+// خلفية موحّدة (رفوف + علب أدوية + بلور) — تُستخدم مرة واحدة في الـ wrapper
+// الرئيسي عشان تظهر تلقائيًا خلف كل التابات بدون أي تكرار في كل صفحة.
+const SHELF_BOX_COLORS = [
+  "#5bc8b0", "#ff9eb5", "#7ec8e3", "#ffd166", "#a8e6cf", "#ff8b94", "#a29bfe",
+  "#74b9ff", "#55efc4", "#fd79a8", "#fdcb6e", "#6c5ce7", "#00cec9", "#e17055",
+  "#81ecec", "#fab1a0", "#ffeaa7", "#dfe6e9", "#ff7675", "#00b894", "#e84393",
+  "#0984e3",
+];
+
+function makeShelfRow(rowIndex: number, topPct: number, count: number) {
+  const boxes = [];
+  const startLeft = 1 + (rowIndex % 2);
+  const step = (96 - startLeft) / count;
+  for (let i = 0; i < count; i++) {
+    const color = SHELF_BOX_COLORS[(rowIndex * 7 + i) % SHELF_BOX_COLORS.length];
+    const width = 20 + ((i * 5 + rowIndex * 3) % 16);
+    const height = width + 10 + ((i + rowIndex) % 5);
+    const left = startLeft + i * step;
+    const topJitter = (i % 3) * 1;
+    boxes.push(
+      <div
+        key={`shelf-box-${rowIndex}-${i}`}
+        style={{
+          position: "absolute",
+          width,
+          height,
+          background: color,
+          borderRadius: 4,
+          boxShadow: "2px 2px 6px rgba(0,0,0,0.12)",
+          top: `${topPct + topJitter}%`,
+          left: `${left}%`,
+        }}
+      />
+    );
+  }
+  return boxes;
+}
+
+function PharmacyShelfBackground() {
+  const shelfTops = [18, 36, 54, 72];
+  const boxRowTops = [10, 28, 46, 64];
+  const supportLefts = [16, 33, 50, 67, 84];
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 0,
+        overflow: "hidden",
+        background: "linear-gradient(180deg, #e8f5f3 0%, #d4eeea 40%, #c8e8e3 100%)",
+      }}
+    >
+      {/* الجدار الخلفي */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "repeating-linear-gradient(180deg, rgba(255,255,255,0) 0px, rgba(255,255,255,0) 58px, rgba(0,160,140,0.08) 58px, rgba(0,160,140,0.08) 62px)",
+        }}
+      />
+
+      {/* الأعمدة الرأسية */}
+      {supportLefts.map((left, i) => (
+        <div
+          key={`support-${i}`}
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            width: 5,
+            left: `${left}%`,
+            background: "linear-gradient(180deg, #9dccc6, #6fb0aa)",
+            borderRadius: 3,
+          }}
+        />
+      ))}
+
+      {/* الرفوف */}
+      {shelfTops.map((top, i) => (
+        <div
+          key={`shelf-${i}`}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            height: 4,
+            top: `${top}%`,
+            background: "linear-gradient(90deg, #a8d5cf, #7bbfb8, #a8d5cf)",
+            borderRadius: 2,
+            boxShadow: "0 3px 8px rgba(0,100,90,0.15)",
+          }}
+        />
+      ))}
+
+      {/* علب الأدوية */}
+      {boxRowTops.map((top, i) => makeShelfRow(i, top, 29))}
+
+      {/* طبقة ضبابية فوق الرفوف */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backdropFilter: "blur(5px)",
+          WebkitBackdropFilter: "blur(5px)",
+          background: "rgba(232,245,243,0.55)",
+        }}
+      />
+    </div>
+  );
+}
+
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
@@ -1460,28 +1573,49 @@ if (isLoading) return (
       dir="rtl"
       style={{
         fontFamily: "'Tajawal',sans-serif",
-        background: COLORS.appBg,
+        position: "relative",
         minHeight: "100vh",
         color: COLORS.textPrimary,
         display: "flex",
       }}
     >
+      <PharmacyShelfBackground />
       <link
         href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap"
         rel="stylesheet"
       />
+      <style>{`
+        /* ============================================================
+           Glassmorphism عام: أي عنصر بيستخدم نفس قيمة خلفية COLORS.surface
+           أو COLORS.surfaceAlt يكسب تلقائيًا تأثير الضباب (backdrop-filter)
+           بدون تعديل كل كارد لوحده في الكود.
+        ============================================================ */
+        [style*="background: rgba(255,255,255,0.65)"],
+        [style*="background-color: rgba(255,255,255,0.65)"] {
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+        }
+        [style*="background: rgba(255,255,255,0.35)"],
+        [style*="background-color: rgba(255,255,255,0.35)"] {
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
+      `}</style>
       {toast && <Toast {...toast} />}
 
       {/* SIDEBAR */}
       <nav
   style={{
     width: 210,
-    background: COLORS.surface,
-    borderLeft: "none",
+    background: "rgba(255,255,255,0.6)",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
+    borderLeft: "1px solid rgba(0,180,160,0.15)",
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
     position: "sticky",
+    zIndex: 1,
     top: 0,
     height: "100vh",
     overflowY: "auto",
@@ -1712,7 +1846,7 @@ if (isLoading) return (
           />
       )}
       <main
-        style={{ flex: 1, overflow: "auto", padding: 24, minHeight: "100vh" }}
+        style={{ flex: 1, overflow: "auto", padding: 24, minHeight: "100vh", position: "relative", zIndex: 1 }}
       >
         {tab === "dashboard" && (
           <Dashboard
