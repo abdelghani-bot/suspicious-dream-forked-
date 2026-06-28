@@ -1591,6 +1591,7 @@ if (isLoading) return (
               </div>
               <div style={{ fontSize: 10, color: "#2a5a8a" }}>نظام متكامل</div>
             </div>
+            <div style={{ marginTop: 8 }}><ThemeToggle /></div>
           </div>
           <div
             style={{
