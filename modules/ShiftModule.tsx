@@ -179,7 +179,7 @@ export function ShiftModule({
             >
               شفت مفتوح ✓
             </h3>
-            <Badge color="#0a3a0a" text=C.success>
+            <Badge color="#0a3a0a" text={C.success}>
               {currentShift.id}
             </Badge>
           </div>
@@ -310,7 +310,7 @@ export function ShiftModule({
           </span>,
           s.close_cash ? s.close_cash + " ر.س" : "-",
           s.end_time ? (
-            <Badge color="#0a2a10" text=C.success>
+            <Badge color="#0a2a10" text={C.success}>
               مغلق
             </Badge>
           ) : (

@@ -280,7 +280,7 @@ export function ProductsModule({
               {p.nameEn && <div style={{ fontSize: 11, color: C.muted }}>{p.nameEn}</div>}
               <div style={{ fontSize: 10, color: C.muted }}>{p.active_ingredient} {p.concentration}</div>
             </div>,
-            mfr ? <Badge color={C.surface} text=C.accent>{mfr.name}</Badge> : <span style={{ color: C.muted, fontSize: 11 }}>—</span>,
+            mfr ? <Badge color={C.surface} text={C.accent}>{mfr.name}</Badge> : <span style={{ color: C.muted, fontSize: 11 }}>—</span>,
             <span style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>{p.barcode}</span>,
             <div>
               <Badge>{p.mainCategory || p.category}</Badge>
@@ -288,7 +288,7 @@ export function ProductsModule({
             </div>,
             <span style={{ color: C.accent, fontWeight: 700 }}>{p.price} ر.س</span>,
             <span style={{ color: C.muted }}>{p.cost} ر.س</span>,
-            (p.is_essential || p.isEssential) ? <Badge color={C.warningBg} text=C.warning>⭐ أساسي</Badge> : <span style={{ color: C.muted, fontSize: 11 }}>—</span>,
+            (p.is_essential || p.isEssential) ? <Badge color={C.warningBg} text={C.warning}>⭐ أساسي</Badge> : <span style={{ color: C.muted, fontSize: 11 }}>—</span>,
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {(p.not_available_market) && (
                 p.shortage_report_url

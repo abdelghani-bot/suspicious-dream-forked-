@@ -642,7 +642,7 @@ export function ReturnsModule({
                   <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(x.returnQty + 1, maxReturnable) } : x))}
                     style={{ width: 24, height: 24, borderRadius: 4, background: "#1a2540", border: "none", color: C.accent, cursor: "pointer", fontWeight: 700 }}>+</button>
                 </div>
-                {item.taxable && <Badge color="#0a2a00" text=C.success>15%</Badge>}
+                {item.taxable && <Badge color="#0a2a00" text={C.success}>15%</Badge>}
               </div>
             );
           })}

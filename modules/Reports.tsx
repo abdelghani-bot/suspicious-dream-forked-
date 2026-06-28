@@ -154,8 +154,8 @@ export function Reports({
               <span style={{ color: C.accent, fontWeight: 700 }}>{(s.total || 0).toFixed(2)} ر.س</span>,
               s.payment,
               s.returned
-                ? <Badge color="#3a0a0a" text=C.danger>مرتجعة</Badge>
-                : <Badge color="#0a2a10" text=C.success>مكتملة</Badge>,
+                ? <Badge color="#3a0a0a" text={C.danger}>مرتجعة</Badge>
+                : <Badge color="#0a2a10" text={C.success}>مكتملة</Badge>,
             ])}
           />
           {filteredSales.length === 0 && <div style={{ textAlign: "center", color: C.muted, padding: 30 }}>لا توجد فواتير مطابقة للبحث</div>}
@@ -178,7 +178,7 @@ export function Reports({
               p.subtotal.toFixed(2) + " ر.س",
               <span style={{ color: C.success }}>{p.taxAmount.toFixed(2)} ر.س</span>,
               <span style={{ color: "#fb923c", fontWeight: 700 }}>{p.total.toFixed(2)} ر.س</span>,
-              <Badge color="#0a2a10" text=C.success>{p.status}</Badge>,
+              <Badge color="#0a2a10" text={C.success}>{p.status}</Badge>,
             ])}
           />
         </>
@@ -199,7 +199,7 @@ export function Reports({
               const mfr = manufacturers.find((m) => m.id === prod?.manufacturer_id);
               return [
                 <span style={{ fontWeight: 700, color: C.text }}>{d.name}</span>,
-                mfr ? <Badge color={C.surface} text=C.accent>{mfr.name}</Badge> : <span style={{ color: C.muted, fontSize: 11 }}>—</span>,
+                mfr ? <Badge color={C.surface} text={C.accent}>{mfr.name}</Badge> : <span style={{ color: C.muted, fontSize: 11 }}>—</span>,
                 <span style={{ color: C.accent, fontWeight: 700 }}>{d.qty}</span>,
                 d.revenue.toFixed(2) + " ر.س",
                 <span style={{ color: C.success }}>{d.tax.toFixed(2)} ر.س</span>,
@@ -239,10 +239,10 @@ export function Reports({
               <span style={{ color: C.accent, fontWeight: 700 }}>{r.id}</span>,
               r.date,
               r.type === "sales"
-                ? <Badge color="#0a2040" text=C.accent>مرتجع مبيعات</Badge>
+                ? <Badge color="#0a2040" text={C.accent}>مرتجع مبيعات</Badge>
                 : <Badge color="#1a1000" text="#fb923c">مرتجع مشتريات</Badge>,
               r.type === "sales" ? (r.customer_name || "زبون عادي") : (r.supplier_name || "—"),
-              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color="#1a0a00" text=C.warning>تلقائي</Badge></span>}</span>,
+              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color="#1a0a00" text={C.warning}>تلقائي</Badge></span>}</span>,
               <span style={{ color: C.warning, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
             ])}
           />

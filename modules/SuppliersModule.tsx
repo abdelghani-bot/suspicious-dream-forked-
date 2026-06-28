@@ -671,9 +671,9 @@ export function SuppliersModule({
                             {dueDays < 0 ? `متأخر ${Math.abs(dueDays)} يوم` : `باقي ${dueDays} يوم`}
                           </span>
                           {po.returned_amount > 0 && (
-                            <Badge color="#1a0800" text=C.warning>مرتجع: {po.returned_amount.toFixed(0)}</Badge>
+                            <Badge color="#1a0800" text={C.warning}>مرتجع: {po.returned_amount.toFixed(0)}</Badge>
                           )}
-                          {po.payment_status === "مسددة جزئياً" && <Badge color="#1a1000" text=C.warning>جزئي</Badge>}
+                          {po.payment_status === "مسددة جزئياً" && <Badge color="#1a1000" text={C.warning}>جزئي</Badge>}
                         </div>
                       );
                     })}
@@ -685,12 +685,12 @@ export function SuppliersModule({
                 {s.taxId && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <span style={{ color: C.muted, fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
-                    <Badge color="#0a2a00" text=C.success>{s.taxId}</Badge>
+                    <Badge color="#0a2a00" text={C.success}>{s.taxId}</Badge>
                   </div>
                 )}
                 {(s.supply_categories || []).length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text=C.accent>{cat}</Badge>)}
+                    {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text={C.accent}>{cat}</Badge>)}
                   </div>
                 )}
                 {s.payment_terms && <div style={{ fontSize: 11, color: "#5a7a9a" }}>⏱ شروط الدفع: {s.payment_terms} يوم</div>}

@@ -451,7 +451,7 @@ const LABEL_SIZES = [
           <span style={{ color: C.success, fontWeight: 700 }}>
             {(p.total || 0).toFixed(2)} ر.س
           </span>,
-          <Badge color="#0a2a10" text=C.success>
+          <Badge color="#0a2a10" text={C.success}>
             {p.status}
           </Badge>,
         ])}
