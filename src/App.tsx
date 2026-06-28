@@ -10,17 +10,17 @@ import { useState, useEffect, useRef, useCallback, useMemo, createContext, useCo
 // ==================== THEME SYSTEM ====================
 const THEMES = {
   dark: {
-    bg: C.bgAlt, bgAlt: C.bg, surface: C.surface,
-    border: C.border, text: C.text, muted: C.muted,
-    accent: C.accent, success: C.success, successBg: C.successBg,
-    successBorder: C.successBorder, danger: C.danger, dangerBg: C.dangerBg,
-    dangerBorder: C.dangerBorder, warning: C.warning, warningBg: C.warningBg,
-    warningBorder: C.warningBorder, infoBg: C.infoBg, infoBorder: C.infoBorder,
-    rowAlt: C.bg, divider: C.divider,
+    bg: "#080e1a", bgAlt: "#0a0f1a", surface: "#0f1623",
+    border: "#1d2d4a", text: "#dde8ff", muted: "#4a6a8a",
+    accent: "#3a9aff", success: "#44dd88", successBg: "#0a2a18",
+    successBorder: "#1a5a30", danger: "#ff4444", dangerBg: "#2a0a0a",
+    dangerBorder: "#5a2a2a", warning: "#ffaa44", warningBg: "#2a1a00",
+    warningBorder: "#5a3a10", infoBg: "#0a1a30", infoBorder: "#1d3a6a",
+    rowAlt: "#0a101a", divider: "#0a1020",
   },
   light: {
     bg: "#f0f4f8", bgAlt: "#e8edf5", surface: "#ffffff",
-    border: "#c8d8e8", text: C.surface, muted: C.muted,
+    border: "#c8d8e8", text: "#1a2a3a", muted: "#5a7a9a",
     accent: "#2a7adf", success: "#1a8a44", successBg: "#e8f8ee",
     successBorder: "#a0d8b0", danger: "#cc2222", dangerBg: "#fde8e8",
     dangerBorder: "#f0a0a0", warning: "#cc7700", warningBg: "#fff3e0",
