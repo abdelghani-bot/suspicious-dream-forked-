@@ -3442,10 +3442,10 @@ function POS({
               style={{
                 padding: "7px 16px",
                 borderRadius: "9px 0 0 9px",
-                background: activeTab === i ? "#142a5a" : "#0a0f1c",
-                border: `1px solid ${activeTab === i ? "#2a6aef" : "#1d2d4a"}`,
+                background: activeTab === i ? COLORS.blueSoft : "#0a0f1c",
+                border: `1px solid ${activeTab === i ? COLORS.blue : COLORS.border}`,
                 borderLeft: "none",
-                color: activeTab === i ? "#6aaeff" : "#4a6a8a",
+                color: activeTab === i ? COLORS.blue : COLORS.textDim,
                 fontWeight: activeTab === i ? 700 : 400,
                 cursor: "pointer",
                 fontSize: 13,
@@ -3458,9 +3458,9 @@ function POS({
               style={{
                 padding: "7px 8px",
                 borderRadius: "0 9px 9px 0",
-                background: activeTab === i ? "#142a5a" : "#0a0f1c",
-                border: `1px solid ${activeTab === i ? "#2a6aef" : "#1d2d4a"}`,
-                color: "#5a2a2a",
+                background: activeTab === i ? COLORS.blueSoft : "#0a0f1c",
+                border: `1px solid ${activeTab === i ? COLORS.blue : COLORS.border}`,
+                color: COLORS.red,
                 cursor: "pointer",
                 fontSize: 12,
               }}
@@ -3475,9 +3475,9 @@ function POS({
             style={{
               padding: "7px 14px",
               borderRadius: 9,
-              background: "#0a1a2a",
+              background: COLORS.surfaceAlt,
               border: "1px dashed #1d3a5a",
-              color: "#3a6a9a",
+              color: COLORS.border,
               cursor: "pointer",
               fontSize: 13,
               fontWeight: 700,
@@ -3525,7 +3525,7 @@ function POS({
 
       <div
         style={{
-          background: "#0f1623",
+          background: COLORS.surface,
           border: "1px solid #1d2d4a",
           borderRadius: 16,
           display: "flex",
@@ -3593,11 +3593,11 @@ function POS({
               placeholder="🔍 ابحث عن صنف بالاسم أو الباركود..."
               style={{
                 width: "100%",
-                background: "#080e1a",
+                background: COLORS.surfaceAlt,
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 14px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontSize: 14,
                 outline: "none",
                 boxSizing: "border-box",
@@ -3608,9 +3608,9 @@ function POS({
               style={{
                 padding: "8px 12px",
                 borderRadius: 8,
-                background: "#2a1a00",
+                background: COLORS.goldSoft,
                 border: "1px solid #7a4a00",
-                color: "#ffaa44",
+                color: COLORS.gold,
                 fontSize: 12,
                 fontWeight: 700,
                 cursor: "pointer",
@@ -3635,7 +3635,7 @@ function POS({
               >
                 <div
                   style={{
-                    color: "#ffaa44",
+                    color: COLORS.gold,
                     fontWeight: 700,
                     marginBottom: 10,
                   }}
@@ -3650,11 +3650,11 @@ function POS({
                   }
                   style={{
                     width: "100%",
-                    background: "#080e1a",
+                    background: COLORS.surfaceAlt,
                     border: "1px solid #1d2d4a",
                     borderRadius: 7,
                     padding: "7px 10px",
-                    color: "#dde8ff",
+                    color: COLORS.textPrimary,
                     fontSize: 13,
                     outline: "none",
                     boxSizing: "border-box",
@@ -3670,11 +3670,11 @@ function POS({
                   }
                   style={{
                     width: "100%",
-                    background: "#080e1a",
+                    background: COLORS.surfaceAlt,
                     border: "1px solid #1d2d4a",
                     borderRadius: 7,
                     padding: "7px 10px",
-                    color: "#dde8ff",
+                    color: COLORS.textPrimary,
                     fontSize: 13,
                     outline: "none",
                     boxSizing: "border-box",
@@ -3707,10 +3707,10 @@ function POS({
                     style={{
                       flex: 1,
                       padding: "7px 0",
-                      background: "#2a1a00",
+                      background: COLORS.goldSoft,
                       border: "1px solid #7a4a00",
                       borderRadius: 7,
-                      color: "#ffaa44",
+                      color: COLORS.gold,
                       fontWeight: 700,
                       cursor: "pointer",
                     }}
@@ -3724,7 +3724,7 @@ function POS({
                       background: "transparent",
                       border: "1px solid #1d2d4a",
                       borderRadius: 7,
-                      color: "#4a6a8a",
+                      color: COLORS.textDim,
                       cursor: "pointer",
                     }}
                   >
@@ -3740,7 +3740,7 @@ function POS({
                   top: "100%",
                   right: 0,
                   left: 0,
-                  background: "#0f1623",
+                  background: COLORS.surface,
                   border: "1px solid #1d2d4a",
                   borderRadius: 8,
                   zIndex: 100,
@@ -3753,7 +3753,7 @@ function POS({
                   style={{
                     padding: "5px 14px",
                     fontSize: 10,
-                    color: "#3a5a7a",
+                    color: COLORS.textDim,
                     borderBottom: "1px solid #1a2a3a",
                     background: "#0a121f",
                   }}
@@ -3767,8 +3767,8 @@ function POS({
                   const stockColor = outOfStock
                     ? "#dd4444"
                     : p.stock <= (p.minStock || 0)
-                    ? "#f59e0b"
-                    : "#44dd88";
+                    ? COLORS.gold
+                    : COLORS.green;
                   return (
                     <div
                       key={p.id}
@@ -3780,7 +3780,7 @@ function POS({
                         justifyContent: "space-between",
                         alignItems: "center",
                         background:
-                          idx === highlightedIdx ? "#1a2a4a" : "transparent",
+                          idx === highlightedIdx ? COLORS.surfaceAlt : "transparent",
                       }}
                       onMouseEnter={() => setHighlightedIdx(idx)}
                       onMouseLeave={() => setHighlightedIdx(-1)}
@@ -3807,7 +3807,7 @@ function POS({
                             style={{
                               fontSize: 13,
                               fontWeight: 700,
-                              color: "#dde8ff",
+                              color: COLORS.textPrimary,
                               whiteSpace: "nowrap",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
@@ -3815,10 +3815,10 @@ function POS({
                           >
                             {p.nameAr || p.name}
                           </div>
-                          <div style={{ fontSize: 10, color: "#4a6a8a" }}>
+                          <div style={{ fontSize: 10, color: COLORS.textDim }}>
                             {p.mainCategory || p.category} · مخزون: {p.stock}
                             {p.saleUnits > 1 && (
-                              <span style={{ color: "#f59e0b" }}>
+                              <span style={{ color: COLORS.gold }}>
                                 {" "}
                                 ÷{p.saleUnits}
                               </span>
@@ -3843,9 +3843,9 @@ function POS({
                             style={{
                               padding: "4px 10px",
                               borderRadius: 6,
-                              background: "#2a1a00",
+                              background: COLORS.goldSoft,
                               border: "1px solid #7a4a00",
-                              color: "#ffaa44",
+                              color: COLORS.gold,
                               fontSize: 11,
                               fontWeight: 700,
                               cursor: "pointer",
@@ -3865,9 +3865,9 @@ function POS({
                               style={{
                                 padding: "4px 10px",
                                 borderRadius: 6,
-                                background: "#142a5a",
+                                background: COLORS.blueSoft,
                                 border: "1px solid #2a6aef",
-                                color: "#6aaeff",
+                                color: COLORS.blue,
                                 fontSize: 11,
                                 fontWeight: 700,
                                 cursor: "pointer",
@@ -3878,9 +3878,9 @@ function POS({
                                 const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
                                 return eff.discountPct > 0 ? (
                                   <span>
-                                    <span style={{ textDecoration: "line-through", color: "#4a6a8a", fontSize: 10, marginLeft: 4 }}>{p.price?.toFixed(2)}</span>
-                                    <span style={{ color: "#44dd88" }}> {eff.price?.toFixed(2)} ر.س</span>
-                                    <span style={{ background: "#ff7744", color: "#fff", borderRadius: 8, padding: "1px 5px", fontSize: 10, marginRight: 4 }}>-{eff.discountPct}%</span>
+                                    <span style={{ textDecoration: "line-through", color: COLORS.textDim, fontSize: 10, marginLeft: 4 }}>{p.price?.toFixed(2)}</span>
+                                    <span style={{ color: COLORS.green }}> {eff.price?.toFixed(2)} ر.س</span>
+                                    <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 8, padding: "1px 5px", fontSize: 10, marginRight: 4 }}>-{eff.discountPct}%</span>
                                   </span>
                                 ) : (
                                   <span>{p.price?.toFixed(2)} ر.س</span>
@@ -3897,7 +3897,7 @@ function POS({
                   <div
                     style={{
                       padding: 12,
-                      color: "#4a6a8a",
+                      color: COLORS.textDim,
                       textAlign: "center",
                     }}
                   >
@@ -3934,11 +3934,11 @@ function POS({
               placeholder="🔍 ابحث عن عميل بالاسم أو الجوال..."
               style={{
                 width: "100%",
-                background: "#080e1a",
-                border: `1px solid ${inv.selCustomer ? "#2a6aef" : "#1d2d4a"}`,
+                background: COLORS.surfaceAlt,
+                border: `1px solid ${inv.selCustomer ? COLORS.blue : COLORS.border}`,
                 borderRadius: 8,
                 padding: "7px 10px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontSize: 13,
                 outline: "none",
                 boxSizing: "border-box",
@@ -3965,7 +3965,7 @@ function POS({
                   transform: "translateY(-50%)",
                   background: "transparent",
                   border: "none",
-                  color: "#5a2a2a",
+                  color: COLORS.red,
                   cursor: "pointer",
                   fontSize: 14,
                   lineHeight: 1,
@@ -3981,7 +3981,7 @@ function POS({
                 top: "100%",
                 right: 0,
                 left: 0,
-                background: "#0f1623",
+                background: COLORS.surface,
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 zIndex: 200,
@@ -4008,7 +4008,7 @@ function POS({
                     padding: "8px 12px",
                     cursor: "pointer",
                     borderBottom: "1px solid #1a2a3a",
-                    color: "#4a6a8a",
+                    color: COLORS.textDim,
                     fontSize: 13,
                     display: "flex",
                     alignItems: "center",
@@ -4061,11 +4061,11 @@ function POS({
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>
                           {c.name}
                         </div>
                         {(c.phone || c.taxId) && (
-                          <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                          <div style={{ fontSize: 11, color: COLORS.textDim }}>
                             {c.phone && <span>{c.phone}</span>}
                             {c.phone && c.taxId && <span> · </span>}
                             {c.taxId && <span>{c.taxId}</span>}
@@ -4076,7 +4076,7 @@ function POS({
                         <span style={{
                           fontSize: 11,
                           background: "#2a1010",
-                          color: "#ff6a6a",
+                          color: COLORS.red,
                           borderRadius: 6,
                           padding: "2px 8px",
                           fontWeight: 700,
@@ -4095,7 +4095,7 @@ function POS({
                     (c.taxId || "").includes(q)
                   );
                 }).length === 0 && (
-                  <div style={{ padding: 12, color: "#4a6a8a", textAlign: "center", fontSize: 13 }}>
+                  <div style={{ padding: 12, color: COLORS.textDim, textAlign: "center", fontSize: 13 }}>
                     لا يوجد عملاء مطابقون
                   </div>
                 )}
@@ -4107,10 +4107,10 @@ function POS({
             onClick={() => fileRef.current.click()}
             style={{
               padding: "7px 12px",
-              background: "#0a1a2a",
+              background: COLORS.surfaceAlt,
               border: "1px dashed #1d3a5a",
               borderRadius: 8,
-              color: inv.prescriptionImg ? "#44dd88" : "#4a6a8a",
+              color: inv.prescriptionImg ? COLORS.green : COLORS.textDim,
               cursor: "pointer",
               fontSize: 12,
               flexShrink: 0,
@@ -4149,7 +4149,7 @@ function POS({
             <div
               style={{
                 textAlign: "center",
-                color: "#1a2a4a",
+                color: COLORS.surfaceAlt,
                 padding: "60px 0",
                 fontSize: 14,
               }}
@@ -4169,12 +4169,12 @@ function POS({
                       style={{
                         textAlign: i === 0 ? "right" : "center",
                         padding: "8px 4px",
-                        color: "#4a6a8a",
+                        color: COLORS.textDim,
                         fontSize: 12,
                         fontWeight: 600,
                         position: "sticky",
                         top: 0,
-                        background: "#0f1623",
+                        background: COLORS.surface,
                       }}
                     >
                       {h}
@@ -4192,14 +4192,14 @@ function POS({
     return (
       <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
         <td style={{ padding: "8px 4px" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{item.name}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
           {item.discountPct > 0 && (
             <div style={{ fontSize: 10, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ background: item.discountSource === "auto" ? "#ff7744" : "#2a6aef", color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
+              <span style={{ background: item.discountSource === "auto" ? COLORS.coral : COLORS.blue, color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
                 -{item.discountPct}% {item.discountSource === "auto" ? "⏰" : "✋"}
               </span>
               {item.originalPrice && item.originalPrice !== item.price && (
-                <span style={{ textDecoration: "line-through", color: "#4a6a8a" }}>{item.originalPrice?.toFixed(2)}</span>
+                <span style={{ textDecoration: "line-through", color: COLORS.textDim }}>{item.originalPrice?.toFixed(2)}</span>
               )}
             </div>
           )}
@@ -4210,10 +4210,10 @@ function POS({
               cart: p.cart.map((i) => i.id === item.id ? { ...i, dose: e.target.value } : i),
             }))}
             placeholder="الجرعة..."
-            style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: "#6a8aaa", fontSize: 11, outline: "none", padding: "2px 0" }}
+            style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.textDim, fontSize: 11, outline: "none", padding: "2px 0" }}
           />
           {item.expiry && (
-            <div style={{ fontSize: 10, color: "#ffaa44", marginTop: 2 }}>ينتهي: {item.expiry}</div>
+            <div style={{ fontSize: 10, color: COLORS.gold, marginTop: 2 }}>ينتهي: {item.expiry}</div>
           )}
         </td>
 
@@ -4227,7 +4227,7 @@ function POS({
                   return { ...i, qty: Math.max(1, i.qty - 1) };
                 }),
               }))}
-              style={{ width: 22, height: 22, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}
+              style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
             >-</button>
 
             <input
@@ -4300,7 +4300,7 @@ function POS({
     ),
   }));
 }}
-              style={{ width: 52, background: "#0a1020", border: "1px solid #1d2d4a", borderRadius: 6, color: "#dde8ff", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
+              style={{ width: 52, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, color: COLORS.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
             />
 
             <button
@@ -4311,7 +4311,7 @@ function POS({
                   return { ...i, qty: Math.min(i.qty + 1, maxQty) };
                 }),
               }))}
-              style={{ width: 22, height: 22, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}
+              style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
             >+</button>
           </div>
         </td>
@@ -4319,13 +4319,13 @@ function POS({
         <td style={{ textAlign: "center", padding: "8px 4px", color: "#2a9aff", fontSize: 13 }}>
           {displayPrice.toFixed(2)}
         </td>
-        <td style={{ textAlign: "center", padding: "8px 4px", color: "#dde8ff", fontSize: 13, fontWeight: 700 }}>
+        <td style={{ textAlign: "center", padding: "8px 4px", color: COLORS.textPrimary, fontSize: 13, fontWeight: 700 }}>
           {displayTotal.toFixed(2)}
         </td>
         <td style={{ textAlign: "center" }}>
           <button
             onClick={() => setInv((p) => ({ ...p, cart: p.cart.filter((i) => i.id !== item.id) }))}
-            style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}
+            style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}
           >✕</button>
         </td>
       </tr>
@@ -4341,7 +4341,7 @@ function POS({
           style={{
             padding: "12px 16px",
             borderTop: "1px solid #1d2d4a",
-            background: "#080e1a",
+            background: COLORS.surfaceAlt,
             flexShrink: 0,
           }}
         >
@@ -4361,11 +4361,11 @@ function POS({
                     borderRadius: 7,
                     border: "1px solid",
                     borderColor:
-                      inv.paymentMode === mode ? "#2a6aef" : "#1d2d4a",
+                      inv.paymentMode === mode ? COLORS.blue : COLORS.border,
                     background:
-                      inv.paymentMode === mode ? "#142a5a" : "transparent",
+                      inv.paymentMode === mode ? COLORS.blueSoft : "transparent",
                     color:
-                      inv.paymentMode === mode ? "#6aaeff" : "#4a6a8a",
+                      inv.paymentMode === mode ? COLORS.blue : COLORS.textDim,
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: "pointer",
@@ -4405,14 +4405,14 @@ function POS({
                         borderRadius: 7,
                         border: "1px solid",
                         borderColor:
-                          inv.payment === m ? "#2a6aef" : "#1d2d4a",
+                          inv.payment === m ? COLORS.blue : COLORS.border,
                         background:
-                          inv.payment === m ? "#142a5a" : "transparent",
+                          inv.payment === m ? COLORS.blueSoft : "transparent",
                         color: isAjilLocked
                           ? "#2a3a4a"
                           : inv.payment === m
-                          ? "#6aaeff"
-                          : "#4a6a8a",
+                          ? COLORS.blue
+                          : COLORS.textDim,
                         fontSize: 12,
                         fontWeight: 600,
                         cursor: isAjilLocked ? "not-allowed" : "pointer",
@@ -4434,7 +4434,7 @@ function POS({
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: "#6aaeff", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
+                    <span style={{ color: COLORS.blue, fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
                       بطاقة
                     </span>
                     <input
@@ -4445,9 +4445,9 @@ function POS({
                           splitPayment: { ...p.splitPayment, card: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{ flex: 1, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }}
+                      style={{ flex: 1, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                     />
-                    <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
+                    <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ color: "#aa88ff", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
@@ -4461,24 +4461,24 @@ function POS({
                           splitPayment: { ...p.splitPayment, transfer: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{ flex: 1, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }}
+                      style={{ flex: 1, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                     />
-                    <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
+                    <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: "#44dd88", fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
+                    <span style={{ color: COLORS.green, fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
                       نقدي
                     </span>
-                    <div style={{ flex: 1, background: "#0a1a10", border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`, borderRadius: 7, padding: "5px 10px", color: isOverpaid ? "#dd4444" : "#44dd88", fontSize: 13, fontWeight: 700 }}>
+                    <div style={{ flex: 1, background: COLORS.greenSoft, border: `1px solid ${isOverpaid ? COLORS.red : "#2a6a2a"}`, borderRadius: 7, padding: "5px 10px", color: isOverpaid ? "#dd4444" : COLORS.green, fontSize: 13, fontWeight: 700 }}>
                       {isOverpaid ? "⚠ تجاوز الإجمالي" : `${cash.toFixed(2)}`}
                     </div>
-                    <span style={{ color: "#3a5a7a", fontSize: 11, width: 30 }}>ر.س</span>
+                    <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 10px", borderRadius: 6, background: isOverpaid ? "#2a0a0a" : "#0a1a10", border: `1px solid ${isOverpaid ? "#6a2a2a" : "#2a6a2a"}`, marginTop: 2 }}>
-                    <span style={{ color: isOverpaid ? "#dd4444" : "#44dd88", fontSize: 12, fontWeight: 700 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 10px", borderRadius: 6, background: isOverpaid ? COLORS.redSoft : COLORS.greenSoft, border: `1px solid ${isOverpaid ? COLORS.red : "#2a6a2a"}`, marginTop: 2 }}>
+                    <span style={{ color: isOverpaid ? "#dd4444" : COLORS.green, fontSize: 12, fontWeight: 700 }}>
                       {isOverpaid ? `⚠ زيادة ${Math.abs(cash).toFixed(2)} ر.س` : "✓ الحساب مظبوط"}
                     </span>
-                    <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                    <span style={{ color: COLORS.textDim, fontSize: 12 }}>
                       نقدي {cash <= 0 ? "0.00" : cash.toFixed(2)} + بطاقة {card.toFixed(2)} + تحويل {transfer.toFixed(2)} = {total.toFixed(2)} ر.س
                     </span>
                   </div>
@@ -4490,7 +4490,7 @@ function POS({
           {/* ===== نقاط الولاء ===== */}
           {inv.selCustomer && customerLoyalty?.points >= (loyaltySettings?.min_redeem || 10) && (
             <div style={{
-              background: "#0a2a18",
+              background: COLORS.greenSoft,
               border: "1px solid #1a5a30",
               borderRadius: 10,
               padding: "10px 14px",
@@ -4500,11 +4500,11 @@ function POS({
               alignItems: "center",
             }}>
               <div>
-                <div style={{ color: "#44dd88", fontSize: 12, fontWeight: 700 }}>
+                <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700 }}>
                   🌟 نقاط متاحة: {customerLoyalty.points.toFixed(2)} ر.س
                 </div>
                 {usePoints && (
-                  <div style={{ color: "#44dd88", fontSize: 11, marginTop: 3 }}>
+                  <div style={{ color: COLORS.green, fontSize: 11, marginTop: 3 }}>
                     سيتم خصم {pointsToRedeem.toFixed(2)} ر.س من الفاتورة
                   </div>
                 )}
@@ -4522,8 +4522,8 @@ function POS({
                   padding: "5px 14px",
                   borderRadius: 7,
                   border: "1px solid #1a5a30",
-                  background: usePoints ? "#44dd88" : "transparent",
-                  color: usePoints ? "#000" : "#44dd88",
+                  background: usePoints ? COLORS.green : "transparent",
+                  color: usePoints ? "#000" : COLORS.green,
                   fontSize: 12,
                   fontWeight: 700,
                   cursor: "pointer",
@@ -4563,9 +4563,9 @@ function POS({
                   style={{
                     padding: "5px 10px",
                     background:
-                      inv.discountType === type ? "#142a5a" : "transparent",
+                      inv.discountType === type ? COLORS.blueSoft : "transparent",
                     color:
-                      inv.discountType === type ? "#6aaeff" : "#4a6a8a",
+                      inv.discountType === type ? COLORS.blue : COLORS.textDim,
                     border: "none",
                     fontSize: 12,
                     fontWeight: 700,
@@ -4576,7 +4576,7 @@ function POS({
                 </button>
               ))}
             </div>
-            <label style={{ color: "#4a6a8a", fontSize: 12 }}>خصم</label>
+            <label style={{ color: COLORS.textDim, fontSize: 12 }}>خصم</label>
             <input
               type="number"
               min="0"
@@ -4587,11 +4587,11 @@ function POS({
                 setInv((p) => ({ ...p, discount: +e.target.value }))
               }
               style={{
-                background: "#080e1a",
+                background: COLORS.surfaceAlt,
                 border: "1px solid #1d2d4a",
                 borderRadius: 7,
                 padding: "6px 10px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontSize: 13,
                 outline: "none",
                 width: 80,
@@ -4604,7 +4604,7 @@ function POS({
                   marginRight: "auto",
                   background: "transparent",
                   border: "none",
-                  color: "#5a2a2a",
+                  color: COLORS.red,
                   cursor: "pointer",
                   fontSize: 12,
                 }}
@@ -4617,39 +4617,39 @@ function POS({
           {/* ===== الأرقام ===== */}
           <div
             style={{
-              background: "#0a1020",
+              background: COLORS.surfaceAlt,
               borderRadius: 10,
               padding: 10,
               marginBottom: 10,
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", fontSize: 12, marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textDim, fontSize: 12, marginBottom: 4 }}>
               <span>قبل الضريبة</span>
               <span>{subtotal.toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", fontSize: 12, marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green, fontSize: 12, marginBottom: 4 }}>
               <span>ضريبة 15%</span>
               <span>{taxAmount.toFixed(2)} ر.س</span>
             </div>
             {discountAmt > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#ffaa44", fontSize: 12, marginBottom: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.gold, fontSize: 12, marginBottom: 4 }}>
                 <span>خصم {inv.discountType === "percent" ? `${inv.discount}%` : `${inv.discount} ر.س`}</span>
                 <span>- {discountAmt.toFixed(2)} ر.س</span>
               </div>
             )}
             {usePoints && pointsToRedeem > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#44dd88", fontSize: 12, marginBottom: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green, fontSize: 12, marginBottom: 4 }}>
                 <span>🌟 نقاط ولاء</span>
                 <span>- {pointsToRedeem.toFixed(2)} ر.س</span>
               </div>
             )}
             {missedTotal > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#ffaa44", fontSize: 12, marginBottom: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.gold, fontSize: 12, marginBottom: 4 }}>
                 <span>⚠ فرص ضائعة</span>
                 <span>{missedTotal.toFixed(2)} ر.س</span>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontSize: 18, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 8, marginTop: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontSize: 18, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 8, marginTop: 4 }}>
               <span>الإجمالي</span>
               <span>{total.toFixed(2)} ر.س</span>
             </div>
@@ -4918,22 +4918,22 @@ function PharmacySettings({ showToast, pharmacyId }) {
         بيانات الصيدلية
       </h2>
       <div style={{
-        background: "#0f1623", border: "1px solid #1d2d4a",
+        background: COLORS.surface, border: "1px solid #1d2d4a",
         borderRadius: 16, padding: 24,
         display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16,
       }}>
         {fields.map(({ key, label }) => (
           <div key={key}>
-            <label style={{ color: "#4a6a8a", fontSize: 12, display: "block", marginBottom: 6 }}>
+            <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
               {label}
             </label>
             <input
               value={settings[key] || ""}
               onChange={(e) => setSettings((p) => ({ ...p, [key]: e.target.value }))}
               style={{
-                width: "100%", background: "#080e1a",
+                width: "100%", background: COLORS.surfaceAlt,
                 border: "1px solid #1d2d4a", borderRadius: 8,
-                padding: "8px 12px", color: "#dde8ff",
+                padding: "8px 12px", color: COLORS.textPrimary,
                 fontSize: 13, outline: "none", boxSizing: "border-box",
               }}
             />
@@ -4944,7 +4944,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
 
         {/* حجم الملصق */}
         <div style={{ gridColumn: "1 / -1" }}>
-          <label style={{ color: "#4a6a8a", fontSize: 12, display: "block", marginBottom: 8 }}>
+          <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
             حجم ملصق الباركود
           </label>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -4954,9 +4954,9 @@ function PharmacySettings({ showToast, pharmacyId }) {
                 onClick={() => setSettings((p) => ({ ...p, labelSize: size.id }))}
                 style={{
                   padding: "8px 16px", borderRadius: 8, cursor: "pointer",
-                  border: `2px solid ${settings.labelSize === size.id ? "#3a9aff" : "#1d2d4a"}`,
-                  background: settings.labelSize === size.id ? "#0a1a3a" : "#080e1a",
-                  color: settings.labelSize === size.id ? "#3a9aff" : "#4a6a8a",
+                  border: `2px solid ${settings.labelSize === size.id ? COLORS.blue : COLORS.border}`,
+                  background: settings.labelSize === size.id ? COLORS.blueSoft : COLORS.surfaceAlt,
+                  color: settings.labelSize === size.id ? COLORS.blue : COLORS.textDim,
                   fontSize: 13, fontWeight: 600,
                 }}
               >
@@ -5230,11 +5230,11 @@ const LABEL_SIZES = [
 
   const cellStyle = {
     width: "100%",
-    background: "#080e1a",
+    background: COLORS.surfaceAlt,
     border: "1px solid #1d2d4a",
     borderRadius: 6,
     padding: "4px 8px",
-    color: "#dde8ff",
+    color: COLORS.textPrimary,
     fontSize: 13,
     outline: "none",
   };
@@ -5399,7 +5399,7 @@ const LABEL_SIZES = [
         ]}
         rows={purchases.map((p) => [
           <span
-            style={{ color: "#6aaeff", fontWeight: 700, cursor: "pointer" }}
+            style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer" }}
             onClick={() => {
               setShowDetail(p);
               setEditItems(
@@ -5424,10 +5424,10 @@ const LABEL_SIZES = [
           p.supplierName || p.supplier_name,
           (p.subtotal || 0).toFixed(2) + " ر.س",
           (p.taxAmount ?? p.tax_amount ?? 0).toFixed(2) + " ر.س",
-          <span style={{ color: "#44dd88", fontWeight: 700 }}>
+          <span style={{ color: COLORS.green, fontWeight: 700 }}>
             {(p.total || 0).toFixed(2)} ر.س
           </span>,
-          <Badge color="#0a2a10" text="#44dd88">
+          <Badge color=COLORS.greenSoft text=COLORS.green>
             {p.status}
           </Badge>,
         ])}
@@ -5476,11 +5476,11 @@ const LABEL_SIZES = [
             onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
             style={{
               width: "100%",
-              background: "#080e1a",
+              background: COLORS.surfaceAlt,
               border: "1px solid #2a5a9a",
               borderRadius: 8,
               padding: "10px 14px",
-              color: "#dde8ff",
+              color: COLORS.textPrimary,
               fontSize: 14,
               outline: "none",
               boxSizing: "border-box",
@@ -5508,7 +5508,7 @@ const LABEL_SIZES = [
                   style={{
                     padding: "9px 14px",
                     cursor: "pointer",
-                    color: "#dde8ff",
+                    color: COLORS.textPrimary,
                     fontSize: 13,
                     borderBottom: "1px solid #111a2a",
                     display: "flex",
@@ -5522,7 +5522,7 @@ const LABEL_SIZES = [
                   }
                 >
                   <span>{p.name}</span>
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>
                     {p.barcode} | مخزون: {p.stock}
                   </span>
                 </div>
@@ -5536,7 +5536,7 @@ const LABEL_SIZES = [
             style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}
           >
             <thead>
-              <tr style={{ background: "#080e1a" }}>
+              <tr style={{ background: COLORS.surfaceAlt }}>
                 {[
                   "الصنف",
                   "الكمية",
@@ -5555,7 +5555,7 @@ const LABEL_SIZES = [
                     style={{
                       padding: "9px 8px",
                       textAlign: "right",
-                      color: "#4a6a9a",
+                      color: COLORS.textDim,
                       fontSize: 12,
                       whiteSpace: "nowrap",
                     }}
@@ -5572,7 +5572,7 @@ const LABEL_SIZES = [
                     style={{
                       padding: "6px 8px",
                       fontSize: 13,
-                      color: "#c0d0f0",
+                      color: COLORS.textPrimary,
                       minWidth: 120,
                     }}
                   >
@@ -5678,11 +5678,11 @@ const LABEL_SIZES = [
                         borderColor:
                           item.newSalePrice !== item.price
                             ? "#f0a030"
-                            : "#1d2d4a",
+                            : COLORS.border,
                         color:
                           item.newSalePrice !== item.price
                             ? "#f0c060"
-                            : "#dde8ff",
+                            : COLORS.textPrimary,
                       }}
                     />
                   </td>
@@ -5718,7 +5718,7 @@ const LABEL_SIZES = [
                   <td style={{ padding: "6px 8px" }}>
                     <Badge
                       color={item.taxable ? "#0a2a00" : "#1a1a2a"}
-                      text={item.taxable ? "#44dd88" : "#4a6a8a"}
+                      text={item.taxable ? COLORS.green : COLORS.textDim}
                     >
                       {item.taxable ? "15%" : "معفى"}
                     </Badge>
@@ -5726,7 +5726,7 @@ const LABEL_SIZES = [
                   <td
                     style={{
                       padding: "6px 8px",
-                      color: "#3a9aff",
+                      color: COLORS.blue,
                       fontWeight: 700,
                       whiteSpace: "nowrap",
                     }}
@@ -5745,7 +5745,7 @@ const LABEL_SIZES = [
                       style={{
                         background: "transparent",
                         border: "none",
-                        color: "#5a2a2a",
+                        color: COLORS.red,
                         cursor: "pointer",
                       }}
                     >
@@ -5761,7 +5761,7 @@ const LABEL_SIZES = [
         {items.length > 0 && (
           <div
             style={{
-              background: "#080e1a",
+              background: COLORS.surfaceAlt,
               borderRadius: 10,
               padding: 14,
               marginTop: 14,
@@ -5772,13 +5772,13 @@ const LABEL_SIZES = [
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                color: "#4a6a8a",
+                color: COLORS.textDim,
                 marginBottom: 8,
               }}
             >
               <span>المجموع قبل الضريبة</span>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "#6a8aaa", fontSize: 11 }}>
+                <span style={{ color: COLORS.textDim, fontSize: 11 }}>
                   (محسوب: {calcSubtotal.toFixed(2)})
                 </span>
                 <input
@@ -5789,17 +5789,17 @@ const LABEL_SIZES = [
                   onChange={(e) => setManualSubtotal(e.target.value)}
                   style={{
                     width: 110,
-                    background: "#0a1020",
+                    background: COLORS.surfaceAlt,
                     border: "1px solid #1d3a6a",
                     borderRadius: 6,
                     padding: "4px 8px",
-                    color: "#dde8ff",
+                    color: COLORS.textPrimary,
                     fontSize: 13,
                     outline: "none",
                     textAlign: "left",
                   }}
                 />
-                <span style={{ color: "#4a6a8a" }}>ر.س</span>
+                <span style={{ color: COLORS.textDim }}>ر.س</span>
               </div>
             </div>
             <div
@@ -5807,13 +5807,13 @@ const LABEL_SIZES = [
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                color: "#88dd44",
+                color: COLORS.green,
                 marginBottom: 8,
               }}
             >
               <span>ضريبة القيمة المضافة 15%</span>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "#6a8aaa", fontSize: 11 }}>
+                <span style={{ color: COLORS.textDim, fontSize: 11 }}>
                   (محسوب: {calcTax.toFixed(2)})
                 </span>
                 <input
@@ -5824,17 +5824,17 @@ const LABEL_SIZES = [
                   onChange={(e) => setManualTax(e.target.value)}
                   style={{
                     width: 110,
-                    background: "#0a1020",
+                    background: COLORS.surfaceAlt,
                     border: "1px solid #1d3a6a",
                     borderRadius: 6,
                     padding: "4px 8px",
-                    color: "#dde8ff",
+                    color: COLORS.textPrimary,
                     fontSize: 13,
                     outline: "none",
                     textAlign: "left",
                   }}
                 />
-                <span style={{ color: "#88dd44" }}>ر.س</span>
+                <span style={{ color: COLORS.green }}>ر.س</span>
               </div>
             </div>
             {(manualSubtotal !== "" || manualTax !== "") && (
@@ -5845,7 +5845,7 @@ const LABEL_SIZES = [
                 }}
                 style={{
                   fontSize: 11,
-                  color: "#4a6a8a",
+                  color: COLORS.textDim,
                   background: "transparent",
                   border: "none",
                   cursor: "pointer",
@@ -5859,7 +5859,7 @@ const LABEL_SIZES = [
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontWeight: 800,
                 fontSize: 16,
                 borderTop: "1px solid #1d2d4a",
@@ -5927,12 +5927,12 @@ const LABEL_SIZES = [
                       borderBottom: "1px solid #1a2a3a",
                     }}
                   >
-                    <span style={{ color: "#4a6a8a", fontSize: 13 }}>
+                    <span style={{ color: COLORS.textDim, fontSize: 13 }}>
                       {label}
                     </span>
                     <span
                       style={{
-                        color: "#dde8ff",
+                        color: COLORS.textPrimary,
                         fontSize: 13,
                         fontWeight: 600,
                       }}
@@ -5955,7 +5955,7 @@ const LABEL_SIZES = [
         >
           <div style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginBottom: 10, padding: "6px 10px", background: "#0a1020", borderRadius: 8,
+            marginBottom: 10, padding: "6px 10px", background: COLORS.surfaceAlt, borderRadius: 8,
           }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
               <input
@@ -5966,9 +5966,9 @@ const LABEL_SIZES = [
                 }
                 style={{ width: 16, height: 16, cursor: "pointer" }}
               />
-              <span style={{ color: "#dde8ff", fontSize: 13, fontWeight: 600 }}>تحديد الكل</span>
+              <span style={{ color: COLORS.textPrimary, fontSize: 13, fontWeight: 600 }}>تحديد الكل</span>
             </label>
-            <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+            <span style={{ color: COLORS.textDim, fontSize: 12 }}>
               {printItems.filter((i) => i.selected !== false).length} / {printItems.length} محدد
             </span>
           </div>
@@ -5982,7 +5982,7 @@ const LABEL_SIZES = [
                   justifyContent: "space-between",
                   alignItems: "center",
                   padding: "8px 10px",
-                  background: "#080e1a",
+                  background: COLORS.surfaceAlt,
                   borderRadius: 8,
                   border: "1px solid #1d2d4a",
                   opacity: item.selected === false ? 0.5 : 1,
@@ -6001,10 +6001,10 @@ const LABEL_SIZES = [
                     }
                     style={{ width: 16, height: 16, cursor: "pointer" }}
                   />
-                  <span style={{ color: "#dde8ff", fontSize: 13 }}>{item.name}</span>
+                  <span style={{ color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>عدد النسخ</span>
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>عدد النسخ</span>
                   <input
                     type="number"
                     min="0"
@@ -6018,11 +6018,11 @@ const LABEL_SIZES = [
                     }
                     style={{
                       width: 60,
-                      background: "#0a1020",
+                      background: COLORS.surfaceAlt,
                       border: "1px solid #1d3a6a",
                       borderRadius: 6,
                       padding: "4px 8px",
-                      color: "#dde8ff",
+                      color: COLORS.textPrimary,
                       fontSize: 13,
                       outline: "none",
                       textAlign: "center",
@@ -6033,7 +6033,7 @@ const LABEL_SIZES = [
                     title="حذف الصنف من القائمة"
                     style={{
                       width: 26, height: 26, borderRadius: 6, border: "1px solid #4a1a1a",
-                      background: "#1a0a0a", color: "#ff5566", fontSize: 14, cursor: "pointer",
+                      background: COLORS.redSoft, color: COLORS.red, fontSize: 14, cursor: "pointer",
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}
                   >
@@ -6043,7 +6043,7 @@ const LABEL_SIZES = [
               </div>
             ))}
             {printItems.length === 0 && (
-              <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20, fontSize: 13 }}>
+              <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20, fontSize: 13 }}>
                 لا توجد أصناف في القائمة
               </div>
             )}
@@ -6100,7 +6100,7 @@ const LABEL_SIZES = [
             />
             <div
               style={{
-                color: "#4a6a8a",
+                color: COLORS.textDim,
                 fontSize: 12,
                 alignSelf: "flex-end",
                 paddingBottom: 8,
@@ -6119,7 +6119,7 @@ const LABEL_SIZES = [
               }}
             >
               <thead>
-                <tr style={{ background: "#080e1a" }}>
+                <tr style={{ background: COLORS.surfaceAlt }}>
                   {[
                     "الصنف",
                     "الكمية",
@@ -6137,7 +6137,7 @@ const LABEL_SIZES = [
                       style={{
                         padding: "9px 8px",
                         textAlign: "right",
-                        color: "#4a6a9a",
+                        color: COLORS.textDim,
                         fontSize: 12,
                       }}
                     >
@@ -6156,7 +6156,7 @@ const LABEL_SIZES = [
                       style={{
                         padding: "6px 8px",
                         fontSize: 13,
-                        color: "#c0d0f0",
+                        color: COLORS.textPrimary,
                         minWidth: 120,
                       }}
                     >
@@ -6178,11 +6178,11 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 55,
-                          background: "#080e1a",
+                          background: COLORS.surfaceAlt,
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
-                          color: "#dde8ff",
+                          color: COLORS.textPrimary,
                           fontSize: 13,
                           outline: "none",
                         }}
@@ -6213,11 +6213,11 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 60,
-                          background: "#080e1a",
+                          background: COLORS.surfaceAlt,
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
-                          color: "#dde8ff",
+                          color: COLORS.textPrimary,
                           fontSize: 13,
                           outline: "none",
                         }}
@@ -6248,11 +6248,11 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 60,
-                          background: "#080e1a",
+                          background: COLORS.surfaceAlt,
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
-                          color: "#dde8ff",
+                          color: COLORS.textPrimary,
                           fontSize: 13,
                           outline: "none",
                         }}
@@ -6275,11 +6275,11 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 85,
-                          background: "#080e1a",
+                          background: COLORS.surfaceAlt,
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
-                          color: "#dde8ff",
+                          color: COLORS.textPrimary,
                           fontSize: 13,
                           outline: "none",
                         }}
@@ -6310,11 +6310,11 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 85,
-                          background: "#080e1a",
+                          background: COLORS.surfaceAlt,
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
-                          color: "#dde8ff",
+                          color: COLORS.textPrimary,
                           fontSize: 13,
                           outline: "none",
                         }}
@@ -6336,11 +6336,11 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 55,
-                          background: "#080e1a",
+                          background: COLORS.surfaceAlt,
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
-                          color: "#dde8ff",
+                          color: COLORS.textPrimary,
                           fontSize: 13,
                           outline: "none",
                         }}
@@ -6361,11 +6361,11 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 125,
-                          background: "#080e1a",
+                          background: COLORS.surfaceAlt,
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
-                          color: "#dde8ff",
+                          color: COLORS.textPrimary,
                           fontSize: 13,
                           outline: "none",
                         }}
@@ -6374,7 +6374,7 @@ const LABEL_SIZES = [
                     <td
                       style={{
                         padding: "6px 8px",
-                        color: "#3a9aff",
+                        color: COLORS.blue,
                         fontWeight: 700,
                       }}
                     >
@@ -6394,7 +6394,7 @@ const LABEL_SIZES = [
                         style={{
                           background: "transparent",
                           border: "none",
-                          color: "#5a2a2a",
+                          color: COLORS.red,
                           cursor: "pointer",
                         }}
                       >
@@ -6409,7 +6409,7 @@ const LABEL_SIZES = [
 
           <div
             style={{
-              background: "#080e1a",
+              background: COLORS.surfaceAlt,
               borderRadius: 10,
               padding: 14,
               marginTop: 14,
@@ -6438,7 +6438,7 @@ const LABEL_SIZES = [
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      color: "#4a6a8a",
+                      color: COLORS.textDim,
                       marginBottom: 8,
                     }}
                   >
@@ -6451,11 +6451,11 @@ const LABEL_SIZES = [
                       onChange={(e) => setEditManualSubtotal(e.target.value)}
                       style={{
                         width: 110,
-                        background: "#0a1020",
+                        background: COLORS.surfaceAlt,
                         border: "1px solid #1d3a6a",
                         borderRadius: 6,
                         padding: "4px 8px",
-                        color: "#dde8ff",
+                        color: COLORS.textPrimary,
                         fontSize: 13,
                         outline: "none",
                       }}
@@ -6465,7 +6465,7 @@ const LABEL_SIZES = [
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      color: "#88dd44",
+                      color: COLORS.green,
                       marginBottom: 8,
                     }}
                   >
@@ -6478,11 +6478,11 @@ const LABEL_SIZES = [
                       onChange={(e) => setEditManualTax(e.target.value)}
                       style={{
                         width: 110,
-                        background: "#0a1020",
+                        background: COLORS.surfaceAlt,
                         border: "1px solid #1d3a6a",
                         borderRadius: 6,
                         padding: "4px 8px",
-                        color: "#dde8ff",
+                        color: COLORS.textPrimary,
                         fontSize: 13,
                         outline: "none",
                       }}
@@ -6492,7 +6492,7 @@ const LABEL_SIZES = [
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      color: "#dde8ff",
+                      color: COLORS.textPrimary,
                       fontWeight: 800,
                       fontSize: 16,
                       borderTop: "1px solid #1d2d4a",
@@ -6984,10 +6984,10 @@ function ReturnsModule({
       {/* PIN Modal */}
       {showPinModal && (
         <div style={{ position: "fixed", inset: 0, background: "#0009", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#0f1623", border: "1px solid #2a6aef", borderRadius: 16, padding: 28, width: 320, textAlign: "center" }}>
+          <div style={{ background: COLORS.surface, border: "1px solid #2a6aef", borderRadius: 16, padding: 28, width: 320, textAlign: "center" }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
-            <h3 style={{ color: "#dde8ff", margin: "0 0 8px" }}>صلاحية مدير مطلوبة</h3>
-            <p style={{ color: "#4a6a8a", fontSize: 13, marginBottom: 16 }}>
+            <h3 style={{ color: COLORS.textPrimary, margin: "0 0 8px" }}>صلاحية مدير مطلوبة</h3>
+            <p style={{ color: COLORS.textDim, fontSize: 13, marginBottom: 16 }}>
               الفاتورة أقدم من 14 يوم — أدخل PIN المدير للمتابعة
             </p>
             <input
@@ -6996,8 +6996,8 @@ function ReturnsModule({
               onChange={(e) => setAdminPin(e.target.value)}
               placeholder="PIN..."
               style={{
-                width: "100%", background: "#080e1a", border: "1px solid #1d2d4a",
-                borderRadius: 8, padding: "10px 14px", color: "#dde8ff", fontSize: 16,
+                width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a",
+                borderRadius: 8, padding: "10px 14px", color: COLORS.textPrimary, fontSize: 16,
                 outline: "none", textAlign: "center", boxSizing: "border-box", marginBottom: 14,
               }}
             />
@@ -7014,13 +7014,13 @@ function ReturnsModule({
                     setAdminPin("");
                   }
                 }}
-                style={{ flex: 1, padding: "9px 0", background: "#142a5a", border: "1px solid #2a6aef", borderRadius: 8, color: "#6aaeff", fontWeight: 700, cursor: "pointer" }}
+                style={{ flex: 1, padding: "9px 0", background: COLORS.blueSoft, border: "1px solid #2a6aef", borderRadius: 8, color: COLORS.blue, fontWeight: 700, cursor: "pointer" }}
               >
                 تأكيد
               </button>
               <button
                 onClick={() => { setShowPinModal(false); setAdminPin(""); }}
-                style={{ padding: "9px 16px", background: "transparent", border: "1px solid #1d2d4a", borderRadius: 8, color: "#4a6a8a", cursor: "pointer" }}
+                style={{ padding: "9px 16px", background: "transparent", border: "1px solid #1d2d4a", borderRadius: 8, color: COLORS.textDim, cursor: "pointer" }}
               >
                 إلغاء
               </button>
@@ -7037,9 +7037,9 @@ function ReturnsModule({
           <button key={t} onClick={() => setType(t)}
             style={{
               padding: "9px 22px", borderRadius: 9, border: "1px solid",
-              borderColor: type === t ? "#2a6aef" : "#1d2d4a",
-              background: type === t ? "#142a5a" : "transparent",
-              color: type === t ? "#6aaeff" : "#4a6a8a",
+              borderColor: type === t ? COLORS.blue : COLORS.border,
+              background: type === t ? COLORS.blueSoft : "transparent",
+              color: type === t ? COLORS.blue : COLORS.textDim,
               fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 14,
             }}
           >
@@ -7054,9 +7054,9 @@ function ReturnsModule({
 
           {/* بحث فاتورة */}
           <div style={{ position: "relative" }}>
-            <label style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4, display: "block" }}>
-              🧾 رقم الفاتورة <span style={{ color: "#ff6a6a" }}>*</span>
-              {adminOverride && <span style={{ marginRight: 8, background: "#2a1a00", color: "#ffaa44", borderRadius: 4, padding: "1px 8px", fontSize: 11 }}>🔓 تصريح مدير</span>}
+            <label style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4, display: "block" }}>
+              🧾 رقم الفاتورة <span style={{ color: COLORS.red }}>*</span>
+              {adminOverride && <span style={{ marginRight: 8, background: COLORS.goldSoft, color: COLORS.gold, borderRadius: 4, padding: "1px 8px", fontSize: 11 }}>🔓 تصريح مدير</span>}
             </label>
             <input
               value={invoiceSearch}
@@ -7065,27 +7065,27 @@ function ReturnsModule({
               onBlur={() => setTimeout(() => setInvoiceSearchOpen(false), 150)}
               placeholder="ابحث برقم الفاتورة أو اسم العميل..."
               style={{
-                width: "100%", background: "#080e1a",
-                border: `1px solid ${selInvoice ? "#2a6aef" : "#1d2d4a"}`,
-                borderRadius: 9, padding: "11px 14px", color: "#dde8ff",
+                width: "100%", background: COLORS.surfaceAlt,
+                border: `1px solid ${selInvoice ? COLORS.blue : COLORS.border}`,
+                borderRadius: 9, padding: "11px 14px", color: COLORS.textPrimary,
                 fontSize: 14, outline: "none", boxSizing: "border-box",
               }}
             />
             {selInvoice && (
-              <div style={{ marginTop: 6, padding: "6px 12px", background: "#0a1a10", border: "1px solid #2a6a2a", borderRadius: 8, fontSize: 12, color: "#44dd88", display: "flex", justifyContent: "space-between" }}>
+              <div style={{ marginTop: 6, padding: "6px 12px", background: COLORS.greenSoft, border: "1px solid #2a6a2a", borderRadius: 8, fontSize: 12, color: COLORS.green, display: "flex", justifyContent: "space-between" }}>
                 <span>
                   ✅ {selInvoice.id} — {selInvoice.date} — {selInvoice.customer_name}
                   {" — "}
                   <strong>{selInvoice.payment === "آجل" ? "آجل (سينزل من مديونية العميل)" : "نقدي (سينزل من الخزنة)"}</strong>
                 </span>
                 <button onClick={() => { setSelInvoice(null); setInvoiceSearch(""); setReturnItems([]); }}
-                  style={{ background: "transparent", border: "none", color: "#ff6a6a", cursor: "pointer" }}>✕</button>
+                  style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}>✕</button>
               </div>
             )}
             {invoiceSearchOpen && !selInvoice && (
               <div style={{
                 position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
-                background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 8,
+                background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 8,
                 maxHeight: 220, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
               }}>
                 {filteredSaleInvoices.slice(0, 15).map((inv) => {
@@ -7099,14 +7099,14 @@ function ReturnsModule({
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{inv.id}</div>
-                        <div style={{ fontSize: 11, color: "#4a6a8a" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{inv.id}</div>
+                        <div style={{ fontSize: 11, color: COLORS.textDim }}>
                           {inv.customer_name} · {inv.date} · {(inv.total || 0).toFixed(2)} ر.س
-                          {inv.payment === "آجل" && <span style={{ color: "#ffaa44" }}> · آجل</span>}
+                          {inv.payment === "آجل" && <span style={{ color: COLORS.gold }}> · آجل</span>}
                         </div>
                       </div>
                       {isOld && (
-                        <span style={{ fontSize: 10, background: "#2a1000", color: "#ffaa44", borderRadius: 4, padding: "2px 6px" }}>
+                        <span style={{ fontSize: 10, background: "#2a1000", color: COLORS.gold, borderRadius: 4, padding: "2px 6px" }}>
                           {daysDiff} يوم 🔐
                         </span>
                       )}
@@ -7114,7 +7114,7 @@ function ReturnsModule({
                   );
                 })}
                 {filteredSaleInvoices.length === 0 && (
-                  <div style={{ padding: 14, color: "#4a6a8a", textAlign: "center", fontSize: 13 }}>لا توجد فواتير مطابقة</div>
+                  <div style={{ padding: 14, color: COLORS.textDim, textAlign: "center", fontSize: 13 }}>لا توجد فواتير مطابقة</div>
                 )}
               </div>
             )}
@@ -7122,7 +7122,7 @@ function ReturnsModule({
 
           {/* بحث عميل */}
           <div style={{ position: "relative" }}>
-            <label style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4, display: "block" }}>👤 العميل</label>
+            <label style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4, display: "block" }}>👤 العميل</label>
             <input
               value={customerSearch}
               onChange={(e) => { setCustomerSearch(e.target.value); if (!e.target.value) setSelCustomer(null); }}
@@ -7130,20 +7130,20 @@ function ReturnsModule({
               onBlur={() => setTimeout(() => setCustomerSearchOpen(false), 150)}
               placeholder="ابحث بالاسم أو الجوال..."
               style={{
-                width: "100%", background: "#080e1a",
-                border: `1px solid ${selCustomer ? "#2a6aef" : "#1d2d4a"}`,
-                borderRadius: 9, padding: "11px 14px", color: "#dde8ff",
+                width: "100%", background: COLORS.surfaceAlt,
+                border: `1px solid ${selCustomer ? COLORS.blue : COLORS.border}`,
+                borderRadius: 9, padding: "11px 14px", color: COLORS.textPrimary,
                 fontSize: 14, outline: "none", boxSizing: "border-box",
               }}
             />
             {customerSearchOpen && (
               <div style={{
                 position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
-                background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 8,
+                background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 8,
                 maxHeight: 200, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
               }}>
                 <div onMouseDown={() => { setSelCustomer(null); setCustomerSearch(""); setCustomerSearchOpen(false); }}
-                  style={{ padding: "8px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a", color: "#4a6a8a", fontSize: 13 }}>
+                  style={{ padding: "8px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a", color: COLORS.textDim, fontSize: 13 }}>
                   👤 زبون عادي
                 </div>
                 {(customers || [])
@@ -7157,11 +7157,11 @@ function ReturnsModule({
                     <div key={c.id} onMouseDown={() => { setSelCustomer(c); setCustomerSearch(c.name); setCustomerSearchOpen(false); }}
                       style={{ padding: "8px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a", display: "flex", justifyContent: "space-between" }}>
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{c.name}</div>
-                        {c.phone && <div style={{ fontSize: 11, color: "#4a6a8a" }}>{c.phone}</div>}
+                        <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{c.name}</div>
+                        {c.phone && <div style={{ fontSize: 11, color: COLORS.textDim }}>{c.phone}</div>}
                       </div>
                       {c.credit > 0 && (
-                        <span style={{ fontSize: 11, background: "#2a1010", color: "#ff6a6a", borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
+                        <span style={{ fontSize: 11, background: "#2a1010", color: COLORS.red, borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
                           آجل: {c.credit?.toFixed(2)}
                         </span>
                       )}
@@ -7202,43 +7202,43 @@ function ReturnsModule({
 
       {/* الأصناف */}
       {returnItems.length > 0 && (
-        <div style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 12, padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 10 }}>
+        <div style={{ background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 12, padding: 16, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 10 }}>
             {selInvoice ? `أصناف فاتورة ${selInvoice.id}` : "الأصناف"}
-            {!adminOverride && <span style={{ marginRight: 8, color: "#ffaa44", fontSize: 11 }}>⚠️ سيتم التحقق من الباتش والصلاحية</span>}
+            {!adminOverride && <span style={{ marginRight: 8, color: COLORS.gold, fontSize: 11 }}>⚠️ سيتم التحقق من الباتش والصلاحية</span>}
           </div>
           {returnItems.map((item, i) => {
             const maxReturnable = Math.max(0, (item.qty || 0) - (item.alreadyReturnedQty || 0));
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #0a101a" }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#c0d0f0" }}>{item.name}</div>
-                  <div style={{ fontSize: 11, color: "#4a6a8a", marginTop: 2 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
+                  <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
                     {item.originalBatch && <span>باتش: {item.originalBatch}</span>}
                     {item.originalExpiry && <span style={{ marginRight: 8 }}>صلاحية: {item.originalExpiry}</span>}
                     <span style={{ marginRight: 8 }}>الكمية: {item.qty}</span>
                     {item.alreadyReturnedQty > 0 && (
-                      <span style={{ marginRight: 8, color: "#ffaa44" }}>سبق إرجاعه: {item.alreadyReturnedQty}</span>
+                      <span style={{ marginRight: 8, color: COLORS.gold }}>سبق إرجاعه: {item.alreadyReturnedQty}</span>
                     )}
                   </div>
                 </div>
-                <div style={{ color: "#4a6a8a", fontSize: 12, flexShrink: 0 }}>
+                <div style={{ color: COLORS.textDim, fontSize: 12, flexShrink: 0 }}>
                   {(type === "purchases" ? item.cost || item.price : item.price).toFixed(2)} ر.س
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.max(0, x.returnQty - 1) } : x))}
-                    style={{ width: 24, height: 24, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}>-</button>
+                    style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>-</button>
                   <input type="number" min={0} max={maxReturnable}
                     value={item.returnQty}
                     onChange={(e) => setReturnItems((p) => p.map((x, j) => j === i ? {
                       ...x, returnQty: Math.min(Math.max(0, +e.target.value), maxReturnable)
                     } : x))}
-                    style={{ width: 50, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 6px", color: "#dde8ff", fontSize: 13, outline: "none", textAlign: "center" }}
+                    style={{ width: 50, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 6px", color: COLORS.textPrimary, fontSize: 13, outline: "none", textAlign: "center" }}
                   />
                   <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(x.returnQty + 1, maxReturnable) } : x))}
-                    style={{ width: 24, height: 24, borderRadius: 4, background: "#1a2540", border: "none", color: "#5a9aff", cursor: "pointer", fontWeight: 700 }}>+</button>
+                    style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>+</button>
                 </div>
-                {item.taxable && <Badge color="#0a2a00" text="#44dd88">15%</Badge>}
+                {item.taxable && <Badge color="#0a2a00" text=COLORS.green>15%</Badge>}
               </div>
             );
           })}
@@ -7247,14 +7247,14 @@ function ReturnsModule({
 
       {/* الإجمالي */}
       {returnTotal > 0 && (
-        <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, marginBottom: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", marginBottom: 5 }}>
+        <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textDim, marginBottom: 5 }}>
             <span>قبل الضريبة</span><span>{returnSubtotal.toFixed(2)} ر.س</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", marginBottom: 5 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green, marginBottom: 5 }}>
             <span>الضريبة المستردة 15%</span><span>{returnTax.toFixed(2)} ر.س</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
             <span>إجمالي المرتجع</span><span>{returnTotal.toFixed(2)} ر.س</span>
           </div>
           {type === "sales" && selInvoice && (
@@ -7330,7 +7330,7 @@ function RasdSettings({ showToast }) {
         style={{
           display: "block",
           fontSize: 12,
-          color: "#4a6a8a",
+          color: COLORS.textDim,
           marginBottom: 6,
           fontWeight: 600,
         }}
@@ -7344,11 +7344,11 @@ function RasdSettings({ showToast }) {
         placeholder={placeholder}
         style={{
           width: "100%",
-          background: "#080e1a",
+          background: COLORS.surfaceAlt,
           border: "1px solid #1d2d4a",
           borderRadius: 8,
           padding: "10px 14px",
-          color: "#dde8ff",
+          color: COLORS.textPrimary,
           fontSize: 14,
           outline: "none",
           boxSizing: "border-box",
@@ -7364,19 +7364,19 @@ function RasdSettings({ showToast }) {
           margin: "0 0 6px",
           fontSize: 20,
           fontWeight: 800,
-          color: "#dde8ff",
+          color: COLORS.textPrimary,
         }}
       >
         إعدادات نظام رصد
       </h2>
-      <p style={{ margin: "0 0 24px", fontSize: 13, color: "#3a5a8a" }}>
+      <p style={{ margin: "0 0 24px", fontSize: 13, color: COLORS.border }}>
         نظام التتبع الإلكتروني للمستحضرات الصيدلانية — هيئة الغذاء والدواء
       </p>
 
       {/* Status Card */}
       <div
         style={{
-          background: config.enabled && connected ? "#0a2010" : "#1a0a00",
+          background: config.enabled && connected ? "#0a2010" : COLORS.redSoft,
           border: `1px solid ${
             config.enabled && connected ? "#1a5020" : "#4a2a00"
           }`,
@@ -7394,12 +7394,12 @@ function RasdSettings({ showToast }) {
               width: 10,
               height: 10,
               borderRadius: "50%",
-              background: config.enabled && connected ? "#44dd88" : "#ffaa44",
+              background: config.enabled && connected ? COLORS.green : COLORS.gold,
             }}
           />
           <span
             style={{
-              color: config.enabled && connected ? "#44dd88" : "#ffaa44",
+              color: config.enabled && connected ? COLORS.green : COLORS.gold,
               fontWeight: 700,
               fontSize: 14,
             }}
@@ -7418,7 +7418,7 @@ function RasdSettings({ showToast }) {
             width: 48,
             height: 26,
             borderRadius: 13,
-            background: config.enabled ? "#2a6aef" : "#1d2d4a",
+            background: config.enabled ? COLORS.blue : COLORS.border,
             cursor: "pointer",
             position: "relative",
             transition: "background 0.2s",
@@ -7442,7 +7442,7 @@ function RasdSettings({ showToast }) {
       {/* Form */}
       <div
         style={{
-          background: "#0f1623",
+          background: COLORS.surface,
           border: "1px solid #1d2d4a",
           borderRadius: 14,
           padding: 24,
@@ -7454,7 +7454,7 @@ function RasdSettings({ showToast }) {
             margin: "0 0 20px",
             fontSize: 14,
             fontWeight: 700,
-            color: "#6aaeff",
+            color: COLORS.blue,
           }}
         >
           بيانات الصيدلية
@@ -7479,7 +7479,7 @@ function RasdSettings({ showToast }) {
             style={{
               display: "block",
               fontSize: 12,
-              color: "#4a6a8a",
+              color: COLORS.textDim,
               marginBottom: 6,
               fontWeight: 600,
             }}
@@ -7496,11 +7496,11 @@ function RasdSettings({ showToast }) {
               placeholder="كلمة المرور"
               style={{
                 width: "100%",
-                background: "#080e1a",
+                background: COLORS.surfaceAlt,
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "10px 44px 10px 14px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontSize: 14,
                 outline: "none",
                 boxSizing: "border-box",
@@ -7515,7 +7515,7 @@ function RasdSettings({ showToast }) {
                 transform: "translateY(-50%)",
                 background: "transparent",
                 border: "none",
-                color: "#4a6a8a",
+                color: COLORS.textDim,
                 cursor: "pointer",
                 fontSize: 13,
               }}
@@ -7551,7 +7551,7 @@ function RasdSettings({ showToast }) {
       {/* Instructions */}
       <div
         style={{
-          background: "#080e1a",
+          background: COLORS.surfaceAlt,
           border: "1px solid #1d2d4a",
           borderRadius: 12,
           padding: 16,
@@ -7563,7 +7563,7 @@ function RasdSettings({ showToast }) {
             margin: "0 0 12px",
             fontSize: 13,
             fontWeight: 700,
-            color: "#ffaa44",
+            color: COLORS.gold,
           }}
         >
           ⚠️ متطلبات التفعيل
@@ -7582,10 +7582,10 @@ function RasdSettings({ showToast }) {
               gap: 8,
               marginBottom: 8,
               fontSize: 12,
-              color: "#6a8aaa",
+              color: COLORS.textDim,
             }}
           >
-            <span style={{ color: "#2a6aef", marginTop: 1 }}>•</span>
+            <span style={{ color: COLORS.blue, marginTop: 1 }}>•</span>
             {item}
           </div>
         ))}
@@ -7712,14 +7712,14 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
   };
 
   // ===== Styles =====
-  const card = (borderColor = "#1d2d4a") => ({
-    background: "#0f1623",
+  const card = (borderColor = COLORS.border) => ({
+    background: COLORS.surface,
     border: `1px solid ${borderColor}`,
     borderRadius: 14,
     padding: 16,
   });
 
-  const btn = (bg = "#1d2d4a") => ({
+  const btn = (bg = COLORS.border) => ({
     background: bg,
     border: "none",
     borderRadius: 8,
@@ -7733,7 +7733,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
   const ItemsTable = ({ items }) => (
     <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
       <thead>
-        <tr style={{ background: "#080e1a" }}>
+        <tr style={{ background: COLORS.surfaceAlt }}>
           {[
             "الصنف",
             "الباركود",
@@ -7747,7 +7747,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
               style={{
                 padding: "8px 12px",
                 textAlign: "right",
-                color: "#4a6a9a",
+                color: COLORS.textDim,
                 fontSize: 12,
               }}
             >
@@ -7762,23 +7762,23 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
             <td
               style={{
                 padding: "8px 12px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontWeight: 700,
                 fontSize: 13,
               }}
             >
               {p.name}
             </td>
-            <td style={{ padding: "8px 12px", color: "#4a6a8a", fontSize: 11 }}>
+            <td style={{ padding: "8px 12px", color: COLORS.textDim, fontSize: 11 }}>
               {p.barcode || "-"}
             </td>
-            <td style={{ padding: "8px 12px", color: "#ff7744", fontSize: 13 }}>
+            <td style={{ padding: "8px 12px", color: COLORS.coral, fontSize: 13 }}>
               {p.expiry}
             </td>
-            <td style={{ padding: "8px 12px", color: "#dde8ff", fontSize: 13 }}>
+            <td style={{ padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
               {p.stock}
             </td>
-            <td style={{ padding: "8px 12px", color: "#ffaa44", fontSize: 13 }}>
+            <td style={{ padding: "8px 12px", color: COLORS.gold, fontSize: 13 }}>
               {(p.cost || 0).toFixed(2)}
             </td>
             <td style={{ padding: "8px 12px", color: "#44cc88", fontSize: 13 }}>
@@ -7808,7 +7808,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
           <h3
             style={{
               margin: 0,
-              color: "#ff4444",
+              color: COLORS.red,
               fontSize: 15,
               fontWeight: 700,
             }}
@@ -7819,7 +7819,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
             {expired.length > 0 ? (
               <>
                 <button
-                  style={btn("#1d2d4a")}
+                  style={btn(COLORS.border)}
                   onClick={() => setShowExpiredDetail(!showExpiredDetail)}
                 >
                   {showExpiredDetail ? "▲ إخفاء" : "▼ عرض الأصناف"}
@@ -7832,7 +7832,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                 </button>
               </>
             ) : (
-              <span style={{ color: "#3a5a8a", fontSize: 13 }}>
+              <span style={{ color: COLORS.border, fontSize: 13 }}>
                 لا يوجد أصناف منتهية
               </span>
             )}
@@ -7887,7 +7887,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
               <div
                 style={{
                   fontWeight: 700,
-                  color: "#dde8ff",
+                  color: COLORS.textPrimary,
                   fontSize: 14,
                   marginBottom: 12,
                 }}
@@ -7898,7 +7898,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                 <div
                   style={{ display: "flex", justifyContent: "space-between" }}
                 >
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>
                     عدد الأصناف
                   </span>
                   <span
@@ -7910,11 +7910,11 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                 <div
                   style={{ display: "flex", justifyContent: "space-between" }}
                 >
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>
                     قيمة التكلفة
                   </span>
                   <span
-                    style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13 }}
+                    style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13 }}
                   >
                     {costTotal.toFixed(2)}
                   </span>
@@ -7922,7 +7922,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                 <div
                   style={{ display: "flex", justifyContent: "space-between" }}
                 >
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>
                     قيمة البيع
                   </span>
                   <span
@@ -7937,7 +7937,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                   style={{
                     marginTop: 10,
                     textAlign: "center",
-                    color: "#4a6a8a",
+                    color: COLORS.textDim,
                     fontSize: 11,
                   }}
                 >
@@ -7965,12 +7965,12 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                   marginBottom: 4,
                 }}
               >
-                <h4 style={{ margin: 0, color: "#dde8ff", fontSize: 14 }}>
+                <h4 style={{ margin: 0, color: COLORS.textPrimary, fontSize: 14 }}>
                   📋 أصناف {monthLabel}
                 </h4>
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                   <span
-                    style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700 }}
+                    style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}
                   >
                     تكلفة: {costTotal.toFixed(2)}
                   </span>
@@ -8120,7 +8120,7 @@ function InventoryCount({
           // ✅ رقم الجرد قابل للضغط
           <span
             style={{
-              color: "#6aaeff",
+              color: COLORS.blue,
               fontWeight: 700,
               cursor: "pointer",
               textDecoration: "underline",
@@ -8134,7 +8134,7 @@ function InventoryCount({
           l.notes || "-",
           <span
             style={{
-              color: l.items.some((i) => i.diff !== 0) ? "#ffaa44" : "#44dd88",
+              color: l.items.some((i) => i.diff !== 0) ? COLORS.gold : COLORS.green,
             }}
           >
             {l.items.filter((i) => i.diff !== 0).length} صنف مختلف
@@ -8156,7 +8156,7 @@ function InventoryCount({
                 display: "flex",
                 gap: 24,
                 marginBottom: 16,
-                color: "#4a6a9a",
+                color: COLORS.textDim,
                 fontSize: 13,
               }}
             >
@@ -8175,7 +8175,7 @@ function InventoryCount({
                 <thead>
                   <tr
                     style={{
-                      background: "#080e1a",
+                      background: COLORS.surfaceAlt,
                       position: "sticky",
                       top: 0,
                     }}
@@ -8187,7 +8187,7 @@ function InventoryCount({
                           style={{
                             padding: "9px 14px",
                             textAlign: "right",
-                            color: "#4a6a9a",
+                            color: COLORS.textDim,
                             fontSize: 12,
                           }}
                         >
@@ -8212,14 +8212,14 @@ function InventoryCount({
                               : "rgba(68,221,136,0.08)"
                             : i % 2 === 0
                             ? "transparent"
-                            : "#080e14",
+                            : COLORS.surfaceAlt,
                         }}
                       >
                         <td
                           style={{
                             padding: "8px 14px",
                             fontSize: 13,
-                            color: changed ? "#dde8ff" : "#6a8aaa",
+                            color: changed ? COLORS.textPrimary : COLORS.textDim,
                             fontWeight: changed ? 700 : 400,
                           }}
                         >
@@ -8229,17 +8229,17 @@ function InventoryCount({
                               style={{
                                 marginRight: 8,
                                 fontSize: 11,
-                                color: item.diff < 0 ? "#ff7777" : "#44dd88",
+                                color: item.diff < 0 ? COLORS.red : COLORS.green,
                               }}
                             >
                               {item.diff < 0 ? "▼ نقص" : "▲ زيادة"}
                             </span>
                           )}
                         </td>
-                        <td style={{ padding: "8px 14px", color: "#4a6a8a" }}>
+                        <td style={{ padding: "8px 14px", color: COLORS.textDim }}>
                           {item.systemQty}
                         </td>
-                        <td style={{ padding: "8px 14px", color: "#dde8ff" }}>
+                        <td style={{ padding: "8px 14px", color: COLORS.textPrimary }}>
                           {item.actualQty}
                         </td>
                         <td
@@ -8248,10 +8248,10 @@ function InventoryCount({
                             fontWeight: 700,
                             color:
                               item.diff < 0
-                                ? "#ff7777"
+                                ? COLORS.red
                                 : item.diff > 0
-                                ? "#44dd88"
-                                : "#4a6a8a",
+                                ? COLORS.green
+                                : COLORS.textDim,
                           }}
                         >
                           {item.diff > 0 ? "+" : ""}
@@ -8291,11 +8291,11 @@ function InventoryCount({
           placeholder="🔍 بحث في الأصناف..."
           style={{
             width: "100%",
-            background: "#080e1a",
+            background: COLORS.surfaceAlt,
             border: "1px solid #1d2d4a",
             borderRadius: 8,
             padding: "9px 12px",
-            color: "#dde8ff",
+            color: COLORS.textPrimary,
             fontSize: 14,
             outline: "none",
             boxSizing: "border-box",
@@ -8308,7 +8308,7 @@ function InventoryCount({
         >
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: "#080e1a", position: "sticky", top: 0 }}>
+              <tr style={{ background: COLORS.surfaceAlt, position: "sticky", top: 0 }}>
                 {[
                   "الصنف",
                   "الفئة",
@@ -8321,7 +8321,7 @@ function InventoryCount({
                     style={{
                       padding: "9px 14px",
                       textAlign: "right",
-                      color: "#4a6a9a",
+                      color: COLORS.textDim,
                       fontSize: 12,
                     }}
                   >
@@ -8336,14 +8336,14 @@ function InventoryCount({
                   key={item.id}
                   style={{
                     borderBottom: "1px solid #0a101a",
-                    background: i % 2 === 0 ? "transparent" : "#080e14",
+                    background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                   }}
                 >
                   <td
                     style={{
                       padding: "8px 14px",
                       fontSize: 13,
-                      color: "#c0d0f0",
+                      color: COLORS.textPrimary,
                     }}
                   >
                     {item.name}
@@ -8351,7 +8351,7 @@ function InventoryCount({
                   <td style={{ padding: "8px 14px" }}>
                     <Badge>{item.category}</Badge>
                   </td>
-                  <td style={{ padding: "8px 14px", color: "#4a6a8a" }}>
+                  <td style={{ padding: "8px 14px", color: COLORS.textDim }}>
                     {item.systemQty}
                   </td>
                   <td style={{ padding: "8px 14px" }}>
@@ -8374,11 +8374,11 @@ function InventoryCount({
                       }
                       style={{
                         width: 70,
-                        background: "#080e1a",
+                        background: COLORS.surfaceAlt,
                         border: "1px solid #1d2d4a",
                         borderRadius: 6,
                         padding: "5px 8px",
-                        color: "#dde8ff",
+                        color: COLORS.textPrimary,
                         fontSize: 13,
                         outline: "none",
                       }}
@@ -8390,10 +8390,10 @@ function InventoryCount({
                       fontWeight: 700,
                       color:
                         item.actualQty - item.systemQty < 0
-                          ? "#ff7777"
+                          ? COLORS.red
                           : item.actualQty - item.systemQty > 0
-                          ? "#44dd88"
-                          : "#4a6a8a",
+                          ? COLORS.green
+                          : COLORS.textDim,
                     }}
                   >
                     {item.actualQty - item.systemQty > 0 ? "+" : ""}
@@ -8684,7 +8684,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     (x.name_ar || "").includes(ingredientSearch) || (x.name_en || "").toLowerCase().includes(ingredientSearch.toLowerCase())
   );
 
-  const inputStyle = { background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
+  const inputStyle = { background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
 
   const lowStockList = products
     .filter((p) => (p.stock ?? 0) <= (p.minStock || p.min_stock || 0))
@@ -8704,11 +8704,11 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     });
     const salesDays = new Set(recentSales.map((s) => s.date)).size;
     const salesCount = recentSales.length;
-    if (salesDays >= 21) return { class: "fast",      label: "سريع جداً", color: "#44dd88" };
-    if (salesDays >= 10) return { class: "regular",   label: "منتظم",     color: "#3a9aff" };
+    if (salesDays >= 21) return { class: "fast",      label: "سريع جداً", color: COLORS.green };
+    if (salesDays >= 10) return { class: "regular",   label: "منتظم",     color: COLORS.blue };
     if (salesCount >= 5) return { class: "normal",    label: "عادي",      color: "#aaaaaa" };
-    if (salesCount >= 1) return { class: "slow",      label: "بطيء",      color: "#ffaa44" };
-    return             { class: "very_slow", label: "بطيء جداً", color: "#ff5555" };
+    if (salesCount >= 1) return { class: "slow",      label: "بطيء",      color: COLORS.gold };
+    return             { class: "very_slow", label: "بطيء جداً", color: COLORS.red };
   };
 
   const slowProducts = (products || [])
@@ -8729,19 +8729,19 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       {/* ── Search ── */}
       <input value={search} onChange={(e) => setSearch(e.target.value)}
         placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
-        style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: "#dde8ff", fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
+        style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
 
       {/* ── Stats ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
-        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color="#3a9aff" />
+        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color=COLORS.blue />
         <div onClick={() => setShowLowStock(true)} style={{ cursor: "pointer" }}>
-          <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color="#ffaa44" />
+          <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color=COLORS.gold />
         </div>
         <div onClick={() => setShowSlowProducts(true)} style={{ cursor: "pointer" }}>
-          <StatCard label="أصناف بطيئة" value={slowProducts.length} icon="alert" color="#ff5555" />
+          <StatCard label="أصناف بطيئة" value={slowProducts.length} icon="alert" color=COLORS.red />
         </div>
-        <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color="#f59e0b" />
-        <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color="#a78bfa" />
+        <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color=COLORS.gold />
+        <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color=COLORS.purple />
       </div>
 
       {/* ── Table ── */}
@@ -8750,26 +8750,26 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         rows={filtered.map((p) => {
           const mfr = manufacturers.find((m) => m.id === p.manufacturer_id);
           return [
-            <span style={{ color: "#4a6a8a", fontSize: 11 }}>{p.id}</span>,
+            <span style={{ color: COLORS.textDim, fontSize: 11 }}>{p.id}</span>,
             <div>
-              <div style={{ fontWeight: 700, color: "#dde8ff" }}>{p.nameAr || p.name}</div>
-              {p.nameEn && <div style={{ fontSize: 11, color: "#4a6a8a" }}>{p.nameEn}</div>}
-              <div style={{ fontSize: 10, color: "#3a5a8a" }}>{p.active_ingredient} {p.concentration}</div>
+              <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>{p.nameAr || p.name}</div>
+              {p.nameEn && <div style={{ fontSize: 11, color: COLORS.textDim }}>{p.nameEn}</div>}
+              <div style={{ fontSize: 10, color: COLORS.border }}>{p.active_ingredient} {p.concentration}</div>
             </div>,
-            mfr ? <Badge color="#0a1a3a" text="#6aaeff">{mfr.name}</Badge> : <span style={{ color: "#3a5a8a", fontSize: 11 }}>—</span>,
-            <span style={{ fontSize: 11, color: "#4a6a8a", fontFamily: "monospace" }}>{p.barcode}</span>,
+            mfr ? <Badge color=COLORS.blueSoft text=COLORS.blue>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
+            <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: "monospace" }}>{p.barcode}</span>,
             <div>
               <Badge>{p.mainCategory || p.category}</Badge>
-              {p.subCategory2 && <div style={{ fontSize: 10, color: "#3a5a8a", marginTop: 3 }}>{p.subCategory1 && p.subCategory1 + " · "}{p.subCategory2}</div>}
+              {p.subCategory2 && <div style={{ fontSize: 10, color: COLORS.border, marginTop: 3 }}>{p.subCategory1 && p.subCategory1 + " · "}{p.subCategory2}</div>}
             </div>,
-            <span style={{ color: "#3a9aff", fontWeight: 700 }}>{p.price} ر.س</span>,
-            <span style={{ color: "#4a6a8a" }}>{p.cost} ر.س</span>,
-            (p.is_essential || p.isEssential) ? <Badge color="#2a1a00" text="#f59e0b">⭐ أساسي</Badge> : <span style={{ color: "#4a6a8a", fontSize: 11 }}>—</span>,
+            <span style={{ color: COLORS.blue, fontWeight: 700 }}>{p.price} ر.س</span>,
+            <span style={{ color: COLORS.textDim }}>{p.cost} ر.س</span>,
+            (p.is_essential || p.isEssential) ? <Badge color=COLORS.goldSoft text=COLORS.gold>⭐ أساسي</Badge> : <span style={{ color: COLORS.textDim, fontSize: 11 }}>—</span>,
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {(p.not_available_market) && (
                 p.shortage_report_url
-                  ? <a href={p.shortage_report_url} target="_blank" rel="noreferrer"><Badge color="#3a0a0a" text="#ff5566">🚫 غير متوفر</Badge></a>
-                  : <Badge color="#3a0a0a" text="#ff5566">🚫 غير متوفر</Badge>
+                  ? <a href={p.shortage_report_url} target="_blank" rel="noreferrer"><Badge color=COLORS.redSoft text=COLORS.red>🚫 غير متوفر</Badge></a>
+                  : <Badge color=COLORS.redSoft text=COLORS.red>🚫 غير متوفر</Badge>
               )}
               <div style={{ display: "flex", gap: 5 }}>
               <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
@@ -8787,7 +8787,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       {/* ── Modal المخزون المنخفض ── */}
       <Modal open={showLowStock} onClose={() => setShowLowStock(false)} title="⚠️ الأصناف ذات المخزون المنخفض">
         {lowStockList.length === 0 ? (
-          <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20 }}>لا توجد أصناف ناقصة حاليًا 👍</div>
+          <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>لا توجد أصناف ناقصة حاليًا 👍</div>
         ) : (
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
             {lowStockList.map((p) => {
@@ -8797,13 +8797,13 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "10px 12px", marginBottom: 6, borderRadius: 8,
                   background: isEss ? "#2a1200" : "#0d1a2e",
-                  border: `1px solid ${isEss ? "#f59e0b" : "#1d2d4a"}`,
+                  border: `1px solid ${isEss ? COLORS.gold : COLORS.border}`,
                 }}>
                   <div>
-                    <div style={{ fontWeight: 700, color: isEss ? "#f59e0b" : "#dde8ff", fontSize: 13 }}>
+                    <div style={{ fontWeight: 700, color: isEss ? COLORS.gold : COLORS.textPrimary, fontSize: 13 }}>
                       {isEss && "⭐ "}{p.nameAr || p.name}
                     </div>
-                    <div style={{ fontSize: 11, color: "#4a6a8a", marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
                       المتاح: {p.stock ?? 0} / الحد الأدنى: {p.minStock || p.min_stock || 0}
                     </div>
                   </div>
@@ -8818,7 +8818,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       {/* ── Modal الأصناف البطيئة ── */}
       <Modal open={showSlowProducts} onClose={() => setShowSlowProducts(false)} title="⚠️ أصناف بطيئة تحتاج تنشيط">
         {slowProducts.length === 0 ? (
-          <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20 }}>لا توجد أصناف بطيئة حاليًا 👍</div>
+          <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>لا توجد أصناف بطيئة حاليًا 👍</div>
         ) : (
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
             {slowProducts.map((p) => {
@@ -8828,14 +8828,14 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                 <div key={p.id} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "10px 12px", marginBottom: 6, borderRadius: 8,
-                  background: isEss ? "#2a1200" : "#1a0a00",
-                  border: `1px solid ${isEss ? "#f59e0b" : "#3a2000"}`,
+                  background: isEss ? "#2a1200" : COLORS.redSoft,
+                  border: `1px solid ${isEss ? COLORS.gold : COLORS.goldSoft}`,
                 }}>
                   <div>
-                    <div style={{ fontWeight: 700, color: isEss ? "#f59e0b" : "#dde8ff", fontSize: 13 }}>
+                    <div style={{ fontWeight: 700, color: isEss ? COLORS.gold : COLORS.textPrimary, fontSize: 13 }}>
                       {isEss && "⭐ "}{p.nameAr || p.name}
                     </div>
-                    <div style={{ fontSize: 11, color: "#4a6a8a", marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
                       مخزون: {p.stock} · تكلفة: {p.cost} ر.س
                     </div>
                   </div>
@@ -8857,12 +8857,12 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
           <Btn icon="plus" onClick={addManufacturer}>إضافة</Btn>
         </div>
         {manufacturers.length === 0 ? (
-          <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20 }}>لا توجد شركات مضافة</div>
+          <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>لا توجد شركات مضافة</div>
         ) : (
           <div style={{ maxHeight: 300, overflowY: "auto" }}>
             {manufacturers.map((m) => (
               <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #0a101a" }}>
-                <span style={{ color: "#dde8ff", fontSize: 13 }}>{m.name}</span>
+                <span style={{ color: COLORS.textPrimary, fontSize: 13 }}>{m.name}</span>
                 <Btn size="sm" variant="danger" onClick={() => deleteManufacturer(m.id)}>حذف</Btn>
               </div>
             ))}
@@ -8884,19 +8884,19 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
           {/* ── الشركة المنتجة ── */}
           <div style={{ gridColumn: "1 / -1" }}>
-            <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 6 }}>🏭 الشركة المنتجة</div>
+            <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>🏭 الشركة المنتجة</div>
             <select value={form.manufacturer_id} onChange={(e) => F("manufacturer_id", e.target.value)} style={inputStyle}>
               <option value="">— اختر الشركة —</option>
               {manufacturers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
-            <div style={{ fontSize: 11, color: "#3a5a8a", marginTop: 4 }}>
-              لا تجد الشركة؟ <span onClick={() => setShowMfrModal(true)} style={{ color: "#3a9aff", cursor: "pointer", textDecoration: "underline" }}>أضفها من هنا</span>
+            <div style={{ fontSize: 11, color: COLORS.border, marginTop: 4 }}>
+              لا تجد الشركة؟ <span onClick={() => setShowMfrModal(true)} style={{ color: COLORS.blue, cursor: "pointer", textDecoration: "underline" }}>أضفها من هنا</span>
             </div>
           </div>
 
           <Select label="نوع العبوة" value={form.packageType} onChange={(v) => F("packageType", v)} options={["", ...PACKAGE_TYPES]} />
           <Input label="عدد وحدات البيع" value={form.saleUnits} onChange={(v) => F("saleUnits", v)} type="number" placeholder="فارغ = بدون تقسيم" />
-          <div style={{ fontSize: 11, color: "#3a5a8a", gridColumn: "1 / -1", marginTop: -6 }}>
+          <div style={{ fontSize: 11, color: COLORS.border, gridColumn: "1 / -1", marginTop: -6 }}>
             مثال: عبوة (نوع العبوة) فيها 20 قرص (عدد وحدات البيع) — يُستخدم لحساب سعر الوحدة وتفتيت البيع.
           </div>
 
@@ -8910,7 +8910,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               placeholder="0.00"
             />
             {form.taxable && form.price && +form.price > 0 && (
-              <div style={{ fontSize: 11, color: "#44dd88", marginTop: 4, padding: "4px 8px", background: "#0a1a0a", borderRadius: 4 }}>
+              <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4, padding: "4px 8px", background: "#0a1a0a", borderRadius: 4 }}>
                 قبل الضريبة: {(+form.price / 1.15).toFixed(2)} ر.س &nbsp;·&nbsp; الضريبة: {(+form.price - +form.price / 1.15).toFixed(2)} ر.س
               </div>
             )}
@@ -8921,11 +8921,11 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
           <Input label="الحد الأقصى للمخزون" value={form.maxStock} onChange={(v) => F("maxStock", v)} type="number" placeholder="100" />
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
-            <label style={{ color: "#5a7aaa", fontSize: 13, fontWeight: 600 }}>خاضع لضريبة القيمة المضافة 15%</label>
+            <label style={{ color: COLORS.border, fontSize: 13, fontWeight: 600 }}>خاضع لضريبة القيمة المضافة 15%</label>
             <input type="checkbox" checked={form.taxable} onChange={(e) => F("taxable", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
-            <label style={{ color: "#f59e0b", fontSize: 13, fontWeight: 600 }}>⭐ دواء أساسي</label>
+            <label style={{ color: COLORS.gold, fontSize: 13, fontWeight: 600 }}>⭐ دواء أساسي</label>
             <input type="checkbox" checked={form.isEssential} onChange={(e) => F("isEssential", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
@@ -8933,7 +8933,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
             <input type="checkbox" checked={form.isChronic} onChange={(e) => F("isChronic", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
-            <label style={{ color: "#ff5566", fontSize: 13, fontWeight: 600 }}>🚫 غير متوفر بالسوق السعودي</label>
+            <label style={{ color: COLORS.red, fontSize: 13, fontWeight: 600 }}>🚫 غير متوفر بالسوق السعودي</label>
             <input type="checkbox" checked={form.notAvailableMarket} onChange={(e) => F("notAvailableMarket", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
           </div>
           {form.notAvailableMarket && (
@@ -8945,13 +8945,13 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
         {/* المواد الفعالة */}
         <div style={{ marginTop: 20, borderTop: "1px solid #1d2d4a", paddingTop: 16 }}>
-          <div style={{ fontWeight: 700, color: "#3a9aff", marginBottom: 10, fontSize: 14 }}>🧪 المواد الفعالة</div>
+          <div style={{ fontWeight: 700, color: COLORS.blue, marginBottom: 10, fontSize: 14 }}>🧪 المواد الفعالة</div>
           {selectedIngredients.map((ing) => (
             <div key={ing.ingredient_id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ flex: 1, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 12px", color: "#dde8ff", fontSize: 13 }}>{ing.name_ar}</div>
+              <div style={{ flex: 1, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 12px", color: COLORS.textPrimary, fontSize: 13 }}>{ing.name_ar}</div>
               <input value={ing.concentration} onChange={(e) => updateIngredientConc(ing.ingredient_id, e.target.value)}
                 placeholder="التركيز (مثال: 500mg)"
-                style={{ width: 160, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                style={{ width: 160, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <Btn size="sm" variant="danger" onClick={() => removeIngredient(ing.ingredient_id)}>✕</Btn>
             </div>
           ))}
@@ -8959,20 +8959,20 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
             <input value={ingredientSearch} onChange={(e) => { setIngredientSearch(e.target.value); setShowIngredientDropdown(true); }}
               onFocus={() => setShowIngredientDropdown(true)}
               placeholder="🔍 بحث عن مادة فعالة أو إضافة جديدة..."
-              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 12px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             {showIngredientDropdown && ingredientSearch && (
               <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, zIndex: 100, maxHeight: 200, overflowY: "auto" }}>
                 {filteredIngredients.map((ing) => (
                   <div key={ing.id} onClick={() => addIngredient(ing)}
-                    style={{ padding: "8px 12px", cursor: "pointer", color: "#dde8ff", fontSize: 13, borderBottom: "1px solid #1d2d4a" }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = "#1d2d4a"}
+                    style={{ padding: "8px 12px", cursor: "pointer", color: COLORS.textPrimary, fontSize: 13, borderBottom: "1px solid #1d2d4a" }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = COLORS.border}
                     onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
-                    {ing.name_ar} {ing.name_en && <span style={{ color: "#4a6a8a", fontSize: 11 }}>({ing.name_en})</span>}
+                    {ing.name_ar} {ing.name_en && <span style={{ color: COLORS.textDim, fontSize: 11 }}>({ing.name_en})</span>}
                   </div>
                 ))}
                 <div onClick={addNewIngredient}
-                  style={{ padding: "8px 12px", cursor: "pointer", color: "#44dd88", fontSize: 13, fontWeight: 600 }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#1d2d4a"}
+                  style={{ padding: "8px 12px", cursor: "pointer", color: COLORS.green, fontSize: 13, fontWeight: 600 }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = COLORS.border}
                   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
                   ➕ إضافة "{ingredientSearch}" كمادة فعالة جديدة
                 </div>
@@ -8984,21 +8984,21 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         {/* الباركودات */}
         <div style={{ marginTop: 20, borderTop: "1px solid #1d2d4a", paddingTop: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontWeight: 700, color: "#3a9aff", fontSize: 14 }}>📦 الباركودات</div>
+            <div style={{ fontWeight: 700, color: COLORS.blue, fontSize: 14 }}>📦 الباركودات</div>
             <Btn size="sm" icon="plus" onClick={addBarcode}>إضافة باركود</Btn>
           </div>
           {barcodes.map((b, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
               <input value={b.base_barcode} onChange={(e) => updateBarcode(i, "base_barcode", e.target.value)} placeholder="باركود أساسي *"
-                style={{ background: "#080e1a", border: `1px solid ${b.is_primary ? "#3a9aff" : "#1d2d4a"}`, borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, border: `1px solid ${b.is_primary ? COLORS.blue : COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.batch_number} onChange={(e) => updateBarcode(i, "batch_number", e.target.value)} placeholder="رقم التشغيلة"
-                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.serial_number} onChange={(e) => updateBarcode(i, "serial_number", e.target.value)} placeholder="الرقم التسلسلي"
-                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.expiry_date} onChange={(e) => updateBarcode(i, "expiry_date", e.target.value)} type="date"
-                style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <button onClick={() => setBarcodes((prev) => prev.map((x, idx) => ({ ...x, is_primary: idx === i })))}
-                style={{ padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: b.is_primary ? "#1a3a6a" : "#1d2d4a", color: b.is_primary ? "#3a9aff" : "#4a6a8a" }}>
+                style={{ padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: b.is_primary ? "#1a3a6a" : COLORS.border, color: b.is_primary ? COLORS.blue : COLORS.textDim }}>
                 {b.is_primary ? "⭐ رئيسي" : "رئيسي"}
               </button>
               {barcodes.length > 1 && <Btn size="sm" variant="danger" onClick={() => removeBarcode(i)}>✕</Btn>}
@@ -9091,9 +9091,9 @@ function SuppliersModule({
   };
 
   const statusColor = {
-    green:  { bg: "#0a2010", border: "#1a5020", text: "#44dd88", label: "منتظم" },
-    orange: { bg: "#1a1000", border: "#4a3000", text: "#ffaa44", label: "تأخير بسيط" },
-    red:    { bg: "#1a0a0a", border: "#4a1010", text: "#ff5555", label: "متأخر" },
+    green:  { bg: "#0a2010", border: "#1a5020", text: COLORS.green, label: "منتظم" },
+    orange: { bg: COLORS.goldSoft, border: "#4a3000", text: COLORS.gold, label: "تأخير بسيط" },
+    red:    { bg: COLORS.redSoft, border: "#4a1010", text: COLORS.red, label: "متأخر" },
   };
 
   // ========== المستحقات ==========
@@ -9391,11 +9391,11 @@ function SuppliersModule({
     });
     const salesDays = new Set(recentSales.map((s) => s.date)).size;
     const salesCount = recentSales.length;
-    if (salesDays >= 21) return { class: "fast",      label: "سريع جداً", color: "#44dd88" };
-    if (salesDays >= 10) return { class: "regular",   label: "منتظم",     color: "#3a9aff" };
+    if (salesDays >= 21) return { class: "fast",      label: "سريع جداً", color: COLORS.green };
+    if (salesDays >= 10) return { class: "regular",   label: "منتظم",     color: COLORS.blue };
     if (salesCount >= 5) return { class: "normal",    label: "عادي",      color: "#aaaaaa" };
-    if (salesCount >= 1) return { class: "slow",      label: "بطيء",      color: "#ffaa44" };
-    return             { class: "very_slow", label: "بطيء جداً", color: "#ff5555" };
+    if (salesCount >= 1) return { class: "slow",      label: "بطيء",      color: COLORS.gold };
+    return             { class: "very_slow", label: "بطيء جداً", color: COLORS.red };
   };
 
   // ========== توليد أوردر تلقائي ==========
@@ -9559,16 +9559,16 @@ function SuppliersModule({
       {/* فلتر الحالة */}
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
         {[
-          { k: "all",    l: "الكل",           color: "#4a6a8a" },
-          { k: "green",  l: "🟢 منتظم",       color: "#44dd88" },
-          { k: "orange", l: "🟠 تأخير بسيط",  color: "#ffaa44" },
-          { k: "red",    l: "🔴 متأخر",        color: "#ff5555" },
+          { k: "all",    l: "الكل",           color: COLORS.textDim },
+          { k: "green",  l: "🟢 منتظم",       color: COLORS.green },
+          { k: "orange", l: "🟠 تأخير بسيط",  color: COLORS.gold },
+          { k: "red",    l: "🔴 متأخر",        color: COLORS.red },
         ].map((f) => (
           <button key={f.k} onClick={() => setFilterStatus(f.k)} style={{
             padding: "7px 16px", borderRadius: 8, border: "1px solid",
-            borderColor: filterStatus === f.k ? f.color : "#1d2d4a",
-            background: filterStatus === f.k ? "#0a1020" : "transparent",
-            color: filterStatus === f.k ? f.color : "#4a6a8a",
+            borderColor: filterStatus === f.k ? f.color : COLORS.border,
+            background: filterStatus === f.k ? COLORS.surfaceAlt : "transparent",
+            color: filterStatus === f.k ? f.color : COLORS.textDim,
             fontSize: 13, fontWeight: filterStatus === f.k ? 700 : 400, cursor: "pointer",
           }}>{f.l}</button>
         ))}
@@ -9588,18 +9588,18 @@ function SuppliersModule({
 
           return (
             <div key={s.id} style={{
-              background: "#0f1623", border: `1px solid ${sc.border}`,
+              background: COLORS.surface, border: `1px solid ${sc.border}`,
               borderRadius: 14, padding: 18, borderTop: `3px solid ${sc.text}`,
             }}>
               {/* اسم + حالة */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
-                  <div style={{ fontWeight: 700, color: "#dde8ff", fontSize: 15 }}>{s.name}</div>
-                  <div style={{ color: "#3a6a9a", fontSize: 11, marginTop: 2 }}>رمز: {s.id}</div>
+                  <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 15 }}>{s.name}</div>
+                  <div style={{ color: COLORS.border, fontSize: 11, marginTop: 2 }}>رمز: {s.id}</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                   <Badge color={sc.bg} text={sc.text}>{sc.label}</Badge>
-                  {rating && <span style={{ fontSize: 11, color: "#4a6a8a" }}>تنفيذ: {rating.fulfillmentRate}%</span>}
+                  {rating && <span style={{ fontSize: 11, color: COLORS.textDim }}>تنفيذ: {rating.fulfillmentRate}%</span>}
                 </div>
               </div>
 
@@ -9608,24 +9608,24 @@ function SuppliersModule({
                 <div
                   onClick={() => openAutoReturn(s)}
                   style={{
-                    background: "#1a0a00", border: "1px solid #ff7744",
+                    background: COLORS.redSoft, border: "1px solid #ff7744",
                     borderRadius: 8, padding: "8px 12px", marginBottom: 12,
                     cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
                   }}
                 >
                   <div>
-                    <div style={{ color: "#ff7744", fontWeight: 700, fontSize: 12 }}>🔄 مرتجع تلقائي مقترح</div>
-                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>{autoReturnCount} صنف يستوفي شروط الإرجاع</div>
+                    <div style={{ color: COLORS.coral, fontWeight: 700, fontSize: 12 }}>🔄 مرتجع تلقائي مقترح</div>
+                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>{autoReturnCount} صنف يستوفي شروط الإرجاع</div>
                   </div>
-                  <span style={{ color: "#ff7744", fontSize: 12 }}>إدارة →</span>
+                  <span style={{ color: COLORS.coral, fontSize: 12 }}>إدارة →</span>
                 </div>
               )}
 
               {/* رصيد أول المدة */}
               {(s.opening_balance || 0) > 0 && (
                 <div style={{ background: "#0a0e1a", border: "1px solid #2a1a00", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, color: "#4a6a8a", marginBottom: 6 }}>رصيد أول المدة</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#ffaa44", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>رصيد أول المدة</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, marginBottom: 6 }}>
                     {(s.opening_balance || 0).toFixed(2)} ر.س
                   </div>
                   {/* تفاصيل أعمار الدين */}
@@ -9635,10 +9635,10 @@ function SuppliersModule({
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 4 }}>
                         {Object.entries(aging).map(([bucket, val]) => val > 0 && (
                           <div key={bucket} style={{ textAlign: "center" }}>
-                            <div style={{ fontSize: 9, color: "#4a6a8a" }}>{bucket} يوم</div>
+                            <div style={{ fontSize: 9, color: COLORS.textDim }}>{bucket} يوم</div>
                             <div style={{
                               fontSize: 11, fontWeight: 700,
-                              color: bucket === "90+" ? "#ff5555" : bucket === "61-90" ? "#ffaa44" : "#dde8ff",
+                              color: bucket === "90+" ? COLORS.red : bucket === "61-90" ? COLORS.gold : COLORS.textPrimary,
                             }}>{val.toFixed(0)}</div>
                           </div>
                         ))}
@@ -9651,16 +9651,16 @@ function SuppliersModule({
               {/* الكريدت */}
               {creditLimit > 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#4a6a8a", marginBottom: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>
                     <span>الكريدت المستخدم</span>
-                    <span style={{ color: debt > creditLimit * 0.8 ? "#ff5555" : "#44dd88" }}>
+                    <span style={{ color: debt > creditLimit * 0.8 ? COLORS.red : COLORS.green }}>
                       {debt.toFixed(0)} / {creditLimit.toFixed(0)} ر.س
                     </span>
                   </div>
-                  <div style={{ background: "#0a1020", borderRadius: 4, height: 6, overflow: "hidden" }}>
+                  <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 6, overflow: "hidden" }}>
                     <div style={{
                       height: "100%", width: `${creditUsedPct}%`,
-                      background: creditUsedPct > 80 ? "#ff5555" : creditUsedPct > 50 ? "#ffaa44" : "#44dd88",
+                      background: creditUsedPct > 80 ? COLORS.red : creditUsedPct > 50 ? COLORS.gold : COLORS.green,
                       borderRadius: 4, transition: "width 0.3s",
                     }} />
                   </div>
@@ -9670,7 +9670,7 @@ function SuppliersModule({
               {/* فواتير مستحقة */}
               {supPurchases.filter((p) => getPurchaseNetDebt(p) > 0).length > 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, color: "#4a6a8a", marginBottom: 6 }}>الفواتير المستحقة:</div>
+                  <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>الفواتير المستحقة:</div>
                   {supPurchases
                     .filter((p) => getPurchaseNetDebt(p) > 0)
                     .sort((a, b) => new Date(a.date) - new Date(b.date))
@@ -9679,16 +9679,16 @@ function SuppliersModule({
                       const dueDays = getDueDays(po, s);
                       const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
                       return (
-                        <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: "#080e1a", borderRadius: 6, marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, color: "#6a8aaa" }}>{po.id}</span>
-                          <span style={{ fontSize: 11, color: "#dde8ff" }}>{balance.toFixed(0)} ر.س</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: dueDays < 0 ? "#ff5555" : dueDays <= 7 ? "#ffaa44" : "#44dd88" }}>
+                        <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: COLORS.surfaceAlt, borderRadius: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, color: COLORS.textDim }}>{po.id}</span>
+                          <span style={{ fontSize: 11, color: COLORS.textPrimary }}>{balance.toFixed(0)} ر.س</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: dueDays < 0 ? COLORS.red : dueDays <= 7 ? COLORS.gold : COLORS.green }}>
                             {dueDays < 0 ? `متأخر ${Math.abs(dueDays)} يوم` : `باقي ${dueDays} يوم`}
                           </span>
                           {po.returned_amount > 0 && (
-                            <Badge color="#1a0800" text="#ff7744">مرتجع: {po.returned_amount.toFixed(0)}</Badge>
+                            <Badge color=COLORS.goldSoft text=COLORS.coral>مرتجع: {po.returned_amount.toFixed(0)}</Badge>
                           )}
-                          {po.payment_status === "مسددة جزئياً" && <Badge color="#1a1000" text="#ffaa44">جزئي</Badge>}
+                          {po.payment_status === "مسددة جزئياً" && <Badge color=COLORS.goldSoft text=COLORS.gold>جزئي</Badge>}
                         </div>
                       );
                     })}
@@ -9699,19 +9699,19 @@ function SuppliersModule({
               <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>
                 {s.taxId && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ color: "#3a6a9a", fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
-                    <Badge color="#0a2a00" text="#44dd88">{s.taxId}</Badge>
+                    <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
+                    <Badge color="#0a2a00" text=COLORS.green>{s.taxId}</Badge>
                   </div>
                 )}
                 {(s.supply_categories || []).length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text="#3a9aff">{cat}</Badge>)}
+                    {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text=COLORS.blue>{cat}</Badge>)}
                   </div>
                 )}
-                {s.payment_terms && <div style={{ fontSize: 11, color: "#5a7a9a" }}>⏱ شروط الدفع: {s.payment_terms} يوم</div>}
-                {s.phone   && <div style={{ fontSize: 11, color: "#5a7a9a" }}>📞 {s.phone}</div>}
-                {s.email   && <div style={{ fontSize: 11, color: "#5a7a9a" }}>✉ {s.email}</div>}
-                {s.contact && <div style={{ fontSize: 11, color: "#5a7a9a" }}>👤 {s.contact}</div>}
+                {s.payment_terms && <div style={{ fontSize: 11, color: COLORS.textDim }}>⏱ شروط الدفع: {s.payment_terms} يوم</div>}
+                {s.phone   && <div style={{ fontSize: 11, color: COLORS.textDim }}>📞 {s.phone}</div>}
+                {s.email   && <div style={{ fontSize: 11, color: COLORS.textDim }}>✉ {s.email}</div>}
+                {s.contact && <div style={{ fontSize: 11, color: COLORS.textDim }}>👤 {s.contact}</div>}
               </div>
 
               {/* أزرار */}
@@ -9725,7 +9725,7 @@ function SuppliersModule({
                 <Btn size="sm" icon="chart" onClick={() => setShowDetail(s)} variant="secondary">تفاصيل</Btn>
                 {s.whatsapp && (
                   <button onClick={() => window.open(`https://wa.me/${s.whatsapp}`, "_blank")}
-                    style={{ padding: "6px 10px", background: "#0a2a10", border: "1px solid #1a5020", borderRadius: 7, color: "#44dd88", cursor: "pointer", fontSize: 14 }}>
+                    style={{ padding: "6px 10px", background: COLORS.greenSoft, border: "1px solid #1a5020", borderRadius: 7, color: COLORS.green, cursor: "pointer", fontSize: 14 }}>
                     💬
                   </button>
                 )}
@@ -9744,26 +9744,26 @@ function SuppliersModule({
       {/* ===== Modal المرتجع التلقائي ===== */}
       {showAutoReturn && (
         <Modal open title={`🔄 مرتجع تلقائي — ${showAutoReturn.name}`} onClose={() => setShowAutoReturn(null)} wide>
-          <div style={{ marginBottom: 14, padding: "10px 14px", background: "#1a0800", border: "1px solid #ff7744", borderRadius: 8, fontSize: 12, color: "#ff9a44" }}>
+          <div style={{ marginBottom: 14, padding: "10px 14px", background: COLORS.goldSoft, border: "1px solid #ff7744", borderRadius: 8, fontSize: 12, color: "#ff9a44" }}>
             الأصناف التالية تستوفي شروط الإرجاع: صلاحية أقل من 3 شهور + لا حركة شهر، أو صلاحية أقل من 6 شهور + لا حركة شهرين
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: "#080e1a" }}>
+                <tr style={{ background: COLORS.surfaceAlt }}>
                   {["الصنف", "المخزون", "الصلاحية", "الأيام المتبقية", "كمية الإرجاع", ""].map((h) => (
-                    <th key={h} style={{ padding: "9px 10px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>{h}</th>
+                    <th key={h} style={{ padding: "9px 10px", textAlign: "right", color: COLORS.textDim, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {autoReturnItems.map((item, i) => (
                   <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
-                    <td style={{ padding: "8px 10px", color: "#c0d0f0", fontSize: 13 }}>{item.name}</td>
-                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13 }}>{item.stock}</td>
-                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 12 }}>{item.expiry}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.stock}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 12 }}>{item.expiry}</td>
                     <td style={{ padding: "8px 10px" }}>
-                      <span style={{ color: item.daysToExpiry < 90 ? "#ff5555" : "#ffaa44", fontWeight: 700, fontSize: 12 }}>
+                      <span style={{ color: item.daysToExpiry < 90 ? COLORS.red : COLORS.gold, fontWeight: 700, fontSize: 12 }}>
                         {item.daysToExpiry} يوم
                       </span>
                     </td>
@@ -9774,12 +9774,12 @@ function SuppliersModule({
                         onChange={(e) => setAutoReturnItems((prev) =>
                           prev.map((x, j) => j === i ? { ...x, returnQty: +e.target.value } : x)
                         )}
-                        style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }}
+                        style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                       />
                     </td>
                     <td style={{ padding: "8px 10px" }}>
                       <button onClick={() => setAutoReturnItems((p) => p.filter((_, j) => j !== i))}
-                        style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}>
+                        style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}>
                         <IC n="trash" s={14} />
                       </button>
                     </td>
@@ -9789,7 +9789,7 @@ function SuppliersModule({
             </table>
           </div>
           {autoReturnItems.length === 0 && (
-            <div style={{ textAlign: "center", color: "#4a6a8a", padding: 20 }}>تم إزالة كل الأصناف</div>
+            <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>تم إزالة كل الأصناف</div>
           )}
           <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
             <Btn variant="ghost" onClick={() => setShowAutoReturn(null)}>إلغاء</Btn>
@@ -9809,36 +9809,36 @@ function SuppliersModule({
       {showOrderForm && (
         <Modal open title={`طلب شراء — ${showOrderForm.name}`} onClose={() => setShowOrderForm(null)} wide>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-            <label style={{ color: "#4a6a8a", fontSize: 13 }}>تغطية لمدة:</label>
+            <label style={{ color: COLORS.textDim, fontSize: 13 }}>تغطية لمدة:</label>
             <input type="number" min="1" value={coverageDays}
               onChange={(e) => { setCoverageDays(+e.target.value); generateOrder(showOrderForm); }}
-              style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
-            <span style={{ color: "#4a6a8a", fontSize: 13 }}>يوم</span>
+              style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+            <span style={{ color: COLORS.textDim, fontSize: 13 }}>يوم</span>
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: "#080e1a" }}>
+                <tr style={{ background: COLORS.surfaceAlt }}>
                   {["الصنف", "الحركة", "المخزون", "الحد الأدنى", "الكمية المطلوبة", ""].map((h) => (
-                    <th key={h} style={{ padding: "9px 10px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>{h}</th>
+                    <th key={h} style={{ padding: "9px 10px", textAlign: "right", color: COLORS.textDim, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {orderItems.map((item, i) => (
                   <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
-                    <td style={{ padding: "8px 10px", color: "#c0d0f0", fontSize: 13 }}>{item.name}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</td>
                     <td style={{ padding: "8px 10px" }}><span style={{ fontSize: 11, color: item.movement.color, fontWeight: 700 }}>{item.movement.label}</span></td>
-                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13 }}>{item.currentStock}</td>
-                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13 }}>{item.minStock}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.currentStock}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.minStock}</td>
                     <td style={{ padding: "8px 10px" }}>
                       <input type="number" min="0" value={item.orderQty}
                         onChange={(e) => setOrderItems((prev) => prev.map((x, j) => j === i ? { ...x, orderQty: +e.target.value } : x))}
-                        style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
+                        style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                     </td>
                     <td style={{ padding: "8px 10px" }}>
                       <button onClick={() => setOrderItems((p) => p.filter((_, j) => j !== i))}
-                        style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer" }}>
+                        style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}>
                         <IC n="trash" s={14} />
                       </button>
                     </td>
@@ -9847,7 +9847,7 @@ function SuppliersModule({
               </tbody>
             </table>
           </div>
-          {orderItems.length === 0 && <div style={{ textAlign: "center", color: "#4a6a8a", padding: 20 }}>لا توجد أصناف ناقصة</div>}
+          {orderItems.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>لا توجد أصناف ناقصة</div>}
           <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
             <Btn variant="ghost" onClick={() => setShowOrderForm(null)}>إلغاء</Btn>
             <Btn icon="check" onClick={saveOrder}>حفظ الأوردر</Btn>
@@ -9865,39 +9865,39 @@ function SuppliersModule({
       {showPayForm && (
         <Modal open title={`تسجيل دفعة — ${showPayForm.name}`} onClose={() => setShowPayForm(null)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4 }}>إجمالي المستحقات</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#ff5555" }}>{getSupplierDebt(showPayForm.id).toFixed(2)} ر.س</div>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4 }}>إجمالي المستحقات</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.red }}>{getSupplierDebt(showPayForm.id).toFixed(2)} ر.س</div>
             </div>
             <div>
-  <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 6 }}>طريقة الدفع</div>
+  <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>طريقة الدفع</div>
   <select value={payForm.method}
     onChange={(e) => setPayForm((p) => ({ ...p, method: e.target.value }))}
-    style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
+    style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
     <option value="نقدي">💵 نقدي</option>
     <option value="بطاقة">💳 بطاقة / صراف</option>
     <option value="تحويل">🏦 تحويل بنكي</option>
   </select>
 </div>
-            <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 4 }}>ترتيب السداد (الأقدم أولاً):</div>
+            <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4 }}>ترتيب السداد (الأقدم أولاً):</div>
             {purchases.filter((p) => p.supplier === showPayForm.id && getPurchaseNetDebt(p) > 0)
               .sort((a, b) => new Date(a.date) - new Date(b.date))
               .map((po) => {
                 const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
                 const dueDays = getDueDays(po, showPayForm);
                 return (
-                  <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#080e1a", borderRadius: 8, border: "1px solid #1d2d4a" }}>
+                  <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: COLORS.surfaceAlt, borderRadius: 8, border: "1px solid #1d2d4a" }}>
                     <div>
-                      <div style={{ fontSize: 12, color: "#6aaeff" }}>{po.id}</div>
-                      <div style={{ fontSize: 11, color: "#4a6a8a" }}>{po.date}</div>
+                      <div style={{ fontSize: 12, color: COLORS.blue }}>{po.id}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{po.date}</div>
                     </div>
                     <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#dde8ff" }}>{balance.toFixed(2)} ر.س</div>
-                      <div style={{ fontSize: 11, color: dueDays < 0 ? "#ff5555" : "#ffaa44" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{balance.toFixed(2)} ر.س</div>
+                      <div style={{ fontSize: 11, color: dueDays < 0 ? COLORS.red : COLORS.gold }}>
                         {dueDays < 0 ? `متأخر ${Math.abs(dueDays)} يوم` : `باقي ${dueDays} يوم`}
                       </div>
                     </div>
-                    <Badge color={po.payment_status === "مسددة جزئياً" ? "#1a1000" : "#0a0a1a"} text={po.payment_status === "مسددة جزئياً" ? "#ffaa44" : "#4a6a8a"}>
+                    <Badge color={po.payment_status === "مسددة جزئياً" ? COLORS.goldSoft : "#0a0a1a"} text={po.payment_status === "مسددة جزئياً" ? COLORS.gold : COLORS.textDim}>
                       {po.payment_status || "غير مسددة"}
                     </Badge>
                   </div>
@@ -9906,11 +9906,11 @@ function SuppliersModule({
             <Input label="مبلغ الدفعة (ر.س)" value={payForm.amount} onChange={(v) => setPayForm((p) => ({ ...p, amount: v }))} placeholder="0.00" />
             <Input label="ملاحظة" value={payForm.note} onChange={(v) => setPayForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
             <div>
-              <label style={{ fontSize: 12, color: "#4a6a8a", display: "block", marginBottom: 6 }}>سند الدفع (اختياري)</label>
+              <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>سند الدفع (اختياري)</label>
               <input type="file" accept="image/*,application/pdf"
                 onChange={(e) => { const file = e.target.files[0]; if (file) setPayForm((p) => ({ ...p, receipt: file })); }}
-                style={{ color: "#dde8ff", fontSize: 12 }} />
-              {payForm.receipt && <div style={{ fontSize: 11, color: "#44dd88", marginTop: 4 }}>✓ {payForm.receipt.name}</div>}
+                style={{ color: COLORS.textPrimary, fontSize: 12 }} />
+              {payForm.receipt && <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4 }}>✓ {payForm.receipt.name}</div>}
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
@@ -9928,44 +9928,44 @@ function SuppliersModule({
         return (
           <Modal open title={`تفاصيل — ${showDetail.name}`} onClose={() => setShowDetail(null)} wide>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 13, color: "#4a6a8a", marginBottom: 10 }}>المشتريات والمدفوعات (6 أشهر)</div>
+              <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 10 }}>المشتريات والمدفوعات (6 أشهر)</div>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100 }}>
                 {chartData.map((d, i) => (
                   <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                     <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 80 }}>
                       <div style={{ flex: 1, background: "#3a6aff", height: `${(d.purchases / maxVal) * 80}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مشتريات: ${d.purchases.toFixed(0)}`} />
-                      <div style={{ flex: 1, background: "#44dd88", height: `${(d.paid / maxVal) * 80}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مدفوعات: ${d.paid.toFixed(0)}`} />
+                      <div style={{ flex: 1, background: COLORS.green, height: `${(d.paid / maxVal) * 80}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مدفوعات: ${d.paid.toFixed(0)}`} />
                     </div>
-                    <span style={{ fontSize: 9, color: "#4a6a8a" }}>{d.label}</span>
+                    <span style={{ fontSize: 9, color: COLORS.textDim }}>{d.label}</span>
                   </div>
                 ))}
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
                 <span style={{ fontSize: 11, color: "#3a6aff" }}>■ مشتريات</span>
-                <span style={{ fontSize: 11, color: "#44dd88" }}>■ مدفوعات</span>
+                <span style={{ fontSize: 11, color: COLORS.green }}>■ مدفوعات</span>
               </div>
             </div>
-            <div style={{ fontSize: 13, color: "#4a6a8a", marginBottom: 8 }}>سجل الدفعات</div>
+            <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 8 }}>سجل الدفعات</div>
             {supPayments.length === 0 ? (
-              <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 14 }}>لا توجد دفعات مسجلة</div>
+              <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 14 }}>لا توجد دفعات مسجلة</div>
             ) : (
               <div style={{ maxHeight: 200, overflowY: "auto", marginBottom: 14 }}>
                 {supPayments.sort((a, b) => new Date(b.date) - new Date(a.date)).map((pay) => (
                   <div key={pay.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #0a101a" }}>
                     <div>
-                      <div style={{ fontSize: 12, color: "#dde8ff" }}>{pay.date}</div>
-                      {pay.notes && <div style={{ fontSize: 11, color: "#4a6a8a" }}>{pay.notes}</div>}
+                      <div style={{ fontSize: 12, color: COLORS.textPrimary }}>{pay.date}</div>
+                      {pay.notes && <div style={{ fontSize: 11, color: COLORS.textDim }}>{pay.notes}</div>}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: "#44dd88" }}>{pay.amount.toFixed(2)} ر.س</span>
-                      {pay.attachment_url && <a href={pay.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#3a9aff" }}>📎 سند</a>}
+                      <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.green }}>{pay.amount.toFixed(2)} ر.س</span>
+                      {pay.attachment_url && <a href={pay.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: COLORS.blue }}>📎 سند</a>}
                     </div>
                   </div>
                 ))}
               </div>
             )}
-            <div style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 12, color: "#4a6a8a", marginBottom: 8 }}>رفع كشف حساب المورد</div>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 8 }}>رفع كشف حساب المورد</div>
               <input type="file" accept=".pdf,.xlsx,.xls,.csv,image/*"
                 onChange={async (e) => {
                   const file = e.target.files[0];
@@ -9975,7 +9975,7 @@ function SuppliersModule({
                   if (error) { showToast("فشل الرفع: " + error.message, "error"); return; }
                   showToast("تم رفع الكشف ✓");
                 }}
-                style={{ color: "#dde8ff", fontSize: 12 }} />
+                style={{ color: COLORS.textPrimary, fontSize: 12 }} />
             </div>
           </Modal>
         );
@@ -9995,14 +9995,14 @@ function SuppliersModule({
           <Input label="مسؤول التواصل" value={form.contact} onChange={(v) => F("contact", v)} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, color: "#4a6a8a", display: "block", marginBottom: 6 }}>حد الكريدت (ر.س)</label>
+              <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>حد الكريدت (ر.س)</label>
               <input type="number" min="0" value={form.credit_limit} onChange={(e) => F("credit_limit", +e.target.value)}
-                style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div>
-              <label style={{ fontSize: 12, color: "#4a6a8a", display: "block", marginBottom: 6 }}>شروط الدفع (يوم)</label>
+              <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>شروط الدفع (يوم)</label>
               <input type="number" min="0" value={form.payment_terms} onChange={(e) => F("payment_terms", +e.target.value)}
-                style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
           </div>
 
@@ -10010,24 +10010,24 @@ function SuppliersModule({
           <div style={{ background: "#0a0e1a", border: "1px solid #2a1a00", borderRadius: 10, padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#ffaa44" }}>رصيد أول المدة</div>
-                <div style={{ fontSize: 11, color: "#4a6a8a", marginTop: 2 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.gold }}>رصيد أول المدة</div>
+                <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
                   المجموع: {(form.opening_balance_details || []).reduce((s, d) => s + (d.amount || 0), 0).toFixed(2)} ر.س
                 </div>
               </div>
-              <button onClick={addOpeningDetail} style={{ background: "#1a2a10", border: "1px solid #2a5020", borderRadius: 7, padding: "6px 12px", color: "#44dd88", fontSize: 12, cursor: "pointer" }}>
+              <button onClick={addOpeningDetail} style={{ background: "#1a2a10", border: "1px solid #2a5020", borderRadius: 7, padding: "6px 12px", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>
                 + إضافة فاتورة
               </button>
             </div>
 
             {(form.opening_balance_details || []).length === 0 && (
               <div style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: 12, color: "#4a6a8a", display: "block", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>
                   أو أدخل رقم مجمل مباشرة (ر.س)
                 </label>
                 <input type="number" min="0" value={form.opening_balance}
                   onChange={(e) => F("opening_balance", +e.target.value)}
-                  style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               </div>
             )}
 
@@ -10036,25 +10036,25 @@ function SuppliersModule({
                 {/* رأس الجدول */}
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 2fr auto", gap: 6, marginBottom: 6 }}>
                   {["رقم الفاتورة", "المبلغ (ر.س)", "عمر الدين (يوم)", "ملاحظة", ""].map((h) => (
-                    <div key={h} style={{ fontSize: 10, color: "#4a6a8a", fontWeight: 600 }}>{h}</div>
+                    <div key={h} style={{ fontSize: 10, color: COLORS.textDim, fontWeight: 600 }}>{h}</div>
                   ))}
                 </div>
                 {(form.opening_balance_details || []).map((d) => (
                   <div key={d.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 2fr auto", gap: 6, marginBottom: 6, alignItems: "center" }}>
                     <input value={d.invoice_no} onChange={(e) => updateOpeningDetail(d.id, "invoice_no", e.target.value)}
                       placeholder="INV-001"
-                      style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <input type="number" min="0" value={d.amount} onChange={(e) => updateOpeningDetail(d.id, "amount", +e.target.value)}
                       placeholder="0"
-                      style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: "#ffaa44", fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.gold, fontSize: 12, outline: "none" }} />
                     <input type="number" min="0" value={d.due_days} onChange={(e) => updateOpeningDetail(d.id, "due_days", +e.target.value)}
                       placeholder="30"
-                      style={{ background: "#080e1a", border: `1px solid ${d.due_days > 90 ? "#4a1010" : d.due_days > 60 ? "#4a3000" : "#1d2d4a"}`, borderRadius: 6, padding: "7px 10px", color: d.due_days > 90 ? "#ff5555" : d.due_days > 60 ? "#ffaa44" : "#dde8ff", fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, border: `1px solid ${d.due_days > 90 ? "#4a1010" : d.due_days > 60 ? "#4a3000" : COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: d.due_days > 90 ? COLORS.red : d.due_days > 60 ? COLORS.gold : COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <input value={d.note} onChange={(e) => updateOpeningDetail(d.id, "note", e.target.value)}
                       placeholder="اختياري"
-                      style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <button onClick={() => removeOpeningDetail(d.id)}
-                      style={{ background: "transparent", border: "none", color: "#5a2a2a", cursor: "pointer", padding: 4 }}>
+                      style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", padding: 4 }}>
                       <IC n="trash" s={14} />
                     </button>
                   </div>
@@ -10066,13 +10066,13 @@ function SuppliersModule({
                   return (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 10, padding: "10px 0", borderTop: "1px solid #1d2d4a" }}>
                       {[
-                        { bucket: "0-30", label: "0-30 يوم",  color: "#44dd88" },
-                        { bucket: "31-60", label: "31-60 يوم", color: "#dde8ff" },
-                        { bucket: "61-90", label: "61-90 يوم", color: "#ffaa44" },
-                        { bucket: "90+",  label: "+90 يوم",   color: "#ff5555" },
+                        { bucket: "0-30", label: "0-30 يوم",  color: COLORS.green },
+                        { bucket: "31-60", label: "31-60 يوم", color: COLORS.textPrimary },
+                        { bucket: "61-90", label: "61-90 يوم", color: COLORS.gold },
+                        { bucket: "90+",  label: "+90 يوم",   color: COLORS.red },
                       ].map(({ bucket, label, color }) => (
-                        <div key={bucket} style={{ textAlign: "center", background: "#080e1a", borderRadius: 6, padding: "8px 4px" }}>
-                          <div style={{ fontSize: 10, color: "#4a6a8a", marginBottom: 4 }}>{label}</div>
+                        <div key={bucket} style={{ textAlign: "center", background: COLORS.surfaceAlt, borderRadius: 6, padding: "8px 4px" }}>
+                          <div style={{ fontSize: 10, color: COLORS.textDim, marginBottom: 4 }}>{label}</div>
                           <div style={{ fontSize: 14, fontWeight: 700, color }}>{aging[bucket].toFixed(0)} ر.س</div>
                         </div>
                       ))}
@@ -10085,7 +10085,7 @@ function SuppliersModule({
 
           {/* فئات التوريد */}
           <div>
-            <label style={{ fontSize: 12, color: "#4a6a8a", display: "block", marginBottom: 8 }}>فئات التوريد</label>
+            <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 8 }}>فئات التوريد</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {SUPPLY_CATEGORIES.map((cat) => {
                 const selected = (form.supply_categories || []).includes(cat);
@@ -10094,7 +10094,7 @@ function SuppliersModule({
                     const current = form.supply_categories || [];
                     F("supply_categories", selected ? current.filter((c) => c !== cat) : [...current, cat]);
                   }}
-                    style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: selected ? "#3a9aff" : "#1d2d4a", background: selected ? "#0a2040" : "transparent", color: selected ? "#3a9aff" : "#4a6a8a", fontSize: 12, cursor: "pointer", fontWeight: selected ? 700 : 400 }}>
+                    style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: selected ? COLORS.blue : COLORS.border, background: selected ? "#0a2040" : "transparent", color: selected ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: "pointer", fontWeight: selected ? 700 : 400 }}>
                     {selected ? "✓ " : ""}{cat}
                   </button>
                 );
@@ -10144,9 +10144,9 @@ function CreditTab({ customers, onPay }) {
 
   return (
     <div>
-      <h3 style={{ color: "#dde8ff", marginBottom: 14 }}>💳 مديونية العملاء</h3>
+      <h3 style={{ color: COLORS.textPrimary, marginBottom: 14 }}>💳 مديونية العملاء</h3>
       {creditData.length === 0 ? (
-        <div style={{ color: "#3a5a8a", textAlign: "center", padding: 40 }}>
+        <div style={{ color: COLORS.border, textAlign: "center", padding: 40 }}>
           لا توجد مديونيات
         </div>
       ) : (
@@ -10154,7 +10154,7 @@ function CreditTab({ customers, onPay }) {
           <div
             key={c.id}
             style={{
-              background: "#0f1623",
+              background: COLORS.surface,
               border: "1px solid #2a1010",
               borderRadius: 12,
               padding: "12px 16px",
@@ -10165,10 +10165,10 @@ function CreditTab({ customers, onPay }) {
             }}
           >
             <div>
-              <div style={{ fontWeight: 700, color: "#dde8ff" }}>{c.name}</div>
-              <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+              <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>{c.name}</div>
+              <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 3 }}>
                 {c.invoiceCount} فاتورة آجل •{" "}
-                <span style={{ color: "#ff7777" }}>
+                <span style={{ color: COLORS.red }}>
                   متبقي: {c.totalDebt.toFixed(2)} ر.س
                 </span>
               </div>
@@ -10176,11 +10176,11 @@ function CreditTab({ customers, onPay }) {
             <button
               onClick={() => onPay(c)}
               style={{
-                background: "#0a2a1a",
+                background: COLORS.greenSoft,
                 border: "1px solid #1a4a2a",
                 borderRadius: 8,
                 padding: "6px 14px",
-                color: "#44dd88",
+                color: COLORS.green,
                 fontSize: 12,
                 cursor: "pointer",
                 fontWeight: 700,
@@ -10444,17 +10444,17 @@ function CustomersModule({
 
   // ===== تصنيف VIP =====
   const vipConfig = {
-    vip: { label: "👑 VIP", color: "#ffd700", bg: "#2a2000" },
-    excellent: { label: "⭐ ممتاز", color: "#5a9aff", bg: "#0a1a3a" },
-    good: { label: "✅ جيد", color: "#44dd88", bg: "#0a2a1a" },
-    weak: { label: "🔴 ضعيف", color: "#ff4444", bg: "#2a0a0a" },
+    vip: { label: "👑 VIP", color: COLORS.gold, bg: "#2a2000" },
+    excellent: { label: "⭐ ممتاز", color: COLORS.blue, bg: COLORS.blueSoft },
+    good: { label: "✅ جيد", color: COLORS.green, bg: COLORS.greenSoft },
+    weak: { label: "🔴 ضعيف", color: COLORS.red, bg: COLORS.redSoft },
   };
 
   const statusConfig = {
-    new: { label: "🆕 جديد", color: "#44dd88" },
-    regular: { label: "✅ منتظم", color: "#5a9aff" },
-    at_risk: { label: "⚠️ في خطر", color: "#ffaa44" },
-    inactive: { label: "💤 مختفي", color: "#ff4444" },
+    new: { label: "🆕 جديد", color: COLORS.green },
+    regular: { label: "✅ منتظم", color: COLORS.blue },
+    at_risk: { label: "⚠️ في خطر", color: COLORS.gold },
+    inactive: { label: "💤 مختفي", color: COLORS.red },
   };
 
   // ===== فلترة =====
@@ -10496,7 +10496,7 @@ function CustomersModule({
     return (
       <div
         style={{
-          background: "#0f1623",
+          background: COLORS.surface,
           border: "1px solid #1d2d4a",
           borderRadius: 14,
           padding: 16,
@@ -10505,7 +10505,7 @@ function CustomersModule({
         <div
           style={{
             fontWeight: 700,
-            color: "#dde8ff",
+            color: COLORS.textPrimary,
             fontSize: 14,
             marginBottom: 14,
           }}
@@ -10521,12 +10521,12 @@ function CustomersModule({
                 marginBottom: 4,
               }}
             >
-              <span style={{ color: "#7a9aaa", fontSize: 12 }}>{d.label}</span>
+              <span style={{ color: COLORS.textDim, fontSize: 12 }}>{d.label}</span>
               <span style={{ color: d.color, fontWeight: 700, fontSize: 13 }}>
                 {d.count}
               </span>
             </div>
-            <div style={{ background: "#080e1a", borderRadius: 4, height: 8 }}>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 8 }}>
               <div
                 style={{
                   background: d.color,
@@ -10553,8 +10553,8 @@ function CustomersModule({
     return (
       <div
         style={{
-          background: "#0f1623",
-          border: `1px solid ${vip ? vip.color + "33" : "#1d2d4a"}`,
+          background: COLORS.surface,
+          border: `1px solid ${vip ? vip.color + "33" : COLORS.border}`,
           borderRadius: 14,
           padding: 18,
         }}
@@ -10588,10 +10588,10 @@ function CustomersModule({
                 : "👨‍👩‍👧"}
             </div>
             <div>
-              <div style={{ fontWeight: 700, color: "#dde8ff", fontSize: 14 }}>
+              <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 14 }}>
                 {c.name}
               </div>
-              <div style={{ color: "#3a6a9a", fontSize: 11 }}>
+              <div style={{ color: COLORS.border, fontSize: 11 }}>
                 {c.id} • {c.phone}
               </div>
             </div>
@@ -10621,7 +10621,7 @@ function CustomersModule({
             {statusC && (
               <span
                 style={{
-                  background: "#080e1a",
+                  background: COLORS.surfaceAlt,
                   color: statusC.color,
                   padding: "3px 8px",
                   borderRadius: 6,
@@ -10647,43 +10647,43 @@ function CustomersModule({
             {
               label: "إجمالي الزيارات",
               value: s?.totalVisits || 0,
-              color: "#5a9aff",
+              color: COLORS.blue,
             },
             {
               label: "زيارات الشهر",
               value: s?.monthlyVisits || 0,
-              color: "#44dd88",
+              color: COLORS.green,
             },
             {
               label: "متوسط الفاتورة",
               value: s ? s.avgInvoice.toFixed(0) + " ر.س" : "-",
-              color: "#a78bfa",
+              color: COLORS.purple,
             },
             {
               label: "إجمالي المشتريات",
               value: s ? s.totalSpent.toFixed(0) + " ر.س" : "-",
-              color: "#ffd700",
+              color: COLORS.gold,
             },
             {
               label: "مشتريات الشهر",
               value: s ? s.monthlySpent.toFixed(0) + " ر.س" : "-",
-              color: "#ffaa44",
+              color: COLORS.gold,
             },
             {
               label: "آخر زيارة",
               value: s ? `${s.daysSinceLast} يوم` : "لم يزر",
-              color: "#7a9aaa",
+              color: COLORS.textDim,
             },
           ].map((item) => (
             <div
               key={item.label}
               style={{
-                background: "#080e1a",
+                background: COLORS.surfaceAlt,
                 borderRadius: 8,
                 padding: "7px 8px",
               }}
             >
-              <div style={{ color: "#3a5a8a", fontSize: 9 }}>{item.label}</div>
+              <div style={{ color: COLORS.border, fontSize: 9 }}>{item.label}</div>
               <div
                 style={{
                   color: item.color,
@@ -10708,17 +10708,17 @@ function CustomersModule({
                 marginBottom: 3,
               }}
             >
-              <span style={{ color: "#4a6a8a", fontSize: 10 }}>نقاط RFM</span>
+              <span style={{ color: COLORS.textDim, fontSize: 10 }}>نقاط RFM</span>
               <span
                 style={{ color: vip?.color, fontSize: 11, fontWeight: 700 }}
               >
                 {s.rfmScore}/100
               </span>
             </div>
-            <div style={{ background: "#080e1a", borderRadius: 4, height: 5 }}>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 5 }}>
               <div
                 style={{
-                  background: vip?.color || "#4a6a8a",
+                  background: vip?.color || COLORS.textDim,
                   height: "100%",
                   borderRadius: 4,
                   width: `${s.rfmScore}%`,
@@ -10737,7 +10737,7 @@ function CustomersModule({
               style={{
                 background: "transparent",
                 border: "none",
-                color: "#4a6a8a",
+                color: COLORS.textDim,
                 fontSize: 11,
                 cursor: "pointer",
                 padding: 0,
@@ -10760,7 +10760,7 @@ function CustomersModule({
                   <span
                     key={i}
                     style={{
-                      background: "#080e1a",
+                      background: COLORS.surfaceAlt,
                       color: "#5a9adf",
                       padding: "3px 8px",
                       borderRadius: 6,
@@ -10782,11 +10782,11 @@ function CustomersModule({
               openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 نتمنى أن تكونوا بخير`)
             }
             style={{
-              background: "#0a2a0a",
+              background: COLORS.greenSoft,
               border: "1px solid #1a4a1a",
               borderRadius: 8,
               padding: "6px 12px",
-              color: "#44dd88",
+              color: COLORS.green,
               fontSize: 12,
               cursor: "pointer",
               fontWeight: 700,
@@ -10797,11 +10797,11 @@ function CustomersModule({
           <button
             onClick={() => openEdit(c)}
             style={{
-              background: "#0a1a3a",
+              background: COLORS.blueSoft,
               border: "1px solid #1d2d4a",
               borderRadius: 8,
               padding: "6px 12px",
-              color: "#5a9aff",
+              color: COLORS.blue,
               fontSize: 12,
               cursor: "pointer",
             }}
@@ -10822,11 +10822,11 @@ function CustomersModule({
               showToast("تم حذف العميل");
             }}
             style={{
-              background: "#2a0a0a",
+              background: COLORS.redSoft,
               border: "1px solid #3a1010",
               borderRadius: 8,
               padding: "6px 12px",
-              color: "#ff4444",
+              color: COLORS.red,
               fontSize: 12,
               cursor: "pointer",
             }}
@@ -10905,10 +10905,10 @@ function CustomersModule({
 
   const tabBtn = (tab) => ({
     background: activeTab === tab ? "#1a3a6a" : "transparent",
-    border: `1px solid ${activeTab === tab ? "#3a6aaa" : "#1d2d4a"}`,
+    border: `1px solid ${activeTab === tab ? "#3a6aaa" : COLORS.border}`,
     borderRadius: 8,
     padding: "8px 16px",
-    color: activeTab === tab ? "#5a9aff" : "#4a6a8a",
+    color: activeTab === tab ? COLORS.blue : COLORS.textDim,
     cursor: "pointer",
     fontSize: 13,
     fontWeight: activeTab === tab ? 700 : 400,
@@ -10946,27 +10946,27 @@ function CustomersModule({
           {
             label: "إجمالي العملاء",
             value: totalCustomers,
-            color: "#5a9aff",
+            color: COLORS.blue,
             icon: "👥",
           },
           {
             label: "جديد هذا الشهر",
             value: newCount,
-            color: "#44dd88",
+            color: COLORS.green,
             icon: "🆕",
           },
-          { label: "عملاء VIP", value: vipCount, color: "#ffd700", icon: "👑" },
+          { label: "عملاء VIP", value: vipCount, color: COLORS.gold, icon: "👑" },
           {
             label: "مختفون",
             value: inactiveCount,
-            color: "#ff4444",
+            color: COLORS.red,
             icon: "💤",
           },
         ].map((item) => (
           <div
             key={item.label}
             style={{
-              background: "#0f1623",
+              background: COLORS.surface,
               border: "1px solid #1d2d4a",
               borderRadius: 12,
               padding: "14px 16px",
@@ -10976,14 +10976,14 @@ function CustomersModule({
             <div style={{ color: item.color, fontWeight: 800, fontSize: 22 }}>
               {item.value}
             </div>
-            <div style={{ color: "#4a6a8a", fontSize: 11 }}>{item.label}</div>
+            <div style={{ color: COLORS.textDim, fontSize: 11 }}>{item.label}</div>
           </div>
         ))}
         {/* كارت مديونية العملاء */}
         <div
           onClick={() => setActiveTab("credit")}
           style={{
-            background: "#0f1623",
+            background: COLORS.surface,
             border: "1px solid #3a1010",
             borderRadius: 12,
             padding: "14px 16px",
@@ -10992,10 +10992,10 @@ function CustomersModule({
           }}
         >
           <div style={{ fontSize: 20, marginBottom: 4 }}>💳</div>
-          <div style={{ color: "#ff7777", fontWeight: 800, fontSize: 18 }}>
+          <div style={{ color: COLORS.red, fontWeight: 800, fontSize: 18 }}>
             مديونية العملاء
           </div>
-          <div style={{ color: "#4a6a8a", fontSize: 11 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 11 }}>
             اضغط لعرض التفاصيل
           </div>
         </div>
@@ -11044,11 +11044,11 @@ function CustomersModule({
               style={{
                 flex: 1,
                 minWidth: 200,
-                background: "#080e1a",
+                background: COLORS.surfaceAlt,
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 14px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontSize: 14,
                 outline: "none",
               }}
@@ -11057,11 +11057,11 @@ function CustomersModule({
               value={filterVip}
               onChange={(e) => setFilterVip(e.target.value)}
               style={{
-                background: "#080e1a",
+                background: COLORS.surfaceAlt,
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 12px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontSize: 13,
               }}
             >
@@ -11075,11 +11075,11 @@ function CustomersModule({
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
               style={{
-                background: "#080e1a",
+                background: COLORS.surfaceAlt,
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 12px",
-                color: "#dde8ff",
+                color: COLORS.textPrimary,
                 fontSize: 13,
               }}
             >
@@ -11115,7 +11115,7 @@ function CustomersModule({
               marginBottom: 14,
             }}
           >
-            <h3 style={{ margin: 0, color: "#dde8ff", fontSize: 15 }}>
+            <h3 style={{ margin: 0, color: COLORS.textPrimary, fontSize: 15 }}>
               عملاء اليوم ({todayCustomers.length})
             </h3>
             {todayCustomers.length > 0 && (
@@ -11127,11 +11127,11 @@ function CustomersModule({
                   )
                 }
                 style={{
-                  background: "#0a2a0a",
+                  background: COLORS.greenSoft,
                   border: "1px solid #1a4a1a",
                   borderRadius: 8,
                   padding: "8px 16px",
-                  color: "#44dd88",
+                  color: COLORS.green,
                   fontSize: 13,
                   cursor: "pointer",
                   fontWeight: 700,
@@ -11142,7 +11142,7 @@ function CustomersModule({
             )}
           </div>
           {todayCustomers.length === 0 ? (
-            <div style={{ color: "#3a5a8a", textAlign: "center", padding: 40 }}>
+            <div style={{ color: COLORS.border, textAlign: "center", padding: 40 }}>
               لا يوجد عملاء اليوم
             </div>
           ) : (
@@ -11152,7 +11152,7 @@ function CustomersModule({
                 <div
                   key={c.id}
                   style={{
-                    background: "#0f1623",
+                    background: COLORS.surface,
                     border: "1px solid #1d2d4a",
                     borderRadius: 12,
                     padding: "12px 16px",
@@ -11169,10 +11169,10 @@ function CustomersModule({
                       {c.category === "individual" ? "👤" : "👨‍👩‍👧"}
                     </span>
                     <div>
-                      <div style={{ fontWeight: 700, color: "#dde8ff" }}>
+                      <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>
                         {c.name}
                       </div>
-                      <div style={{ color: "#4a6a8a", fontSize: 11 }}>
+                      <div style={{ color: COLORS.textDim, fontSize: 11 }}>
                         {c.phone}
                       </div>
                     </div>
@@ -11198,11 +11198,11 @@ function CustomersModule({
                       )
                     }
                     style={{
-                      background: "#0a2a0a",
+                      background: COLORS.greenSoft,
                       border: "1px solid #1a4a1a",
                       borderRadius: 8,
                       padding: "6px 14px",
-                      color: "#44dd88",
+                      color: COLORS.green,
                       fontSize: 12,
                       cursor: "pointer",
                     }}
@@ -11227,7 +11227,7 @@ function CustomersModule({
               marginBottom: 14,
             }}
           >
-            <h3 style={{ margin: 0, color: "#dde8ff", fontSize: 15 }}>
+            <h3 style={{ margin: 0, color: COLORS.textPrimary, fontSize: 15 }}>
               العملاء المختفون ({inactiveCustomers.length})
             </h3>
             {inactiveCustomers.length > 0 && (
@@ -11239,7 +11239,7 @@ function CustomersModule({
                   )
                 }
                 style={{
-                  background: "#2a0a0a",
+                  background: COLORS.redSoft,
                   border: "1px solid #3a1010",
                   borderRadius: 8,
                   padding: "8px 16px",
@@ -11259,7 +11259,7 @@ function CustomersModule({
               <div
                 key={c.id}
                 style={{
-                  background: "#0f1623",
+                  background: COLORS.surface,
                   border: "1px solid #2a1010",
                   borderRadius: 12,
                   padding: "12px 16px",
@@ -11270,16 +11270,16 @@ function CustomersModule({
                 }}
               >
                 <div>
-                  <div style={{ fontWeight: 700, color: "#dde8ff" }}>
+                  <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>
                     {c.name}
                   </div>
-                  <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+                  <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 3 }}>
                     غائب منذ{" "}
-                    <span style={{ color: "#ff4444" }}>
+                    <span style={{ color: COLORS.red }}>
                       {s?.daysSinceLast} يوم
                     </span>{" "}
                     • إجمالي مشتريات:{" "}
-                    <span style={{ color: "#ffd700" }}>
+                    <span style={{ color: COLORS.gold }}>
                       {s?.totalSpent.toFixed(0)} ر.س
                     </span>
                   </div>
@@ -11295,8 +11295,8 @@ function CustomersModule({
                       <span
                         key={i}
                         style={{
-                          background: "#080e1a",
-                          color: "#5a7a9a",
+                          background: COLORS.surfaceAlt,
+                          color: COLORS.textDim,
                           padding: "2px 6px",
                           borderRadius: 4,
                           fontSize: 10,
@@ -11315,11 +11315,11 @@ function CustomersModule({
                     )
                   }
                   style={{
-                    background: "#0a2a0a",
+                    background: COLORS.greenSoft,
                     border: "1px solid #1a4a1a",
                     borderRadius: 8,
                     padding: "6px 14px",
-                    color: "#44dd88",
+                    color: COLORS.green,
                     fontSize: 12,
                     cursor: "pointer",
                   }}
@@ -11344,20 +11344,20 @@ function CustomersModule({
                 label: "👤 فرد",
                 count: customers.filter((c) => c.category === "individual")
                   .length,
-                color: "#a78bfa",
+                color: COLORS.purple,
               },
               {
                 label: "👫 أسرة بدون أطفال",
                 count: customers.filter((c) => c.category === "family_no_kids")
                   .length,
-                color: "#5a9aff",
+                color: COLORS.blue,
               },
               {
                 label: "👨‍👩‍👧 أسرة مع أطفال",
                 count: customers.filter(
                   (c) => c.category === "family_with_kids"
                 ).length,
-                color: "#44dd88",
+                color: COLORS.green,
               },
             ]}
           />
@@ -11367,25 +11367,25 @@ function CustomersModule({
               {
                 label: "🆕 جديد",
                 count: enriched.filter((c) => c.stats?.status === "new").length,
-                color: "#44dd88",
+                color: COLORS.green,
               },
               {
                 label: "✅ منتظم",
                 count: enriched.filter((c) => c.stats?.status === "regular")
                   .length,
-                color: "#5a9aff",
+                color: COLORS.blue,
               },
               {
                 label: "⚠️ في خطر",
                 count: enriched.filter((c) => c.stats?.status === "at_risk")
                   .length,
-                color: "#ffaa44",
+                color: COLORS.gold,
               },
               {
                 label: "💤 مختفي",
                 count: enriched.filter((c) => c.stats?.status === "inactive")
                   .length,
-                color: "#ff4444",
+                color: COLORS.red,
               },
             ]}
           />
@@ -11396,25 +11396,25 @@ function CustomersModule({
                 label: "👑 VIP",
                 count: enriched.filter((c) => c.stats?.vipLevel === "vip")
                   .length,
-                color: "#ffd700",
+                color: COLORS.gold,
               },
               {
                 label: "⭐ ممتاز",
                 count: enriched.filter((c) => c.stats?.vipLevel === "excellent")
                   .length,
-                color: "#5a9aff",
+                color: COLORS.blue,
               },
               {
                 label: "✅ جيد",
                 count: enriched.filter((c) => c.stats?.vipLevel === "good")
                   .length,
-                color: "#44dd88",
+                color: COLORS.green,
               },
               {
                 label: "🔴 ضعيف",
                 count: enriched.filter((c) => c.stats?.vipLevel === "weak")
                   .length,
-                color: "#ff4444",
+                color: COLORS.red,
               },
             ]}
           />
@@ -11434,7 +11434,7 @@ function CustomersModule({
         wide
       >
         {creditInvoices.length === 0 ? (
-          <div style={{ color: "#44dd88", textAlign: "center", padding: 20 }}>
+          <div style={{ color: COLORS.green, textAlign: "center", padding: 20 }}>
             ✅ لا توجد مديونيات
           </div>
         ) : (
@@ -11447,7 +11447,7 @@ function CustomersModule({
               }}
             >
               <thead>
-                <tr style={{ background: "#080e1a" }}>
+                <tr style={{ background: COLORS.surfaceAlt }}>
                   {[
                     "رقم الفاتورة",
                     "التاريخ",
@@ -11461,7 +11461,7 @@ function CustomersModule({
                       style={{
                         padding: "8px 12px",
                         textAlign: "right",
-                        color: "#4a6a9a",
+                        color: COLORS.textDim,
                         fontSize: 12,
                       }}
                     >
@@ -11480,39 +11480,39 @@ function CustomersModule({
                       cursor: "pointer",
                       background:
                         selectedInvoice?.id === inv.id
-                          ? "#0a1a3a"
+                          ? COLORS.blueSoft
                           : "transparent",
                     }}
                   >
                     <td
                       style={{
                         padding: "8px 12px",
-                        color: "#6aaeff",
+                        color: COLORS.blue,
                         fontWeight: 700,
                       }}
                     >
                       {inv.id}
                     </td>
-                    <td style={{ padding: "8px 12px", color: "#7a9aaa" }}>
+                    <td style={{ padding: "8px 12px", color: COLORS.textDim }}>
                       {inv.date}
                     </td>
-                    <td style={{ padding: "8px 12px", color: "#dde8ff" }}>
+                    <td style={{ padding: "8px 12px", color: COLORS.textPrimary }}>
                       {inv.total.toFixed(2)}
                     </td>
-                    <td style={{ padding: "8px 12px", color: "#44dd88" }}>
+                    <td style={{ padding: "8px 12px", color: COLORS.green }}>
                       {inv.totalPaid.toFixed(2)}
                     </td>
                     <td
                       style={{
                         padding: "8px 12px",
-                        color: "#ff7777",
+                        color: COLORS.red,
                         fontWeight: 700,
                       }}
                     >
                       {inv.remaining.toFixed(2)}
                     </td>
                     <td style={{ padding: "8px 12px" }}>
-                      <span style={{ color: "#3a6a9a", fontSize: 11 }}>
+                      <span style={{ color: COLORS.border, fontSize: 11 }}>
                         اختر
                       </span>
                     </td>
@@ -11523,15 +11523,15 @@ function CustomersModule({
 
             {selectedInvoice && (
               <div
-                style={{ background: "#080e1a", borderRadius: 10, padding: 14 }}
+                style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14 }}
               >
                 <div
-                  style={{ color: "#dde8ff", marginBottom: 10, fontSize: 13 }}
+                  style={{ color: COLORS.textPrimary, marginBottom: 10, fontSize: 13 }}
                 >
                   سداد فاتورة{" "}
-                  <span style={{ color: "#6aaeff" }}>{selectedInvoice.id}</span>{" "}
+                  <span style={{ color: COLORS.blue }}>{selectedInvoice.id}</span>{" "}
                   • المتبقي:{" "}
-                  <span style={{ color: "#ff7777" }}>
+                  <span style={{ color: COLORS.red }}>
                     {selectedInvoice.remaining.toFixed(2)} ر.س
                   </span>
                 </div>
@@ -11544,11 +11544,11 @@ function CustomersModule({
                     max={selectedInvoice.remaining}
                     style={{
                       flex: 1,
-                      background: "#0f1623",
+                      background: COLORS.surface,
                       border: "1px solid #1d2d4a",
                       borderRadius: 8,
                       padding: "8px 12px",
-                      color: "#dde8ff",
+                      color: COLORS.textPrimary,
                       fontSize: 14,
                       outline: "none",
                     }}
@@ -11558,11 +11558,11 @@ function CustomersModule({
                       setPayAmount(String(selectedInvoice.remaining))
                     }
                     style={{
-                      background: "#0a1a3a",
+                      background: COLORS.blueSoft,
                       border: "1px solid #1d3a6a",
                       borderRadius: 8,
                       padding: "8px 12px",
-                      color: "#5a9aff",
+                      color: COLORS.blue,
                       fontSize: 12,
                       cursor: "pointer",
                     }}
@@ -11604,7 +11604,7 @@ function CustomersModule({
             placeholder="اختياري"
           />
           <div>
-            <div style={{ color: "#7a9aaa", fontSize: 12, marginBottom: 8 }}>
+            <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 8 }}>
               نوع العميل *
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -11621,11 +11621,11 @@ function CustomersModule({
                     padding: "10px 8px",
                     borderRadius: 10,
                     border: `2px solid ${
-                      form.category === opt.val ? "#3a9aff" : "#1d2d4a"
+                      form.category === opt.val ? COLORS.blue : COLORS.border
                     }`,
                     background:
-                      form.category === opt.val ? "#0a1a3a" : "#080e1a",
-                    color: form.category === opt.val ? "#3a9aff" : "#5a7a9a",
+                      form.category === opt.val ? COLORS.blueSoft : COLORS.surfaceAlt,
+                    color: form.category === opt.val ? COLORS.blue : COLORS.textDim,
                     fontSize: 12,
                     textAlign: "center",
                     cursor: "pointer",
@@ -11647,7 +11647,7 @@ function CustomersModule({
               />
               <div>
                 <div
-                  style={{ color: "#7a9aaa", fontSize: 12, marginBottom: 8 }}
+                  style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 8 }}
                 >
                   الفئات العمرية
                 </div>
@@ -11668,10 +11668,10 @@ function CustomersModule({
                           padding: "7px 12px",
                           borderRadius: 20,
                           border: `1px solid ${
-                            selected ? "#44dd88" : "#1d2d4a"
+                            selected ? COLORS.green : COLORS.border
                           }`,
-                          background: selected ? "#0a2a1a" : "#080e1a",
-                          color: selected ? "#44dd88" : "#5a7a9a",
+                          background: selected ? COLORS.greenSoft : COLORS.surfaceAlt,
+                          color: selected ? COLORS.green : COLORS.textDim,
                           fontSize: 12,
                           cursor: "pointer",
                         }}
@@ -11746,10 +11746,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const [thresholdHistory, setThresholdHistory] = useState<{ threshold: number; effective_from: string }[]>([]);
 
   const DEFAULT_RULES = [
-    { days: 90,  discount: 50, color: "#ff4444" },
-    { days: 120, discount: 25, color: "#ff7744" },
-    { days: 150, discount: 20, color: "#ffaa44" },
-    { days: 180, discount: 15, color: "#f59e0b" },
+    { days: 90,  discount: 50, color: COLORS.red },
+    { days: 120, discount: 25, color: COLORS.coral },
+    { days: 150, discount: 20, color: COLORS.gold },
+    { days: 180, discount: 15, color: COLORS.gold },
   ];
   const [discountRules, setDiscountRules] = useState(DEFAULT_RULES);
   const [editRules, setEditRules] = useState(DEFAULT_RULES);
@@ -12069,10 +12069,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const activePromos = promos.filter((p) => p.end_date >= today && p.start_date <= today);
   const expiredPromos = promos.filter((p) => p.end_date < today);
 
-  const discountColor = (d) => d >= 50 ? "#ff4444" : d >= 25 ? "#ff7744" : d >= 20 ? "#ffaa44" : "#f59e0b";
+  const discountColor = (d) => d >= 50 ? COLORS.red : d >= 25 ? COLORS.coral : d >= 20 ? COLORS.gold : COLORS.gold;
 
-  const cardStyle = (border = "#1d2d4a") => ({
-    background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
+  const cardStyle = (border = COLORS.border) => ({
+    background: COLORS.surface, border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
 
   const filteredAutoPromos = autoPromoProducts.filter((p) =>
@@ -12088,7 +12088,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🏷️ إدارة العروض</h2>
-          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>
+          <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>
             عروض تلقائية حسب الصلاحية + عروض يدوية + أصناف محفزة
           </div>
         </div>
@@ -12096,19 +12096,19 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
       {/* تنبيه العروض التلقائية */}
       {autoPromoProducts.length > 0 && (
-        <div style={{ background: "#1a0800", border: "1px solid #4a2800", borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ background: COLORS.goldSoft, border: "1px solid #4a2800", borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <span style={{ color: "#ffaa44", fontWeight: 700 }}>⚠️ {autoPromoProducts.length} صنف يحتاج عرض تلقائي</span>
-            <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>أصناف غير دوائية بصلاحية أقل من 6 شهور</div>
+            <span style={{ color: COLORS.gold, fontWeight: 700 }}>⚠️ {autoPromoProducts.length} صنف يحتاج عرض تلقائي</span>
+            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>أصناف غير دوائية بصلاحية أقل من 6 شهور</div>
           </div>
-          <button onClick={() => setActiveTab("auto")} style={{ background: "#3a2000", border: "1px solid #6a4000", borderRadius: 8, padding: "6px 14px", color: "#ffaa44", fontSize: 12, cursor: "pointer" }}>
+          <button onClick={() => setActiveTab("auto")} style={{ background: COLORS.goldSoft, border: "1px solid #6a4000", borderRadius: 8, padding: "6px 14px", color: COLORS.gold, fontSize: 12, cursor: "pointer" }}>
             عرض التفاصيل
           </button>
         </div>
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#080e1a", borderRadius: 10, padding: 4 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, borderRadius: 10, padding: 4 }}>
         {[
           { k: "auto", l: `⏰ تلقائي (${autoPromoProducts.length})` },
           { k: "manual", l: `✋ يدوي (${activePromos.length})` },
@@ -12116,8 +12116,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         ].map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
             flex: 1, padding: "9px 8px", borderRadius: 8, border: "none",
-            background: activeTab === t.k ? "#0f1623" : "transparent",
-            color: activeTab === t.k ? "#3a9aff" : "#4a6a8a",
+            background: activeTab === t.k ? COLORS.surface : "transparent",
+            color: activeTab === t.k ? COLORS.blue : COLORS.textDim,
             fontSize: 12, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
           }}>{t.l}</button>
         ))}
@@ -12128,14 +12128,14 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         <div>
           <div style={cardStyle("#1a2a1a")}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ color: "#44dd88", fontWeight: 700 }}>📋 منطق الخصم التدرجي التلقائي</div>
+              <div style={{ color: COLORS.green, fontWeight: 700 }}>📋 منطق الخصم التدرجي التلقائي</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setShowAutoConfig((v) => !v)}
-                  style={{ background: "#1a0a2a", border: "1px solid #4a1a6a", borderRadius: 8, padding: "5px 14px", color: "#a78bfa", fontSize: 12, cursor: "pointer" }}>
+                  style={{ background: "#1a0a2a", border: "1px solid #4a1a6a", borderRadius: 8, padding: "5px 14px", color: COLORS.purple, fontSize: 12, cursor: "pointer" }}>
                   ⚙️ شرط الإضافة
                 </button>
                 <button onClick={() => { setEditRules(discountRules.map(r => ({...r}))); setShowRulesEditor(true); }}
-                  style={{ background: "#0a1a2a", border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: "#3a9aff", fontSize: 12, cursor: "pointer" }}>
+                  style={{ background: COLORS.surfaceAlt, border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
                   ✏️ تعديل القواعد
                 </button>
               </div>
@@ -12144,11 +12144,11 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             {/* كارت إعدادات شرط الإضافة التلقائية */}
             {showAutoConfig && (
               <div style={{ background: "#0a0a1a", border: "1px solid #2a1a4a", borderRadius: 10, padding: 14, marginBottom: 12 }}>
-                <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>⚙️ شروط الإضافة للقائمة التلقائية</div>
+                <div style={{ color: COLORS.purple, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>⚙️ شروط الإضافة للقائمة التلقائية</div>
 
                 {/* الفئات المستثناة */}
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 6 }}>الفئات المستثناة (لن تظهر في العروض التلقائية):</div>
+                  <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 6 }}>الفئات المستثناة (لن تظهر في العروض التلقائية):</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {["دواء", "مستلزمات طبية", "مستحضرات تجميل", "أخرى"].map((cat) => {
                       const excluded = autoPromoConfig.excludeCategories.includes(cat);
@@ -12163,9 +12163,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                           setAutoPromoConfig(updated);
                           saveAutoConfig(updated);
                         }} style={{ padding: "4px 12px", borderRadius: 20, cursor: "pointer",
-                          background: excluded ? "#2a0a0a" : "#0a1a0a",
-                          border: `1px solid ${excluded ? "#6a2a2a" : "#1a4a1a"}`,
-                          color: excluded ? "#ff7744" : "#44dd88", fontSize: 12 }}>
+                          background: excluded ? COLORS.redSoft : "#0a1a0a",
+                          border: `1px solid ${excluded ? COLORS.red : "#1a4a1a"}`,
+                          color: excluded ? COLORS.coral : COLORS.green, fontSize: 12 }}>
                           {excluded ? "✕ " : "✓ "}{cat}
                         </div>
                       );
@@ -12175,33 +12175,33 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
                 {/* الحد الأدنى للخصم */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>أقل خصم يظهر في القائمة:</span>
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>أقل خصم يظهر في القائمة:</span>
                   <input type="number" min="0" max="100" value={autoPromoConfig.minDiscount}
                     onChange={(e) => {
                       const updated = { ...autoPromoConfig, minDiscount: +e.target.value };
                       setAutoPromoConfig(updated);
                       saveAutoConfig(updated);
                     }}
-                    style={{ width: 60, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>%</span>
+                    style={{ width: 60, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>%</span>
                 </div>
 
                 {/* اشتراط المخزون */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ color: "#4a6a8a", fontSize: 12 }}>إظهار الأصناف المنتهية المخزون:</span>
+                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>إظهار الأصناف المنتهية المخزون:</span>
                   <div onClick={() => {
                     const updated = { ...autoPromoConfig, requireStock: !autoPromoConfig.requireStock };
                     setAutoPromoConfig(updated);
                     saveAutoConfig(updated);
                   }}
                     style={{ width: 36, height: 20, borderRadius: 10, cursor: "pointer",
-                      background: autoPromoConfig.requireStock ? "#2a6a2a" : "#6a2a2a",
+                      background: autoPromoConfig.requireStock ? "#2a6a2a" : COLORS.red,
                       position: "relative", transition: "background 0.2s" }}>
                     <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff",
                       position: "absolute", top: 3,
                       left: autoPromoConfig.requireStock ? 3 : 19, transition: "left 0.2s" }} />
                   </div>
-                  <span style={{ color: autoPromoConfig.requireStock ? "#44dd88" : "#ff7744", fontSize: 11 }}>
+                  <span style={{ color: autoPromoConfig.requireStock ? COLORS.green : COLORS.coral, fontSize: 11 }}>
                     {autoPromoConfig.requireStock ? "مخفية" : "ظاهرة"}
                   </span>
                 </div>
@@ -12210,10 +12210,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
               {[...discountRules].sort((a,b) => a.days - b.days).map((r) => (
-                <div key={r.days} style={{ background: "#080e1a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                  <div style={{ color: r.color || "#ffaa44", fontWeight: 900, fontSize: 18 }}>{r.discount}%</div>
-                  <div style={{ color: "#4a6a8a", fontSize: 11 }}>أقل من {Math.round(r.days/30)} شهور</div>
-                  <div style={{ color: "#3a5a7a", fontSize: 10 }}>({r.days} يوم)</div>
+                <div key={r.days} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ color: r.color || COLORS.gold, fontWeight: 900, fontSize: 18 }}>{r.discount}%</div>
+                  <div style={{ color: COLORS.textDim, fontSize: 11 }}>أقل من {Math.round(r.days/30)} شهور</div>
+                  <div style={{ color: COLORS.textDim, fontSize: 10 }}>({r.days} يوم)</div>
                 </div>
               ))}
             </div>
@@ -12222,11 +12222,11 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <input
             value={promoSearch} onChange={(e) => setPromoSearch(e.target.value)}
             placeholder="🔍 بحث..."
-            style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
           />
 
           {filteredAutoPromos.length === 0
-            ? <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>✅ لا توجد أصناف تحتاج عروض تلقائية</div>
+            ? <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>✅ لا توجد أصناف تحتاج عروض تلقائية</div>
             : filteredAutoPromos.map((p) => {
                 const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
                 const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
@@ -12235,22 +12235,22 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                          <span style={{ color: "#dde8ff", fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
+                          <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
                           <span style={{
                             background: discountColor(p.autoDiscount), color: "#fff",
                             borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
                           }}>-{p.autoDiscount}%</span>
                         </div>
                         <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
-                          <span style={{ color: "#4a6a8a" }}>الفئة: <span style={{ color: "#8aaabb" }}>{p.main_category || p.category}</span></span>
-                          <span style={{ color: "#4a6a8a" }}>المخزون: <span style={{ color: "#dde8ff" }}>{p.stock}</span></span>
-                          <span style={{ color: "#4a6a8a" }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
+                          <span style={{ color: COLORS.textDim }}>الفئة: <span style={{ color: COLORS.textDim }}>{p.main_category || p.category}</span></span>
+                          <span style={{ color: COLORS.textDim }}>المخزون: <span style={{ color: COLORS.textPrimary }}>{p.stock}</span></span>
+                          <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
                         </div>
                       </div>
                       <div style={{ textAlign: "left", minWidth: 110 }}>
-                        <div style={{ color: "#4a6a8a", fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
-                        <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
-                        <div style={{ color: "#4a6a8a", fontSize: 10 }}>تاريخ: {p.expiry}</div>
+                        <div style={{ color: COLORS.textDim, fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
+                        <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
+                        <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>
                       </div>
                     </div>
                   </div>
@@ -12269,27 +12269,27 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
           {activePromos.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>✅ عروض نشطة ({activePromos.length})</div>
+              <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>✅ عروض نشطة ({activePromos.length})</div>
               {activePromos.map((promo) => {
                 const prod = products.find((p) => p.id === promo.product_id);
                 const newPrice = prod ? (prod.price * (1 - promo.discount / 100)).toFixed(2) : "—";
                 const daysLeft = Math.ceil((new Date(promo.end_date) - new Date()) / (1000 * 60 * 60 * 24));
                 return (
-                  <div key={promo.id} style={cardStyle("#1a3a1a")}>
+                  <div key={promo.id} style={cardStyle(COLORS.greenSoft)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                          <span style={{ color: "#dde8ff", fontWeight: 700 }}>{prod?.name || prod?.nameAr || promo.product_id}</span>
-                          <span style={{ background: "#ff7744", color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>-{promo.discount}%</span>
+                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name || prod?.nameAr || promo.product_id}</span>
+                          <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>-{promo.discount}%</span>
                         </div>
-                        <div style={{ color: "#4a6a8a", fontSize: 11 }}>
+                        <div style={{ color: COLORS.textDim, fontSize: 11 }}>
                           {promo.start_date} ← {promo.end_date}
-                          {promo.note && <span style={{ marginRight: 10, color: "#6a8aaa" }}>• {promo.note}</span>}
+                          {promo.note && <span style={{ marginRight: 10, color: COLORS.textDim }}>• {promo.note}</span>}
                         </div>
                       </div>
                       <div style={{ textAlign: "left" }}>
-                        <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</div>
-                        <div style={{ color: daysLeft <= 3 ? "#ff4444" : "#4a6a8a", fontSize: 11 }}>يتبقى {daysLeft} يوم</div>
+                        <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</div>
+                        <div style={{ color: daysLeft <= 3 ? COLORS.red : COLORS.textDim, fontSize: 11 }}>يتبقى {daysLeft} يوم</div>
                       </div>
                     </div>
                   </div>
@@ -12300,14 +12300,14 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
           {expiredPromos.length > 0 && (
             <div>
-              <div style={{ color: "#4a6a8a", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>📦 عروض منتهية ({expiredPromos.length})</div>
+              <div style={{ color: COLORS.textDim, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>📦 عروض منتهية ({expiredPromos.length})</div>
               {expiredPromos.slice(0, 5).map((promo) => {
                 const prod = products.find((p) => p.id === promo.product_id);
                 return (
                   <div key={promo.id} style={{ ...cardStyle(), opacity: 0.6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#6a8aaa" }}>{prod?.name || prod?.nameAr || promo.product_id}</span>
-                      <span style={{ color: "#4a6a8a" }}>-{promo.discount}% • انتهى {promo.end_date}</span>
+                      <span style={{ color: COLORS.textDim }}>{prod?.name || prod?.nameAr || promo.product_id}</span>
+                      <span style={{ color: COLORS.textDim }}>-{promo.discount}% • انتهى {promo.end_date}</span>
                     </div>
                   </div>
                 );
@@ -12315,7 +12315,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             </div>
           )}
 
-          {promos.length === 0 && <div style={{ color: "#4a6a8a", textAlign: "center", padding: 40 }}>لا توجد عروض يدوية</div>}
+          {promos.length === 0 && <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>لا توجد عروض يدوية</div>}
         </div>
       )}
 
@@ -12323,35 +12323,35 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       {activeTab === "incentive" && (
         <div>
           {/* إعداد النسبة */}
-          <div style={cardStyle("#1a2a4a")}>
+          <div style={cardStyle(COLORS.surfaceAlt)}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
               <div>
-                <div style={{ color: "#3a9aff", fontWeight: 700, marginBottom: 4 }}>⚙️ إعدادات العمولة</div>
-                <div style={{ color: "#4a6a8a", fontSize: 12 }}>نسبة الصيدلي من مبيعات الأصناف المحفزة</div>
+                <div style={{ color: COLORS.blue, fontWeight: 700, marginBottom: 4 }}>⚙️ إعدادات العمولة</div>
+                <div style={{ color: COLORS.textDim, fontSize: 12 }}>نسبة الصيدلي من مبيعات الأصناف المحفزة</div>
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <div>
-                  <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
+                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
                   <input type="month" value={incentiveConfig.month}
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, month: e.target.value }))}
-                    style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }} />
+                    style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                 </div>
                 <div>
-                  <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
+                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
                   <input type="number" value={incentiveConfig.rate} min="1" max="20"
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
-                    style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
+                    style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                 </div>
                 {/* ── خانة حد الهامش التلقائي ── */}
                 <div>
-                  <label style={{ color: "#5a7aaa", fontSize: 11, display: "block", marginBottom: 2 }}>حد الهامش التلقائي %</label>
+                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>حد الهامش التلقائي %</label>
                   <input type="number" value={incentiveConfig.marginThreshold} min="1" max="100"
                     onBlur={(e) => {
                       const val = +e.target.value;
                       if (val !== incentiveConfig.marginThreshold) updateMarginThreshold(val);
                     }}
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, marginThreshold: +e.target.value }))}
-                    style={{ width: 70, background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: "#dde8ff", fontSize: 13, outline: "none" }} />
+                    style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                 </div>
               </div>
             </div>
@@ -12359,19 +12359,19 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
           {/* أصناف بهامش تلقائية — العنوان يعكس القيمة الحالية */}
           <div style={cardStyle("#1a1a2a")}>
-            <div style={{ color: "#a78bfa", fontWeight: 700, marginBottom: 10 }}>
+            <div style={{ color: COLORS.purple, fontWeight: 700, marginBottom: 10 }}>
               🎯 أصناف بهامش ربح ≥ {incentiveConfig.marginThreshold}% — تلقائية ({highMarginProducts.length})
             </div>
             {highMarginProducts.length === 0
-              ? <div style={{ color: "#4a6a8a", fontSize: 12 }}>لا توجد أصناف بهذا الهامش حالياً</div>
+              ? <div style={{ color: COLORS.textDim, fontSize: 12 }}>لا توجد أصناف بهذا الهامش حالياً</div>
               : (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {highMarginProducts.map((p) => {
                     const margin = (((p.price - p.cost) / p.price) * 100).toFixed(0);
                     return (
                       <div key={p.id} style={{ background: "#0a0a1a", border: "1px solid #2a2a4a", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
-                        <span style={{ color: "#dde8ff" }}>{p.name || p.nameAr}</span>
-                        <span style={{ color: "#a78bfa", marginRight: 8, fontWeight: 700 }}>{margin}%</span>
+                        <span style={{ color: COLORS.textPrimary }}>{p.name || p.nameAr}</span>
+                        <span style={{ color: COLORS.purple, marginRight: 8, fontWeight: 700 }}>{margin}%</span>
                       </div>
                     );
                   })}
@@ -12382,14 +12382,14 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
           {/* أصناف مضافة يدوياً */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ color: "#dde8ff", fontWeight: 700 }}>✋ أصناف مضافة يدوياً ({incentiveList.length})</div>
+            <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>✋ أصناف مضافة يدوياً ({incentiveList.length})</div>
             <Btn icon="plus" size="sm" onClick={() => setShowIncentiveForm(true)}>إضافة صنف</Btn>
           </div>
 
           <input
             value={incentiveSearch} onChange={(e) => setIncentiveSearch(e.target.value)}
             placeholder="🔍 بحث..."
-            style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
           />
 
           {filteredIncentive.map((item) => {
@@ -12398,12 +12398,12 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
               <div key={item.id} style={cardStyle()}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <div style={{ color: "#dde8ff", fontWeight: 700 }}>{prod?.name || prod?.nameAr || item.product_id}</div>
-                    {item.note && <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>{item.note}</div>}
+                    <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name || prod?.nameAr || item.product_id}</div>
+                    {item.note && <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>{item.note}</div>}
                   </div>
                   <div style={{ textAlign: "left" }}>
-                    {item.rate && <div style={{ color: "#44dd88", fontWeight: 700 }}>{item.rate}% عمولة</div>}
-                    {item.fixed_amount && <div style={{ color: "#3a9aff", fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</div>}
+                    {item.rate && <div style={{ color: COLORS.green, fontWeight: 700 }}>{item.rate}% عمولة</div>}
+                    {item.fixed_amount && <div style={{ color: COLORS.blue, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</div>}
                   </div>
                 </div>
               </div>
@@ -12462,7 +12462,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             const staffList = Object.entries(staffSales).filter(([, v]) => v.total > 0);
             if (staffList.length === 0) return (
               <div style={{ ...cardStyle(), marginTop: 16, textAlign: "center" }}>
-                <div style={{ color: "#4a6a8a", padding: 20 }}>
+                <div style={{ color: COLORS.textDim, padding: 20 }}>
                   لا توجد مبيعات من الأصناف المحفزة في {monthKey}
                 </div>
               </div>
@@ -12471,13 +12471,13 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             const totalAllStaff = staffList.reduce((a, [, v]) => a + v.total, 0);
 
             return (
-              <div style={{ ...cardStyle("#1a3a1a"), marginTop: 16 }}>
+              <div style={{ ...cardStyle(COLORS.greenSoft), marginTop: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14 }}>
+                  <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14 }}>
                     📊 عمولة الأصناف المحفزة — {monthKey}
                   </div>
-                  <div style={{ color: "#4a6a8a", fontSize: 12 }}>
-                    إجمالي المبيعات المحفزة: <span style={{ color: "#44dd88", fontWeight: 700 }}>{totalAllStaff.toFixed(2)} ر.س</span>
+                  <div style={{ color: COLORS.textDim, fontSize: 12 }}>
+                    إجمالي المبيعات المحفزة: <span style={{ color: COLORS.green, fontWeight: 700 }}>{totalAllStaff.toFixed(2)} ر.س</span>
                   </div>
                 </div>
 
@@ -12489,25 +12489,25 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                     <div key={name} style={{ padding: "12px 0", borderBottom: "1px solid #0a1a0a" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <div>
-                          <div style={{ color: "#dde8ff", fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
-                          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
-                            مبيعات محفزة: <span style={{ color: "#44dd88" }}>{data.total.toFixed(2)} ر.س</span>
-                            <span style={{ marginRight: 10, color: "#3a5a7a" }}>({pct}% من الإجمالي)</span>
+                          <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
+                          <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
+                            مبيعات محفزة: <span style={{ color: COLORS.green }}>{data.total.toFixed(2)} ر.س</span>
+                            <span style={{ marginRight: 10, color: COLORS.textDim }}>({pct}% من الإجمالي)</span>
                           </div>
                         </div>
                         <div style={{ textAlign: "left" }}>
-                          <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>{commission.toFixed(2)} ر.س</div>
-                          <div style={{ color: "#4a6a8a", fontSize: 11 }}>عمولة {rate}%</div>
+                          <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{commission.toFixed(2)} ر.س</div>
+                          <div style={{ color: COLORS.textDim, fontSize: 11 }}>عمولة {rate}%</div>
                         </div>
                       </div>
-                      <div style={{ background: "#080e1a", borderRadius: 4, height: 6, marginBottom: 8 }}>
-                        <div style={{ background: "#44dd88", height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
+                      <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 6, marginBottom: 8 }}>
+                        <div style={{ background: COLORS.green, height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         {Object.entries(data.items).map(([pName, amt]) => (
                           <div key={pName} style={{ background: "#0a1a0a", border: "1px solid #1a3a1a", borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
-                            <span style={{ color: "#8aaabb" }}>{pName}</span>
-                            <span style={{ color: "#44dd88", marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
+                            <span style={{ color: COLORS.textDim }}>{pName}</span>
+                            <span style={{ color: COLORS.green, marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
                           </div>
                         ))}
                       </div>
@@ -12516,8 +12516,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                 })}
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "2px solid #1a3a1a" }}>
-                  <span style={{ color: "#dde8ff", fontWeight: 700 }}>إجمالي العمولات المستحقة</span>
-                  <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>
+                  <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>إجمالي العمولات المستحقة</span>
+                  <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>
                     {staffList.reduce((a, [, v]) => a + v.total * incentiveConfig.rate / 100, 0).toFixed(2)} ر.س
                   </span>
                 </div>
@@ -12529,36 +12529,36 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
       {/* Modal تعديل قواعد الخصم */}
       <Modal open={showRulesEditor} onClose={() => setShowRulesEditor(false)} title="✏️ تعديل قواعد الخصم التدرجي">
-        <div style={{ color: "#4a6a8a", fontSize: 12, marginBottom: 14 }}>
+        <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 14 }}>
           حدد عدد الأيام ونسبة الخصم لكل مرحلة — يتم الترتيب تلقائياً من الأقل للأكثر
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 8 }}>
-          <span style={{ color: "#4a6a9a", fontSize: 12, fontWeight: 700 }}>أقل من (يوم)</span>
-          <span style={{ color: "#4a6a9a", fontSize: 12, fontWeight: 700 }}>نسبة الخصم %</span>
+          <span style={{ color: COLORS.textDim, fontSize: 12, fontWeight: 700 }}>أقل من (يوم)</span>
+          <span style={{ color: COLORS.textDim, fontSize: 12, fontWeight: 700 }}>نسبة الخصم %</span>
           <span/>
         </div>
         {editRules.map((rule, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
             <input type="number" value={rule.days} min="1" max="365"
               onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, days: +e.target.value } : r))}
-              style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
             <input type="number" value={rule.discount} min="1" max="100"
               onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, discount: +e.target.value } : r))}
-              style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
             <button onClick={() => setEditRules((p) => p.filter((_, j) => j !== i))}
-              style={{ background: "#2a0a0a", border: "none", borderRadius: 6, padding: "8px 12px", color: "#ff7744", cursor: "pointer", fontSize: 16 }}>×</button>
+              style={{ background: COLORS.redSoft, border: "none", borderRadius: 6, padding: "8px 12px", color: COLORS.coral, cursor: "pointer", fontSize: 16 }}>×</button>
           </div>
         ))}
-        <button onClick={() => setEditRules((p) => [...p, { days: 60, discount: 10, color: "#f59e0b" }])}
-          style={{ background: "#0a1a0a", border: "1px dashed #1a4a1a", borderRadius: 8, padding: "7px 14px", color: "#44dd88", cursor: "pointer", fontSize: 12, width: "100%", marginBottom: 14 }}>
+        <button onClick={() => setEditRules((p) => [...p, { days: 60, discount: 10, color: COLORS.gold }])}
+          style={{ background: "#0a1a0a", border: "1px dashed #1a4a1a", borderRadius: 8, padding: "7px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, width: "100%", marginBottom: 14 }}>
           + إضافة مرحلة
         </button>
-        <div style={{ background: "#080e1a", borderRadius: 10, padding: 12, marginBottom: 16 }}>
-          <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 8 }}>معاينة:</div>
+        <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 8 }}>معاينة:</div>
           {[...editRules].sort((a, b) => a.days - b.days).map((r, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-              <span style={{ color: "#8aaabb" }}>أقل من {r.days} يوم (~{Math.round(r.days/30)} شهور)</span>
-              <span style={{ color: "#ffaa44", fontWeight: 700 }}>خصم {r.discount}%</span>
+              <span style={{ color: COLORS.textDim }}>أقل من {r.days} يوم (~{Math.round(r.days/30)} شهور)</span>
+              <span style={{ color: COLORS.gold, fontWeight: 700 }}>خصم {r.discount}%</span>
             </div>
           ))}
         </div>
@@ -12571,7 +12571,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             const rows = sorted.map((r) => ({
               days: r.days,
               discount: r.discount,
-              color: r.color || "#ffaa44",
+              color: r.color || COLORS.gold,
               pharmacy_id: pharmacyId,
             }));
             const { error } = await supabase.from("promo_rules").insert(rows);
@@ -12587,10 +12587,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       <Modal open={showPromoForm} onClose={() => setShowPromoForm(false)} title="➕ إضافة عرض يدوي">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div style={{ gridColumn: "1/-1" }}>
-            <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
+            <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
             <select value={promoForm.product_id}
               onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
-              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
               <option value="">-- اختر صنفاً --</option>
               {products.map((p) => (
                 <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
@@ -12608,9 +12608,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           const newPrice = (prod.price * (1 - +promoForm.discount / 100)).toFixed(2);
           return (
             <div style={{ background: "#0a1a0a", border: "1px solid #1a4a1a", borderRadius: 8, padding: 10, marginTop: 10 }}>
-              <span style={{ color: "#4a6a8a", fontSize: 12 }}>السعر بعد الخصم: </span>
-              <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</span>
-              <span style={{ color: "#4a6a8a", fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
+              <span style={{ color: COLORS.textDim, fontSize: 12 }}>السعر بعد الخصم: </span>
+              <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</span>
+              <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
             </div>
           );
         })()}
@@ -12626,7 +12626,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
           {/* فلتر الشركة المنتجة */}
           <div style={{ gridColumn: "1/-1" }}>
-            <label style={{ color: "#5a7aaa", fontSize: 12, display: "block", marginBottom: 4 }}>
+            <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>
               🏭 الشركة المنتجة
             </label>
             <select
@@ -12641,7 +12641,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   .map((p) => p.id);
                 setSelectedIncentiveProducts(ids);
               }}
-              style={{ width: "100%", background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: "#dde8ff", fontSize: 13, outline: "none" }}>
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
               <option value="">-- اختر شركة --</option>
               {manufacturers.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -12664,13 +12664,13 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           const allSelected = available.length > 0 && available.every((p) => selectedIncentiveProducts.includes(p.id));
 
           return (
-            <div style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 10, overflow: "hidden" }}>
               {/* Header القائمة */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #1d2d4a", background: "#0a1220" }}>
-                <div style={{ color: "#3a9aff", fontWeight: 700, fontSize: 13 }}>
+                <div style={{ color: COLORS.blue, fontWeight: 700, fontSize: 13 }}>
                   {mfProducts.length} صنف
                   {alreadyAdded.size > 0 && (
-                    <span style={{ color: "#4a6a8a", fontWeight: 400, fontSize: 11, marginRight: 8 }}>
+                    <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11, marginRight: 8 }}>
                       ({mfProducts.filter(p => alreadyAdded.has(p.id)).length} مضاف مسبقاً)
                     </span>
                   )}
@@ -12678,12 +12678,12 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                 {available.length > 0 && (
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setSelectedIncentiveProducts(available.map((p) => p.id))}
-                      style={{ background: "none", border: "none", color: "#44dd88", fontSize: 12, cursor: "pointer" }}>
+                      style={{ background: "none", border: "none", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>
                       تحديد الكل
                     </button>
-                    <span style={{ color: "#1d2d4a" }}>|</span>
+                    <span style={{ color: COLORS.border }}>|</span>
                     <button onClick={() => setSelectedIncentiveProducts([])}
-                      style={{ background: "none", border: "none", color: "#ff7744", fontSize: 12, cursor: "pointer" }}>
+                      style={{ background: "none", border: "none", color: COLORS.coral, fontSize: 12, cursor: "pointer" }}>
                       إلغاء الكل
                     </button>
                   </div>
@@ -12693,7 +12693,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
               {/* الأصناف */}
               <div style={{ maxHeight: 280, overflowY: "auto" }}>
                 {mfProducts.length === 0 ? (
-                  <div style={{ color: "#4a6a8a", textAlign: "center", padding: 20, fontSize: 13 }}>
+                  <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20, fontSize: 13 }}>
                     لا توجد أصناف لهذه الشركة
                   </div>
                 ) : (
@@ -12716,15 +12716,15 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                           display: "flex", alignItems: "center", gap: 12,
                           padding: "10px 14px", borderBottom: "1px solid #0d1928",
                           cursor: isAdded ? "default" : "pointer",
-                          background: isAdded ? "#0a0f18" : isSelected ? "#0a1a2a" : "transparent",
+                          background: isAdded ? "#0a0f18" : isSelected ? COLORS.surfaceAlt : "transparent",
                           opacity: isAdded ? 0.5 : 1,
                           transition: "background 0.15s",
                         }}>
                         {/* Checkbox */}
                         <div style={{
                           width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                          border: `2px solid ${isAdded ? "#2a3a4a" : isSelected ? "#3a9aff" : "#2a3a5a"}`,
-                          background: isAdded ? "#1a2a3a" : isSelected ? "#3a9aff" : "transparent",
+                          border: `2px solid ${isAdded ? "#2a3a4a" : isSelected ? COLORS.blue : "#2a3a5a"}`,
+                          background: isAdded ? "#1a2a3a" : isSelected ? COLORS.blue : "transparent",
                           display: "flex", alignItems: "center", justifyContent: "center",
                         }}>
                           {(isSelected || isAdded) && (
@@ -12734,19 +12734,19 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
                         {/* اسم الصنف */}
                         <div style={{ flex: 1 }}>
-                          <div style={{ color: isAdded ? "#4a6a8a" : "#dde8ff", fontSize: 13 }}>
+                          <div style={{ color: isAdded ? COLORS.textDim : COLORS.textPrimary, fontSize: 13 }}>
                             {p.name || p.nameAr}
-                            {isAdded && <span style={{ color: "#3a5a7a", fontSize: 11, marginRight: 8 }}>• مضاف مسبقاً</span>}
+                            {isAdded && <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>• مضاف مسبقاً</span>}
                           </div>
                           {margin && (
-                            <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>
-                              هامش: <span style={{ color: +margin >= incentiveConfig.marginThreshold ? "#a78bfa" : "#4a6a8a" }}>{margin}%</span>
+                            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
+                              هامش: <span style={{ color: +margin >= incentiveConfig.marginThreshold ? COLORS.purple : COLORS.textDim }}>{margin}%</span>
                             </div>
                           )}
                         </div>
 
                         {/* السعر */}
-                        <div style={{ color: "#4a6a8a", fontSize: 12, textAlign: "left" }}>
+                        <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "left" }}>
                           {p.price} ر.س
                         </div>
                       </div>
@@ -12760,9 +12760,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
         {/* Footer */}
         <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ color: "#4a6a8a", fontSize: 12 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 12 }}>
             {selectedIncentiveProducts.length > 0 && (
-              <span style={{ color: "#3a9aff" }}>{selectedIncentiveProducts.length} صنف محدد</span>
+              <span style={{ color: COLORS.blue }}>{selectedIncentiveProducts.length} صنف محدد</span>
             )}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
@@ -12925,14 +12925,14 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
     return months;
   };
 
-  const pctColor = (p) => (p >= 100 ? "#44dd88" : p >= 75 ? "#3a9aff" : p >= 50 ? "#ffaa44" : "#ff4444");
+  const pctColor = (p) => (p >= 100 ? COLORS.green : p >= 75 ? COLORS.blue : p >= 50 ? COLORS.gold : COLORS.red);
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🎯 تارجت المبيعات</h2>
-          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>
+          <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>
             تارجت شهري لكل صيدلي + تحليل فني لحظي + مقارنات
           </div>
         </div>
@@ -12940,7 +12940,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
       </div>
 
       {pharmacists.length === 0 && (
-        <div style={{ color: "#4a6a8a", padding: 20 }}>لا يوجد صيادلة مسجلين بدور "pharmacist".</div>
+        <div style={{ color: COLORS.textDim, padding: 20 }}>لا يوجد صيادلة مسجلين بدور "pharmacist".</div>
       )}
 
       {pharmacists.map((u) => {
@@ -12954,12 +12954,12 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
         const cOther = compareName ? calcForPharmacist(compareName) : null;
 
         return (
-          <div key={u.id} style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
+          <div key={u.id} style={{ background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
             {/* ===== الهيدر + التارجت ===== */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: "#dde8ff" }}>{u.name}</div>
-                <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>صيدلاني</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: COLORS.textPrimary }}>{u.name}</div>
+                <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>صيدلاني</div>
               </div>
 
               {editing === u.name ? (
@@ -12971,7 +12971,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>التارجت الشهري</div>
+                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>التارجت الشهري</div>
                     <div style={{ color: "#8ab0ff", fontWeight: 800, fontSize: 15 }}>
                       {c.target ? c.target.toFixed(0) + " ر.س" : "غير محدد"}
                     </div>
@@ -12989,13 +12989,13 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
             <div style={{ marginTop: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
                 <span style={{ color: "#8aa0cc" }}>
-                  المحقق: <b style={{ color: "#dde8ff" }}>{c.achieved.toFixed(0)} ر.س</b>
+                  المحقق: <b style={{ color: COLORS.textPrimary }}>{c.achieved.toFixed(0)} ر.س</b>
                 </span>
                 <span style={{ color: pctColor(c.simplePct), fontWeight: 800 }}>
                   {c.target ? c.simplePct.toFixed(1) + "%" : "—"}
                 </span>
               </div>
-              <div style={{ background: "#080e1a", borderRadius: 8, height: 10, overflow: "hidden" }}>
+              <div style={{ background: COLORS.surfaceAlt, borderRadius: 8, height: 10, overflow: "hidden" }}>
                 <div style={{
                   width: Math.min(c.simplePct, 100) + "%",
                   height: "100%",
@@ -13005,8 +13005,8 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
               </div>
               {c.target > 0 && (
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12 }}>
-                  <span style={{ color: "#4a6a8a" }}>
-                    المتوقع نهاية الشهر (Run Rate): <b style={{ color: "#a78bfa" }}>{c.projected.toFixed(0)} ر.س</b>
+                  <span style={{ color: COLORS.textDim }}>
+                    المتوقع نهاية الشهر (Run Rate): <b style={{ color: COLORS.purple }}>{c.projected.toFixed(0)} ر.س</b>
                   </span>
                   <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
                 </div>
@@ -13015,7 +13015,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
 
             {/* ===== التحليل الفني — ظاهر لحظيًا بدون أي ضغط ===== */}
             <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-              <div style={{ color: "#3a9aff", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📊 التحليل الفني</div>
+              <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📊 التحليل الفني</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
                 {[
                   { l: "عدد الفواتير", v: c.invoiceCount },
@@ -13026,9 +13026,9 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                   { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
                   { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
                 ].map((x, i) => (
-                  <div key={i} style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}>
-                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>{x.l}</div>
-                    <div style={{ color: "#dde8ff", fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
+                  <div key={i} style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>{x.l}</div>
+                    <div style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
                   </div>
                 ))}
               </div>
@@ -13036,7 +13036,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
 
             {/* ===== الأداء خلال الشهر (يوم بيوم) ===== */}
             <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-              <div style={{ color: "#44dd88", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+              <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
                 📅 الأداء خلال الشهر (مبيعات يومية)
               </div>
               <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 70, overflowX: "auto", paddingBottom: 4 }}>
@@ -13047,11 +13047,11 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                       style={{
                         width: 8,
                         height: Math.max((d.amount / maxDaily) * 55, 2),
-                        background: d.amount > 0 ? "#44dd88" : "#1d2d4a",
+                        background: d.amount > 0 ? COLORS.green : COLORS.border,
                         borderRadius: "2px 2px 0 0",
                       }}
                     />
-                    <span style={{ fontSize: 8, color: "#3a5a8a", marginTop: 3 }}>{d.day}</span>
+                    <span style={{ fontSize: 8, color: COLORS.border, marginTop: 3 }}>{d.day}</span>
                   </div>
                 ))}
               </div>
@@ -13059,7 +13059,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
 
             {/* ===== مقارنة عبر آخر 6 شهور ===== */}
             <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-              <div style={{ color: "#a78bfa", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+              <div style={{ color: COLORS.purple, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
                 📈 مقارنة الأداء عبر آخر 6 شهور
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 90 }}>
@@ -13068,7 +13068,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                     <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 65 }}>
                       <div
                         title={`المحقق: ${m.achieved.toFixed(0)} ر.س`}
-                        style={{ flex: 1, background: "#3a9aff", height: `${(m.achieved / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }}
+                        style={{ flex: 1, background: COLORS.blue, height: `${(m.achieved / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }}
                       />
                       {m.target > 0 && (
                         <div
@@ -13077,13 +13077,13 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                         />
                       )}
                     </div>
-                    <span style={{ fontSize: 9, color: "#4a6a8a" }}>{m.label}</span>
+                    <span style={{ fontSize: 9, color: COLORS.textDim }}>{m.label}</span>
                   </div>
                 ))}
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
-                <span style={{ fontSize: 11, color: "#3a9aff" }}>■ المحقق</span>
-                <span style={{ fontSize: 11, color: "#ffaa44" }}>▢ التارجت</span>
+                <span style={{ fontSize: 11, color: COLORS.blue }}>■ المحقق</span>
+                <span style={{ fontSize: 11, color: COLORS.gold }}>▢ التارجت</span>
               </div>
             </div>
 
@@ -13091,11 +13091,11 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
             {otherPharmacists.length > 0 && (
               <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700 }}>⚖️ مقارنة مع صيدلي آخر</div>
+                  <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}>⚖️ مقارنة مع صيدلي آخر</div>
                   <select
                     value={compareName}
                     onChange={(e) => setCompareWith((p) => ({ ...p, [u.name]: e.target.value }))}
-                    style={{ background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: "#dde8ff", fontSize: 12, outline: "none" }}
+                    style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
                   >
                     {otherPharmacists.map((p) => (
                       <option key={p.id} value={p.name}>{p.name}</option>
@@ -13105,8 +13105,8 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
 
                 {cOther && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
-                    <div style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}>
-                      <div style={{ color: "#3a9aff", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{u.name}</div>
+                    <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+                      <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{u.name}</div>
                       {[
                         ["المحقق", c.achieved.toFixed(0) + " ر.س"],
                         ["نسبة التارجت", c.target ? c.simplePct.toFixed(1) + "%" : "—"],
@@ -13115,16 +13115,16 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                         ["نسبة التسجيل على عملاء", c.customerRegRate.toFixed(0) + "%"],
                       ].map(([l, v], i) => (
                         <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
-                          <span style={{ color: "#4a6a8a" }}>{l}</span>
-                          <span style={{ color: "#dde8ff", fontWeight: 700 }}>{v}</span>
+                          <span style={{ color: COLORS.textDim }}>{l}</span>
+                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
                         </div>
                       ))}
                     </div>
 
-                    <div style={{ color: "#3a5a8a", fontSize: 18, fontWeight: 900 }}>VS</div>
+                    <div style={{ color: COLORS.border, fontSize: 18, fontWeight: 900 }}>VS</div>
 
-                    <div style={{ background: "#080e1a", borderRadius: 10, padding: 12 }}>
-                      <div style={{ color: "#ffaa44", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{compareName}</div>
+                    <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+                      <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{compareName}</div>
                       {[
                         ["المحقق", cOther.achieved.toFixed(0) + " ر.س"],
                         ["نسبة التارجت", cOther.target ? cOther.simplePct.toFixed(1) + "%" : "—"],
@@ -13133,8 +13133,8 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                         ["نسبة التسجيل على عملاء", cOther.customerRegRate.toFixed(0) + "%"],
                       ].map(([l, v], i) => (
                         <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
-                          <span style={{ color: "#4a6a8a" }}>{l}</span>
-                          <span style={{ color: "#dde8ff", fontWeight: 700 }}>{v}</span>
+                          <span style={{ color: COLORS.textDim }}>{l}</span>
+                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
                         </div>
                       ))}
                     </div>
@@ -13332,12 +13332,12 @@ useEffect(() => {
     + monthEntries.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
   const monthExpenses = monthEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
 
-  const cardStyle = (border = "#1d2d4a") => ({
-    background: "#0f1623", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
+  const cardStyle = (border = COLORS.border) => ({
+    background: COLORS.surface, border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
   const inputStyle = {
-    background: "#080e1a", border: "1px solid #1d2d4a", borderRadius: 8,
-    padding: "8px 12px", color: "#dde8ff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const,
+    background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8,
+    padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const,
   };
   const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0a101a" };
 
@@ -13347,22 +13347,22 @@ useEffect(() => {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
-          <div style={{ color: "#3a5a8a", fontSize: 12, marginTop: 2 }}>{today}</div>
+          <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>{today}</div>
         </div>
       </div>
 
       {/* ── رصيد الخزنة اللحظي ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
         {[
-          { label: "💵 نقدي", value: balanceCash, color: "#44dd88" },
-          { label: "💳 بطاقة", value: balanceCard, color: "#3a9aff" },
-          { label: "🏦 تحويل", value: balanceTransfer, color: "#a78bfa" },
-          { label: "📦 الإجمالي", value: balanceTotal, color: "#ffaa44" },
+          { label: "💵 نقدي", value: balanceCash, color: COLORS.green },
+          { label: "💳 بطاقة", value: balanceCard, color: COLORS.blue },
+          { label: "🏦 تحويل", value: balanceTransfer, color: COLORS.purple },
+          { label: "📦 الإجمالي", value: balanceTotal, color: COLORS.gold },
         ].map((b) => (
-          <div key={b.label} style={{ background: "#0f1623", border: "1px solid #1d2d4a", borderRadius: 12, padding: 14, textAlign: "center" }}>
-            <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 4 }}>{b.label}</div>
-            <div style={{ color: b.value < 0 ? "#ff4444" : b.color, fontWeight: 900, fontSize: 18 }}>{b.value.toFixed(2)}</div>
-            <div style={{ color: "#3a5a8a", fontSize: 10 }}>ر.س</div>
+          <div key={b.label} style={{ background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 12, padding: 14, textAlign: "center" }}>
+            <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>{b.label}</div>
+            <div style={{ color: b.value < 0 ? COLORS.red : b.color, fontWeight: 900, fontSize: 18 }}>{b.value.toFixed(2)}</div>
+            <div style={{ color: COLORS.border, fontSize: 10 }}>ر.س</div>
           </div>
         ))}
       </div>
@@ -13371,25 +13371,25 @@ useEffect(() => {
       {(dueFixed.length > 0 || upcomingLicenses.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: dueFixed.length > 0 && upcomingLicenses.length > 0 ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 14 }}>
           {dueFixed.length > 0 && (
-            <div style={{ background: "#1a0800", border: "1px solid #4a2800", borderRadius: 12, padding: 12 }}>
-              <div style={{ color: "#ffaa44", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⏰ مصاريف ثابتة مستحقة قريباً</div>
+            <div style={{ background: COLORS.goldSoft, border: "1px solid #4a2800", borderRadius: 12, padding: 12 }}>
+              <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⏰ مصاريف ثابتة مستحقة قريباً</div>
               {dueFixed.map((f) => (
                 <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
-                  <span style={{ color: "#dde8ff" }}>{f.name}</span>
-                  <span style={{ color: "#ffaa44", fontWeight: 700 }}>{f.amount} ر.س</span>
+                  <span style={{ color: COLORS.textPrimary }}>{f.name}</span>
+                  <span style={{ color: COLORS.gold, fontWeight: 700 }}>{f.amount} ر.س</span>
                 </div>
               ))}
             </div>
           )}
           {upcomingLicenses.length > 0 && (
             <div style={{ background: "#1a0a1a", border: "1px solid #4a1a4a", borderRadius: 12, padding: 12 }}>
-              <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📋 تراخيص قريبة التجديد</div>
+              <div style={{ color: COLORS.purple, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📋 تراخيص قريبة التجديد</div>
               {upcomingLicenses.map((l) => {
                 const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
                 return (
                   <div key={l.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
-                    <span style={{ color: "#dde8ff" }}>{l.name}</span>
-                    <span style={{ color: days <= 14 ? "#ff4444" : "#ffaa44" }}>خلال {days} يوم</span>
+                    <span style={{ color: COLORS.textPrimary }}>{l.name}</span>
+                    <span style={{ color: days <= 14 ? COLORS.red : COLORS.gold }}>خلال {days} يوم</span>
                   </div>
                 );
               })}
@@ -13399,7 +13399,7 @@ useEffect(() => {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#080e1a", borderRadius: 10, padding: 4 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, borderRadius: 10, padding: 4 }}>
         {[
           { k: "today", l: "📅 تقفيل اليوم" },
           { k: "shifts", l: "🔄 الشفتات" },
@@ -13409,8 +13409,8 @@ useEffect(() => {
         ].map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
             flex: 1, padding: "9px 6px", borderRadius: 8, border: "none",
-            background: activeTab === t.k ? "#0f1623" : "transparent",
-            color: activeTab === t.k ? "#3a9aff" : "#4a6a8a",
+            background: activeTab === t.k ? COLORS.surface : "transparent",
+            color: activeTab === t.k ? COLORS.blue : COLORS.textDim,
             fontSize: 11, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
           }}>{t.l}</button>
         ))}
@@ -13420,32 +13420,32 @@ useEffect(() => {
       {activeTab === "today" && (
         <div>
           {/* الدخل مقسم */}
-          <div style={cardStyle("#1a3a1a")}>
-            <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📥 الدخل</div>
+          <div style={cardStyle(COLORS.greenSoft)}>
+            <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📥 الدخل</div>
 
             <div style={rowStyle}>
-              <span style={{ color: "#8aaabb", fontSize: 13 }}>💵 مبيعات نقدي{hasCardAdjust && cardDiff !== 0 ? " (بعد التسوية)" : ""}</span>
-              <span style={{ color: "#44dd88", fontWeight: 700 }}>{(hasCardAdjust ? cashAfterAdjust - todayCreditIncome : todayCash).toFixed(2)} ر.س</span>
+              <span style={{ color: COLORS.textDim, fontSize: 13 }}>💵 مبيعات نقدي{hasCardAdjust && cardDiff !== 0 ? " (بعد التسوية)" : ""}</span>
+              <span style={{ color: COLORS.green, fontWeight: 700 }}>{(hasCardAdjust ? cashAfterAdjust - todayCreditIncome : todayCash).toFixed(2)} ر.س</span>
             </div>
             <div style={{ ...rowStyle, alignItems: "flex-start", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
-                <span style={{ color: "#8aaabb", fontSize: 13 }}>💳 مبيعات بطاقة (النظام)</span>
+                <span style={{ color: COLORS.textDim, fontSize: 13 }}>💳 مبيعات بطاقة (النظام)</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ color: "#3a9aff", fontWeight: 700 }}>{todayCard.toFixed(2)} ر.س</span>
+                  <span style={{ color: COLORS.blue, fontWeight: 700 }}>{todayCard.toFixed(2)} ر.س</span>
                   <button onClick={() => setEditingCard((v) => !v)}
-                    style={{ background: "transparent", border: "1px solid #1d3a6a", borderRadius: 6, padding: "3px 10px", color: "#6aaeff", fontSize: 11, cursor: "pointer" }}>
+                    style={{ background: "transparent", border: "1px solid #1d3a6a", borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
                     {editingCard ? "إغلاق" : "تعديل"}
                   </button>
                 </div>
               </div>
               {todayReturns > 0 && (
   <div style={rowStyle}>
-    <span style={{ color: "#8aaabb", fontSize: 13 }}>↩️ مرتجعات نقدي</span>
-    <span style={{ color: "#ff4444", fontWeight: 700 }}>− {todayReturns.toFixed(2)} ر.س</span>
+    <span style={{ color: COLORS.textDim, fontSize: 13 }}>↩️ مرتجعات نقدي</span>
+    <span style={{ color: COLORS.red, fontWeight: 700 }}>− {todayReturns.toFixed(2)} ر.س</span>
   </div>
 )}
               {editingCard && (
-                <div style={{ width: "100%", background: "#080e1a", border: "1px solid #1d3a6a", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d3a6a", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <input type="number" value={closingForm.card_actual}
                       onChange={(e) => setClosingForm((p) => ({ ...p, card_actual: e.target.value }))}
@@ -13456,7 +13456,7 @@ useEffect(() => {
                     onChange={(e) => setClosingForm((p) => ({ ...p, card_adjust_reason: e.target.value }))}
                     placeholder="سبب الفرق (اختياري)..." style={inputStyle} />
                   {hasCardAdjust && cardDiff !== 0 && (
-                    <div style={{ color: cardDiff > 0 ? "#ff7744" : "#44dd88", fontSize: 12 }}>
+                    <div style={{ color: cardDiff > 0 ? COLORS.coral : COLORS.green, fontSize: 12 }}>
                       {cardDiff > 0
                         ? `البطاقة أعلى بـ ${cardDiff.toFixed(2)} ر.س — سيُخصم هذا المبلغ من الكاش`
                         : `البطاقة أقل بـ ${Math.abs(cardDiff).toFixed(2)} ر.س — سيُضاف هذا المبلغ للكاش`}
@@ -13467,28 +13467,28 @@ useEffect(() => {
             </div>
             {hasCardAdjust && cardDiff !== 0 && (
               <div style={rowStyle}>
-                <span style={{ color: "#ffaa44", fontSize: 13 }}>⚖️ تسوية فرق البطاقة</span>
-                <span style={{ color: cardDiff > 0 ? "#ff7744" : "#44dd88", fontWeight: 700 }}>
+                <span style={{ color: COLORS.gold, fontSize: 13 }}>⚖️ تسوية فرق البطاقة</span>
+                <span style={{ color: cardDiff > 0 ? COLORS.coral : COLORS.green, fontWeight: 700 }}>
                   {cardDiff > 0 ? "−" : "+"}{Math.abs(cardDiff).toFixed(2)} ر.س (كاش)
                 </span>
               </div>
             )}
             <div style={rowStyle}>
-              <span style={{ color: "#8aaabb", fontSize: 13 }}>🏦 مبيعات تحويل</span>
-              <span style={{ color: "#a78bfa", fontWeight: 700 }}>{todayTransfer.toFixed(2)} ر.س</span>
+              <span style={{ color: COLORS.textDim, fontSize: 13 }}>🏦 مبيعات تحويل</span>
+              <span style={{ color: COLORS.purple, fontWeight: 700 }}>{todayTransfer.toFixed(2)} ر.س</span>
             </div>
             <div style={rowStyle}>
-              <span style={{ color: "#8aaabb", fontSize: 13 }}>✅ سداد آجل</span>
-              <span style={{ color: "#3a9aff", fontWeight: 700 }}>{todayCreditIncome.toFixed(2)} ر.س</span>
+              <span style={{ color: COLORS.textDim, fontSize: 13 }}>✅ سداد آجل</span>
+              <span style={{ color: COLORS.blue, fontWeight: 700 }}>{todayCreditIncome.toFixed(2)} ر.س</span>
             </div>
             <div style={{ ...rowStyle, borderBottom: "none" }}>
-              <span style={{ color: "#ff7777", fontSize: 13 }}>📋 مديونية اليوم (غير محصلة)</span>
-              <span style={{ color: "#ff7777", fontWeight: 700 }}>{todayAjil.toFixed(2)} ر.س</span>
+              <span style={{ color: COLORS.red, fontSize: 13 }}>📋 مديونية اليوم (غير محصلة)</span>
+              <span style={{ color: COLORS.red, fontWeight: 700 }}>{todayAjil.toFixed(2)} ر.س</span>
             </div>
 
             {/* دخل إضافي */}
             <div style={{ marginTop: 8, borderTop: "1px solid #1a3a1a", paddingTop: 10 }}>
-              <div style={{ color: "#4a6a8a", fontSize: 11, marginBottom: 6 }}>دخل إضافي (اختياري)</div>
+              <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 6 }}>دخل إضافي (اختياري)</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={closingForm.extra_income_note} onChange={(e) => setClosingForm((p) => ({ ...p, extra_income_note: e.target.value }))}
                   placeholder="وصف الدخل..." style={{ ...inputStyle, flex: 2 }} />
@@ -13498,21 +13498,21 @@ useEffect(() => {
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #1a3a1a" }}>
-              <span style={{ color: "#4a6a8a", fontSize: 12, marginLeft: 12 }}>إجمالي الدخل</span>
-              <span style={{ color: "#44dd88", fontWeight: 900, fontSize: 16 }}>{totalIncome.toFixed(2)} ر.س</span>
+              <span style={{ color: COLORS.textDim, fontSize: 12, marginLeft: 12 }}>إجمالي الدخل</span>
+              <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{totalIncome.toFixed(2)} ر.س</span>
             </div>
           </div>
 
           {/* المصروفات */}
           <div style={cardStyle("#3a1000")}>
-            <div style={{ color: "#ff7744", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📤 المصروفات</div>
+            <div style={{ color: COLORS.coral, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📤 المصروفات</div>
 
             <div style={{ ...rowStyle, gap: 12 }}>
-              <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" as const }}>🪙 نثريات</span>
+              <span style={{ color: COLORS.textDim, fontSize: 13, whiteSpace: "nowrap" as const }}>🪙 نثريات</span>
               {loyaltyRedeemed > 0 && (
   <div style={rowStyle}>
-    <span style={{ color: "#8aaabb", fontSize: 13 }}>🌟 استبدال نقاط نقدي</span>
-    <span style={{ color: "#ff7744", fontWeight: 700 }}>{loyaltyRedeemed.toFixed(2)} ر.س</span>
+    <span style={{ color: COLORS.textDim, fontSize: 13 }}>🌟 استبدال نقاط نقدي</span>
+    <span style={{ color: COLORS.coral, fontWeight: 700 }}>{loyaltyRedeemed.toFixed(2)} ر.س</span>
   </div>
 )}
               <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
@@ -13525,7 +13525,7 @@ useEffect(() => {
 
             {closingForm.variable_expenses.map((exp, i) => (
               <div key={i} style={{ ...rowStyle, gap: 8 }}>
-                <span style={{ color: "#8aaabb", fontSize: 13, whiteSpace: "nowrap" as const }}>📦 مصروف</span>
+                <span style={{ color: COLORS.textDim, fontSize: 13, whiteSpace: "nowrap" as const }}>📦 مصروف</span>
                 <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end" }}>
                   <input value={exp.name} onChange={(e) => setClosingForm((p) => {
                     const v = [...p.variable_expenses]; v[i] = { ...v[i], name: e.target.value }; return { ...p, variable_expenses: v };
@@ -13534,35 +13534,35 @@ useEffect(() => {
                     const v = [...p.variable_expenses]; v[i] = { ...v[i], amount: e.target.value }; return { ...p, variable_expenses: v };
                   })} placeholder="0.00" style={{ ...inputStyle, width: 100, textAlign: "left" as const }} />
                   <button onClick={() => setClosingForm((p) => ({ ...p, variable_expenses: p.variable_expenses.filter((_, j) => j !== i) }))}
-                    style={{ background: "#3a0a0a", border: "none", borderRadius: 6, padding: "4px 10px", color: "#ff7744", cursor: "pointer", fontSize: 16 }}>×</button>
+                    style={{ background: COLORS.redSoft, border: "none", borderRadius: 6, padding: "4px 10px", color: COLORS.coral, cursor: "pointer", fontSize: 16 }}>×</button>
                 </div>
               </div>
             ))}
 
             <button onClick={() => setClosingForm((p) => ({ ...p, variable_expenses: [...p.variable_expenses, { name: "", amount: "" }] }))}
-              style={{ background: "#1a0800", border: "1px dashed #3a1800", borderRadius: 8, padding: "7px 14px", color: "#ff7744", cursor: "pointer", fontSize: 12, width: "100%", marginTop: 4 }}>
+              style={{ background: COLORS.goldSoft, border: "1px dashed #3a1800", borderRadius: 8, padding: "7px 14px", color: COLORS.coral, cursor: "pointer", fontSize: 12, width: "100%", marginTop: 4 }}>
               + إضافة مصروف متغير
             </button>
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a1000" }}>
-              <span style={{ color: "#4a6a8a", fontSize: 12, marginLeft: 12 }}>إجمالي المصروفات</span>
-              <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{totalExpenses.toFixed(2)} ر.س</span>
+              <span style={{ color: COLORS.textDim, fontSize: 12, marginLeft: 12 }}>إجمالي المصروفات</span>
+              <span style={{ color: COLORS.coral, fontWeight: 900, fontSize: 16 }}>{totalExpenses.toFixed(2)} ر.س</span>
             </div>
           </div>
 
           {/* صافي الخزنة */}
-          <div style={{ ...cardStyle("#1a2a4a"), textAlign: "center" as const, padding: 20 }}>
-            <div style={{ color: "#4a6a8a", fontSize: 13, marginBottom: 6 }}>🏦 صافي الخزنة اليوم</div>
-            <div style={{ color: netCash >= 0 ? "#44dd88" : "#ff4444", fontWeight: 900, fontSize: 32, marginBottom: 4 }}>
+          <div style={{ ...cardStyle(COLORS.surfaceAlt), textAlign: "center" as const, padding: 20 }}>
+            <div style={{ color: COLORS.textDim, fontSize: 13, marginBottom: 6 }}>🏦 صافي الخزنة اليوم</div>
+            <div style={{ color: netCash >= 0 ? COLORS.green : COLORS.red, fontWeight: 900, fontSize: 32, marginBottom: 4 }}>
               {netCash.toFixed(2)} ر.س
             </div>
-            <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: 12, color: "#4a6a8a" }}>
-              <span>نقدي: <b style={{ color: "#44dd88" }}>{cashAfterAdjust.toFixed(0)}</b></span>
-              <span>بطاقة: <b style={{ color: "#3a9aff" }}>{cardActual.toFixed(0)}</b></span>
-              <span>تحويل: <b style={{ color: "#a78bfa" }}>{todayTransfer.toFixed(0)}</b></span>
+            <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: 12, color: COLORS.textDim }}>
+              <span>نقدي: <b style={{ color: COLORS.green }}>{cashAfterAdjust.toFixed(0)}</b></span>
+              <span>بطاقة: <b style={{ color: COLORS.blue }}>{cardActual.toFixed(0)}</b></span>
+              <span>تحويل: <b style={{ color: COLORS.purple }}>{todayTransfer.toFixed(0)}</b></span>
             </div>
             {dueFixed.filter((f) => !closingForm.fixed_paid[f.id]).length > 0 && (
-              <div style={{ color: "#ffaa44", fontSize: 11, marginTop: 8 }}>
+              <div style={{ color: COLORS.gold, fontSize: 11, marginTop: 8 }}>
                 ⚠️ مصاريف ثابتة مستحقة قريبًا وغير مدفوعة: {dueFixed.filter((f) => !closingForm.fixed_paid[f.id]).map((f) => f.name).join("، ")}
                 {" "}({dueFixed.filter((f) => !closingForm.fixed_paid[f.id]).reduce((a, f) => a + (+f.amount || 0), 0).toFixed(2)} ر.س)
               </div>
@@ -13572,7 +13572,7 @@ useEffect(() => {
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
             {!closingSaved
               ? <Btn icon="check" onClick={saveClosing}>حفظ تقفيل اليوم</Btn>
-              : <div style={{ color: "#44dd88", fontWeight: 700, padding: "10px 16px", fontSize: 13 }}>✅ تم الحفظ</div>
+              : <div style={{ color: COLORS.green, fontWeight: 700, padding: "10px 16px", fontSize: 13 }}>✅ تم الحفظ</div>
             }
           </div>
         </div>
@@ -13582,7 +13582,7 @@ useEffect(() => {
       {activeTab === "shifts" && (
         <div>
           {todayShifts.length === 0 ? (
-            <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد شفتات اليوم</div>
+            <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد شفتات اليوم</div>
           ) : (
             <>
               {todayShifts.map((sh) => {
@@ -13591,28 +13591,28 @@ useEffect(() => {
                   <div key={sh.id} style={cardStyle("#1a2a3a")}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                       <div>
-                        <span style={{ color: "#6aaeff", fontWeight: 700 }}>{sh.id}</span>
-                        <span style={{ color: "#4a6a8a", fontSize: 11, marginRight: 10 }}>{sh.user}</span>
+                        <span style={{ color: COLORS.blue, fontWeight: 700 }}>{sh.id}</span>
+                        <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 10 }}>{sh.user}</span>
                       </div>
-                      <div style={{ color: sh.end_time ? "#44dd88" : "#ffaa44", fontSize: 11, fontWeight: 700 }}>
+                      <div style={{ color: sh.end_time ? COLORS.green : COLORS.gold, fontSize: 11, fontWeight: 700 }}>
                         {sh.end_time ? "✅ مغلق" : "🟡 مفتوح"}
                       </div>
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
                       {[
-                        { l: "نقدي", v: ss.cash, c: "#44dd88" },
-                        { l: "بطاقة", v: ss.card, c: "#3a9aff" },
-                        { l: "تحويل", v: ss.transfer, c: "#a78bfa" },
-                        { l: "إجمالي", v: ss.total, c: "#ffaa44" },
+                        { l: "نقدي", v: ss.cash, c: COLORS.green },
+                        { l: "بطاقة", v: ss.card, c: COLORS.blue },
+                        { l: "تحويل", v: ss.transfer, c: COLORS.purple },
+                        { l: "إجمالي", v: ss.total, c: COLORS.gold },
                       ].map((x) => (
-                        <div key={x.l} style={{ background: "#080e14", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
-                          <div style={{ color: "#4a6a8a", fontSize: 10 }}>{x.l}</div>
+                        <div key={x.l} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                          <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>
                           <div style={{ color: x.c, fontWeight: 700, fontSize: 14 }}>{x.v.toFixed(2)}</div>
                         </div>
                       ))}
                     </div>
                     {ss.ajil > 0 && (
-                      <div style={{ marginTop: 8, color: "#ff7777", fontSize: 12 }}>
+                      <div style={{ marginTop: 8, color: COLORS.red, fontSize: 12 }}>
                         مديونية: {ss.ajil.toFixed(2)} ر.س ({ss.count} فاتورة)
                       </div>
                     )}
@@ -13622,16 +13622,16 @@ useEffect(() => {
 
               {/* إجمالي اليوم */}
               <div style={{ ...cardStyle("#2a3a1a"), marginTop: 8 }}>
-                <div style={{ color: "#44dd88", fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📊 إجمالي اليوم</div>
+                <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📊 إجمالي اليوم</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
                   {[
-                    { l: "نقدي", v: todayCash, c: "#44dd88" },
-                    { l: "بطاقة", v: todayCard, c: "#3a9aff" },
-                    { l: "تحويل", v: todayTransfer, c: "#a78bfa" },
-                    { l: "الإجمالي", v: todayCash + todayCard + todayTransfer, c: "#ffaa44" },
+                    { l: "نقدي", v: todayCash, c: COLORS.green },
+                    { l: "بطاقة", v: todayCard, c: COLORS.blue },
+                    { l: "تحويل", v: todayTransfer, c: COLORS.purple },
+                    { l: "الإجمالي", v: todayCash + todayCard + todayTransfer, c: COLORS.gold },
                   ].map((x) => (
-                    <div key={x.l} style={{ background: "#080e14", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
-                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>{x.l}</div>
+                    <div key={x.l} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                      <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>
                       <div style={{ color: x.c, fontWeight: 700, fontSize: 16 }}>{x.v.toFixed(2)}</div>
                     </div>
                   ))}
@@ -13639,18 +13639,18 @@ useEffect(() => {
               </div>
 
               {/* إجمالي الشهر */}
-              <div style={{ ...cardStyle("#1a2a4a"), marginTop: 8 }}>
-                <div style={{ color: "#3a9aff", fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📅 إجمالي الشهر</div>
+              <div style={{ ...cardStyle(COLORS.surfaceAlt), marginTop: 8 }}>
+                <div style={{ color: COLORS.blue, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📅 إجمالي الشهر</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   {[
-                    { l: "دخل الشهر", v: monthIncome, c: "#44dd88" },
-                    { l: "مصروفات الشهر", v: monthExpenses, c: "#ff7744" },
-                    { l: "صافي الشهر", v: monthIncome - monthExpenses, c: monthIncome - monthExpenses >= 0 ? "#3a9aff" : "#ff4444" },
+                    { l: "دخل الشهر", v: monthIncome, c: COLORS.green },
+                    { l: "مصروفات الشهر", v: monthExpenses, c: COLORS.coral },
+                    { l: "صافي الشهر", v: monthIncome - monthExpenses, c: monthIncome - monthExpenses >= 0 ? COLORS.blue : COLORS.red },
                   ].map((x) => (
-                    <div key={x.l} style={{ background: "#080e14", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
-                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>{x.l}</div>
+                    <div key={x.l} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                      <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>
                       <div style={{ color: x.c, fontWeight: 700, fontSize: 16 }}>{x.v.toFixed(2)}</div>
-                      <div style={{ color: "#3a5a8a", fontSize: 10 }}>ر.س</div>
+                      <div style={{ color: COLORS.border, fontSize: 10 }}>ر.س</div>
                     </div>
                   ))}
                 </div>
@@ -13664,18 +13664,18 @@ useEffect(() => {
       {activeTab === "history" && (
         <div>
           {/* ملخص الشهر */}
-          <div style={{ ...cardStyle("#1a2a4a"), display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div style={{ ...cardStyle(COLORS.surfaceAlt), display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
             <div style={{ textAlign: "center" as const }}>
-              <div style={{ color: "#4a6a8a", fontSize: 11 }}>دخل الشهر</div>
-              <div style={{ color: "#44dd88", fontWeight: 900, fontSize: 18 }}>{monthIncome.toFixed(0)} ر.س</div>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>دخل الشهر</div>
+              <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{monthIncome.toFixed(0)} ر.س</div>
             </div>
             <div style={{ textAlign: "center" as const }}>
-              <div style={{ color: "#4a6a8a", fontSize: 11 }}>مصروفات الشهر</div>
-              <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 18 }}>{monthExpenses.toFixed(0)} ر.س</div>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>مصروفات الشهر</div>
+              <div style={{ color: COLORS.coral, fontWeight: 900, fontSize: 18 }}>{monthExpenses.toFixed(0)} ر.س</div>
             </div>
             <div style={{ textAlign: "center" as const }}>
-              <div style={{ color: "#4a6a8a", fontSize: 11 }}>صافي الشهر</div>
-              <div style={{ color: monthIncome - monthExpenses >= 0 ? "#3a9aff" : "#ff4444", fontWeight: 900, fontSize: 18 }}>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>صافي الشهر</div>
+              <div style={{ color: monthIncome - monthExpenses >= 0 ? COLORS.blue : COLORS.red, fontWeight: 900, fontSize: 18 }}>
                 {(monthIncome - monthExpenses).toFixed(0)} ر.س
               </div>
             </div>
@@ -13691,25 +13691,25 @@ useEffect(() => {
                 <div onClick={() => setSelectedDay(isOpen ? null : day)}
                   style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
                   <div>
-                    <div style={{ color: "#dde8ff", fontWeight: 700 }}>{day}</div>
-                    <div style={{ color: "#4a6a8a", fontSize: 11 }}>{dayEnt.length} قيد</div>
+                    <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{day}</div>
+                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>{dayEnt.length} قيد</div>
                   </div>
                   <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
                     <div style={{ textAlign: "center" as const }}>
-                      <div style={{ color: "#44dd88", fontWeight: 700 }}>+{dayIncome.toFixed(0)}</div>
-                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>دخل</div>
+                      <div style={{ color: COLORS.green, fontWeight: 700 }}>+{dayIncome.toFixed(0)}</div>
+                      <div style={{ color: COLORS.textDim, fontSize: 10 }}>دخل</div>
                     </div>
                     <div style={{ textAlign: "center" as const }}>
-                      <div style={{ color: "#ff7744", fontWeight: 700 }}>-{dayExp.toFixed(0)}</div>
-                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>مصروف</div>
+                      <div style={{ color: COLORS.coral, fontWeight: 700 }}>-{dayExp.toFixed(0)}</div>
+                      <div style={{ color: COLORS.textDim, fontSize: 10 }}>مصروف</div>
                     </div>
                     <div style={{ textAlign: "center" as const }}>
-                      <div style={{ color: dayIncome - dayExp >= 0 ? "#3a9aff" : "#ff4444", fontWeight: 900 }}>
+                      <div style={{ color: dayIncome - dayExp >= 0 ? COLORS.blue : COLORS.red, fontWeight: 900 }}>
                         {(dayIncome - dayExp).toFixed(0)}
                       </div>
-                      <div style={{ color: "#4a6a8a", fontSize: 10 }}>صافي</div>
+                      <div style={{ color: COLORS.textDim, fontSize: 10 }}>صافي</div>
                     </div>
-                    <span style={{ color: "#4a6a8a" }}>{isOpen ? "▲" : "▼"}</span>
+                    <span style={{ color: COLORS.textDim }}>{isOpen ? "▲" : "▼"}</span>
                   </div>
                 </div>
                 {isOpen && (
@@ -13717,10 +13717,10 @@ useEffect(() => {
                     {dayEnt.map((e) => (
                       <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12 }}>
                         <div>
-                          <span style={{ color: "#7a9aaa" }}>{e.note || e.sub_type}</span>
-                          {e.method && <span style={{ color: "#3a5a8a", fontSize: 10, marginRight: 8 }}>({e.method})</span>}
+                          <span style={{ color: COLORS.textDim }}>{e.note || e.sub_type}</span>
+                          {e.method && <span style={{ color: COLORS.border, fontSize: 10, marginRight: 8 }}>({e.method})</span>}
                         </div>
-                        <span style={{ color: e.type === "income" ? "#44dd88" : "#ff7744", fontWeight: 700 }}>
+                        <span style={{ color: e.type === "income" ? COLORS.green : COLORS.coral, fontWeight: 700 }}>
                           {e.type === "income" ? "+" : "-"}{e.amount} ر.س
                         </span>
                       </div>
@@ -13730,7 +13730,7 @@ useEffect(() => {
               </div>
             );
           })}
-          {sortedDays.length === 0 && <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد قيود مسجلة</div>}
+          {sortedDays.length === 0 && <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد قيود مسجلة</div>}
         </div>
       )}
 
@@ -13741,37 +13741,37 @@ useEffect(() => {
             <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>
           </div>
           {fixedExpenses.length === 0
-            ? <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد مصاريف ثابتة</div>
+            ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد مصاريف ثابتة</div>
             : (
               <>
-                <div style={{ ...cardStyle("#2a1a00"), display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#ffaa44", fontWeight: 700 }}>إجمالي شهري (متوسط الأقساط)</span>
-                  <span style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{monthFixedTotal.toFixed(2)} ر.س</span>
+                <div style={{ ...cardStyle(COLORS.goldSoft), display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: COLORS.gold, fontWeight: 700 }}>إجمالي شهري (متوسط الأقساط)</span>
+                  <span style={{ color: COLORS.coral, fontWeight: 900, fontSize: 16 }}>{monthFixedTotal.toFixed(2)} ر.س</span>
                 </div>
                 {fixedExpenses.map((f) => {
   const due = isDueThisMonth(f);
   const rec = f.recurrence || "monthly";
   return (
-    <div key={f.id} style={cardStyle(due ? "#3a2000" : "#1d2d4a")}>
+    <div key={f.id} style={cardStyle(due ? COLORS.goldSoft : COLORS.border)}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#dde8ff", fontWeight: 700 }}>{f.name}</span>
-            <span style={{ fontSize: 10, color: "#7a8aaa", background: "#0a1020", padding: "2px 6px", borderRadius: 5 }}>
+            <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{f.name}</span>
+            <span style={{ fontSize: 10, color: "#7a8aaa", background: COLORS.surfaceAlt, padding: "2px 6px", borderRadius: 5 }}>
               {recurrenceLabel[rec]}
             </span>
           </div>
-          <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 3 }}>
             يوم {f.due_day}{rec !== "monthly" ? ` من شهر الاستحقاق` : " من كل شهر"}
-            {due && Math.abs(+f.due_day - currentDay) <= 3 && <span style={{ color: "#ffaa44", marginRight: 8 }}>⏰ مستحقة قريباً</span>}
-            {!due && <span style={{ color: "#4a6a8a", marginRight: 8 }}>غير مستحقة هذا الشهر</span>}
+            {due && Math.abs(+f.due_day - currentDay) <= 3 && <span style={{ color: COLORS.gold, marginRight: 8 }}>⏰ مستحقة قريباً</span>}
+            {!due && <span style={{ color: COLORS.textDim, marginRight: 8 }}>غير مستحقة هذا الشهر</span>}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ textAlign: "left" as const }}>
-            <div style={{ color: "#ff7744", fontWeight: 900, fontSize: 16 }}>{f.amount} ر.س</div>
+            <div style={{ color: COLORS.coral, fontWeight: 900, fontSize: 16 }}>{f.amount} ر.س</div>
             {rec !== "monthly" && (
-              <div style={{ color: "#4a6a8a", fontSize: 10 }}>≈ {monthlyShare(f).toFixed(2)} ر.س / شهر</div>
+              <div style={{ color: COLORS.textDim, fontSize: 10 }}>≈ {monthlyShare(f).toFixed(2)} ر.س / شهر</div>
             )}
           </div>
           <button
@@ -13785,7 +13785,7 @@ useEffect(() => {
               setEntries((p) => [...p, { type: "expense", sub_type: "fixed", method: "نقدي", amount: f.amount, note: f.name, date: today }]);
               showToast(`تم سداد ${f.name} ✓`);
             }}
-            style={{ background: "#1a3a1a", border: "1px solid #2a6a2a", borderRadius: 8, padding: "6px 14px", color: "#44dd88", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+            style={{ background: COLORS.greenSoft, border: "1px solid #2a6a2a", borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
             💳 سداد
           </button>
           <button
@@ -13795,7 +13795,7 @@ useEffect(() => {
               setFixedExpenses((p) => p.filter((x) => x.id !== f.id));
               showToast("تم الحذف");
             }}
-            style={{ background: "#3a0a0a", border: "none", borderRadius: 8, padding: "6px 10px", color: "#ff4444", cursor: "pointer", fontSize: 14 }}>
+            style={{ background: COLORS.redSoft, border: "none", borderRadius: 8, padding: "6px 10px", color: COLORS.red, cursor: "pointer", fontSize: 14 }}>
             🗑
           </button>
         </div>
@@ -13815,24 +13815,24 @@ useEffect(() => {
             <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>
           </div>
           {licenses.length === 0
-            ? <div style={{ color: "#4a6a8a", textAlign: "center" as const, padding: 40 }}>لا توجد تراخيص</div>
+            ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد تراخيص</div>
             : licenses.map((l) => {
                 const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
                 const urgent = days <= 14; const soon = days <= 60;
                 return (
-                  <div key={l.id} style={cardStyle(urgent ? "#4a0000" : soon ? "#3a2000" : "#1d2d4a")}>
+                  <div key={l.id} style={cardStyle(urgent ? "#4a0000" : soon ? COLORS.goldSoft : COLORS.border)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
-                        <div style={{ color: "#dde8ff", fontWeight: 700 }}>{l.name}</div>
-                        <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 3 }}>
+                        <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{l.name}</div>
+                        <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 3 }}>
                           تجديد: {l.renew_date}{l.note && ` • ${l.note}`}
                         </div>
                       </div>
                       <div style={{ textAlign: "left" as const }}>
-                        <div style={{ color: urgent ? "#ff4444" : soon ? "#ffaa44" : "#44dd88", fontWeight: 700 }}>
+                        <div style={{ color: urgent ? COLORS.red : soon ? COLORS.gold : COLORS.green, fontWeight: 700 }}>
                           {days <= 0 ? "⚠️ منتهي" : `خلال ${days} يوم`}
                         </div>
-                        <div style={{ color: "#a78bfa", fontWeight: 700 }}>{l.amount} ر.س</div>
+                        <div style={{ color: COLORS.purple, fontWeight: 700 }}>{l.amount} ر.س</div>
                       </div>
                     </div>
                   </div>
@@ -13935,101 +13935,101 @@ function TaxReport({ sales, purchases, returns = [] }) {
       <div style={{ display: "flex", gap: 12, marginBottom: 22, alignItems: "center" }}>
         <Select label="الربع السنوي" value={quarter} onChange={setQuarter}
           options={quarters.map((q) => ({ v: q, l: `الربع ${q}` }))} style={{ width: 200 }} />
-        <div style={{ color: "#3a5a8a", fontSize: 13, marginTop: 20 }}>نسبة الضريبة: 15% (VAT)</div>
+        <div style={{ color: COLORS.border, fontSize: 13, marginTop: 20 }}>نسبة الضريبة: 15% (VAT)</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-        <div style={{ background: "#0f1623", border: "1px solid #1a3a1a", borderRadius: 14, padding: 20 }}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#44dd88", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ background: COLORS.surface, border: "1px solid #1a3a1a", borderRadius: 14, padding: 20 }}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: COLORS.green, display: "flex", alignItems: "center", gap: 8 }}>
             <IC n="pos" s={16} /> ضريبة المبيعات (الضريبة المحصلة)
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#6a8aaa" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textDim }}>
               <span>إجمالي المبيعات قبل الضريبة</span>
               <span style={{ fontWeight: 700 }}>{salesSubtotal.toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green }}>
               <span>ضريبة القيمة المضافة (15%)</span>
               <span style={{ fontWeight: 700 }}>{salesTax.toFixed(2)} ر.س</span>
             </div>
             {filtSalesReturns.length > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#ff7744", fontSize: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.coral, fontSize: 12 }}>
                 <span>قيمة مرتجعات المبيعات (قبل الضريبة)</span>
                 <span>{salesReturnsSubtotal.toFixed(2)} ر.س</span>
               </div>
             )}
             {filtSalesReturns.length > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#ff7744" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.coral }}>
                 <span>(–) ضريبة مرتجعات المبيعات</span>
                 <span style={{ fontWeight: 700 }}>−{salesReturnsTax.toFixed(2)} ر.س</span>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, borderTop: "1px solid #1d3a1d", paddingTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, borderTop: "1px solid #1d3a1d", paddingTop: 10 }}>
               <span>صافي ضريبة المخرجات</span>
               <span>{netSalesTax.toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800 }}>
               <span>إجمالي المبيعات شامل الضريبة</span>
               <span>{salesTotal.toFixed(2)} ر.س</span>
             </div>
             <div style={{ color: "#3a6a3a", fontSize: 12 }}>عدد الفواتير: {filtSales.length}{filtSalesReturns.length > 0 ? ` · مرتجعات: ${filtSalesReturns.length}` : ""}</div>
           </div>
         </div>
-        <div style={{ background: "#0f1623", border: "1px solid #1a2a3a", borderRadius: 14, padding: 20 }}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#6aaeff", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ background: COLORS.surface, border: "1px solid #1a2a3a", borderRadius: 14, padding: 20 }}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: COLORS.blue, display: "flex", alignItems: "center", gap: 8 }}>
             <IC n="purchase" s={16} /> ضريبة المشتريات (ضريبة المدخلات)
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#6a8aaa" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textDim }}>
               <span>إجمالي المشتريات قبل الضريبة</span>
               <span style={{ fontWeight: 700 }}>{purchSubtotal.toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#6aaeff" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.blue }}>
               <span>ضريبة القيمة المضافة (15%)</span>
               <span style={{ fontWeight: 700 }}>{purchTax.toFixed(2)} ر.س</span>
             </div>
             {filtPurchaseReturns.length > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#ff7744", fontSize: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.coral, fontSize: 12 }}>
                 <span>قيمة مرتجعات المشتريات (قبل الضريبة)</span>
                 <span>{purchReturnsSubtotal.toFixed(2)} ر.س</span>
               </div>
             )}
             {filtPurchaseReturns.length > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#ff7744" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.coral }}>
                 <span>(–) ضريبة مرتجعات المشتريات</span>
                 <span style={{ fontWeight: 700 }}>−{purchReturnsTax.toFixed(2)} ر.س</span>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 10 }}>
               <span>صافي ضريبة المدخلات</span>
               <span>{netPurchTax.toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800 }}>
               <span>إجمالي المشتريات شامل الضريبة</span>
               <span>{purchTotal.toFixed(2)} ر.س</span>
             </div>
-            <div style={{ color: "#3a5a7a", fontSize: 12 }}>عدد الفواتير: {filtPurchases.length}{filtPurchaseReturns.length > 0 ? ` · مرتجعات: ${filtPurchaseReturns.length}` : ""}</div>
+            <div style={{ color: COLORS.textDim, fontSize: 12 }}>عدد الفواتير: {filtPurchases.length}{filtPurchaseReturns.length > 0 ? ` · مرتجعات: ${filtPurchaseReturns.length}` : ""}</div>
           </div>
         </div>
       </div>
-      <div style={{ background: netTax > 0 ? "#0a1a0a" : "#1a0a0a", border: `2px solid ${netTax > 0 ? "#1a6a1a" : "#6a1a1a"}`, borderRadius: 16, padding: 24 }}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 800, color: netTax > 0 ? "#44dd88" : "#ff7777" }}>
+      <div style={{ background: netTax > 0 ? "#0a1a0a" : COLORS.redSoft, border: `2px solid ${netTax > 0 ? "#1a6a1a" : "#6a1a1a"}`, borderRadius: 16, padding: 24 }}>
+        <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 800, color: netTax > 0 ? COLORS.green : COLORS.red }}>
           {netTax > 0 ? "✔️ ضريبة مستحقة الدفع" : "✔️ ضريبة مستردة"} — {quarter}
         </h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>صافي ضريبة المبيعات</div>
-            <div style={{ color: "#44dd88", fontSize: 22, fontWeight: 800, marginTop: 4 }}>{netSalesTax.toFixed(2)}</div>
+            <div style={{ color: COLORS.textDim, fontSize: 13 }}>صافي ضريبة المبيعات</div>
+            <div style={{ color: COLORS.green, fontSize: 22, fontWeight: 800, marginTop: 4 }}>{netSalesTax.toFixed(2)}</div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>صافي ضريبة المشتريات</div>
-            <div style={{ color: "#6aaeff", fontSize: 22, fontWeight: 800, marginTop: 4 }}>{netPurchTax.toFixed(2)}</div>
+            <div style={{ color: COLORS.textDim, fontSize: 13 }}>صافي ضريبة المشتريات</div>
+            <div style={{ color: COLORS.blue, fontSize: 22, fontWeight: 800, marginTop: 4 }}>{netPurchTax.toFixed(2)}</div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#6a8aaa", fontSize: 13 }}>صافي الضريبة</div>
-            <div style={{ color: netTax > 0 ? "#44dd88" : "#ff7777", fontSize: 28, fontWeight: 900, marginTop: 4 }}>{netTax.toFixed(2)} ر.س</div>
+            <div style={{ color: COLORS.textDim, fontSize: 13 }}>صافي الضريبة</div>
+            <div style={{ color: netTax > 0 ? COLORS.green : COLORS.red, fontSize: 28, fontWeight: 900, marginTop: 4 }}>{netTax.toFixed(2)} ر.س</div>
           </div>
         </div>
-        <div style={{ marginTop: 16, padding: "12px 16px", background: "rgba(0,0,0,0.2)", borderRadius: 10, color: "#6a8aaa", fontSize: 13 }}>
+        <div style={{ marginTop: 16, padding: "12px 16px", background: "rgba(0,0,0,0.2)", borderRadius: 10, color: COLORS.textDim, fontSize: 13 }}>
           {netTax > 0
             ? `يجب تحويل مبلغ ${netTax.toFixed(2)} ر.س إلى هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`
             : `يحق استرداد مبلغ ${Math.abs(netTax).toFixed(2)} ر.س من هيئة الزكاة والضريبة والجمارك عن الربع ${quarter}`}
@@ -14140,9 +14140,9 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
         {["sales", "purchase", "product", "monthly", "returns"].map((t) => (
           <button key={t} onClick={() => setType(t)} style={{
             padding: "8px 18px", borderRadius: 8, border: "1px solid",
-            borderColor: type === t ? "#2a6aef" : "#1d2d4a",
-            background: type === t ? "#142a5a" : "transparent",
-            color: type === t ? "#6aaeff" : "#4a6a8a",
+            borderColor: type === t ? COLORS.blue : COLORS.border,
+            background: type === t ? COLORS.blueSoft : "transparent",
+            color: type === t ? COLORS.blue : COLORS.textDim,
             fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 13,
           }}>
             {t === "sales" ? "تقرير المبيعات" : t === "purchase" ? "تقرير المشتريات" : t === "product" ? "تقرير الأصناف" : t === "monthly" ? "تقرير شهري" : "تقرير المرتجعات"}
@@ -14178,27 +14178,27 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "sales" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
-            <StatCard label="إجمالي المبيعات (شامل الضريبة)" value={totalSalesRev.toFixed(2) + " ر.س"} icon="money" color="#3a9aff" />
-            <StatCard label="ضريبة المبيعات" value={totalSalesTax.toFixed(2) + " ر.س"} icon="tax" color="#88dd44" />
-            <StatCard label="عدد الفواتير" value={filteredSales.filter((s) => !s.returned).length} icon="pos" color="#a78bfa" />
-            <StatCard label="المرتجعات" value={returnedCount} icon="returns" color="#ff7744" />
+            <StatCard label="إجمالي المبيعات (شامل الضريبة)" value={totalSalesRev.toFixed(2) + " ر.س"} icon="money" color=COLORS.blue />
+            <StatCard label="ضريبة المبيعات" value={totalSalesTax.toFixed(2) + " ر.س"} icon="tax" color=COLORS.green />
+            <StatCard label="عدد الفواتير" value={filteredSales.filter((s) => !s.returned).length} icon="pos" color=COLORS.purple />
+            <StatCard label="المرتجعات" value={returnedCount} icon="returns" color=COLORS.coral />
           </div>
           <Table
             headers={["رقم الفاتورة", "التاريخ", "العميل", "المجموع", "الضريبة", "الإجمالي شامل الضريبة", "الدفع", "حالة"]}
             rows={filteredSales.map((s) => [
-              <span onClick={() => setShowInvoiceDetail(s)} style={{ color: "#6aaeff", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{s.id}</span>,
+              <span onClick={() => setShowInvoiceDetail(s)} style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{s.id}</span>,
               s.date,
               s.customer_name || "زبون عادي",
               (s.subtotal || 0).toFixed(2) + " ر.س",
-              <span style={{ color: "#88dd44" }}>{(s.taxAmount || s.tax_amount || 0).toFixed(2)} ر.س</span>,
-              <span style={{ color: "#3a9aff", fontWeight: 700 }}>{(s.total || 0).toFixed(2)} ر.س</span>,
+              <span style={{ color: COLORS.green }}>{(s.taxAmount || s.tax_amount || 0).toFixed(2)} ر.س</span>,
+              <span style={{ color: COLORS.blue, fontWeight: 700 }}>{(s.total || 0).toFixed(2)} ر.س</span>,
               s.payment,
               s.returned
-                ? <Badge color="#3a0a0a" text="#ff7777">مرتجعة</Badge>
-                : <Badge color="#0a2a10" text="#44dd88">مكتملة</Badge>,
+                ? <Badge color=COLORS.redSoft text=COLORS.red>مرتجعة</Badge>
+                : <Badge color=COLORS.greenSoft text=COLORS.green>مكتملة</Badge>,
             ])}
           />
-          {filteredSales.length === 0 && <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>لا توجد فواتير مطابقة للبحث</div>}
+          {filteredSales.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد فواتير مطابقة للبحث</div>}
         </>
       )}
 
@@ -14206,19 +14206,19 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "purchase" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
-            <StatCard label="إجمالي المشتريات (شامل الضريبة)" value={totalPurchase.toFixed(2) + " ر.س"} icon="purchase" color="#fb923c" />
-            <StatCard label="ضريبة المشتريات" value={totalPurchaseTax.toFixed(2) + " ر.س"} icon="tax" color="#88dd44" />
-            <StatCard label="عدد أوامر الشراء" value={filteredPurchases.length} icon="suppliers" color="#a78bfa" />
+            <StatCard label="إجمالي المشتريات (شامل الضريبة)" value={totalPurchase.toFixed(2) + " ر.س"} icon="purchase" color=COLORS.coral />
+            <StatCard label="ضريبة المشتريات" value={totalPurchaseTax.toFixed(2) + " ر.س"} icon="tax" color=COLORS.green />
+            <StatCard label="عدد أوامر الشراء" value={filteredPurchases.length} icon="suppliers" color=COLORS.purple />
           </div>
           <Table
             headers={["رقم الأمر", "التاريخ", "المورد", "المجموع", "الضريبة", "الإجمالي", "الحالة"]}
             rows={filteredPurchases.map((p) => [
-              <span style={{ color: "#6aaeff", fontWeight: 700 }}>{p.id}</span>,
+              <span style={{ color: COLORS.blue, fontWeight: 700 }}>{p.id}</span>,
               p.date, p.supplierName,
               p.subtotal.toFixed(2) + " ر.س",
-              <span style={{ color: "#88dd44" }}>{p.taxAmount.toFixed(2)} ر.س</span>,
-              <span style={{ color: "#fb923c", fontWeight: 700 }}>{p.total.toFixed(2)} ر.س</span>,
-              <Badge color="#0a2a10" text="#44dd88">{p.status}</Badge>,
+              <span style={{ color: COLORS.green }}>{p.taxAmount.toFixed(2)} ر.س</span>,
+              <span style={{ color: COLORS.coral, fontWeight: 700 }}>{p.total.toFixed(2)} ر.س</span>,
+              <Badge color=COLORS.greenSoft text=COLORS.green>{p.status}</Badge>,
             ])}
           />
         </>
@@ -14228,7 +14228,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "product" && (
         <>
           {filterManufacturer && (
-            <div style={{ background: "#0a1a3a", border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: "#6aaeff" }}>
+            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
               🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
             </div>
           )}
@@ -14238,12 +14238,12 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               const prod = products.find((p) => p.id === id);
               const mfr = manufacturers.find((m) => m.id === prod?.manufacturer_id);
               return [
-                <span style={{ fontWeight: 700, color: "#dde8ff" }}>{d.name}</span>,
-                mfr ? <Badge color="#0a1a3a" text="#6aaeff">{mfr.name}</Badge> : <span style={{ color: "#3a5a8a", fontSize: 11 }}>—</span>,
-                <span style={{ color: "#3a9aff", fontWeight: 700 }}>{d.qty}</span>,
+                <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{d.name}</span>,
+                mfr ? <Badge color=COLORS.blueSoft text=COLORS.blue>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
+                <span style={{ color: COLORS.blue, fontWeight: 700 }}>{d.qty}</span>,
                 d.revenue.toFixed(2) + " ر.س",
-                <span style={{ color: "#88dd44" }}>{d.tax.toFixed(2)} ر.س</span>,
-                <span style={{ color: "#44dd88", fontWeight: 700 }}>{(d.revenue + d.tax).toFixed(2)} ر.س</span>,
+                <span style={{ color: COLORS.green }}>{d.tax.toFixed(2)} ر.س</span>,
+                <span style={{ color: COLORS.green, fontWeight: 700 }}>{(d.revenue + d.tax).toFixed(2)} ر.س</span>,
               ];
             })}
           />
@@ -14255,11 +14255,11 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
         <Table
           headers={["الشهر", "عدد الفواتير", "المبيعات قبل الضريبة", "ضريبة المبيعات", "المبيعات الكلية"]}
           rows={Object.entries(salesByMonth).sort().reverse().map(([m, d]) => [
-            <span style={{ fontWeight: 700, color: "#dde8ff" }}>{m}</span>,
+            <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{m}</span>,
             d.count,
             d.subtotal.toFixed(2) + " ر.س",
-            <span style={{ color: "#88dd44" }}>{d.tax.toFixed(2)} ر.س</span>,
-            <span style={{ color: "#3a9aff", fontWeight: 700 }}>{d.total.toFixed(2)} ر.س</span>,
+            <span style={{ color: COLORS.green }}>{d.tax.toFixed(2)} ر.س</span>,
+            <span style={{ color: COLORS.blue, fontWeight: 700 }}>{d.total.toFixed(2)} ر.س</span>,
           ])}
         />
       )}
@@ -14268,65 +14268,65 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "returns" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
-            <StatCard label="عدد المرتجعات" value={filteredReturns.length} icon="returns" color="#ff7744" />
-            <StatCard label="مرتجعات المبيعات" value={totalReturnsSales.toFixed(2) + " ر.س"} icon="pos" color="#3a9aff" />
-            <StatCard label="مرتجعات المشتريات" value={totalReturnsPurchases.toFixed(2) + " ر.س"} icon="purchase" color="#fb923c" />
-            <StatCard label="الضريبة المستردة" value={totalReturnsTax.toFixed(2) + " ر.س"} icon="tax" color="#88dd44" />
+            <StatCard label="عدد المرتجعات" value={filteredReturns.length} icon="returns" color=COLORS.coral />
+            <StatCard label="مرتجعات المبيعات" value={totalReturnsSales.toFixed(2) + " ر.س"} icon="pos" color=COLORS.blue />
+            <StatCard label="مرتجعات المشتريات" value={totalReturnsPurchases.toFixed(2) + " ر.س"} icon="purchase" color=COLORS.coral />
+            <StatCard label="الضريبة المستردة" value={totalReturnsTax.toFixed(2) + " ر.س"} icon="tax" color=COLORS.green />
           </div>
           <Table
             headers={["رقم المرتجع", "التاريخ", "النوع", "العميل / المورد", "السبب", "الإجمالي"]}
             rows={filteredReturns.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
-              <span style={{ color: "#6aaeff", fontWeight: 700 }}>{r.id}</span>,
+              <span style={{ color: COLORS.blue, fontWeight: 700 }}>{r.id}</span>,
               r.date,
               r.type === "sales"
-                ? <Badge color="#0a2040" text="#3a9aff">مرتجع مبيعات</Badge>
-                : <Badge color="#1a1000" text="#fb923c">مرتجع مشتريات</Badge>,
+                ? <Badge color="#0a2040" text=COLORS.blue>مرتجع مبيعات</Badge>
+                : <Badge color=COLORS.goldSoft text=COLORS.coral>مرتجع مشتريات</Badge>,
               r.type === "sales" ? (r.customer_name || "زبون عادي") : (r.supplier_name || "—"),
-              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color="#1a0a00" text="#ff7744">تلقائي</Badge></span>}</span>,
-              <span style={{ color: "#ff7744", fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
+              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color=COLORS.redSoft text=COLORS.coral>تلقائي</Badge></span>}</span>,
+              <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
             ])}
           />
-          {filteredReturns.length === 0 && <div style={{ textAlign: "center", color: "#4a6a8a", padding: 30 }}>لا توجد مرتجعات في هذه الفترة</div>}
+          {filteredReturns.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مرتجعات في هذه الفترة</div>}
         </>
       )}
 
       {/* Modal تفاصيل الفاتورة */}
       {showInvoiceDetail && (
         <Modal open title={`تفاصيل الفاتورة — ${showInvoiceDetail.id}`} onClose={() => setShowInvoiceDetail(null)} wide>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 13, color: "#4a6a8a" }}>
-            <span>التاريخ: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.date}</span></span>
-            <span>العميل: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.customer_name || "زبون عادي"}</span></span>
-            <span>طريقة الدفع: <span style={{ color: "#dde8ff" }}>{showInvoiceDetail.payment}</span></span>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 13, color: COLORS.textDim }}>
+            <span>التاريخ: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.date}</span></span>
+            <span>العميل: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.customer_name || "زبون عادي"}</span></span>
+            <span>طريقة الدفع: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.payment}</span></span>
           </div>
           <div style={{ overflowX: "auto", marginBottom: 14 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: "#080e1a" }}>
+                <tr style={{ background: COLORS.surfaceAlt }}>
                   {["الصنف", "الكمية", "السعر", "الإجمالي"].map((h) => (
-                    <th key={h} style={{ padding: "8px 10px", textAlign: "right", color: "#4a6a9a", fontSize: 12 }}>{h}</th>
+                    <th key={h} style={{ padding: "8px 10px", textAlign: "right", color: COLORS.textDim, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {(showInvoiceDetail.items || []).map((item, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid #0a101a" }}>
-                    <td style={{ padding: "8px 10px", color: "#c0d0f0", fontSize: 13 }}>{item.name}</td>
-                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13, textAlign: "center" }}>{item.qty}</td>
-                    <td style={{ padding: "8px 10px", color: "#4a6a8a", fontSize: 13, textAlign: "center" }}>{item.price}</td>
-                    <td style={{ padding: "8px 10px", color: "#dde8ff", fontSize: 13, textAlign: "center", fontWeight: 700 }}>{(item.price * item.qty).toFixed(2)}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13, textAlign: "center" }}>{item.qty}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13, textAlign: "center" }}>{item.price}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13, textAlign: "center", fontWeight: 700 }}>{(item.price * item.qty).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#4a6a8a", marginBottom: 5 }}>
+          <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textDim, marginBottom: 5 }}>
               <span>قبل الضريبة</span><span>{(showInvoiceDetail.subtotal || 0).toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#88dd44", marginBottom: 5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green, marginBottom: 5 }}>
               <span>الضريبة</span><span>{(showInvoiceDetail.taxAmount || showInvoiceDetail.tax_amount || 0).toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#dde8ff", fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
               <span>الإجمالي</span><span>{(showInvoiceDetail.total || 0).toFixed(2)} ر.س</span>
             </div>
           </div>
@@ -14460,7 +14460,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
       {!currentShift ? (
         <div
           style={{
-            background: "#0f1623",
+            background: COLORS.surface,
             border: "1px solid #1d2d4a",
             borderRadius: 14,
             padding: 24,
@@ -14473,7 +14473,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               margin: "0 0 16px",
               fontSize: 16,
               fontWeight: 700,
-              color: "#dde8ff",
+              color: COLORS.textPrimary,
             }}
           >
             فتح شفت جديد
@@ -14494,8 +14494,10 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
       ) : (
         <div
           style={{
-            background: "#0a1a0a",
-            border: "1px solid #1a5a1a",
+            background: COLORS.surface,
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            border: `1px solid ${COLORS.border}`,
             borderRadius: 14,
             padding: 24,
             marginBottom: 20,
@@ -14515,12 +14517,12 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 700,
-                color: "#44dd88",
+                color: COLORS.green,
               }}
             >
               شفت مفتوح ✓
             </h3>
-            <Badge color="#0a3a0a" text="#44dd88">
+            <Badge color={COLORS.greenSoft} text={COLORS.green}>
               {currentShift.id}
             </Badge>
           </div>
@@ -14533,22 +14535,22 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
             }}
           >
             <div
-              style={{ background: "#080e14", borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
             >
-              <div style={{ color: "#3a6a3a", fontSize: 11 }}>بداية الشفت</div>
-              <div style={{ color: "#dde8ff", fontSize: 13, marginTop: 4 }}>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>بداية الشفت</div>
+              <div style={{ color: COLORS.textPrimary, fontSize: 13, marginTop: 4 }}>
                 {currentShift.start_time}
               </div>
             </div>
             <div
-              style={{ background: "#080e14", borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
             >
-              <div style={{ color: "#3a6a3a", fontSize: 11 }}>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>
                 النقد الافتتاحي
               </div>
               <div
                 style={{
-                  color: "#44dd88",
+                  color: COLORS.green,
                   fontSize: 16,
                   fontWeight: 700,
                   marginTop: 2,
@@ -14558,12 +14560,12 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               </div>
             </div>
             <div
-              style={{ background: "#080e14", borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
             >
-              <div style={{ color: "#3a6a3a", fontSize: 11 }}>مبيعات الشفت</div>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>مبيعات الشفت</div>
               <div
                 style={{
-                  color: "#3a9aff",
+                  color: COLORS.blue,
                   fontSize: 16,
                   fontWeight: 700,
                   marginTop: 2,
@@ -14573,12 +14575,12 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               </div>
             </div>
             <div
-              style={{ background: "#080e14", borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
             >
-              <div style={{ color: "#3a6a3a", fontSize: 11 }}>عدد الفواتير</div>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>عدد الفواتير</div>
               <div
                 style={{
-                  color: "#a78bfa",
+                  color: COLORS.purple,
                   fontSize: 16,
                   fontWeight: 700,
                   marginTop: 2,
@@ -14607,9 +14609,9 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               style={{
                 margin: "10px 0",
                 padding: "10px 14px",
-                background: "#080e14",
+                background: COLORS.surfaceAlt,
                 borderRadius: 8,
-                color: "#ffaa44",
+                color: COLORS.gold,
                 fontSize: 13,
               }}
             >
@@ -14641,21 +14643,21 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
           "الحالة",
         ]}
         rows={[...shifts].reverse().map((s) => [
-          <span style={{ color: "#6aaeff", fontWeight: 700 }}>{s.id}</span>,
+          <span style={{ color: COLORS.blue, fontWeight: 700 }}>{s.id}</span>,
           s.user,
           s.start_time,
           s.end_time || "-",
           s.open_cash + " ر.س",
-          <span style={{ color: "#3a9aff", fontWeight: 700 }}>
+          <span style={{ color: COLORS.blue, fontWeight: 700 }}>
             {(s.sales || 0).toFixed(2)} ر.س
           </span>,
           s.close_cash ? s.close_cash + " ر.س" : "-",
           s.end_time ? (
-            <Badge color="#0a2a10" text="#44dd88">
+            <Badge color=COLORS.greenSoft text=COLORS.green>
               مغلق
             </Badge>
           ) : (
-            <Badge color="#0a2a1a" text="#44ffaa">
+            <Badge color=COLORS.greenSoft text="#44ffaa">
               مفتوح
             </Badge>
           ),
@@ -14863,7 +14865,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
               <button
                 onClick={saveWeekSchedule}
                 disabled={saving}
-                style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 20px", color: C.green, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+                style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 20px", color: C.green, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
               >
                 {saving ? "جاري الحفظ..." : "💾 حفظ الجدول"}
               </button>
@@ -14886,7 +14888,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             return (
               <div key={day.day_of_week} style={{
                 borderBottom: `1px solid ${C.border}`,
-                background: isToday ? "#0a1a2a" : "transparent",
+                background: isToday ? COLORS.surfaceAlt : "transparent",
                 padding: "12px 16px",
               }}>
                 {/* رأس اليوم */}
@@ -14977,7 +14979,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             <button
               onClick={saveWeekSchedule}
               disabled={saving}
-              style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 8, padding: "9px 24px", color: C.green, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+              style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "9px 24px", color: C.green, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
             >
               {saving ? "جاري الحفظ..." : "💾 حفظ جدول الأسبوع"}
             </button>
@@ -15002,7 +15004,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
                 <div
                   key={name}
                   onClick={() => setSelectedPharmacist(name)}
-                  style={{ background: selectedPharmacist === name ? "#0a1a3a" : C.bg, border: `1px solid ${selectedPharmacist === name ? C.accent : C.border}`, borderRadius: 10, padding: "10px 16px", cursor: "pointer" }}
+                  style={{ background: selectedPharmacist === name ? COLORS.blueSoft : C.bg, border: `1px solid ${selectedPharmacist === name ? C.accent : C.border}`, borderRadius: 10, padding: "10px 16px", cursor: "pointer" }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{name}</div>
                   <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{totalHours.toFixed(0)} ساعة / أسبوع</div>
@@ -15046,9 +15048,9 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
 
   // ── ألوان النظام الداكن ──
   const C = {
-    bg: "#0f1623", bg2: "#080e1a", border: "#1d2d4a",
-    text: "#dde8ff", muted: "#4a6a9a", accent: "#3a9aff",
-    green: "#44dd88", red: "#ff5555", orange: "#ffaa44", purple: "#a78bfa",
+    bg: COLORS.surface, bg2: COLORS.surfaceAlt, border: COLORS.border,
+    text: COLORS.textPrimary, muted: COLORS.textDim, accent: COLORS.blue,
+    green: COLORS.green, red: COLORS.red, orange: COLORS.gold, purple: COLORS.purple,
   };
 
   useEffect(() => { if (pharmacyId) loadAll(); }, [pharmacyId]);
@@ -15294,7 +15296,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🕐 الحضور والانصراف</h2>
         <div style={{ fontSize: 12, color: C.muted }}>
           {new Date().toLocaleDateString("ar-SA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-          {ramadan && <span style={{ marginRight: 8, background: "#f59e0b22", color: "#f59e0b", borderRadius: 4, padding: "2px 8px" }}>🌙 رمضان</span>}
+          {ramadan && <span style={{ marginRight: 8, background: "#f59e0b22", color: COLORS.gold, borderRadius: 4, padding: "2px 8px" }}>🌙 رمضان</span>}
         </div>
       </div>
 
@@ -15362,7 +15364,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                       </div>
                     )}
                     {!activeLog && !doneLog && (
-                      <button onClick={() => handleCheckIn(name)} style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 7, padding: "6px 14px", color: C.green, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
+                      <button onClick={() => handleCheckIn(name)} style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 7, padding: "6px 14px", color: C.green, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
                         ✅ تسجيل حضور
                       </button>
                     )}
@@ -15370,7 +15372,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                       <div>
                         <div style={{ fontSize: 11, color: C.green, marginBottom: 6 }}>🟢 حضر {fmt(activeLog.check_in)}</div>
                         {activeLog.late_minutes > 0 && <div style={{ fontSize: 11, color: C.orange, marginBottom: 6 }}>⚠️ تأخر {activeLog.late_minutes} دقيقة</div>}
-                        <button onClick={() => handleCheckOut(activeLog)} style={{ background: "#2a0a0a", border: "1px solid #5a1a1a", borderRadius: 7, padding: "6px 14px", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
+                        <button onClick={() => handleCheckOut(activeLog)} style={{ background: COLORS.redSoft, border: "1px solid #5a1a1a", borderRadius: 7, padding: "6px 14px", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
                           🔴 تسجيل انصراف
                         </button>
                       </div>
@@ -15435,7 +15437,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                 <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>🕌 فترات الصلاة</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {prayerBreaks.map((b) => (
-                    <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : "#0a1a10", border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                    <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : COLORS.greenSoft, border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
                       <strong style={{ color: C.text }}>{b.pharmacist_name}</strong>
                       <span style={{ color: C.muted }}> – {b.prayer_name} · {fmt(b.prayer_time)} ← {fmt(b.return_time)}</span>
                       {b.deducted_minutes > 0
@@ -15495,7 +15497,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                     <span style={{ fontSize: 11, color: C.muted, marginRight: 8 }}>شفت {log.shift_number || 1}</span>
                     {log.expected_start && <span style={{ fontSize: 11, color: C.muted }}>· متوقع: {log.expected_start}</span>}
                   </div>
-                  <span style={{ background: "#0a1a3a", color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 13, fontWeight: 700 }}>
+                  <span style={{ background: COLORS.blueSoft, color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 13, fontWeight: 700 }}>
                     صافي: {fmtHours(log.net_hours)} س
                   </span>
                 </div>
@@ -15511,7 +15513,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                     <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>فترات الصلاة:</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       {log.prayer_breaks.map((b: any) => (
-                        <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : "#0a1a10", border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 6, padding: "4px 10px", fontSize: 12 }}>
+                        <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : COLORS.greenSoft, border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 6, padding: "4px 10px", fontSize: 12 }}>
                           {b.prayer_name}: {fmt(b.prayer_time)} ← {fmt(b.return_time)}
                           {b.deducted_minutes > 0 ? <span style={{ color: C.red }}> ⚠️ -{b.deducted_minutes}د</span> : <span style={{ color: C.green }}> ✅</span>}
                         </div>
@@ -15545,10 +15547,10 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <strong style={{ fontSize: 15, color: C.text }}>👤 {name}</strong>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <span style={{ background: "#0a1a3a", color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
+                      <span style={{ background: COLORS.blueSoft, color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
                         فعلي: {fmtHours(totalNet)} س
                       </span>
-                      <span style={{ background: diff >= 0 ? "#0a2a18" : "#2a0a0a", color: diff >= 0 ? C.green : C.red, borderRadius: 6, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
+                      <span style={{ background: diff >= 0 ? COLORS.greenSoft : COLORS.redSoft, color: diff >= 0 ? C.green : C.red, borderRadius: 6, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
                         {diff >= 0 ? "+" : ""}{fmtHours(Math.abs(diff))} {diff >= 0 ? "زيادة" : "نقص"}
                       </span>
                     </div>
@@ -15611,7 +15613,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
             <h3 style={{ margin: "0 0 4px", color: C.text, fontSize: 18 }}>وقت صلاة {activePrayerPopup.prayer}</h3>
             <p style={{ margin: "0 0 16px", color: C.muted, fontSize: 14 }}>{activePrayerPopup.log.pharmacist_name} – الوقت المسموح: {activePrayerPopup.allowed} دقيقة</p>
             <button onClick={() => handlePrayerReturn(activePrayerPopup)}
-              style={{ background: "#0a2a18", border: "1px solid #1a5a30", borderRadius: 10, padding: "12px 28px", color: C.green, fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%", marginBottom: 10 }}>
+              style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 10, padding: "12px 28px", color: C.green, fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%", marginBottom: 10 }}>
               ✅ {activePrayerPopup.log.pharmacist_name} – رجع من الصلاة
             </button>
             <button onClick={() => setActivePrayerPopup(null)}
@@ -15649,7 +15651,7 @@ function PrayerSettingRow({ setting, onSave, ramadan, C }: any) {
         <span style={{ color: C.muted }}>دقيقة</span>
       </label>
       {changed && (
-        <button onClick={() => onSave(local)} style={{ background: "#0a1a3a", border: "1px solid #1a4a8a", borderRadius: 7, padding: "6px 16px", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={() => onSave(local)} style={{ background: COLORS.blueSoft, border: "1px solid #1a4a8a", borderRadius: 7, padding: "6px 16px", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           حفظ
         </button>
       )}
@@ -15867,12 +15869,12 @@ await supabase.from("treasury_entries").insert({
   };
 
   // ── ألوان ──
-  const VAR = { bg: "#0f1623", border: "#1d2d4a", text: "#dde8ff", muted: "#4a6a9a", accent: "#3a9aff" };
+  const VAR = { bg: COLORS.surface, border: COLORS.border, text: COLORS.textPrimary, muted: COLORS.textDim, accent: COLORS.blue };
 
   const typeLabel: Record<string, { label: string; color: string }> = {
-    earn:   { label: "مكتسبة",  color: "#44dd88" },
-    redeem: { label: "مستبدلة", color: "#ff7777" },
-    adjust: { label: "تعديل",   color: "#ffaa44" },
+    earn:   { label: "مكتسبة",  color: COLORS.green },
+    redeem: { label: "مستبدلة", color: COLORS.red },
+    adjust: { label: "تعديل",   color: COLORS.gold },
   };
 
   // ── إحصائيات ──
@@ -15903,7 +15905,7 @@ await supabase.from("treasury_entries").insert({
             <button key={t} onClick={() => setTab(t)} style={{
               padding: "7px 16px", borderRadius: 8, border: "1px solid",
               borderColor: tab === t ? VAR.accent : VAR.border,
-              background: tab === t ? "#0a1a30" : "transparent",
+              background: tab === t ? COLORS.blueSoft : "transparent",
               color: tab === t ? VAR.accent : VAR.muted,
               fontSize: 13, fontWeight: 700, cursor: "pointer",
             }}>
@@ -15916,10 +15918,10 @@ await supabase.from("treasury_entries").insert({
       {/* ── إحصائيات ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
         {[
-          { label: "إجمالي النقاط الحالية", value: totalPointsInSystem.toFixed(1) + " ر.س", color: "#3a9aff" },
-          { label: "إجمالي المكتسبة", value: totalEverEarned.toFixed(1) + " ر.س", color: "#44dd88" },
-          { label: "إجمالي المستبدلة", value: totalRedeemed.toFixed(1) + " ر.س", color: "#ff7777" },
-          { label: "أعضاء نشطون", value: activeMembers, color: "#ffaa44" },
+          { label: "إجمالي النقاط الحالية", value: totalPointsInSystem.toFixed(1) + " ر.س", color: COLORS.blue },
+          { label: "إجمالي المكتسبة", value: totalEverEarned.toFixed(1) + " ر.س", color: COLORS.green },
+          { label: "إجمالي المستبدلة", value: totalRedeemed.toFixed(1) + " ر.س", color: COLORS.red },
+          { label: "أعضاء نشطون", value: activeMembers, color: COLORS.gold },
         ].map((s, i) => (
           <div key={i} style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, padding: "16px 18px" }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -15936,14 +15938,14 @@ await supabase.from("treasury_entries").insert({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="بحث باسم العميل أو رقم الجوال..."
-              style={{ background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 14px", color: VAR.text, fontSize: 14, outline: "none", width: 300, boxSizing: "border-box" as any }}
+              style={{ background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 14px", color: VAR.text, fontSize: 14, outline: "none", width: 300, boxSizing: "border-box" as any }}
             />
           </div>
 
           <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: "#080e1a", borderBottom: `1px solid ${VAR.border}` }}>
+                <tr style={{ background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
                   {["العميل", "النقاط الحالية (ر.س)", "إجمالي مكتسبة", "إجمالي مستبدلة", ""].map((h, i) => (
                     <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
                   ))}
@@ -15955,7 +15957,7 @@ await supabase.from("treasury_entries").insert({
                 ) : filtered.map((c, i) => {
                   const lp = loyaltyMap[c.id] || { points: 0, total_earned: 0, total_redeemed: 0 };
                   return (
-                    <tr key={c.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : "#080e16" }}>
+                    <tr key={c.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
                       <td style={{ padding: "11px 16px" }}>
                         <div style={{ fontWeight: 700, color: VAR.text, fontSize: 14 }}>{c.name}</div>
                         <div style={{ fontSize: 11, color: VAR.muted }}>{c.phone}</div>
@@ -15963,20 +15965,20 @@ await supabase.from("treasury_entries").insert({
                       <td style={{ padding: "11px 16px" }}>
                         <span style={{
                           fontSize: 16, fontWeight: 800,
-                          color: lp.points >= settings.min_redeem ? "#44dd88" : VAR.muted,
+                          color: lp.points >= settings.min_redeem ? COLORS.green : VAR.muted,
                         }}>
                           {(lp.points || 0).toFixed(2)}
                         </span>
                         {lp.points >= settings.min_redeem && (
-                          <span style={{ marginRight: 6, fontSize: 10, background: "#0a2a18", color: "#44dd88", padding: "1px 6px", borderRadius: 10 }}>
+                          <span style={{ marginRight: 6, fontSize: 10, background: COLORS.greenSoft, color: COLORS.green, padding: "1px 6px", borderRadius: 10 }}>
                             قابل للاستبدال
                           </span>
                         )}
                       </td>
-                      <td style={{ padding: "11px 16px", color: "#44dd88", fontSize: 13 }}>
+                      <td style={{ padding: "11px 16px", color: COLORS.green, fontSize: 13 }}>
                         {(lp.total_earned || 0).toFixed(2)}
                       </td>
-                      <td style={{ padding: "11px 16px", color: "#ff7777", fontSize: 13 }}>
+                      <td style={{ padding: "11px 16px", color: COLORS.red, fontSize: 13 }}>
                         {(lp.total_redeemed || 0).toFixed(2)}
                       </td>
                       <td style={{ padding: "11px 16px" }}>
@@ -15984,7 +15986,7 @@ await supabase.from("treasury_entries").insert({
                           {lp.points >= settings.min_redeem && (
                             <button onClick={() => { setRedeemModal(c); setRedeemAmount(""); }} style={{
                               padding: "5px 12px", borderRadius: 7, border: "1px solid #1a5a30",
-                              background: "#0a2a18", color: "#44dd88", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                              background: COLORS.greenSoft, color: COLORS.green, fontSize: 12, fontWeight: 700, cursor: "pointer",
                             }}>
                               استبدال
                             </button>
@@ -16011,7 +16013,7 @@ await supabase.from("treasury_entries").insert({
         <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: "#080e1a", borderBottom: `1px solid ${VAR.border}` }}>
+              <tr style={{ background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
                 {["التاريخ", "العميل", "النوع", "المبلغ (ر.س)", "ملاحظة"].map((h, i) => (
                   <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
                 ))}
@@ -16024,7 +16026,7 @@ await supabase.from("treasury_entries").insert({
                 const customer = customers.find((c) => c.id === t.customer_id);
                 const tl = typeLabel[t.type] || { label: t.type, color: VAR.muted };
                 return (
-                  <tr key={t.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : "#080e16" }}>
+                  <tr key={t.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
                     <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>
                       {t.created_at ? new Date(t.created_at).toLocaleString("ar-SA") : "-"}
                     </td>
@@ -16036,7 +16038,7 @@ await supabase.from("treasury_entries").insert({
                         {tl.label}
                       </span>
                     </td>
-                    <td style={{ padding: "10px 16px", fontSize: 14, fontWeight: 800, color: t.amount > 0 ? "#44dd88" : "#ff7777" }}>
+                    <td style={{ padding: "10px 16px", fontSize: 14, fontWeight: 800, color: t.amount > 0 ? COLORS.green : COLORS.red }}>
                       {t.amount > 0 ? "+" : ""}{(t.amount || 0).toFixed(2)}
                     </td>
                     <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>{t.note || "-"}</td>
@@ -16052,7 +16054,7 @@ await supabase.from("treasury_entries").insert({
       {tab === "settings" && (
         <div style={{ maxWidth: 600 }}>
           <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, padding: 24, marginBottom: 16 }}>
-            <h3 style={{ margin: "0 0 20px", color: "#6aaeff", fontSize: 15, fontWeight: 700 }}>
+            <h3 style={{ margin: "0 0 20px", color: COLORS.blue, fontSize: 15, fontWeight: 700 }}>
               🔧 آلية احتساب النقاط
             </h3>
 
@@ -16069,7 +16071,7 @@ await supabase.from("treasury_entries").insert({
                   <div key={opt.v} onClick={() => setSettings((p: any) => ({ ...p, mode: opt.v }))} style={{
                     flex: 1, padding: 14, borderRadius: 10, border: `2px solid`,
                     borderColor: settings.mode === opt.v ? VAR.accent : VAR.border,
-                    background: settings.mode === opt.v ? "#0a1a30" : "transparent",
+                    background: settings.mode === opt.v ? COLORS.blueSoft : "transparent",
                     cursor: "pointer", transition: "all 0.15s",
                   }}>
                     <div style={{ fontWeight: 700, color: settings.mode === opt.v ? VAR.accent : VAR.text, fontSize: 14, marginBottom: 6 }}>
@@ -16083,7 +16085,7 @@ await supabase.from("treasury_entries").insert({
 
             {/* إعدادات وضع الربح */}
             {settings.mode === "profit" && (
-              <div style={{ background: "#080e1a", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: VAR.muted, marginBottom: 12 }}>
                   مثال: إذا كان الربح من الفاتورة 50 ريال والنسبة 10% — يكسب العميل 5 ريال نقاط
                 </div>
@@ -16093,7 +16095,7 @@ await supabase.from("treasury_entries").insert({
                     type="number" min={1} max={100}
                     value={settings.profit_rate}
                     onChange={(e) => setSettings((p: any) => ({ ...p, profit_rate: +e.target.value }))}
-                    style={{ width: 80, background: "#0f1623", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                    style={{ width: 80, background: COLORS.surface, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
                   />
                   <span style={{ color: VAR.muted, fontSize: 13 }}>%</span>
                 </div>
@@ -16102,7 +16104,7 @@ await supabase.from("treasury_entries").insert({
 
             {/* إعدادات وضع المبيعات */}
             {settings.mode === "sales" && (
-              <div style={{ background: "#080e1a", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: VAR.muted, marginBottom: 12 }}>
                   مثال: إذا حدّدت 3 ريال لكل 100 ريال — من يشتري بـ 250 ريال يكسب 6 ريال نقاط
                 </div>
@@ -16111,14 +16113,14 @@ await supabase.from("treasury_entries").insert({
                     type="number" min={0.1}
                     value={settings.sales_rate}
                     onChange={(e) => setSettings((p: any) => ({ ...p, sales_rate: +e.target.value }))}
-                    style={{ width: 70, background: "#0f1623", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                    style={{ width: 70, background: COLORS.surface, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
                   />
                   <span style={{ color: VAR.muted, fontSize: 13 }}>ريال لكل</span>
                   <input
                     type="number" min={10}
                     value={settings.sales_per}
                     onChange={(e) => setSettings((p: any) => ({ ...p, sales_per: +e.target.value }))}
-                    style={{ width: 80, background: "#0f1623", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                    style={{ width: 80, background: COLORS.surface, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
                   />
                   <span style={{ color: VAR.muted, fontSize: 13 }}>ريال مشتريات</span>
                 </div>
@@ -16126,7 +16128,7 @@ await supabase.from("treasury_entries").insert({
             )}
 
             {/* إعدادات الاستبدال */}
-            <h3 style={{ margin: "20px 0 14px", color: "#6aaeff", fontSize: 14, fontWeight: 700 }}>
+            <h3 style={{ margin: "20px 0 14px", color: COLORS.blue, fontSize: 14, fontWeight: 700 }}>
               💱 إعدادات الاستبدال
             </h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -16138,7 +16140,7 @@ await supabase.from("treasury_entries").insert({
                   type="number" min={1}
                   value={settings.min_redeem}
                   onChange={(e) => setSettings((p: any) => ({ ...p, min_redeem: +e.target.value }))}
-                  style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
                 />
               </div>
               <div>
@@ -16149,7 +16151,7 @@ await supabase.from("treasury_entries").insert({
                   type="number" min={1}
                   value={settings.expiry_months}
                   onChange={(e) => setSettings((p: any) => ({ ...p, expiry_months: +e.target.value }))}
-                  style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
                 />
               </div>
             </div>
@@ -16165,19 +16167,19 @@ await supabase.from("treasury_entries").insert({
       {redeemModal && (
         <Modal open onClose={() => setRedeemModal(null)} title={`صرف نقدي — ${redeemModal.name}`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, textAlign: "center" }}>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, textAlign: "center" }}>
               <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط المتاحة</div>
-              <div style={{ fontSize: 28, fontWeight: 900, color: "#44dd88" }}>
+              <div style={{ fontSize: 28, fontWeight: 900, color: COLORS.green }}>
                 {((loyaltyMap[redeemModal.id]?.points) || 0).toFixed(2)} ر.س
               </div>
             </div>
             <div style={{
-  background: "#2a1a00",
+  background: COLORS.goldSoft,
   border: "1px solid #7a4a00",
   borderRadius: 8,
   padding: "8px 12px",
   fontSize: 12,
-  color: "#ffaa44",
+  color: COLORS.gold,
 }}>
   ⚠ سيتم خصم المبلغ من دخل اليوم كمصروف
 </div>
@@ -16191,7 +16193,7 @@ await supabase.from("treasury_entries").insert({
                 value={redeemAmount}
                 onChange={(e) => setRedeemAmount(e.target.value)}
                 placeholder={`الحد الأدنى ${settings.min_redeem} ريال`}
-                style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
+                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -16206,7 +16208,7 @@ await supabase.from("treasury_entries").insert({
       {adjustModal && (
         <Modal open onClose={() => setAdjustModal(null)} title={`تعديل نقاط — ${adjustModal.name}`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: "#080e1a", borderRadius: 10, padding: 14, textAlign: "center" }}>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, textAlign: "center" }}>
               <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط الحالية</div>
               <div style={{ fontSize: 28, fontWeight: 900, color: VAR.accent }}>
                 {((loyaltyMap[adjustModal.id]?.points) || 0).toFixed(2)} ر.س
@@ -16221,7 +16223,7 @@ await supabase.from("treasury_entries").insert({
                 value={adjustAmount}
                 onChange={(e) => setAdjustAmount(e.target.value)}
                 placeholder="مثال: 10 أو -5"
-                style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
+                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
               />
             </div>
             <div>
@@ -16230,7 +16232,7 @@ await supabase.from("treasury_entries").insert({
                 value={adjustNote}
                 onChange={(e) => setAdjustNote(e.target.value)}
                 placeholder="مثال: تعويض عميل..."
-                style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -16295,7 +16297,7 @@ function PermissionsModule({
   const [userForm, setUserForm] = useState({ name: "", username: "", password: "", role: "pharmacist" });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const VAR = { bg: "#0f1623", border: "#1d2d4a", text: "#dde8ff", muted: "#4a6a9a", accent: "#3a9aff" };
+  const VAR = { bg: COLORS.surface, border: COLORS.border, text: COLORS.textPrimary, muted: COLORS.textDim, accent: COLORS.blue };
 
   // ── تحميل الصلاحيات ──
   useEffect(() => {
@@ -16481,9 +16483,9 @@ function PermissionsModule({
         ].map((t) => (
           <button key={t.id} onClick={() => setActiveTab(t.id as any)} style={{
             padding: "8px 20px", borderRadius: 9, border: "1px solid",
-            borderColor: activeTab === t.id ? "#2a6aef" : VAR.border,
+            borderColor: activeTab === t.id ? COLORS.blue : VAR.border,
             background: activeTab === t.id ? "#14233a" : "transparent",
-            color: activeTab === t.id ? "#6aaeff" : VAR.muted,
+            color: activeTab === t.id ? COLORS.blue : VAR.muted,
             fontSize: 13, fontWeight: 700, cursor: "pointer",
           }}>
             {t.label}
@@ -16505,7 +16507,7 @@ function PermissionsModule({
                     display: "block", width: "100%", padding: "12px 16px", textAlign: "right",
                     background: selectedRole === role ? "#14233a" : "transparent",
                     borderRight: selectedRole === role ? "3px solid #2a6aef" : "3px solid transparent",
-                    border: "none", color: selectedRole === role ? "#6aaeff" : VAR.muted,
+                    border: "none", color: selectedRole === role ? COLORS.blue : VAR.muted,
                     fontSize: 13, fontWeight: selectedRole === role ? 700 : 400, cursor: "pointer",
                   }}>
                     {roleLabel(role)}
@@ -16522,8 +16524,8 @@ function PermissionsModule({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
                 {[
                   { val: viewCount, label: "قسم مرئي", color: VAR.accent },
-                  { val: editCount, label: "قسم قابل للتعديل", color: "#44dd88" },
-                  { val: SYSTEM_SECTIONS.length - viewCount, label: "قسم مخفي", color: "#ff7777" },
+                  { val: editCount, label: "قسم قابل للتعديل", color: COLORS.green },
+                  { val: SYSTEM_SECTIONS.length - viewCount, label: "قسم مخفي", color: COLORS.red },
                 ].map((s, i) => (
                   <div key={i} style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 10, padding: "12px 16px" }}>
                     <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.val}</div>
@@ -16533,13 +16535,13 @@ function PermissionsModule({
               </div>
 
               <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                <button onClick={() => toggleAll("edit_all")} style={{ padding: "6px 14px", borderRadius: 7, border: "1px solid #1a5a30", background: "#0a2a18", color: "#44dd88", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✅ تفعيل الكل</button>
-                <button onClick={() => toggleAll("view_all")} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid #1d3a6a`, background: "#0a1a30", color: VAR.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>👁️ عرض بدون تعديل</button>
-                <button onClick={() => toggleAll("none")} style={{ padding: "6px 14px", borderRadius: 7, border: "1px solid #4a1010", background: "#1a0a0a", color: "#ff7777", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🚫 إخفاء الكل</button>
+                <button onClick={() => toggleAll("edit_all")} style={{ padding: "6px 14px", borderRadius: 7, border: "1px solid #1a5a30", background: COLORS.greenSoft, color: COLORS.green, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✅ تفعيل الكل</button>
+                <button onClick={() => toggleAll("view_all")} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid #1d3a6a`, background: COLORS.blueSoft, color: VAR.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>👁️ عرض بدون تعديل</button>
+                <button onClick={() => toggleAll("none")} style={{ padding: "6px 14px", borderRadius: 7, border: "1px solid #4a1010", background: COLORS.redSoft, color: COLORS.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🚫 إخفاء الكل</button>
               </div>
 
               <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "12px 20px", background: "#080e1a", borderBottom: `1px solid ${VAR.border}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "12px 20px", background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700 }}>القسم</div>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>عرض 👁️</div>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>تعديل ✏️</div>
@@ -16551,7 +16553,7 @@ function PermissionsModule({
                       display: "grid", gridTemplateColumns: "1fr 120px 120px",
                       padding: "13px 20px", alignItems: "center",
                       borderBottom: i < SYSTEM_SECTIONS.length - 1 ? "1px solid #0a1020" : "none",
-                      background: i % 2 === 0 ? "transparent" : "#080e16",
+                      background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                       opacity: !p.can_view ? 0.55 : 1,
                     }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -16560,12 +16562,12 @@ function PermissionsModule({
                       </div>
                       <div style={{ display: "flex", justifyContent: "center" }}>
                         <button onClick={() => togglePerm(sec.id, "can_view")} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_view ? "#1a5a30" : "#2a1020", cursor: "pointer", position: "relative" }}>
-                          <div style={{ position: "absolute", top: 3, right: p.can_view ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_view ? "#44dd88" : "#ff5555", transition: "right 0.2s" }} />
+                          <div style={{ position: "absolute", top: 3, right: p.can_view ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
                         </button>
                       </div>
                       <div style={{ display: "flex", justifyContent: "center" }}>
                         <button onClick={() => togglePerm(sec.id, "can_edit")} disabled={!p.can_view} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_edit ? "#1a3a6a" : "#1a1a2a", cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
-                          <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_edit ? "#3a9aff" : "#3a3a5a", transition: "right 0.2s" }} />
+                          <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_edit ? COLORS.blue : "#3a3a5a", transition: "right 0.2s" }} />
                         </button>
                       </div>
                     </div>
@@ -16592,7 +16594,7 @@ function PermissionsModule({
             <div style={{ textAlign: "center", color: VAR.muted, padding: 40 }}>جاري التحميل...</div>
           ) : (
             <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px", padding: "12px 20px", background: "#080e1a", borderBottom: `1px solid ${VAR.border}` }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px", padding: "12px 20px", background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
                 {["الاسم", "اسم المستخدم", "الدور", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: i === 3 ? "center" : "right" }}>{h}</div>
                 ))}
@@ -16605,18 +16607,18 @@ function PermissionsModule({
                     display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px",
                     padding: "14px 20px", alignItems: "center",
                     borderBottom: i < users.length - 1 ? "1px solid #0a1020" : "none",
-                    background: i % 2 === 0 ? "transparent" : "#080e16",
+                    background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                   }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: VAR.text }}>{u.name}</div>
                     <div style={{ fontSize: 13, color: VAR.muted }}>{u.username}</div>
                     <div>
-                      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700, background: u.role === "admin" ? "#2a1a00" : u.role === "pharmacist" ? "#0a2a18" : "#0a1a30", color: u.role === "admin" ? "#ffaa44" : u.role === "pharmacist" ? "#44dd88" : "#3a9aff" }}>
+                      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700, background: u.role === "admin" ? COLORS.goldSoft : u.role === "pharmacist" ? COLORS.greenSoft : COLORS.blueSoft, color: u.role === "admin" ? COLORS.gold : u.role === "pharmacist" ? COLORS.green : COLORS.blue }}>
                         {roleLabel(u.role)}
                       </span>
                     </div>
                     <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                      <button onClick={() => { setSelectedUser(u); setUserForm({ name: u.name, username: u.username, password: u.password, role: u.role }); setUserModal("edit"); }} style={{ padding: "4px 10px", borderRadius: 6, background: "#0a1a30", border: "1px solid #1d3a6a", color: "#3a9aff", fontSize: 11, cursor: "pointer" }}>تعديل</button>
-                      <button onClick={() => setDeleteConfirm(u.id)} style={{ padding: "4px 10px", borderRadius: 6, background: "#1a0a0a", border: "1px solid #4a1010", color: "#ff6a6a", fontSize: 11, cursor: "pointer" }}>حذف</button>
+                      <button onClick={() => { setSelectedUser(u); setUserForm({ name: u.name, username: u.username, password: u.password, role: u.role }); setUserModal("edit"); }} style={{ padding: "4px 10px", borderRadius: 6, background: COLORS.blueSoft, border: "1px solid #1d3a6a", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>تعديل</button>
+                      <button onClick={() => setDeleteConfirm(u.id)} style={{ padding: "4px 10px", borderRadius: 6, background: COLORS.redSoft, border: "1px solid #4a1010", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>حذف</button>
                     </div>
                   </div>
                 ))
@@ -16641,13 +16643,13 @@ function PermissionsModule({
                   value={userForm[f.key as keyof typeof userForm]}
                   onChange={(e) => setUserForm((p) => ({ ...p, [f.key]: e.target.value }))}
                   placeholder={f.placeholder}
-                  style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
                 />
               </div>
             ))}
             <div>
               <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>الدور</label>
-              <select value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))} style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none" }}>
+              <select value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))} style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none" }}>
                 {roles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
             </div>
@@ -16666,7 +16668,7 @@ function PermissionsModule({
             <div style={{ color: VAR.muted, fontSize: 14 }}>هل أنت متأكد من حذف هذا المستخدم؟ لا يمكن التراجع.</div>
             <div style={{ display: "flex", gap: 10 }}>
               <Btn variant="ghost" onClick={() => setDeleteConfirm(null)} style={{ flex: 1, justifyContent: "center" }}>إلغاء</Btn>
-              <Btn onClick={() => deleteUser(deleteConfirm)} style={{ flex: 1, justifyContent: "center", background: "#2a0a0a", borderColor: "#6a1010", color: "#ff6a6a" }}>حذف</Btn>
+              <Btn onClick={() => deleteUser(deleteConfirm)} style={{ flex: 1, justifyContent: "center", background: COLORS.redSoft, borderColor: "#6a1010", color: COLORS.red }}>حذف</Btn>
             </div>
           </div>
         </Modal>
@@ -16678,9 +16680,9 @@ function PermissionsModule({
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>اسم الدور</label>
-              <input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRole()} placeholder="مثال: مراجع، محاسب..." style={{ width: "100%", background: "#080e1a", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }} />
+              <input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRole()} placeholder="مثال: مراجع، محاسب..." style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }} />
             </div>
-            <div style={{ fontSize: 12, color: VAR.muted, background: "#080e1a", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontSize: 12, color: VAR.muted, background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}>
               💡 سيتم إنشاء الدور بصلاحية عرض لجميع الأقسام بدون تعديل.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
