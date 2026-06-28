@@ -553,6 +553,7 @@ const IC = ({ n, s = 18 }) => {
 
 // ==================== UI COMPONENTS ====================
 const Modal = ({ open, onClose, title, children, wide }) => {
+  const { C } = useTheme();
   if (!open) return null;
   return (
     <div
@@ -628,7 +629,9 @@ const Modal = ({ open, onClose, title, children, wide }) => {
   );
 };
 
-const Toast = ({ msg, type }) => (
+const Toast = ({ msg, type }) => {
+  const { C } = useTheme();
+  return (
   <div
     style={{
       position: "fixed",
@@ -655,6 +658,7 @@ const Toast = ({ msg, type }) => (
     {msg}
   </div>
 );
+};
 
 const Btn = ({
   children,
@@ -665,6 +669,7 @@ const Btn = ({
   disabled = false,
   icon,
 }) => {
+  const { C } = useTheme();
   const bg = {
     primary: "linear-gradient(135deg,#1e4fbf,#1a3d9f)",
     danger: "#3a1010",
@@ -724,7 +729,9 @@ const Input = ({
   placeholder,
   required,
   style = {},
-}) => (
+}) => {
+  const { C } = useTheme();
+  return (
   <div style={{ display: "flex", flexDirection: "column", gap: 5, ...style }}>
     {label && (
       <label style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>
@@ -751,8 +758,11 @@ const Input = ({
     />
   </div>
 );
+};
 
-const Select = ({ label, value, onChange, options, style = {} }) => (
+const Select = ({ label, value, onChange, options, style = {} }) => {
+  const { C } = useTheme();
+  return (
   <div style={{ display: "flex", flexDirection: "column", gap: 5, ...style }}>
     {label && (
       <label style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>
@@ -783,11 +793,14 @@ const Select = ({ label, value, onChange, options, style = {} }) => (
   </div>
 );
 
-const Badge = ({ children, color = "#1a3a6a", text = C.accent }) => (
+const Badge = ({ children, color = "#1a3a6a", text }) => {
+  const { C } = useTheme();
+  const textColor = text ?? C.accent;
+  return (
   <span
     style={{
       background: color,
-      color: text,
+      color: textColor,
       padding: "2px 10px",
       borderRadius: 20,
       fontSize: 11,
@@ -798,8 +811,11 @@ const Badge = ({ children, color = "#1a3a6a", text = C.accent }) => (
     {children}
   </span>
 );
+};
 
-const StatCard = ({ label, value, icon, color, sub }) => (
+const StatCard = ({ label, value, icon, color, sub }) => {
+  const { C } = useTheme();
+  return (
   <div
     style={{
       background: C.surface,
@@ -848,8 +864,11 @@ const StatCard = ({ label, value, icon, color, sub }) => (
     </div>
   </div>
 );
+};
 
-const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
+const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => {
+  const { C } = useTheme();
+  return (
   <div
     style={{
       background: C.surface,
@@ -928,12 +947,14 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
     </div>
   </div>
 );
+};
 
 // ==================== BARCODE SCANNER ====================
 const BarcodeScanner = ({
   onScan,
   placeholder = "امسح أو اكتب الباركود...",
 }) => {
+  const { C } = useTheme();
   const [val, setVal] = useState("");
   const ref = useRef();
 
@@ -1000,6 +1021,7 @@ const BarcodeScanner = ({
 };
 // ==================== LOGIN ====================
 const Login = ({ users, onLogin }) => {
+  const { C } = useTheme();
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState("");
@@ -2842,6 +2864,7 @@ function POS({
   discountRules,
   productEarliestExpiry,
 }) {
+  const { C } = useTheme();
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
   const [fifoResults, setFifoResults] = useState({});
@@ -4746,6 +4769,7 @@ const getPharmacySettings = async () => {
 };
 
 function PharmacySettings({ showToast, pharmacyId }) {
+  const { C } = useTheme();
   const [settings, setSettings] = useState({});
 
   useEffect(() => {
@@ -4879,6 +4903,7 @@ function PurchaseModule({
   showToast,
   pharmacyId,
 }) {
+  const { C } = useTheme();
   const [showNew, setShowNew] = useState(false);
   const [items, setItems] = useState([]);
   const [selSupplier, setSelSupplier] = useState("");
@@ -7173,6 +7198,7 @@ function ReturnsModule({
 }
 // ==================== RASSD SETTINGS ====================
 function RasdSettings({ showToast }) {
+  const { C } = useTheme();
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem("rasd_config");
     return saved
@@ -7490,6 +7516,7 @@ function RasdSettings({ showToast }) {
 }
 // ======================== Expiry Report ==========================
 function ExpiryReport({ purchases, onRemoveExpired }) {
+  const { C } = useTheme();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -7898,6 +7925,7 @@ function InventoryCount({
   showToast,
   pharmacyId,
 }) {
+  const { C } = useTheme();
   const [showNew, setShowNew] = useState(false);
   const [countItems, setCountItems] = useState([]);
   const [notes, setNotes] = useState("");
@@ -8372,6 +8400,7 @@ const SUPPLY_CATEGORIES = [
   "رضاعات ومستلزمات الرضاعة",
 ];
 function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId }) {
+  const { C } = useTheme();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -8923,6 +8952,7 @@ function SuppliersModule({
   currentUser,
   setTreasuryEntries,
 }) {
+  const { C } = useTheme();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -10007,6 +10037,7 @@ function SuppliersModule({
   );
 }
 function CreditTab({ customers, onPay }) {
+  const { C } = useTheme();
   const [creditData, setCreditData] = useState([]);
 
   useEffect(() => {
@@ -16587,4 +16618,5 @@ function PermissionsModule({
       )}
     </div>
   );
+}
 }
