@@ -16,11 +16,12 @@ export const COLORS = {
   appBg: "#FFFFFF",        // الخلفية الأساسية للتطبيق
   surface: "#FBFDFE",      // الكروت والبانلز (سطح مرفوع)
   surfaceAlt: "#EAFBF7",   // السطح الغاطس: بار البحث، صفوف الجداول، الخلفيات الثانوية
-  border: "#C9EFE8",       // كل الحدود والفواصل الرفيعة
+  border: "#9FDDD1",       // كل الحدود والفواصل الرفيعة — أقوى وضوحًا حول الكروت
+  borderStrong: "#5FC4B0", // حدود أوضح لكروت مهمة أو محتاجة تمييز إضافي
 
   // ---------- النصوص ----------
   textPrimary: "#0B2622",  // العناوين والنص الأساسي
-  textDim: "#5F8A82",      // النص الثانوي، التسميات، الملاحظات
+  textDim: "#3F6B62",      // النص الثانوي، التسميات، الملاحظات — أغمق لقراءة أوضح
 
   // ---------- الألوان الدلالية (semantic) ----------
   // كل لون مربوط بمعنى ثابت، استخدمه بنفس المعنى في كل الشاشات
@@ -85,6 +86,7 @@ export const CSS_VARS_BLOCK = `
   --color-surface: ${COLORS.surface};
   --color-surface-alt: ${COLORS.surfaceAlt};
   --color-border: ${COLORS.border};
+  --color-border-strong: ${COLORS.borderStrong};
 
   --color-text-primary: ${COLORS.textPrimary};
   --color-text-dim: ${COLORS.textDim};
@@ -106,3 +108,18 @@ export const CSS_VARS_BLOCK = `
   --radius-xl: ${RADIUS.xl};
 }
 `;
+
+// ============================================================
+// tint() — يحوّل أي لون hex إلى rgba بشفافية معينة
+// يُستخدم لخلفيات الكروت "Soft Tint": نفس لون الرقم، بس خفيف جدًا
+// كخلفية، عشان الكارت يبان بهوية لونه من بعيد بدون ما يبهر العين.
+//
+// مثال: tint(COLORS.green, 0.08) → خلفية الكارت
+//       tint(COLORS.green, 0.3)  → حد الكارت (أقوى شوية من الخلفية)
+// ============================================================
+export function tint(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
