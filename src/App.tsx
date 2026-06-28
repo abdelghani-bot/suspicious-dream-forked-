@@ -2180,14 +2180,14 @@ const [myTarget, setMyTarget] = useState(null);
 
   // إجمالي مركز التنبيهات
   const alertCenterGroups = [
-    { key: "essential",  icon: "💊", label: "نفاذ/قرب نفاذ دواء أساسي", count: alerts.length,                 color: "#EF4444", tab: "products" },
-    { key: "lowstock",   icon: "📦", label: "مخزون منخفض",              count: lowStock.length,               color: "#F59E0B", tab: "products" },
-    { key: "expiry",     icon: "⏰", label: "أصناف قرب الانتهاء",        count: expiringSoon.length,           color: "#F59E0B", tab: "products" },
-    { key: "supplier",   icon: "🧾", label: "استحقاق مورد قريب/متأخر",   count: supplierDues.length,           color: "#EF4444", tab: "suppliers" },
-    { key: "newcust",    icon: "🆕", label: "عملاء جدد هذا الأسبوع",     count: newCustomers.length,           color: "#00C896", tab: "customers" },
-    { key: "lostcust",   icon: "👻", label: "عملاء مختفون",              count: disappearedCustomers.length,   color: "#7D8590", tab: "customers" },
-    { key: "tax",        icon: "🗂️", label: "موعد الإقرار الضريبي الربعي", count: taxDeadlineInfo.daysLeft <= 14 ? 1 : 0, color: "#F59E0B", tab: "tax_report" },
-    { key: "appoint",    icon: "📅", label: "مواعيد مهمة (رخصة/إيجار)",  count: 2,                              color: "#00C896", tab: "dashboard" },
+    { key: "essential",  icon: "💊", label: "نفاذ/قرب نفاذ دواء أساسي", count: alerts.length,                 color: COLORS.red, tab: "products" },
+    { key: "lowstock",   icon: "📦", label: "مخزون منخفض",              count: lowStock.length,               color: COLORS.gold, tab: "products" },
+    { key: "expiry",     icon: "⏰", label: "أصناف قرب الانتهاء",        count: expiringSoon.length,           color: COLORS.gold, tab: "products" },
+    { key: "supplier",   icon: "🧾", label: "استحقاق مورد قريب/متأخر",   count: supplierDues.length,           color: COLORS.red, tab: "suppliers" },
+    { key: "newcust",    icon: "🆕", label: "عملاء جدد هذا الأسبوع",     count: newCustomers.length,           color: COLORS.green, tab: "customers" },
+    { key: "lostcust",   icon: "👻", label: "عملاء مختفون",              count: disappearedCustomers.length,   color: COLORS.textDim, tab: "customers" },
+    { key: "tax",        icon: "🗂️", label: "موعد الإقرار الضريبي الربعي", count: taxDeadlineInfo.daysLeft <= 14 ? 1 : 0, color: COLORS.gold, tab: "tax_report" },
+    { key: "appoint",    icon: "📅", label: "مواعيد مهمة (رخصة/إيجار)",  count: 2,                              color: COLORS.green, tab: "dashboard" },
   ];
   // العروض التلقائية بتتطبق وبتتلغي تلقائيًا حسب الصلاحية بدون تدخل بشري — مش بند تنبيه يحتاج إجراء
   const totalAlertsCount = alertCenterGroups.reduce((a, g) => a + g.count, 0);
@@ -2226,16 +2226,16 @@ const [myTarget, setMyTarget] = useState(null);
     : val;
 
   const VAR = {
-    bg:       "#0D1117",
-    surface:  "#161B22",
-    surface2: "#1C2330",
-    border:   "#21262D",
-    accent:   "#00C896",
-    accent2:  "#3B82F6",
-    warn:     "#F59E0B",
-    danger:   "#EF4444",
-    text:     "#E6EDF3",
-    muted:    "#7D8590",
+    bg:       COLORS.appBg,
+    surface:  COLORS.surface,
+    surface2: COLORS.surfaceAlt,
+    border:   COLORS.border,
+    accent:   COLORS.accent,
+    accent2:  COLORS.blue,
+    warn:     COLORS.gold,
+    danger:   COLORS.red,
+    text:     COLORS.textPrimary,
+    muted:    COLORS.textDim,
   };
 
   const card = {
@@ -2268,7 +2268,7 @@ const [myTarget, setMyTarget] = useState(null);
               </thead>
               <tbody>
                 {monthsData.map((m) => (
-                  <tr key={m.mk} style={{ borderBottom: `1px solid ${VAR.border}`, background: m.mk === monthKey ? "#0d1f2d" : "transparent" }}>
+                  <tr key={m.mk} style={{ borderBottom: `1px solid ${VAR.border}`, background: m.mk === monthKey ? COLORS.tealSoft : "transparent" }}>
                     <td style={{ padding: "9px 12px", color: VAR.text, fontWeight: m.mk === monthKey ? 700 : 400, fontSize: 12 }}>
                       {m.label} {m.mk === monthKey && "🔵"}
                     </td>
@@ -2483,8 +2483,8 @@ const [myTarget, setMyTarget] = useState(null);
                 const bg = b.count === 0
                   ? VAR.surface2
                   : intensity > 0.66 ? VAR.accent
-                  : intensity > 0.33 ? "#3B82F6"
-                  : "#1f4f6e";
+                  : intensity > 0.33 ? VAR.accent2
+                  : COLORS.teal;
                 return (
                   <div key={b.hour} title={`${b.hour}:00 — ${b.count} فاتورة، ${b.rev.toFixed(0)} ر.س`}
                     style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end" }}>
