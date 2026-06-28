@@ -1956,9 +1956,10 @@ if (isLoading) return (
     pharmacyId={pharmacyId}
     showToast={showToast}
   />
-)}    
+)}
       </main>
     </div>
+    </ThemeProvider>
   );
 }
 
