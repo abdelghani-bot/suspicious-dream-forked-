@@ -5427,7 +5427,7 @@ const LABEL_SIZES = [
           <span style={{ color: COLORS.green, fontWeight: 700 }}>
             {(p.total || 0).toFixed(2)} ر.س
           </span>,
-          <Badge color=COLORS.greenSoft text=COLORS.green>
+          <Badge color={COLORS.greenSoft} text={COLORS.green}>
             {p.status}
           </Badge>,
         ])}
@@ -7238,7 +7238,7 @@ function ReturnsModule({
                   <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(x.returnQty + 1, maxReturnable) } : x))}
                     style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>+</button>
                 </div>
-                {item.taxable && <Badge color="#0a2a00" text=COLORS.green>15%</Badge>}
+                {item.taxable && <Badge color="#0a2a00" text={COLORS.green}>15%</Badge>}
               </div>
             );
           })}
@@ -8733,15 +8733,15 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
       {/* ── Stats ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
-        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color=COLORS.blue />
+        <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color={COLORS.blue} />
         <div onClick={() => setShowLowStock(true)} style={{ cursor: "pointer" }}>
-          <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color=COLORS.gold />
+          <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color={COLORS.gold} />
         </div>
         <div onClick={() => setShowSlowProducts(true)} style={{ cursor: "pointer" }}>
-          <StatCard label="أصناف بطيئة" value={slowProducts.length} icon="alert" color=COLORS.red />
+          <StatCard label="أصناف بطيئة" value={slowProducts.length} icon="alert" color={COLORS.red} />
         </div>
-        <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color=COLORS.gold />
-        <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color=COLORS.purple />
+        <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color={COLORS.gold} />
+        <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color={COLORS.purple} />
       </div>
 
       {/* ── Table ── */}
@@ -8756,7 +8756,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               {p.nameEn && <div style={{ fontSize: 11, color: COLORS.textDim }}>{p.nameEn}</div>}
               <div style={{ fontSize: 10, color: COLORS.border }}>{p.active_ingredient} {p.concentration}</div>
             </div>,
-            mfr ? <Badge color=COLORS.blueSoft text=COLORS.blue>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
+            mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
             <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: "monospace" }}>{p.barcode}</span>,
             <div>
               <Badge>{p.mainCategory || p.category}</Badge>
@@ -8764,12 +8764,12 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
             </div>,
             <span style={{ color: COLORS.blue, fontWeight: 700 }}>{p.price} ر.س</span>,
             <span style={{ color: COLORS.textDim }}>{p.cost} ر.س</span>,
-            (p.is_essential || p.isEssential) ? <Badge color=COLORS.goldSoft text=COLORS.gold>⭐ أساسي</Badge> : <span style={{ color: COLORS.textDim, fontSize: 11 }}>—</span>,
+            (p.is_essential || p.isEssential) ? <Badge color={COLORS.goldSoft} text={COLORS.gold}>⭐ أساسي</Badge> : <span style={{ color: COLORS.textDim, fontSize: 11 }}>—</span>,
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {(p.not_available_market) && (
                 p.shortage_report_url
-                  ? <a href={p.shortage_report_url} target="_blank" rel="noreferrer"><Badge color=COLORS.redSoft text=COLORS.red>🚫 غير متوفر</Badge></a>
-                  : <Badge color=COLORS.redSoft text=COLORS.red>🚫 غير متوفر</Badge>
+                  ? <a href={p.shortage_report_url} target="_blank" rel="noreferrer"><Badge color={COLORS.redSoft} text={COLORS.red}>🚫 غير متوفر</Badge></a>
+                  : <Badge color={COLORS.redSoft} text={COLORS.red}>🚫 غير متوفر</Badge>
               )}
               <div style={{ display: "flex", gap: 5 }}>
               <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
@@ -9686,9 +9686,9 @@ function SuppliersModule({
                             {dueDays < 0 ? `متأخر ${Math.abs(dueDays)} يوم` : `باقي ${dueDays} يوم`}
                           </span>
                           {po.returned_amount > 0 && (
-                            <Badge color=COLORS.goldSoft text=COLORS.coral>مرتجع: {po.returned_amount.toFixed(0)}</Badge>
+                            <Badge color={COLORS.goldSoft} text={COLORS.coral}>مرتجع: {po.returned_amount.toFixed(0)}</Badge>
                           )}
-                          {po.payment_status === "مسددة جزئياً" && <Badge color=COLORS.goldSoft text=COLORS.gold>جزئي</Badge>}
+                          {po.payment_status === "مسددة جزئياً" && <Badge color={COLORS.goldSoft} text={COLORS.gold}>جزئي</Badge>}
                         </div>
                       );
                     })}
@@ -9700,12 +9700,12 @@ function SuppliersModule({
                 {s.taxId && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
-                    <Badge color="#0a2a00" text=COLORS.green>{s.taxId}</Badge>
+                    <Badge color="#0a2a00" text={COLORS.green}>{s.taxId}</Badge>
                   </div>
                 )}
                 {(s.supply_categories || []).length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text=COLORS.blue>{cat}</Badge>)}
+                    {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text={COLORS.blue}>{cat}</Badge>)}
                   </div>
                 )}
                 {s.payment_terms && <div style={{ fontSize: 11, color: COLORS.textDim }}>⏱ شروط الدفع: {s.payment_terms} يوم</div>}
@@ -14178,10 +14178,10 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "sales" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
-            <StatCard label="إجمالي المبيعات (شامل الضريبة)" value={totalSalesRev.toFixed(2) + " ر.س"} icon="money" color=COLORS.blue />
-            <StatCard label="ضريبة المبيعات" value={totalSalesTax.toFixed(2) + " ر.س"} icon="tax" color=COLORS.green />
-            <StatCard label="عدد الفواتير" value={filteredSales.filter((s) => !s.returned).length} icon="pos" color=COLORS.purple />
-            <StatCard label="المرتجعات" value={returnedCount} icon="returns" color=COLORS.coral />
+            <StatCard label="إجمالي المبيعات (شامل الضريبة)" value={totalSalesRev.toFixed(2) + " ر.س"} icon="money" color={COLORS.blue} />
+            <StatCard label="ضريبة المبيعات" value={totalSalesTax.toFixed(2) + " ر.س"} icon="tax" color={COLORS.green} />
+            <StatCard label="عدد الفواتير" value={filteredSales.filter((s) => !s.returned).length} icon="pos" color={COLORS.purple} />
+            <StatCard label="المرتجعات" value={returnedCount} icon="returns" color={COLORS.coral} />
           </div>
           <Table
             headers={["رقم الفاتورة", "التاريخ", "العميل", "المجموع", "الضريبة", "الإجمالي شامل الضريبة", "الدفع", "حالة"]}
@@ -14194,8 +14194,8 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               <span style={{ color: COLORS.blue, fontWeight: 700 }}>{(s.total || 0).toFixed(2)} ر.س</span>,
               s.payment,
               s.returned
-                ? <Badge color=COLORS.redSoft text=COLORS.red>مرتجعة</Badge>
-                : <Badge color=COLORS.greenSoft text=COLORS.green>مكتملة</Badge>,
+                ? <Badge color={COLORS.redSoft} text={COLORS.red}>مرتجعة</Badge>
+                : <Badge color={COLORS.greenSoft} text={COLORS.green}>مكتملة</Badge>,
             ])}
           />
           {filteredSales.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد فواتير مطابقة للبحث</div>}
@@ -14206,9 +14206,9 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "purchase" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
-            <StatCard label="إجمالي المشتريات (شامل الضريبة)" value={totalPurchase.toFixed(2) + " ر.س"} icon="purchase" color=COLORS.coral />
-            <StatCard label="ضريبة المشتريات" value={totalPurchaseTax.toFixed(2) + " ر.س"} icon="tax" color=COLORS.green />
-            <StatCard label="عدد أوامر الشراء" value={filteredPurchases.length} icon="suppliers" color=COLORS.purple />
+            <StatCard label="إجمالي المشتريات (شامل الضريبة)" value={totalPurchase.toFixed(2) + " ر.س"} icon="purchase" color={COLORS.coral} />
+            <StatCard label="ضريبة المشتريات" value={totalPurchaseTax.toFixed(2) + " ر.س"} icon="tax" color={COLORS.green} />
+            <StatCard label="عدد أوامر الشراء" value={filteredPurchases.length} icon="suppliers" color={COLORS.purple} />
           </div>
           <Table
             headers={["رقم الأمر", "التاريخ", "المورد", "المجموع", "الضريبة", "الإجمالي", "الحالة"]}
@@ -14218,7 +14218,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               p.subtotal.toFixed(2) + " ر.س",
               <span style={{ color: COLORS.green }}>{p.taxAmount.toFixed(2)} ر.س</span>,
               <span style={{ color: COLORS.coral, fontWeight: 700 }}>{p.total.toFixed(2)} ر.س</span>,
-              <Badge color=COLORS.greenSoft text=COLORS.green>{p.status}</Badge>,
+              <Badge color={COLORS.greenSoft} text={COLORS.green}>{p.status}</Badge>,
             ])}
           />
         </>
@@ -14239,7 +14239,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               const mfr = manufacturers.find((m) => m.id === prod?.manufacturer_id);
               return [
                 <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{d.name}</span>,
-                mfr ? <Badge color=COLORS.blueSoft text=COLORS.blue>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
+                mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
                 <span style={{ color: COLORS.blue, fontWeight: 700 }}>{d.qty}</span>,
                 d.revenue.toFixed(2) + " ر.س",
                 <span style={{ color: COLORS.green }}>{d.tax.toFixed(2)} ر.س</span>,
@@ -14268,10 +14268,10 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "returns" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
-            <StatCard label="عدد المرتجعات" value={filteredReturns.length} icon="returns" color=COLORS.coral />
-            <StatCard label="مرتجعات المبيعات" value={totalReturnsSales.toFixed(2) + " ر.س"} icon="pos" color=COLORS.blue />
-            <StatCard label="مرتجعات المشتريات" value={totalReturnsPurchases.toFixed(2) + " ر.س"} icon="purchase" color=COLORS.coral />
-            <StatCard label="الضريبة المستردة" value={totalReturnsTax.toFixed(2) + " ر.س"} icon="tax" color=COLORS.green />
+            <StatCard label="عدد المرتجعات" value={filteredReturns.length} icon="returns" color={COLORS.coral} />
+            <StatCard label="مرتجعات المبيعات" value={totalReturnsSales.toFixed(2) + " ر.س"} icon="pos" color={COLORS.blue} />
+            <StatCard label="مرتجعات المشتريات" value={totalReturnsPurchases.toFixed(2) + " ر.س"} icon="purchase" color={COLORS.coral} />
+            <StatCard label="الضريبة المستردة" value={totalReturnsTax.toFixed(2) + " ر.س"} icon="tax" color={COLORS.green} />
           </div>
           <Table
             headers={["رقم المرتجع", "التاريخ", "النوع", "العميل / المورد", "السبب", "الإجمالي"]}
@@ -14279,10 +14279,10 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               <span style={{ color: COLORS.blue, fontWeight: 700 }}>{r.id}</span>,
               r.date,
               r.type === "sales"
-                ? <Badge color="#0a2040" text=COLORS.blue>مرتجع مبيعات</Badge>
-                : <Badge color=COLORS.goldSoft text=COLORS.coral>مرتجع مشتريات</Badge>,
+                ? <Badge color="#0a2040" text={COLORS.blue}>مرتجع مبيعات</Badge>
+                : <Badge color={COLORS.goldSoft} text={COLORS.coral}>مرتجع مشتريات</Badge>,
               r.type === "sales" ? (r.customer_name || "زبون عادي") : (r.supplier_name || "—"),
-              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color=COLORS.redSoft text=COLORS.coral>تلقائي</Badge></span>}</span>,
+              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color={COLORS.redSoft} text={COLORS.coral}>تلقائي</Badge></span>}</span>,
               <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
             ])}
           />
@@ -14653,11 +14653,11 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
           </span>,
           s.close_cash ? s.close_cash + " ر.س" : "-",
           s.end_time ? (
-            <Badge color=COLORS.greenSoft text=COLORS.green>
+            <Badge color={COLORS.greenSoft} text={COLORS.green}>
               مغلق
             </Badge>
           ) : (
-            <Badge color=COLORS.greenSoft text="#44ffaa">
+            <Badge color={COLORS.greenSoft} text="#44ffaa">
               مفتوح
             </Badge>
           ),
