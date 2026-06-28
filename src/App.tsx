@@ -41,7 +41,7 @@ function ThemeProvider({ children }) {
 }
 function useTheme() { return useContext(ThemeCtx); }
 function ThemeToggle() {
-  const { mode, toggle } = useTheme();
+  const { mode, toggle, C } = useTheme();
   return (
     <button onClick={toggle} style={{
       background: "none", border: "1px solid #1d2d4a",
@@ -792,6 +792,7 @@ const Select = ({ label, value, onChange, options, style = {} }) => {
     </select>
   </div>
 );
+};
 
 const Badge = ({ children, color = "#1a3a6a", text }) => {
   const { C } = useTheme();
@@ -16618,5 +16619,4 @@ function PermissionsModule({
       )}
     </div>
   );
-}
 }
