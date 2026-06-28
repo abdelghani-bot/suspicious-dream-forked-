@@ -1242,10 +1242,10 @@ export default function PharmacyPro() {
   const [posActiveTab, setPosActiveTab] = useState(0);
   const [posPromos, setPosPromos] = useState([]);
   const [posDiscountRules, setPosDiscountRules] = useState([
-    { days: 90,  discount: 50, color: "#ff4444" },
-    { days: 120, discount: 25, color: "#ff7744" },
-    { days: 150, discount: 20, color: "#ffaa44" },
-    { days: 180, discount: 15, color: "#f59e0b" },
+    { days: 90,  discount: 50, color: COLORS.red },
+    { days: 120, discount: 25, color: COLORS.coral },
+    { days: 150, discount: 20, color: COLORS.gold },
+    { days: 180, discount: 15, color: COLORS.gold },
   ]);
   const posProductEarliestExpiry = useMemo(() => {
     const map = {};
@@ -1398,7 +1398,7 @@ if (isLoading) return (
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "#060c16",
+    background: COLORS.appBg,
     flexDirection: "column",
     gap: 16,
     fontFamily: "'Tajawal',sans-serif",
@@ -1407,15 +1407,15 @@ if (isLoading) return (
       width: 56,
       height: 56,
       borderRadius: 16,
-      background: "linear-gradient(135deg,#1e4fbf,#0a2a7f)",
+      background: COLORS.accent,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      color: "#8ab0ff",
+      color: COLORS.accentText,
     }}>
       <IC n="pill" s={28} />
     </div>
-    <div style={{ color: "#3a6aaa", fontSize: 15 }}>
+    <div style={{ color: COLORS.textDim, fontSize: 15 }}>
       جاري تحميل البيانات...
     </div>
   </div>
@@ -1460,9 +1460,9 @@ if (isLoading) return (
       dir="rtl"
       style={{
         fontFamily: "'Tajawal',sans-serif",
-        background: "#060c16",
+        background: COLORS.appBg,
         minHeight: "100vh",
-        color: "#dde8ff",
+        color: COLORS.textPrimary,
         display: "flex",
       }}
     >
@@ -1476,7 +1476,7 @@ if (isLoading) return (
       <nav
   style={{
     width: 210,
-    background: "#0a0f1c",
+    background: COLORS.surface,
     borderLeft: "none",
     flexShrink: 0,
     display: "flex",
@@ -1485,12 +1485,13 @@ if (isLoading) return (
     top: 0,
     height: "100vh",
     overflowY: "auto",
+    borderRight: `1px solid ${COLORS.border}`,
   }}
 >
         <div
           style={{
             padding: "20px 16px 16px",
-            borderBottom: "1px solid #141e30",
+            borderBottom: `1px solid ${COLORS.border}`,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1499,11 +1500,11 @@ if (isLoading) return (
                 width: 36,
                 height: 36,
                 borderRadius: 10,
-                background: "linear-gradient(135deg,#1e4fbf,#0a2a7f)",
+                background: COLORS.accent,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "#8ab0ff",
+                color: COLORS.accentText,
                 flexShrink: 0,
               }}
             >
@@ -1514,20 +1515,20 @@ if (isLoading) return (
                 style={{
                   fontSize: 14,
                   fontWeight: 800,
-                  color: "#dde8ff",
+                  color: COLORS.textPrimary,
                   lineHeight: 1.2,
                 }}
               >
                 صيدلية برو
               </div>
-              <div style={{ fontSize: 10, color: "#2a5a8a" }}>نظام متكامل</div>
+              <div style={{ fontSize: 10, color: COLORS.textDim }}>نظام متكامل</div>
             </div>
           </div>
           <div
             style={{
               marginTop: 12,
               padding: "8px 10px",
-              background: "#0d1520",
+              background: COLORS.surfaceAlt,
               borderRadius: 8,
               display: "flex",
               alignItems: "center",
@@ -1540,7 +1541,7 @@ if (isLoading) return (
                 style={{
                   fontSize: 12,
                   fontWeight: 700,
-                  color: "#8aa0cc",
+                  color: COLORS.textPrimary,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -1548,7 +1549,7 @@ if (isLoading) return (
               >
                 {currentUser.name}
               </div>
-              <div style={{ fontSize: 10, color: "#2a4a6a" }}>
+              <div style={{ fontSize: 10, color: COLORS.textDim }}>
                 {currentUser.role === "admin" ? "مدير" : "صيدلاني"}
               </div>
             </div>
@@ -1558,12 +1559,12 @@ if (isLoading) return (
         <div style={{ flex: 1, padding: "8px 0" }}>
   {(() => {
   const GROUP_COLORS = {
-    team:     "#22c55e",
-    sales:    "#3b82f6",
-    stock:    "#f97316",
-    reports:  "#a855f7",
-    admin:    "#eab308",
-    main:     "#2a6aef",
+    team:     COLORS.green,
+    sales:    COLORS.blue,
+    stock:    COLORS.coral,
+    reports:  COLORS.purple,
+    admin:    COLORS.gold,
+    main:     COLORS.accent,
   };
 
   const groups = [
@@ -1611,7 +1612,7 @@ if (isLoading) return (
               background: isActive ? `${group.color}18` : "transparent",
               borderRight: isActive ? `3px solid ${group.color}` : "3px solid transparent",
               border: "none",
-              color: isActive ? group.color : "#4a6a8a",
+              color: isActive ? group.color : COLORS.textDim,
               fontSize: 12,
               fontWeight: isActive ? 700 : 400,
               cursor: "pointer",
@@ -1624,7 +1625,7 @@ if (isLoading) return (
             {tabAlertCounts[t.id] > 0 && (
               <span style={{
                 fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, padding: "0 4px",
-                borderRadius: 99, background: "#3a1010", color: "#ff6a6a",
+                borderRadius: 99, background: COLORS.redSoft, color: COLORS.red,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontFamily: "monospace",
               }}>
@@ -1639,31 +1640,31 @@ if (isLoading) return (
 })()}
         </div>
 
-        <div style={{ padding: "12px 16px", borderTop: "1px solid #141e30" }}>
+        <div style={{ padding: "12px 16px", borderTop: `1px solid ${COLORS.border}` }}>
           {currentShift ? (
             <div
               style={{
-                background: "#0a2010",
-                border: "1px solid #1a5020",
+                background: COLORS.greenSoft,
+                border: `1px solid ${COLORS.green}`,
                 borderRadius: 8,
                 padding: "8px 10px",
                 marginBottom: 10,
-                color: "#44aa66",
+                color: COLORS.green,
                 fontSize: 11,
               }}
             >
               <div style={{ fontWeight: 700 }}>شفت مفتوح</div>
-              <div style={{ color: "#2a7a46" }}>{currentShift.start}</div>
+              <div style={{ color: COLORS.green, opacity: 0.8 }}>{currentShift.start}</div>
             </div>
           ) : (
             <div
               style={{
-                background: "#1a0a00",
-                border: "1px solid #4a2a00",
+                background: COLORS.goldSoft,
+                border: `1px solid ${COLORS.gold}`,
                 borderRadius: 8,
                 padding: "8px 10px",
                 marginBottom: 10,
-                color: "#ffaa44",
+                color: COLORS.gold,
                 fontSize: 11,
               }}
             >
@@ -1682,10 +1683,10 @@ if (isLoading) return (
               gap: 8,
               width: "100%",
               padding: "9px 10px",
-              background: "#1a0a0a",
-              border: "1px solid #3a1010",
+              background: COLORS.redSoft,
+              border: `1px solid ${COLORS.red}`,
               borderRadius: 8,
-              color: "#aa4444",
+              color: COLORS.red,
               fontSize: 13,
               fontWeight: 600,
               cursor: "pointer",
@@ -1699,9 +1700,9 @@ if (isLoading) return (
   {/* GRADIENT DIVIDER */}
 <div style={{
   width: 1,
-  background: "linear-gradient(to bottom, transparent, #1e3a6a 20%, #2a6aef 50%, #1e3a6a 80%, transparent)",
+  background: `linear-gradient(to bottom, transparent, ${COLORS.border} 20%, ${COLORS.accent} 50%, ${COLORS.border} 80%, transparent)`,
   flexShrink: 0,
-  opacity: 0.4,
+  opacity: 0.5,
 }} />
 
       {/* MAIN CONTENT */}
