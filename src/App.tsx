@@ -13746,12 +13746,7 @@ function AttendanceModule({
   const today = new Date().toISOString().split("T")[0];
   const todayDow = new Date().getDay();
 
-  // ── ألوان النظام الداكن ──
-  const C = {
-    bg: C.surface, bg2: C.bgAlt, border: C.border,
-    text: C.text, muted: C.muted, accent: C.accent,
-    green: C.success, red: C.danger, orange: C.warning, purple: "#a78bfa",
-  };
+  // theme via useTheme()
 
   useEffect(() => { if (pharmacyId) loadAll(); }, [pharmacyId]);
 
