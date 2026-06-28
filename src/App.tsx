@@ -16586,6 +16586,5 @@ function PermissionsModule({
         </Modal>
       )}
     </div>
-    </div>
   );
 }
