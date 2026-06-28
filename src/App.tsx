@@ -725,7 +725,6 @@ export function ThemeToggle() {
 
 // ==================== ui/Input.tsx ====================
 export const Input = ({
-  const { C } = useTheme();
   label,
   value,
   onChange,
@@ -733,7 +732,9 @@ export const Input = ({
   placeholder,
   required,
   style = {},
-}) => (
+}) => {
+  const { C } = useTheme();
+  return (
   <div style={{ display: "flex", flexDirection: "column", gap: 5, ...style }}>
     {label && (
       <label style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>
@@ -765,7 +766,9 @@ export const Input = ({
 
 // ==================== ui/Select.tsx ====================
 export const Select = ({
-  const { C } = useTheme(); label, value, onChange, options, style = {} }) => (
+  label, value, onChange, options, style = {} }) => {
+  const { C } = useTheme();
+  return (
   <div style={{ display: "flex", flexDirection: "column", gap: 5, ...style }}>
     {label && (
       <label style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>
@@ -800,7 +803,9 @@ export const Select = ({
 
 // ==================== ui/StatCard.tsx ====================
 export const StatCard = ({
-  const { C } = useTheme(); label, value, icon, color, sub }) => (
+  label, value, icon, color, sub }) => {
+  const { C } = useTheme();
+  return (
   <div
     style={{
       background: C.surface,
@@ -854,7 +859,6 @@ export const StatCard = ({
 
 // ==================== ui/Btn.tsx ====================
 export const Btn = ({
-  const { C } = useTheme();
   children,
   onClick,
   variant = "primary",
@@ -863,6 +867,7 @@ export const Btn = ({
   disabled = false,
   icon,
 }) => {
+  const { C } = useTheme();
   const bg = {
     primary: "linear-gradient(135deg,#1e4fbf,#1a3d9f)",
     danger: "#3a1010",
@@ -1021,11 +1026,14 @@ export const BarcodeScanner = ({
 
 // ==================== ui/Badge.tsx ====================
 export const Badge = ({
-  const { C } = useTheme(); children, color = "#1a3a6a", text = C.accent }) => (
+  children, color = "#1a3a6a", text }) => {
+  const { C } = useTheme();
+  const textColor = text ?? C.accent;
+  return (
   <span
     style={{
       background: color,
-      color: text,
+      color: textColor,
       padding: "2px 10px",
       borderRadius: 20,
       fontSize: 11,
@@ -1041,7 +1049,8 @@ export const Badge = ({
 
 // ==================== ui/Modal.tsx ====================
 export const Modal = ({
-  const { C } = useTheme(); open, onClose, title, children, wide }) => {
+  open, onClose, title, children, wide }) => {
+  const { C } = useTheme();
   if (!open) return null;
   return (
     <div
@@ -1323,7 +1332,9 @@ export const IC = ({ n, s = 18 }) => {
 
 // ==================== ui/Table.tsx ====================
 export const Table = ({
-  const { C } = useTheme(); headers, rows, emptyMsg = "لا توجد بيانات" }) => (
+  headers, rows, emptyMsg = "لا توجد بيانات" }) => {
+  const { C } = useTheme();
+  return (
   <div
     style={{
       background: C.surface,
@@ -16191,7 +16202,6 @@ export function RasdSettings({
 // ======================== Expiry Report ==========================
 
 
-// ==================== APP BODY ====================
 export default function PharmacyPro() {
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
   const [suppliers, setSuppliers] = useStorage("ph_suppliers", INIT_SUPPLIERS);
