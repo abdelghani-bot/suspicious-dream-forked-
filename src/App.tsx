@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 
 // ==================== lib/supabaseClient.ts ====================
-export const supabase = createClient(
+const supabase = createClient(
   "https://glcdvwpwxbhutfecljdj.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdsY2R2d3B3eGJodXRmZWNsamRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5NzE1OTIsImV4cCI6MjA5NTU0NzU5Mn0.w-dLQiFTTPzB0eeA7Asf95hy5x7kjA-OvilneYAIHHA"
 );
@@ -11,7 +11,7 @@ export const supabase = createClient(
 
 // ==================== services/authService.ts ====================
 // ==================== AUTH SERVICE ====================
-export const SESSION_KEY = "pharmacy_session";
+const SESSION_KEY = "pharmacy_session";
 const authService = {
   async login(username: string, password: string) {
     const { data, error } = await supabase
@@ -37,7 +37,7 @@ const authService = {
 
 
 // ==================== hooks/useStorage.ts ====================
-export const useStorage = (key, initial) => {
+const useStorage = (key, initial) => {
   const [state, setState] = useState(() => {
     try {
       const v = localStorage.getItem(key);
@@ -64,7 +64,7 @@ export const useStorage = (key, initial) => {
 
 // ==================== data/initialData.ts ====================
 // ==================== INITIAL DATA ====================
-export const INIT_PRODUCTS = [
+const INIT_PRODUCTS = [
   {
     id: "P001",
     name: "باراسيتامول 500mg",
@@ -317,7 +317,7 @@ const TAX_RATE = 0.15;
 
 
 // ==================== utils/sales.ts ====================
-export function sellFromBatches(product, qtyToSell) {
+function sellFromBatches(product, qtyToSell) {
   const batches = product.batches?.length
     ? [...product.batches]
     : product.stock > 0
@@ -407,7 +407,7 @@ function getEffectivePrice(product, promos, discountRules, productEarliestExpiry
 
 
 // ==================== utils/time.ts ====================
-export function isRamadan() {
+function isRamadan() {
   const now = new Date();
   const ranges = [
     { start: new Date("2025-03-01"), end: new Date("2025-03-30") },
@@ -464,7 +464,7 @@ async function fetchPrayerTimes() {
 
 
 // ==================== utils/promotions.ts ====================
-export function calcAutoDiscount(expiryDate, rules?) {
+function calcAutoDiscount(expiryDate, rules?) {
   if (!expiryDate) return 0;
   const days = Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
   if (days <= 0) return 0;
@@ -484,7 +484,7 @@ export function calcAutoDiscount(expiryDate, rules?) {
 
 
 // ==================== utils/barcode.ts ====================
-export function parseGS1Barcode(raw) {
+function parseGS1Barcode(raw) {
   const result = {
     gtin: null,
     expiry: null,
@@ -545,9 +545,9 @@ export function parseGS1Barcode(raw) {
 // ==================== THEME DEFINITIONS ====================
 // كل الألوان المستخدمة في التطبيق، لوضعين: dark (الافتراضي الحالي) و light
 
-export type ThemeMode = "dark" | "light";
+type ThemeMode = "dark" | "light";
 
-export interface AppTheme {
+interface AppTheme {
   mode: ThemeMode;
   // أساسيات
   bg: string;            // خلفية الصفحة الرئيسية
@@ -634,11 +634,11 @@ const light: AppTheme = {
   divider: "#e8ecf4",
 };
 
-export const THEMES: Record<ThemeMode, AppTheme> = { dark, light };
+const THEMES: Record<ThemeMode, AppTheme> = { dark, light };
 
-export const THEME_STORAGE_KEY = "pharmacy_theme_mode";
+const THEME_STORAGE_KEY = "pharmacy_theme_mode";
 
-export function getStoredThemeMode(): ThemeMode {
+function getStoredThemeMode(): ThemeMode {
   try {
     const v = localStorage.getItem(THEME_STORAGE_KEY);
     return v === "light" ? "light" : "dark"; // dark هو الافتراضي للحفاظ على الشكل الحالي
@@ -659,7 +659,7 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(() => getStoredThemeMode());
 
   useEffect(() => {
@@ -686,7 +686,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
-export function useTheme() {
+function useTheme() {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
   return ctx;
@@ -695,7 +695,7 @@ export function useTheme() {
 
 // ==================== theme/ThemeToggle.tsx ====================
 
-export function ThemeToggle() {
+function ThemeToggle() {
   const { mode, toggleTheme, C } = useTheme();
   const isDark = mode === "dark";
 
@@ -724,7 +724,7 @@ export function ThemeToggle() {
 
 
 // ==================== ui/Input.tsx ====================
-export const Input = ({
+const Input = ({
   label,
   value,
   onChange,
@@ -765,7 +765,7 @@ export const Input = ({
 
 
 // ==================== ui/Select.tsx ====================
-export const Select = ({
+const Select = ({
   label, value, onChange, options, style = {} }) => {
   const { C } = useTheme();
   return (
@@ -802,7 +802,7 @@ export const Select = ({
 
 
 // ==================== ui/StatCard.tsx ====================
-export const StatCard = ({
+const StatCard = ({
   label, value, icon, color, sub }) => {
   const { C } = useTheme();
   return (
@@ -858,7 +858,7 @@ export const StatCard = ({
 
 
 // ==================== ui/Btn.tsx ====================
-export const Btn = ({
+const Btn = ({
   children,
   onClick,
   variant = "primary",
@@ -922,7 +922,7 @@ export const Btn = ({
 
 
 // ==================== ui/Toast.tsx ====================
-export const Toast = ({ msg, type }) => (
+const Toast = ({ msg, type }) => (
   <div
     style={{
       position: "fixed",
@@ -953,7 +953,7 @@ export const Toast = ({ msg, type }) => (
 
 
 // ==================== ui/BarcodeScanner.tsx ====================
-export const BarcodeScanner = ({
+const BarcodeScanner = ({
   onScan,
   placeholder = "امسح أو اكتب الباركود...",
 }) => {
@@ -1025,7 +1025,7 @@ export const BarcodeScanner = ({
 
 
 // ==================== ui/Badge.tsx ====================
-export const Badge = ({
+const Badge = ({
   children, color = "#1a3a6a", text }) => {
   const { C } = useTheme();
   const textColor = text ?? C.accent;
@@ -1048,7 +1048,7 @@ export const Badge = ({
 
 
 // ==================== ui/Modal.tsx ====================
-export const Modal = ({
+const Modal = ({
   open, onClose, title, children, wide }) => {
   const { C } = useTheme();
   if (!open) return null;
@@ -1129,7 +1129,7 @@ export const Modal = ({
 
 
 // ==================== ui/IC.tsx ====================
-export const IC = ({ n, s = 18 }) => {
+const IC = ({ n, s = 18 }) => {
   const m = {
     dashboard: <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />,
     pos: (
@@ -1331,7 +1331,7 @@ export const IC = ({ n, s = 18 }) => {
 
 
 // ==================== ui/Table.tsx ====================
-export const Table = ({
+const Table = ({
   headers, rows, emptyMsg = "لا توجد بيانات" }) => {
   const { C } = useTheme();
   return (
@@ -1418,7 +1418,7 @@ export const Table = ({
 
 
 // ==================== components/Login.tsx ====================
-export const Login = ({ users, onLogin }) => {
+const Login = ({ users, onLogin }) => {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState("");
@@ -1610,7 +1610,7 @@ const RasdService = {
 
 
 // ==================== modules/PrintReceipt.tsx ====================
-export function PrintReceipt({ invoice, onClose }) {
+function PrintReceipt({ invoice, onClose }) {
   const printArea = useRef();
   const doPrint = () => {
     const w = window.open("", "_blank", "width=400,height=700");
@@ -1789,7 +1789,7 @@ const getPharmacySettings = async () => {
 
 
 // ==================== modules/dashboard/useEssentialAlerts.ts ====================
-export function useEssentialAlerts(products) {
+function useEssentialAlerts(products) {
   const [alerts, setAlerts] = useState([]);
 
   useEffect(() => {
@@ -1823,13 +1823,13 @@ export function useEssentialAlerts(products) {
 
 
 // ==================== modules/dashboard/EmptyAlertRow.tsx ====================
-export function EmptyAlertRow({ text, muted }) {
+function EmptyAlertRow({ text, muted }) {
   return <div style={{ textAlign: "center", color: muted, fontSize: 11, padding: "10px 0" }}>{text}</div>;
 }
 
 
 // ==================== modules/dashboard/AlertRow.tsx ====================
-export function AlertRow({
+function AlertRow({
   text, badge, color, VAR }) {
   const { C } = useTheme();
   return (
@@ -1844,7 +1844,7 @@ export function AlertRow({
 
 // ==================== modules/Dashboard.tsx ====================
 
-export function Dashboard({
+function Dashboard({
   products,
   sales,
   purchases,
@@ -2587,7 +2587,7 @@ const [myTarget, setMyTarget] = useState(null);
 
 
 // ==================== modules/POS.tsx ====================
-export function POS({
+function POS({
   products,
   setProducts,
   customers,
@@ -4338,7 +4338,7 @@ export function POS({
 
 
 // ==================== modules/ProductsModule.tsx ====================
-export function ProductsModule({
+function ProductsModule({
   products, setProducts, suppliers, sales, purchases, showToast, pharmacyId }) {
   const { C } = useTheme();
   const [search, setSearch] = useState("");
@@ -4881,7 +4881,7 @@ export function ProductsModule({
 
 
 // ==================== modules/SuppliersModule.tsx ====================
-export function SuppliersModule({
+function SuppliersModule({
   suppliers,
   setSuppliers,
   purchases,
@@ -5982,7 +5982,7 @@ export function SuppliersModule({
 
 
 // ==================== modules/customers/CreditTab.tsx ====================
-export function CreditTab({
+function CreditTab({
   customers, onPay }) {
   const { C } = useTheme();
   const [creditData, setCreditData] = useState([]);
@@ -6070,7 +6070,7 @@ export function CreditTab({
 
 
 // ==================== modules/CustomersModule.tsx ====================
-export function CustomersModule({
+function CustomersModule({
   customers,
   setCustomers,
   showToast,
@@ -7587,7 +7587,7 @@ export function CustomersModule({
 
 
 // ==================== modules/PurchaseModule.tsx ====================
-export function PurchaseModule({
+function PurchaseModule({
   products,
   setProducts,
   suppliers,
@@ -9211,7 +9211,7 @@ const LABEL_SIZES = [
 
 
 // ==================== modules/ReturnsModule.tsx ====================
-export function ReturnsModule({
+function ReturnsModule({
   const { C } = useTheme();
   products,
   setProducts,
@@ -9897,7 +9897,7 @@ export function ReturnsModule({
 
 
 // ==================== modules/Reports.tsx ====================
-export function Reports({
+function Reports({
   sales, purchases, products, suppliers, customers, returns = [], manufacturers = [] }) {
   const { C } = useTheme();
   const [type, setType] = useState("sales");
@@ -10203,7 +10203,7 @@ export function Reports({
 
 
 // ==================== modules/ExpiryReport.tsx ====================
-export function ExpiryReport({
+function ExpiryReport({
   purchases, onRemoveExpired }) {
   const { C } = useTheme();
   const today = new Date();
@@ -10608,7 +10608,7 @@ export function ExpiryReport({
 
 
 // ==================== modules/InventoryCount.tsx ====================
-export function InventoryCount({
+function InventoryCount({
   products,
   setProducts,
   inventoryLogs,
@@ -11094,7 +11094,7 @@ const SUPPLY_CATEGORIES = [
 
 
 // ==================== modules/TreasuryModule.tsx ====================
-export function TreasuryModule({
+function TreasuryModule({
   sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries }) {
   const { C } = useTheme();
   const [activeTab, setActiveTab] = useState("today");
@@ -11855,7 +11855,7 @@ useEffect(() => {
 
 
 // ==================== modules/PromotionsModule.tsx ====================
-export function PromotionsModule({
+function PromotionsModule({
   products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast }) {
   const { C } = useTheme();
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual | incentive
@@ -12913,7 +12913,7 @@ export function PromotionsModule({
 
 
 // ==================== modules/TaxReport.tsx ====================
-export function TaxReport({
+function TaxReport({
   sales, purchases, returns = [] }) {
   const { C } = useTheme();
   const [quarter, setQuarter] = useState("Q2-2026");
@@ -13053,7 +13053,7 @@ export function TaxReport({
 
 
 // ==================== modules/ShiftModule.tsx ====================
-export function ShiftModule({
+function ShiftModule({
   shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices }) {
   const { C } = useTheme();
   const [openCash, setOpenCash] = useState("500");
@@ -13382,7 +13382,7 @@ export function ShiftModule({
 
 
 // ==================== modules/attendance/PrayerSettingRow.tsx ====================
-export function PrayerSettingRow({ setting, onSave, ramadan, C }: any) {
+function PrayerSettingRow({ setting, onSave, ramadan, C }: any) {
   const [local, setLocal] = useState({ ...setting });
   const changed = JSON.stringify(local) !== JSON.stringify(setting);
   return (
@@ -13416,7 +13416,7 @@ export function PrayerSettingRow({ setting, onSave, ramadan, C }: any) {
 
 
 // ==================== modules/attendance/WorkScheduleTab.tsx ====================
-export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, onSaved, globalToast }: any) {
+function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, onSaved, globalToast }: any) {
   const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
   const [selectedPharmacist, setSelectedPharmacist] = useState("");
@@ -13716,7 +13716,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
 
 
 // ==================== modules/AttendanceModule.tsx ====================
-export function AttendanceModule({
+function AttendanceModule({
   const { C } = useTheme(); pharmacyId, shifts, setShifts, currentUser, showToast: globalToast }: {
   pharmacyId: string;
   shifts: any[];
@@ -14330,7 +14330,7 @@ export function AttendanceModule({
 
 
 // ==================== modules/TargetModule.tsx ====================
-export function TargetModule({
+function TargetModule({
   users, sales, customers, currentUser, pharmacyId, showToast }) {
   const { C } = useTheme();
   const [monthKey, setMonthKey] = useState(new Date().toISOString().slice(0, 7));
@@ -14707,7 +14707,7 @@ export function TargetModule({
 
 
 // ==================== modules/LoyaltyModule.tsx ====================
-export function LoyaltyModule({
+function LoyaltyModule({
   const { C } = useTheme();
   customers,
   sales,
@@ -15324,7 +15324,7 @@ const DEFAULT_ROLES = ["pharmacist", "cashier"];
 
 
 // ==================== modules/PermissionsModule.tsx ====================
-export function PermissionsModule({
+function PermissionsModule({
   const { C } = useTheme();
   pharmacyId,
   showToast,
@@ -15751,7 +15751,7 @@ export function PermissionsModule({
 
 
 // ==================== modules/PharmacySettings.tsx ====================
-export function PharmacySettings({
+function PharmacySettings({
   showToast, pharmacyId }) {
   const { C } = useTheme();
   const [settings, setSettings] = useState({});
@@ -15881,7 +15881,7 @@ export function PharmacySettings({
 
 
 // ==================== modules/RasdSettings.tsx ====================
-export function RasdSettings({
+function RasdSettings({
   showToast }) {
   const { C } = useTheme();
   const [config, setConfig] = useState(() => {
