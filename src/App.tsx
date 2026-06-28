@@ -1,5 +1,5 @@
 import { QRCodeSVG } from "qrcode.react";
-import { COLORS } from "./theme";
+import { COLORS, tint } from "./theme";
 import { createClient } from "@supabase/supabase-js";
 const supabase = createClient(
   "https://glcdvwpwxbhutfecljdj.supabase.co",
@@ -2320,16 +2320,24 @@ const [myTarget, setMyTarget] = useState(null);
 
     return (
       <>
-        {/* 5 stat cells */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderBottom: `1px solid ${VAR.border}` }}>
+        {/* 5 stat cells — كل كارت دلالي بخلفية Soft Tint من لونه */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, padding: "14px 16px" }}>
           {[
             { label: "إجمالي المبيعات", val: rev.toFixed(0) + " ر.س", color: VAR.accent, sub: `${invoices.length} فاتورة` },
             { label: "سداد الآجل",      val: creditPaid.toFixed(0) + " ر.س", color: VAR.accent2, sub: `مديونية ${ajilTotal.toFixed(0)}` },
             { label: "مرتجع المبيعات",  val: returns.toFixed(0) + " ر.س", color: VAR.danger, sub: `${returnsCnt} فاتورة مرتجعة` },
             { label: "الفرص الضائعة",   val: missed.toFixed(0) + " ر.س", color: VAR.warn, sub: `${missedCnt} صنف مفقود` },
-            { label: "متوسط الفاتورة",  val: avgInv.toFixed(1) + " ر.س", color: VAR.text, sub: "ريال" },
+            { label: "متوسط الفاتورة",  val: avgInv.toFixed(1) + " ر.س", color: VAR.text, sub: "ريال", neutral: true },
           ].map((cell, i) => (
-            <div key={i} style={{ padding: "14px 16px", borderLeft: i < 4 ? `1px solid ${VAR.border}` : "none" }}>
+            <div
+              key={i}
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: cell.neutral ? VAR.surface2 : tint(cell.color, 0.08),
+                border: `1px solid ${cell.neutral ? VAR.border : tint(cell.color, 0.3)}`,
+              }}
+            >
               <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600, marginBottom: 4, letterSpacing: "0.05em" }}>
                 {cell.label}
               </div>
