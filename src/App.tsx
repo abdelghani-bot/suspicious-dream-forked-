@@ -9212,7 +9212,6 @@ const LABEL_SIZES = [
 
 // ==================== modules/ReturnsModule.tsx ====================
 function ReturnsModule({
-  const { C } = useTheme();
   products,
   setProducts,
   sales,
@@ -9225,6 +9224,7 @@ function ReturnsModule({
   currentUser,
   setTreasuryEntries, // 🆕 لازم تتمرر من الأب (App.tsx) لنفس الـ pattern المستخدم في SuppliersModule
 }) {
+  const { C } = useTheme();
   const [type, setType] = useState("sales");
   const [returnItems, setReturnItems] = useState([]);
   const [reason, setReason] = useState("");
@@ -13717,13 +13717,14 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
 
 // ==================== modules/AttendanceModule.tsx ====================
 function AttendanceModule({
-  const { C } = useTheme(); pharmacyId, shifts, setShifts, currentUser, showToast: globalToast }: {
+  pharmacyId, shifts, setShifts, currentUser, showToast: globalToast }: {
   pharmacyId: string;
   shifts: any[];
   setShifts: (fn: any) => void;
   currentUser: any;
   showToast: (msg: string, type?: string) => void;
 }) {
+  const { C } = useTheme();
   const [tab, setTab] = useState<"attendance" | "schedule" | "settings" | "report" | "monthly">("attendance");
   const [pharmacists, setPharmacists] = useState<string[]>([]);
   const [todayLogs, setTodayLogs] = useState<any[]>([]);
@@ -14708,7 +14709,6 @@ function TargetModule({
 
 // ==================== modules/LoyaltyModule.tsx ====================
 function LoyaltyModule({
-  const { C } = useTheme();
   customers,
   sales,
   products,
@@ -14721,6 +14721,7 @@ function LoyaltyModule({
   pharmacyId: string;
   showToast: (msg: string, type?: string) => void;
 }) {
+  const { C } = useTheme();
   // ── State ──
   const [tab, setTab] = useState<"customers" | "settings" | "transactions">("customers");
   const [settings, setSettings] = useState<any>({
@@ -15325,13 +15326,13 @@ const DEFAULT_ROLES = ["pharmacist", "cashier"];
 
 // ==================== modules/PermissionsModule.tsx ====================
 function PermissionsModule({
-  const { C } = useTheme();
   pharmacyId,
   showToast,
 }: {
   pharmacyId: string;
   showToast: (msg: string, type?: string) => void;
 }) {
+  const { C } = useTheme();
   const [activeTab, setActiveTab] = useState<"permissions" | "users">("permissions");
   const [perms, setPerms] = useState<Record<string, Record<string, { can_view: boolean; can_edit: boolean }>>>({});
   const [roles, setRoles] = useState<string[]>(DEFAULT_ROLES);
