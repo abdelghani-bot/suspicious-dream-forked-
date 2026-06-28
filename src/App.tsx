@@ -16586,7 +16586,6 @@ function PermissionsModule({
         </Modal>
       )}
     </div>
-  );
-    </ThemeProvider>
+    </div>
   );
 }
