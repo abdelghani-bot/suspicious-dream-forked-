@@ -1962,7 +1962,8 @@ if (isLoading) return (
   );
 }
 
-function AlertRow({ text, badge, color, VAR }) {
+function AlertRow({ text, badge, color }) {
+  const { C } = useTheme();
   return (
     <div style={{ display: "flex", alignItems: "center", padding: "6px 0", gap: 10, fontSize: 12 }}>
       <div style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />
@@ -1971,8 +1972,9 @@ function AlertRow({ text, badge, color, VAR }) {
     </div>
   );
 }
-function EmptyAlertRow({ text, muted }) {
-  return <div style={{ textAlign: "center", color: muted, fontSize: 11, padding: "10px 0" }}>{text}</div>;
+function EmptyAlertRow({ text }) {
+  const { C } = useTheme();
+  return <div style={{ textAlign: "center", color: C.muted, fontSize: 11, padding: "10px 0" }}>{text}</div>;
 }
 function useEssentialAlerts(products) {
   const [alerts, setAlerts] = useState([]);
@@ -2576,49 +2578,49 @@ const [myTarget, setMyTarget] = useState(null);
               {expandedAlertGroup === g.key && (
                 <div style={{ background: C.bg, padding: "8px 14px 12px" }}>
                   {g.key === "essential" && (
-                    alerts.length === 0 ? <EmptyAlertRow text="لا توجد أدوية أساسية ناقصة ✅" muted={C.muted} /> :
+                    alerts.length === 0 ? <EmptyAlertRow text="لا توجد أدوية أساسية ناقصة ✅"  /> :
                     alerts.map((a, i) => (
-                      <AlertRow key={i} text={a.name} badge={a.type === "danger" ? "نافذ" : `متبقي ${a.stock}`} color={a.type === "danger" ? C.danger : C.warning} VAR={VAR} />
+                      <AlertRow key={i} text={a.name} badge={a.type === "danger" ? "نافذ" : `متبقي ${a.stock}`} color={a.type === "danger" ? C.danger : C.warning}  />
                     ))
                   )}
                   {g.key === "lowstock" && (
-                    lowStock.length === 0 ? <EmptyAlertRow text="لا يوجد مخزون منخفض ✅" muted={C.muted} /> :
+                    lowStock.length === 0 ? <EmptyAlertRow text="لا يوجد مخزون منخفض ✅"  /> :
                     lowStock.slice(0, 8).map((p) => (
                       <AlertRow key={p.id} text={p.name} badge={`${p.stock} / ${p.min_stock || p.minStock || 0}`} color={C.warning} VAR={VAR} />
                     ))
                   )}
                   {g.key === "expiry" && (
-                    expiringSoon.length === 0 ? <EmptyAlertRow text="لا توجد أصناف قرب الانتهاء ✅" muted={C.muted} /> :
+                    expiringSoon.length === 0 ? <EmptyAlertRow text="لا توجد أصناف قرب الانتهاء ✅"  /> :
                     expiringSoon.slice(0, 8).map((p) => {
                       const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
                       return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={C.warning} VAR={VAR} />;
                     })
                   )}
                   {g.key === "supplier" && (
-                    supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={C.muted} /> :
+                    supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة"  /> :
                     supplierDues.slice(0, 8).map((d) => (
-                      <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? C.danger : C.warning} VAR={VAR} />
+                      <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? C.danger : C.warning}  />
                     ))
                   )}
                   {g.key === "newcust" && (
-                    newCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء جدد هذا الأسبوع" muted={C.muted} /> :
+                    newCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء جدد هذا الأسبوع"  /> :
                     newCustomers.slice(0, 8).map((c) => (
-                      <AlertRow key={c.id} text={c.name} badge="جديد" color={C.accent} VAR={VAR} />
+                      <AlertRow key={c.id} text={c.name} badge="جديد" color={C.accent}  />
                     ))
                   )}
                   {g.key === "lostcust" && (
-                    disappearedCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء مختفون" muted={C.muted} /> :
+                    disappearedCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء مختفون"  /> :
                     disappearedCustomers.slice(0, 8).map((c) => (
-                      <AlertRow key={c.id} text={c.name} badge={`آخر زيارة ${c.lastVisit}`} color={C.muted} VAR={VAR} />
+                      <AlertRow key={c.id} text={c.name} badge={`آخر زيارة ${c.lastVisit}`} color={C.muted}  />
                     ))
                   )}
                   {g.key === "tax" && (
-                    <AlertRow text="الإقرار الضريبي الربعي القادم" badge={`خلال ${taxDeadlineInfo.daysLeft} يوم`} color={taxDeadlineInfo.daysLeft <= 7 ? C.danger : C.warning} VAR={VAR} />
+                    <AlertRow text="الإقرار الضريبي الربعي القادم" badge={`خلال ${taxDeadlineInfo.daysLeft} يوم`} color={taxDeadlineInfo.daysLeft <= 7 ? C.danger : C.warning}  />
                   )}
                   {g.key === "appoint" && (
                     <>
-                      <AlertRow text="تجديد الرخصة التجارية" badge="18 يوم" color={C.accent} VAR={VAR} />
-                      <AlertRow text="إيجار الصيدلية" badge="غداً" color={C.warning} VAR={VAR} />
+                      <AlertRow text="تجديد الرخصة التجارية" badge="18 يوم" color={C.accent}  />
+                      <AlertRow text="إيجار الصيدلية" badge="غداً" color={C.warning}  />
                     </>
                   )}
                 </div>
