@@ -923,25 +923,28 @@ const BarcodeScanner = ({
     const timeDiff = now - lastKeyTime.current;
     lastKeyTime.current = now;
 
-    // لو الفرق بين ضغطتين أقل من 50ms → scanner حقيقي
-    if (timeDiff < 50) {
+    // لو الفرق بين ضغطتين أقل من 100ms → scanner حقيقي
+    if (timeDiff < 100) {
       keyCount.current += 1;
     } else {
       keyCount.current = 1;
     }
 
-    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 80ms
+    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 50ms
     if (keyCount.current >= 4) {
       if (scanTimer.current) clearTimeout(scanTimer.current);
       scanTimer.current = setTimeout(() => {
         if (newVal.trim()) handleScan(newVal);
-      }, 80);
+      }, 50);
     }
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (scanTimer.current) clearTimeout(scanTimer.current);
-    if (e.key === "Enter" && val.trim()) handleScan(val);
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (scanTimer.current) clearTimeout(scanTimer.current);
+      if (val.trim()) handleScan(val);
+    }
   };
 
   return (
@@ -5259,30 +5262,6 @@ const LABEL_SIZES = [
     setShowDropdown(results.length > 0);
     setHighlightedPurchIdx(-1);
 
-    // كشف scanner تلقائي
-    const now = Date.now();
-    const timeDiff = now - lastKeyTimePurch.current;
-    lastKeyTimePurch.current = now;
-    if (timeDiff < 50) { keyCountPurch.current += 1; }
-    else { keyCountPurch.current = 1; }
-
-    if (keyCountPurch.current >= 4) {
-      if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
-      scanTimerPurch.current = setTimeout(() => {
-        const trimmed = val.trim();
-        if (!trimmed) return;
-        const found = products.find(
-          (x) => x.barcode === trimmed || x.id === trimmed || (x.name_ar||x.name||"").includes(trimmed)
-        );
-        if (found) {
-          addItem(found);
-          keyCountPurch.current = 0;
-        } else if (results.length > 0) {
-          addItem(results[0]);
-          keyCountPurch.current = 0;
-        }
-      }, 80);
-    }
   };
 
   const addItem = (p) => {
@@ -5658,10 +5637,25 @@ const LABEL_SIZES = [
           />
         </div>
 
+        {/* باركود سكانر منفصل */}
+        <div style={{ marginBottom: 8 }}>
+          <BarcodeScanner
+            onScan={(scan) => {
+              const code = scan.type === "gs1" ? scan.gtin : scan.code;
+              const found = products.find(
+                (x) => x.barcode === code || x.id === code
+              );
+              if (found) addItem(found);
+              else showToast("الصنف غير موجود: " + code, "error");
+            }}
+            placeholder="امسح باركود الصنف..."
+          />
+        </div>
+
         <div style={{ position: "relative", marginBottom: 14 }}>
           <input
             ref={searchRef}
-            placeholder="🔍 ابحث بالاسم أو الباركود أو امسح الباركود..."
+            placeholder="🔍 ابحث بالاسم..."
             value={searchText}
             onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={handleSearchKeyDown}
@@ -13436,6 +13430,16 @@ useEffect(() => {
     }
     setClosingSaved(true);
     showToast("تم حفظ تقفيل اليوم ✓");
+    setClosingForm({
+      extra_income: "",
+      extra_income_note: "",
+      petty: "",
+      petty_note: "",
+      variable_expenses: [],
+      fixed_paid: {},
+      card_actual: "",
+      card_adjust_reason: "",
+    });
   };
   // ── تجميع السجل ──
   const safeEntries = (entries || []).filter(Boolean);
@@ -13538,7 +13542,21 @@ useEffect(() => {
       </div>
 
       {/* ══════════ تقفيل اليوم ══════════ */}
-      {activeTab === "today" && (
+      {activeTab === "today" && closingSaved && (
+        <div style={{ textAlign: "center", padding: "60px 20px" }}>
+          <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
+          <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 24, marginBottom: 8 }}>تم تقفيل يوم {today}</div>
+          <div style={{ color: COLORS.textDim, fontSize: 14, marginBottom: 28 }}>جاهز لليوم التالي</div>
+          <button
+            onClick={() => setClosingSaved(false)}
+            style={{ background: COLORS.blueSoft, border: "1px solid #2a5aaa", borderRadius: 8, padding: "8px 20px", color: COLORS.blue, fontSize: 13, cursor: "pointer" }}
+          >
+            📋 عرض سجل الأيام
+          </button>
+        </div>
+      )}
+
+      {activeTab === "today" && !closingSaved && (
         <div>
           {/* الدخل مقسم */}
           <div style={cardStyle(COLORS.greenSoft)}>
@@ -13691,10 +13709,7 @@ useEffect(() => {
           </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
-            {!closingSaved
-              ? <Btn icon="check" onClick={saveClosing}>حفظ تقفيل اليوم</Btn>
-              : <div style={{ color: COLORS.green, fontWeight: 700, padding: "10px 16px", fontSize: 13 }}>✅ تم الحفظ</div>
-            }
+            {!closingSaved && <Btn icon="check" onClick={saveClosing}>حفظ تقفيل اليوم</Btn>}
           </div>
         </div>
       )}
