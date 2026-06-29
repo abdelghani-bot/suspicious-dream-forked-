@@ -923,25 +923,28 @@ const BarcodeScanner = ({
     const timeDiff = now - lastKeyTime.current;
     lastKeyTime.current = now;
 
-    // لو الفرق بين ضغطتين أقل من 50ms → scanner حقيقي
-    if (timeDiff < 50) {
+    // لو الفرق بين ضغطتين أقل من 100ms → scanner حقيقي
+    if (timeDiff < 100) {
       keyCount.current += 1;
     } else {
       keyCount.current = 1;
     }
 
-    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 80ms
+    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 50ms
     if (keyCount.current >= 4) {
       if (scanTimer.current) clearTimeout(scanTimer.current);
       scanTimer.current = setTimeout(() => {
         if (newVal.trim()) handleScan(newVal);
-      }, 80);
+      }, 50);
     }
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (scanTimer.current) clearTimeout(scanTimer.current);
-    if (e.key === "Enter" && val.trim()) handleScan(val);
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (scanTimer.current) clearTimeout(scanTimer.current);
+      if (val.trim()) handleScan(val);
+    }
   };
 
   return (
@@ -5236,9 +5239,6 @@ const LABEL_SIZES = [
   };
   // ===== نهاية طباعة الباركود =====
 
-  const lastKeyTimePurch = useRef<number>(0);
-  const keyCountPurch = useRef<number>(0);
-  const scanTimerPurch = useRef<ReturnType<typeof setTimeout>>(null);
 
   const handleSearchChange = (val) => {
     setSearchText(val);
@@ -5259,30 +5259,6 @@ const LABEL_SIZES = [
     setShowDropdown(results.length > 0);
     setHighlightedPurchIdx(-1);
 
-    // كشف scanner تلقائي
-    const now = Date.now();
-    const timeDiff = now - lastKeyTimePurch.current;
-    lastKeyTimePurch.current = now;
-    if (timeDiff < 50) { keyCountPurch.current += 1; }
-    else { keyCountPurch.current = 1; }
-
-    if (keyCountPurch.current >= 4) {
-      if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
-      scanTimerPurch.current = setTimeout(() => {
-        const trimmed = val.trim();
-        if (!trimmed) return;
-        const found = products.find(
-          (x) => x.barcode === trimmed || x.id === trimmed || (x.name_ar||x.name||"").includes(trimmed)
-        );
-        if (found) {
-          addItem(found);
-          keyCountPurch.current = 0;
-        } else if (results.length > 0) {
-          addItem(results[0]);
-          keyCountPurch.current = 0;
-        }
-      }, 80);
-    }
   };
 
   const addItem = (p) => {
@@ -5658,10 +5634,25 @@ const LABEL_SIZES = [
           />
         </div>
 
+        {/* باركود سكانر منفصل */}
+        <div style={{ marginBottom: 8 }}>
+          <BarcodeScanner
+            onScan={(scan) => {
+              const code = scan.type === "gs1" ? scan.gtin : scan.code;
+              const found = products.find(
+                (x) => x.barcode === code || x.id === code
+              );
+              if (found) addItem(found);
+              else showToast("الصنف غير موجود: " + code, "error");
+            }}
+            placeholder="امسح باركود الصنف..."
+          />
+        </div>
+
         <div style={{ position: "relative", marginBottom: 14 }}>
           <input
             ref={searchRef}
-            placeholder="🔍 ابحث بالاسم أو الباركود أو امسح الباركود..."
+            placeholder="🔍 ابحث بالاسم..."
             value={searchText}
             onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={handleSearchKeyDown}
