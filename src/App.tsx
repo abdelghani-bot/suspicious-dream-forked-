@@ -1889,6 +1889,7 @@ if (isLoading) return (
             setTab={setTab}
             creditPayments={creditPayments}
             treasuryEntries={treasuryEntries}
+            promos={posPromos}
           />
         )}
         {tab === "pos" && (
@@ -2134,6 +2135,7 @@ function Dashboard({
   setTab,
   creditPayments = [],
   treasuryEntries = [],
+  promos = [],
 }) {
   const alerts = useEssentialAlerts(products);
   const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
@@ -2537,6 +2539,43 @@ const [myTarget, setMyTarget] = useState(null);
     );
   };
 
+  // ══════════ كارت العروض المتوفرة ══════════
+  const activePromos = (promos || []).filter((p) => {
+    if (!p.end_date) return false;
+    return p.end_date >= today;
+  });
+  const autoPromoProducts = products.filter((p) => {
+    if (!p.expiry_date) return false;
+    const daysLeft = Math.ceil((new Date(p.expiry_date).getTime() - Date.now()) / 86400000);
+    return daysLeft > 0 && daysLeft <= 90 && (p.stock ?? 0) > 0;
+  });
+
+  // ══════════ كارت تغيير الأسعار ══════════
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const recentPriceChanges = (() => {
+    const changes: any[] = [];
+    const recentPurchases = (purchases || [])
+      .filter((po) => po.date >= oneWeekAgo)
+      .sort((a: any, b: any) => b.date.localeCompare(a.date));
+    const seen = new Set<string>();
+    recentPurchases.forEach((po: any) => {
+      (po.items || []).forEach((item: any) => {
+        if (seen.has(item.id)) return;
+        const prod = products.find((p) => p.id === item.id);
+        if (!prod) return;
+        const newPrice = item.salePrice || item.newSalePrice;
+        const oldPrice = prod.price;
+        if (!newPrice || !oldPrice) return;
+        const diff = Math.round(((newPrice - oldPrice) / oldPrice) * 100);
+        if (Math.abs(diff) >= 1) {
+          seen.add(item.id);
+          changes.push({ name: prod.name_ar || prod.name || item.name || "", oldPrice, newPrice, date: po.date, diff });
+        }
+      });
+    });
+    return changes.slice(0, 15);
+  })();
+
   return (
     <div style={{ fontFamily: "'Cairo', sans-serif" }}>
 
@@ -2764,7 +2803,97 @@ const [myTarget, setMyTarget] = useState(null);
         </div>
       </div>
 
-      {/* ── ROW 3: الشفت الحالي + الخزنة + إجراءات سريعة ── */}
+      {/* ── ROW 3: العروض + تغيير الأسعار ── */}
+      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
+        العروض وتحديثات الأسعار
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+
+        {/* كارت العروض */}
+        <div style={{ ...card }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+            <span style={{ fontSize: 16 }}>🏷️</span>
+            <span style={{ fontWeight: 700, fontSize: 13, color: VAR.accent }}>العروض المتوفرة</span>
+            <span style={{ marginRight: "auto", background: VAR.accent, color: "#fff", borderRadius: 10, fontSize: 11, padding: "1px 8px", fontWeight: 700 }}>
+              {activePromos.length + autoPromoProducts.length}
+            </span>
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto", padding: "4px 0" }}>
+            {activePromos.length === 0 && autoPromoProducts.length === 0 && (
+              <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد عروض نشطة</div>
+            )}
+            {/* العروض اليدوية */}
+            {activePromos.map((p) => {
+              const prod = products.find((x) => x.id === p.product_id);
+              const name = prod?.name_ar || prod?.name || p.product_id;
+              const discPrice = prod ? Math.round(prod.price * (1 - p.discount / 100) * 100) / 100 : null;
+              return (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{name}</div>
+                    <div style={{ fontSize: 10, color: VAR.muted }}>ينتهي {p.end_date}</div>
+                  </div>
+                  <div style={{ textAlign: "left" }}>
+                    <span style={{ background: COLORS.redSoft || "#fde8e8", color: COLORS.red, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
+                      {p.discount}% خصم
+                    </span>
+                    {discPrice && <div style={{ fontSize: 10, color: VAR.muted, marginTop: 2 }}>السعر: {discPrice} ر.س</div>}
+                  </div>
+                </div>
+              );
+            })}
+            {/* العروض التلقائية (قرب الصلاحية) */}
+            {autoPromoProducts.map((p) => {
+              const daysLeft = Math.ceil((new Date(p.expiry_date).getTime() - Date.now()) / 86400000);
+              return (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{p.name_ar || p.name}</div>
+                    <div style={{ fontSize: 10, color: COLORS.gold }}>⏳ صلاحية: {daysLeft} يوم · مخزون: {p.stock}</div>
+                  </div>
+                  <span style={{ background: COLORS.goldSoft || "#fef3c7", color: COLORS.gold, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
+                    تلقائي
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* كارت تغيير الأسعار */}
+        <div style={{ ...card }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+            <span style={{ fontSize: 16 }}>💰</span>
+            <span style={{ fontWeight: 700, fontSize: 13, color: VAR.accent2 }}>تغيرات الأسعار</span>
+            <span style={{ fontSize: 10, color: VAR.muted, marginRight: "auto" }}>آخر 7 أيام</span>
+            <span style={{ background: VAR.accent2, color: "#fff", borderRadius: 10, fontSize: 11, padding: "1px 8px", fontWeight: 700 }}>
+              {recentPriceChanges.length}
+            </span>
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto", padding: "4px 0" }}>
+            {recentPriceChanges.length === 0 && (
+              <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد تغيرات في الأسعار هذا الأسبوع</div>
+            )}
+            {recentPriceChanges.map((c, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{c.name}</div>
+                  <div style={{ fontSize: 10, color: VAR.muted }}>{c.date} · {c.oldPrice} ← {c.newPrice} ر.س</div>
+                </div>
+                <span style={{
+                  background: c.diff > 0 ? (COLORS.redSoft || "#fde8e8") : (COLORS.greenSoft || "#d1fae5"),
+                  color: c.diff > 0 ? COLORS.red : COLORS.green,
+                  borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700,
+                }}>
+                  {c.diff > 0 ? "▲" : "▼"} {Math.abs(c.diff)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── ROW 4: الشفت الحالي + الخزنة + إجراءات سريعة ── */}
       <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
         الشفت الحالي والخزنة
       </div>
