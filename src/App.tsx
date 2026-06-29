@@ -923,25 +923,28 @@ const BarcodeScanner = ({
     const timeDiff = now - lastKeyTime.current;
     lastKeyTime.current = now;
 
-    // لو الفرق بين ضغطتين أقل من 50ms → scanner حقيقي
-    if (timeDiff < 50) {
+    // لو الفرق بين ضغطتين أقل من 100ms → scanner حقيقي
+    if (timeDiff < 100) {
       keyCount.current += 1;
     } else {
       keyCount.current = 1;
     }
 
-    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 80ms
+    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 50ms
     if (keyCount.current >= 4) {
       if (scanTimer.current) clearTimeout(scanTimer.current);
       scanTimer.current = setTimeout(() => {
         if (newVal.trim()) handleScan(newVal);
-      }, 80);
+      }, 50);
     }
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (scanTimer.current) clearTimeout(scanTimer.current);
-    if (e.key === "Enter" && val.trim()) handleScan(val);
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (scanTimer.current) clearTimeout(scanTimer.current);
+      if (val.trim()) handleScan(val);
+    }
   };
 
   return (
@@ -5236,7 +5239,6 @@ const LABEL_SIZES = [
   };
   // ===== نهاية طباعة الباركود =====
 
-
   const handleSearchChange = (val) => {
     setSearchText(val);
     if (!val.trim()) {
@@ -5255,6 +5257,7 @@ const LABEL_SIZES = [
     setSearchResults(results);
     setShowDropdown(results.length > 0);
     setHighlightedPurchIdx(-1);
+
 
   };
 
