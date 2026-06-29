@@ -13288,6 +13288,23 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   });
   const [editingCard, setEditingCard] = useState(false);
   const [closingSaved, setClosingSaved] = useState(false);
+  useEffect(() => {
+    if (!pharmacyId) return;
+    const alreadyClosed = (entries || []).some(
+      (e) => e.date === today && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
+    );
+    if (alreadyClosed) { setClosingSaved(true); return; }
+    supabase
+      .from("treasury_entries")
+      .select("id")
+      .eq("pharmacy_id", pharmacyId)
+      .eq("date", today)
+      .eq("sub_type", "daily_closing")
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) setClosingSaved(true);
+      });
+  }, [entries, today, pharmacyId]);
   const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(0);
 
 useEffect(() => {
@@ -13428,6 +13445,11 @@ useEffect(() => {
       if (error) { showToast("خطأ: " + error.message, "error"); return; }
       setEntries((p) => [...data, ...p]);
     }
+    await supabase.from("treasury_entries").insert({
+      type: "closing", sub_type: "daily_closing", method: "نقدي",
+      amount: 0, note: "تقفيل اليوم", date: today,
+      pharmacy_id: pharmacyId, created_by: currentUser.name,
+    });
     setClosingSaved(true);
     showToast("تم حفظ تقفيل اليوم ✓");
     setClosingForm({
@@ -13548,7 +13570,7 @@ useEffect(() => {
           <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 24, marginBottom: 8 }}>تم تقفيل يوم {today}</div>
           <div style={{ color: COLORS.textDim, fontSize: 14, marginBottom: 28 }}>جاهز لليوم التالي</div>
           <button
-            onClick={() => setClosingSaved(false)}
+            onClick={() => setActiveTab("log")}
             style={{ background: COLORS.blueSoft, border: "1px solid #2a5aaa", borderRadius: 8, padding: "8px 20px", color: COLORS.blue, fontSize: 13, cursor: "pointer" }}
           >
             📋 عرض سجل الأيام
