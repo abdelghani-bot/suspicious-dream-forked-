@@ -526,7 +526,7 @@ const Modal = ({ open, onClose, title, children, wide }) => {
     >
       <div
         style={{
-          background: COLORS.surface,
+          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
           border: `1px solid ${COLORS.border}`,
           borderRadius: 18,
           width: wide ? "92vw" : "580px",
@@ -561,7 +561,7 @@ const Modal = ({ open, onClose, title, children, wide }) => {
           <button
             onClick={onClose}
             style={{
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               border: "none",
               color: COLORS.textDim,
               cursor: "pointer",
@@ -694,7 +694,7 @@ const Input = ({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       style={{
-        background: COLORS.surfaceAlt,
+        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
         border: `1px solid ${COLORS.border}`,
         borderRadius: 8,
         padding: "9px 12px",
@@ -719,7 +719,7 @@ const Select = ({ label, value, onChange, options, style = {} }) => (
       value={value || ""}
       onChange={(e) => onChange(e.target.value)}
       style={{
-        background: COLORS.surfaceAlt,
+        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
         border: `1px solid ${COLORS.border}`,
         borderRadius: 8,
         padding: "9px 12px",
@@ -758,7 +758,7 @@ const Badge = ({ children, color = COLORS.blueSoft, text = COLORS.blue }) => (
 const StatCard = ({ label, value, icon, color, sub }) => (
   <div
     style={{
-      background: COLORS.surface,
+      background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
       border: `1px solid ${COLORS.border}`,
       borderRadius: 14,
       padding: "18px 20px",
@@ -808,7 +808,7 @@ const StatCard = ({ label, value, icon, color, sub }) => (
 const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
   <div
     style={{
-      background: COLORS.surface,
+      background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
       border: `1px solid ${COLORS.border}`,
       borderRadius: 14,
       overflow: "hidden",
@@ -820,7 +820,7 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
       >
         <thead>
           <tr
-            style={{ background: COLORS.surfaceAlt, borderBottom: `1px solid ${COLORS.border}` }}
+            style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${COLORS.border}` }}
           >
             {headers.map((h, i) => (
               <th
@@ -954,7 +954,7 @@ const BarcodeScanner = ({
         onKeyDown={handleKey}
         placeholder={placeholder}
         style={{
-          background: COLORS.surfaceAlt,
+          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
           border: `1px solid ${COLORS.border}`,
           borderRadius: 8,
           padding: "9px 12px 9px 40px",
@@ -1002,7 +1002,7 @@ const Login = ({ users, onLogin }) => {
       />
       <div
         style={{
-          background: COLORS.surface,
+          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
           border: `1px solid ${COLORS.border}`,
           borderRadius: 20,
           padding: 40,
@@ -1612,23 +1612,6 @@ if (isLoading) return (
         href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap"
         rel="stylesheet"
       />
-      <style>{`
-        /* ============================================================
-           Glassmorphism عام: أي عنصر بيستخدم نفس قيمة خلفية COLORS.surface
-           أو COLORS.surfaceAlt يكسب تلقائيًا تأثير الضباب (backdrop-filter)
-           بدون تعديل كل كارد لوحده في الكود.
-        ============================================================ */
-        [style*="background: rgba(255,255,255,0.65)"],
-        [style*="background-color: rgba(255,255,255,0.65)"] {
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-        }
-        [style*="background: rgba(255,255,255,0.35)"],
-        [style*="background-color: rgba(255,255,255,0.35)"] {
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-        }
-      `}</style>
       {toast && <Toast {...toast} />}
 
       {/* SIDEBAR */}
@@ -1690,7 +1673,7 @@ if (isLoading) return (
             style={{
               marginTop: 12,
               padding: "8px 10px",
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               borderRadius: 8,
               display: "flex",
               alignItems: "center",
@@ -2404,7 +2387,7 @@ const [myTarget, setMyTarget] = useState(null);
   };
 
   const card = {
-    background: VAR.surface,
+    background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
     border: `1px solid ${VAR.border}`,
     borderRadius: 12,
     overflow: "hidden",
@@ -2595,7 +2578,7 @@ const [myTarget, setMyTarget] = useState(null);
           <button
             onClick={() => setPrivacyMode(!privacyMode)}
             style={{
-              background: VAR.surface2, border: `1px solid ${VAR.border}`,
+              background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`,
               borderRadius: 8, padding: "4px 12px", fontSize: 11,
               color: VAR.muted, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
               fontFamily: "inherit",
@@ -2616,7 +2599,7 @@ const [myTarget, setMyTarget] = useState(null);
         <div style={{ ...card }}>
           <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: VAR.text }}>المبيعات والفرص</div>
-            <div style={{ display: "flex", background: VAR.surface2, borderRadius: 8, padding: 2, gap: 2 }}>
+            <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2 }}>
               {SALES_TABS.map((t) => (
                 <button
                   key={t.key}
@@ -2654,7 +2637,7 @@ const [myTarget, setMyTarget] = useState(null);
           {S(`من ${myTarget.toLocaleString()} ريال`)}
         </div>
       </div>
-      <div style={{ height: 6, background: VAR.surface2, borderRadius: 99, overflow: "hidden" }}>
+      <div style={{ height: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 99, overflow: "hidden" }}>
         <div style={{
           height: "100%", width: `${targetProgress}%`, borderRadius: 99,
           background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
@@ -2928,7 +2911,7 @@ const [myTarget, setMyTarget] = useState(null);
               { label: "مبيعات الشفت",            val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
               { label: "مرتجع الشفت",             val: S(shiftReturnsTotal.toFixed(0) + " ر.س"), color: VAR.danger },
             ].map((stat, i) => (
-              <div key={i} style={{ background: VAR.surface, padding: "8px 10px" }}>
+              <div key={i} style={{ background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", padding: "8px 10px" }}>
                 <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
                 <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: stat.color || VAR.text, marginTop: 2 }}>{stat.val}</div>
               </div>
@@ -2976,7 +2959,7 @@ const [myTarget, setMyTarget] = useState(null);
               style={{
                 display: "flex", alignItems: "center", gap: 10,
                 padding: "8px 12px", borderRadius: 8,
-                background: VAR.surface2, border: `1px solid ${VAR.border}`,
+                background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`,
                 cursor: "pointer", fontSize: 12, fontFamily: "inherit",
                 color: VAR.text, fontWeight: 600, transition: "border-color 0.15s",
                 textAlign: "right",
@@ -3625,7 +3608,7 @@ function POS({
             style={{
               padding: "7px 14px",
               borderRadius: 9,
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               border: "1px dashed #1d3a5a",
               color: COLORS.border,
               cursor: "pointer",
@@ -3675,7 +3658,7 @@ function POS({
 
       <div
         style={{
-          background: COLORS.surface,
+          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
           border: "1px solid #1d2d4a",
           borderRadius: 16,
           display: "flex",
@@ -3743,7 +3726,7 @@ function POS({
               placeholder="🔍 ابحث عن صنف بالاسم أو الباركود..."
               style={{
                 width: "100%",
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 14px",
@@ -3800,7 +3783,7 @@ function POS({
                   }
                   style={{
                     width: "100%",
-                    background: COLORS.surfaceAlt,
+                    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                     border: "1px solid #1d2d4a",
                     borderRadius: 7,
                     padding: "7px 10px",
@@ -3820,7 +3803,7 @@ function POS({
                   }
                   style={{
                     width: "100%",
-                    background: COLORS.surfaceAlt,
+                    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                     border: "1px solid #1d2d4a",
                     borderRadius: 7,
                     padding: "7px 10px",
@@ -3890,7 +3873,7 @@ function POS({
                   top: "100%",
                   right: 0,
                   left: 0,
-                  background: COLORS.surface,
+                  background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
                   border: "1px solid #1d2d4a",
                   borderRadius: 8,
                   zIndex: 100,
@@ -4084,7 +4067,7 @@ function POS({
               placeholder="🔍 ابحث عن عميل بالاسم أو الجوال..."
               style={{
                 width: "100%",
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: `1px solid ${inv.selCustomer ? COLORS.blue : COLORS.border}`,
                 borderRadius: 8,
                 padding: "7px 10px",
@@ -4131,7 +4114,7 @@ function POS({
                 top: "100%",
                 right: 0,
                 left: 0,
-                background: COLORS.surface,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 zIndex: 200,
@@ -4257,7 +4240,7 @@ function POS({
             onClick={() => fileRef.current.click()}
             style={{
               padding: "7px 12px",
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               border: "1px dashed #1d3a5a",
               borderRadius: 8,
               color: inv.prescriptionImg ? COLORS.green : COLORS.textDim,
@@ -4324,7 +4307,7 @@ function POS({
                         fontWeight: 600,
                         position: "sticky",
                         top: 0,
-                        background: COLORS.surface,
+                        background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
                       }}
                     >
                       {h}
@@ -4377,7 +4360,7 @@ function POS({
                   return { ...i, qty: Math.max(1, i.qty - 1) };
                 }),
               }))}
-              style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
+              style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
             >-</button>
 
             <input
@@ -4450,7 +4433,7 @@ function POS({
     ),
   }));
 }}
-              style={{ width: 52, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, color: COLORS.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
+              style={{ width: 52, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, color: COLORS.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
             />
 
             <button
@@ -4462,7 +4445,7 @@ function POS({
                   return { ...i, qty: Math.min(i.qty + 1, mx) };
                 }),
               }))}
-              style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
+              style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
             >+</button>
           </div>
         </td>
@@ -4492,7 +4475,7 @@ function POS({
           style={{
             padding: "12px 16px",
             borderTop: "1px solid #1d2d4a",
-            background: COLORS.surfaceAlt,
+            background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
             flexShrink: 0,
           }}
         >
@@ -4596,7 +4579,7 @@ function POS({
                           splitPayment: { ...p.splitPayment, card: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{ flex: 1, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
+                      style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                     />
                     <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
@@ -4612,7 +4595,7 @@ function POS({
                           splitPayment: { ...p.splitPayment, transfer: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{ flex: 1, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
+                      style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                     />
                     <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
@@ -4738,7 +4721,7 @@ function POS({
                 setInv((p) => ({ ...p, discount: +e.target.value }))
               }
               style={{
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: "1px solid #1d2d4a",
                 borderRadius: 7,
                 padding: "6px 10px",
@@ -4768,7 +4751,7 @@ function POS({
           {/* ===== الأرقام ===== */}
           <div
             style={{
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               borderRadius: 10,
               padding: 10,
               marginBottom: 10,
@@ -5069,7 +5052,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
         بيانات الصيدلية
       </h2>
       <div style={{
-        background: COLORS.surface, border: "1px solid #1d2d4a",
+        background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a",
         borderRadius: 16, padding: 24,
         display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16,
       }}>
@@ -5082,7 +5065,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
               value={settings[key] || ""}
               onChange={(e) => setSettings((p) => ({ ...p, [key]: e.target.value }))}
               style={{
-                width: "100%", background: COLORS.surfaceAlt,
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: "1px solid #1d2d4a", borderRadius: 8,
                 padding: "8px 12px", color: COLORS.textPrimary,
                 fontSize: 13, outline: "none", boxSizing: "border-box",
@@ -5439,7 +5422,7 @@ const LABEL_SIZES = [
 
   const cellStyle = {
     width: "100%",
-    background: COLORS.surfaceAlt,
+    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
     border: "1px solid #1d2d4a",
     borderRadius: 6,
     padding: "4px 8px",
@@ -5685,7 +5668,7 @@ const LABEL_SIZES = [
             onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
             style={{
               width: "100%",
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               border: "1px solid #2a5a9a",
               borderRadius: 8,
               padding: "10px 14px",
@@ -5702,7 +5685,7 @@ const LABEL_SIZES = [
                 top: "100%",
                 right: 0,
                 left: 0,
-                background: COLORS.surface,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
                 border: `1px solid ${COLORS.borderStrong}`,
                 borderRadius: 8,
                 zIndex: 100,
@@ -5976,7 +5959,7 @@ const LABEL_SIZES = [
         {items.length > 0 && (
           <div
             style={{
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               borderRadius: 10,
               padding: 14,
               marginTop: 14,
@@ -6004,7 +5987,7 @@ const LABEL_SIZES = [
                   onChange={(e) => setManualSubtotal(e.target.value)}
                   style={{
                     width: 110,
-                    background: COLORS.surfaceAlt,
+                    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                     border: "1px solid #1d3a6a",
                     borderRadius: 6,
                     padding: "4px 8px",
@@ -6039,7 +6022,7 @@ const LABEL_SIZES = [
                   onChange={(e) => setManualTax(e.target.value)}
                   style={{
                     width: 110,
-                    background: COLORS.surfaceAlt,
+                    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                     border: "1px solid #1d3a6a",
                     borderRadius: 6,
                     padding: "4px 8px",
@@ -6170,7 +6153,7 @@ const LABEL_SIZES = [
         >
           <div style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginBottom: 10, padding: "6px 10px", background: COLORS.surfaceAlt, borderRadius: 8,
+            marginBottom: 10, padding: "6px 10px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8,
           }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
               <input
@@ -6197,7 +6180,7 @@ const LABEL_SIZES = [
                   justifyContent: "space-between",
                   alignItems: "center",
                   padding: "8px 10px",
-                  background: COLORS.surfaceAlt,
+                  background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                   borderRadius: 8,
                   border: "1px solid #1d2d4a",
                   opacity: item.selected === false ? 0.5 : 1,
@@ -6233,7 +6216,7 @@ const LABEL_SIZES = [
                     }
                     style={{
                       width: 60,
-                      background: COLORS.surfaceAlt,
+                      background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                       border: "1px solid #1d3a6a",
                       borderRadius: 6,
                       padding: "4px 8px",
@@ -6393,7 +6376,7 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 55,
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
@@ -6428,7 +6411,7 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 60,
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
@@ -6463,7 +6446,7 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 60,
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
@@ -6490,7 +6473,7 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 85,
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
@@ -6525,7 +6508,7 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 85,
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
@@ -6551,7 +6534,7 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 55,
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
@@ -6576,7 +6559,7 @@ const LABEL_SIZES = [
                         }
                         style={{
                           width: 125,
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           border: "1px solid #1d2d4a",
                           borderRadius: 6,
                           padding: "4px 8px",
@@ -6624,7 +6607,7 @@ const LABEL_SIZES = [
 
           <div
             style={{
-              background: COLORS.surfaceAlt,
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
               borderRadius: 10,
               padding: 14,
               marginTop: 14,
@@ -6666,7 +6649,7 @@ const LABEL_SIZES = [
                       onChange={(e) => setEditManualSubtotal(e.target.value)}
                       style={{
                         width: 110,
-                        background: COLORS.surfaceAlt,
+                        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                         border: "1px solid #1d3a6a",
                         borderRadius: 6,
                         padding: "4px 8px",
@@ -6693,7 +6676,7 @@ const LABEL_SIZES = [
                       onChange={(e) => setEditManualTax(e.target.value)}
                       style={{
                         width: 110,
-                        background: COLORS.surfaceAlt,
+                        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                         border: "1px solid #1d3a6a",
                         borderRadius: 6,
                         padding: "4px 8px",
@@ -7199,7 +7182,7 @@ function ReturnsModule({
       {/* PIN Modal */}
       {showPinModal && (
         <div style={{ position: "fixed", inset: 0, background: "#0009", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: COLORS.surface, border: "1px solid #2a6aef", borderRadius: 16, padding: 28, width: 320, textAlign: "center" }}>
+          <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #2a6aef", borderRadius: 16, padding: 28, width: 320, textAlign: "center" }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
             <h3 style={{ color: COLORS.textPrimary, margin: "0 0 8px" }}>صلاحية مدير مطلوبة</h3>
             <p style={{ color: COLORS.textDim, fontSize: 13, marginBottom: 16 }}>
@@ -7211,7 +7194,7 @@ function ReturnsModule({
               onChange={(e) => setAdminPin(e.target.value)}
               placeholder="PIN..."
               style={{
-                width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a",
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a",
                 borderRadius: 8, padding: "10px 14px", color: COLORS.textPrimary, fontSize: 16,
                 outline: "none", textAlign: "center", boxSizing: "border-box", marginBottom: 14,
               }}
@@ -7280,7 +7263,7 @@ function ReturnsModule({
               onBlur={() => setTimeout(() => setInvoiceSearchOpen(false), 150)}
               placeholder="ابحث برقم الفاتورة أو اسم العميل..."
               style={{
-                width: "100%", background: COLORS.surfaceAlt,
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: `1px solid ${selInvoice ? COLORS.blue : COLORS.border}`,
                 borderRadius: 9, padding: "11px 14px", color: COLORS.textPrimary,
                 fontSize: 14, outline: "none", boxSizing: "border-box",
@@ -7300,7 +7283,7 @@ function ReturnsModule({
             {invoiceSearchOpen && !selInvoice && (
               <div style={{
                 position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
-                background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 8,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 8,
                 maxHeight: 220, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
               }}>
                 {filteredSaleInvoices.slice(0, 15).map((inv) => {
@@ -7345,7 +7328,7 @@ function ReturnsModule({
               onBlur={() => setTimeout(() => setCustomerSearchOpen(false), 150)}
               placeholder="ابحث بالاسم أو الجوال..."
               style={{
-                width: "100%", background: COLORS.surfaceAlt,
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: `1px solid ${selCustomer ? COLORS.blue : COLORS.border}`,
                 borderRadius: 9, padding: "11px 14px", color: COLORS.textPrimary,
                 fontSize: 14, outline: "none", boxSizing: "border-box",
@@ -7354,7 +7337,7 @@ function ReturnsModule({
             {customerSearchOpen && (
               <div style={{
                 position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
-                background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 8,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 8,
                 maxHeight: 200, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
               }}>
                 <div onMouseDown={() => { setSelCustomer(null); setCustomerSearch(""); setCustomerSearchOpen(false); }}
@@ -7417,7 +7400,7 @@ function ReturnsModule({
 
       {/* الأصناف */}
       {returnItems.length > 0 && (
-        <div style={{ background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 12, padding: 16, marginBottom: 14 }}>
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 12, padding: 16, marginBottom: 14 }}>
           <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 10 }}>
             {selInvoice ? `أصناف فاتورة ${selInvoice.id}` : "الأصناف"}
             {!adminOverride && <span style={{ marginRight: 8, color: COLORS.gold, fontSize: 11 }}>⚠️ سيتم التحقق من الباتش والصلاحية</span>}
@@ -7442,16 +7425,16 @@ function ReturnsModule({
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.max(0, x.returnQty - 1) } : x))}
-                    style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>-</button>
+                    style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>-</button>
                   <input type="number" min={0} max={maxReturnable}
                     value={item.returnQty}
                     onChange={(e) => setReturnItems((p) => p.map((x, j) => j === i ? {
                       ...x, returnQty: Math.min(Math.max(0, +e.target.value), maxReturnable)
                     } : x))}
-                    style={{ width: 50, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 6px", color: COLORS.textPrimary, fontSize: 13, outline: "none", textAlign: "center" }}
+                    style={{ width: 50, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 6px", color: COLORS.textPrimary, fontSize: 13, outline: "none", textAlign: "center" }}
                   />
                   <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(x.returnQty + 1, maxReturnable) } : x))}
-                    style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>+</button>
+                    style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>+</button>
                 </div>
                 {item.taxable && <Badge color="#0a2a00" text={COLORS.green}>15%</Badge>}
               </div>
@@ -7462,7 +7445,7 @@ function ReturnsModule({
 
       {/* الإجمالي */}
       {returnTotal > 0 && (
-        <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 14, marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textDim, marginBottom: 5 }}>
             <span>قبل الضريبة</span><span>{returnSubtotal.toFixed(2)} ر.س</span>
           </div>
@@ -7559,7 +7542,7 @@ function RasdSettings({ showToast }) {
         placeholder={placeholder}
         style={{
           width: "100%",
-          background: COLORS.surfaceAlt,
+          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
           border: "1px solid #1d2d4a",
           borderRadius: 8,
           padding: "10px 14px",
@@ -7657,7 +7640,7 @@ function RasdSettings({ showToast }) {
       {/* Form */}
       <div
         style={{
-          background: COLORS.surface,
+          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
           border: "1px solid #1d2d4a",
           borderRadius: 14,
           padding: 24,
@@ -7711,7 +7694,7 @@ function RasdSettings({ showToast }) {
               placeholder="كلمة المرور"
               style={{
                 width: "100%",
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "10px 44px 10px 14px",
@@ -7766,7 +7749,7 @@ function RasdSettings({ showToast }) {
       {/* Instructions */}
       <div
         style={{
-          background: COLORS.surfaceAlt,
+          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
           border: "1px solid #1d2d4a",
           borderRadius: 12,
           padding: 16,
@@ -7928,7 +7911,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
 
   // ===== Styles =====
   const card = (borderColor = COLORS.border) => ({
-    background: COLORS.surface,
+    background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
     border: `1px solid ${borderColor}`,
     borderRadius: 14,
     padding: 16,
@@ -8390,7 +8373,7 @@ function InventoryCount({
                 <thead>
                   <tr
                     style={{
-                      background: COLORS.surfaceAlt,
+                      background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                       position: "sticky",
                       top: 0,
                     }}
@@ -8506,7 +8489,7 @@ function InventoryCount({
           placeholder="🔍 بحث في الأصناف..."
           style={{
             width: "100%",
-            background: COLORS.surfaceAlt,
+            background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
             border: "1px solid #1d2d4a",
             borderRadius: 8,
             padding: "9px 12px",
@@ -8523,7 +8506,7 @@ function InventoryCount({
         >
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: COLORS.surfaceAlt, position: "sticky", top: 0 }}>
+              <tr style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", position: "sticky", top: 0 }}>
                 {[
                   "الصنف",
                   "الفئة",
@@ -8589,7 +8572,7 @@ function InventoryCount({
                       }
                       style={{
                         width: 70,
-                        background: COLORS.surfaceAlt,
+                        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                         border: "1px solid #1d2d4a",
                         borderRadius: 6,
                         padding: "5px 8px",
@@ -8936,7 +8919,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     (x.name_ar || "").includes(ingredientSearch) || (x.name_en || "").toLowerCase().includes(ingredientSearch.toLowerCase())
   );
 
-  const inputStyle = { background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
+  const inputStyle = { background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
 
   const lowStockList = products
     .filter((p) => (p.stock ?? 0) <= (p.minStock || p.min_stock || 0))
@@ -8981,7 +8964,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       {/* ── Search ── */}
       <input value={search} onChange={(e) => setSearch(e.target.value)}
         placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
-        style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
+        style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
 
       {/* ── Stats ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
@@ -9203,7 +9186,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               <div style={{ flex: 1, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 12px", color: COLORS.textPrimary, fontSize: 13 }}>{ing.name_ar}</div>
               <input value={ing.concentration} onChange={(e) => updateIngredientConc(ing.ingredient_id, e.target.value)}
                 placeholder="التركيز (مثال: 500mg)"
-                style={{ width: 160, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ width: 160, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <Btn size="sm" variant="danger" onClick={() => removeIngredient(ing.ingredient_id)}>✕</Btn>
             </div>
           ))}
@@ -9211,7 +9194,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
             <input value={ingredientSearch} onChange={(e) => { setIngredientSearch(e.target.value); setShowIngredientDropdown(true); }}
               onFocus={() => setShowIngredientDropdown(true)}
               placeholder="🔍 بحث عن مادة فعالة أو إضافة جديدة..."
-              style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             {showIngredientDropdown && ingredientSearch && (
               <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, zIndex: 100, maxHeight: 200, overflowY: "auto" }}>
                 {filteredIngredients.map((ing) => (
@@ -9242,7 +9225,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
           {/* حقل سكان GS1 */}
           <div style={{
-            background: COLORS.surfaceAlt, border: `1px dashed ${COLORS.borderStrong}`,
+            background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px dashed ${COLORS.borderStrong}`,
             borderRadius: 8, padding: "10px 12px", marginBottom: 12,
             display: "flex", gap: 8, alignItems: "center",
           }}>
@@ -9264,13 +9247,13 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
           {barcodes.map((b, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
               <input value={b.base_barcode} onChange={(e) => updateBarcode(i, "base_barcode", e.target.value)} placeholder="باركود أساسي *"
-                style={{ background: COLORS.surfaceAlt, border: `1px solid ${b.is_primary ? COLORS.blue : COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${b.is_primary ? COLORS.blue : COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.batch_number} onChange={(e) => updateBarcode(i, "batch_number", e.target.value)} placeholder="رقم التشغيلة"
-                style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.serial_number} onChange={(e) => updateBarcode(i, "serial_number", e.target.value)} placeholder="الرقم التسلسلي"
-                style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.expiry_date} onChange={(e) => updateBarcode(i, "expiry_date", e.target.value)} type="date"
-                style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <button onClick={() => setBarcodes((prev) => prev.map((x, idx) => ({ ...x, is_primary: idx === i })))}
                 style={{ padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: b.is_primary ? "#1a3a6a" : COLORS.border, color: b.is_primary ? COLORS.blue : COLORS.textDim }}>
                 {b.is_primary ? "⭐ رئيسي" : "رئيسي"}
@@ -9862,7 +9845,7 @@ function SuppliersModule({
 
           return (
             <div key={s.id} style={{
-              background: COLORS.surface, border: `1px solid ${sc.border}`,
+              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${sc.border}`,
               borderRadius: 14, padding: 18, borderTop: `3px solid ${sc.text}`,
             }}>
               {/* اسم + حالة */}
@@ -9931,7 +9914,7 @@ function SuppliersModule({
                       {debt.toFixed(0)} / {creditLimit.toFixed(0)} ر.س
                     </span>
                   </div>
-                  <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 6, overflow: "hidden" }}>
+                  <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 6, overflow: "hidden" }}>
                     <div style={{
                       height: "100%", width: `${creditUsedPct}%`,
                       background: creditUsedPct > 80 ? COLORS.red : creditUsedPct > 50 ? COLORS.gold : COLORS.green,
@@ -9953,7 +9936,7 @@ function SuppliersModule({
                       const dueDays = getDueDays(po, s);
                       const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
                       return (
-                        <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: COLORS.surfaceAlt, borderRadius: 6, marginBottom: 4 }}>
+                        <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 6, marginBottom: 4 }}>
                           <span style={{ fontSize: 11, color: COLORS.textDim }}>{po.id}</span>
                           <span style={{ fontSize: 11, color: COLORS.textPrimary }}>{balance.toFixed(0)} ر.س</span>
                           <span style={{ fontSize: 11, fontWeight: 700, color: dueDays < 0 ? COLORS.red : dueDays <= 7 ? COLORS.gold : COLORS.green }}>
@@ -10048,7 +10031,7 @@ function SuppliersModule({
                         onChange={(e) => setAutoReturnItems((prev) =>
                           prev.map((x, j) => j === i ? { ...x, returnQty: +e.target.value } : x)
                         )}
-                        style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
+                        style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                       />
                     </td>
                     <td style={{ padding: "8px 10px" }}>
@@ -10086,7 +10069,7 @@ function SuppliersModule({
             <label style={{ color: COLORS.textDim, fontSize: 13 }}>تغطية لمدة:</label>
             <input type="number" min="1" value={coverageDays}
               onChange={(e) => { setCoverageDays(+e.target.value); generateOrder(showOrderForm); }}
-              style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+              style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
             <span style={{ color: COLORS.textDim, fontSize: 13 }}>يوم</span>
           </div>
           <div style={{ overflowX: "auto" }}>
@@ -10108,7 +10091,7 @@ function SuppliersModule({
                     <td style={{ padding: "8px 10px" }}>
                       <input type="number" min="0" value={item.orderQty}
                         onChange={(e) => setOrderItems((prev) => prev.map((x, j) => j === i ? { ...x, orderQty: +e.target.value } : x))}
-                        style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                        style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                     </td>
                     <td style={{ padding: "8px 10px" }}>
                       <button onClick={() => setOrderItems((p) => p.filter((_, j) => j !== i))}
@@ -10139,7 +10122,7 @@ function SuppliersModule({
       {showPayForm && (
         <Modal open title={`تسجيل دفعة — ${showPayForm.name}`} onClose={() => setShowPayForm(null)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
               <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4 }}>إجمالي المستحقات</div>
               <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.red }}>{getSupplierDebt(showPayForm.id).toFixed(2)} ر.س</div>
             </div>
@@ -10147,7 +10130,7 @@ function SuppliersModule({
   <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>طريقة الدفع</div>
   <select value={payForm.method}
     onChange={(e) => setPayForm((p) => ({ ...p, method: e.target.value }))}
-    style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+    style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
     <option value="نقدي">💵 نقدي</option>
     <option value="بطاقة">💳 بطاقة / صراف</option>
     <option value="تحويل">🏦 تحويل بنكي</option>
@@ -10160,7 +10143,7 @@ function SuppliersModule({
                 const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
                 const dueDays = getDueDays(po, showPayForm);
                 return (
-                  <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: COLORS.surfaceAlt, borderRadius: 8, border: "1px solid #1d2d4a" }}>
+                  <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, border: "1px solid #1d2d4a" }}>
                     <div>
                       <div style={{ fontSize: 12, color: COLORS.blue }}>{po.id}</div>
                       <div style={{ fontSize: 11, color: COLORS.textDim }}>{po.date}</div>
@@ -10238,7 +10221,7 @@ function SuppliersModule({
                 ))}
               </div>
             )}
-            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
               <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 8 }}>رفع كشف حساب المورد</div>
               <input type="file" accept=".pdf,.xlsx,.xls,.csv,image/*"
                 onChange={async (e) => {
@@ -10271,12 +10254,12 @@ function SuppliersModule({
             <div>
               <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>حد الكريدت (ر.س)</label>
               <input type="number" min="0" value={form.credit_limit} onChange={(e) => F("credit_limit", +e.target.value)}
-                style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div>
               <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>شروط الدفع (يوم)</label>
               <input type="number" min="0" value={form.payment_terms} onChange={(e) => F("payment_terms", +e.target.value)}
-                style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
           </div>
 
@@ -10301,7 +10284,7 @@ function SuppliersModule({
                 </label>
                 <input type="number" min="0" value={form.opening_balance}
                   onChange={(e) => F("opening_balance", +e.target.value)}
-                  style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               </div>
             )}
 
@@ -10317,16 +10300,16 @@ function SuppliersModule({
                   <div key={d.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 2fr auto", gap: 6, marginBottom: 6, alignItems: "center" }}>
                     <input value={d.invoice_no} onChange={(e) => updateOpeningDetail(d.id, "invoice_no", e.target.value)}
                       placeholder="INV-001"
-                      style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <input type="number" min="0" value={d.amount} onChange={(e) => updateOpeningDetail(d.id, "amount", +e.target.value)}
                       placeholder="0"
-                      style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.gold, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.gold, fontSize: 12, outline: "none" }} />
                     <input type="number" min="0" value={d.due_days} onChange={(e) => updateOpeningDetail(d.id, "due_days", +e.target.value)}
                       placeholder="30"
-                      style={{ background: COLORS.surfaceAlt, border: `1px solid ${d.due_days > 90 ? "#4a1010" : d.due_days > 60 ? "#4a3000" : COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: d.due_days > 90 ? COLORS.red : d.due_days > 60 ? COLORS.gold : COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${d.due_days > 90 ? "#4a1010" : d.due_days > 60 ? "#4a3000" : COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: d.due_days > 90 ? COLORS.red : d.due_days > 60 ? COLORS.gold : COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <input value={d.note} onChange={(e) => updateOpeningDetail(d.id, "note", e.target.value)}
                       placeholder="اختياري"
-                      style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <button onClick={() => removeOpeningDetail(d.id)}
                       style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", padding: 4 }}>
                       <IC n="trash" s={14} />
@@ -10345,7 +10328,7 @@ function SuppliersModule({
                         { bucket: "61-90", label: "61-90 يوم", color: COLORS.gold },
                         { bucket: "90+",  label: "+90 يوم",   color: COLORS.red },
                       ].map(({ bucket, label, color }) => (
-                        <div key={bucket} style={{ textAlign: "center", background: COLORS.surfaceAlt, borderRadius: 6, padding: "8px 4px" }}>
+                        <div key={bucket} style={{ textAlign: "center", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 6, padding: "8px 4px" }}>
                           <div style={{ fontSize: 10, color: COLORS.textDim, marginBottom: 4 }}>{label}</div>
                           <div style={{ fontSize: 14, fontWeight: 700, color }}>{aging[bucket].toFixed(0)} ر.س</div>
                         </div>
@@ -10428,7 +10411,7 @@ function CreditTab({ customers, onPay }) {
           <div
             key={c.id}
             style={{
-              background: COLORS.surface,
+              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
               border: "1px solid #2a1010",
               borderRadius: 12,
               padding: "12px 16px",
@@ -10770,7 +10753,7 @@ function CustomersModule({
     return (
       <div
         style={{
-          background: COLORS.surface,
+          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
           border: "1px solid #1d2d4a",
           borderRadius: 14,
           padding: 16,
@@ -10800,7 +10783,7 @@ function CustomersModule({
                 {d.count}
               </span>
             </div>
-            <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 8 }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 8 }}>
               <div
                 style={{
                   background: d.color,
@@ -10827,7 +10810,7 @@ function CustomersModule({
     return (
       <div
         style={{
-          background: COLORS.surface,
+          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
           border: `1px solid ${vip ? vip.color + "33" : COLORS.border}`,
           borderRadius: 14,
           padding: 18,
@@ -10895,7 +10878,7 @@ function CustomersModule({
             {statusC && (
               <span
                 style={{
-                  background: COLORS.surfaceAlt,
+                  background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                   color: statusC.color,
                   padding: "3px 8px",
                   borderRadius: 6,
@@ -10952,7 +10935,7 @@ function CustomersModule({
             <div
               key={item.label}
               style={{
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 borderRadius: 8,
                 padding: "7px 8px",
               }}
@@ -10989,7 +10972,7 @@ function CustomersModule({
                 {s.rfmScore}/100
               </span>
             </div>
-            <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 5 }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 5 }}>
               <div
                 style={{
                   background: vip?.color || COLORS.textDim,
@@ -11034,7 +11017,7 @@ function CustomersModule({
                   <span
                     key={i}
                     style={{
-                      background: COLORS.surfaceAlt,
+                      background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                       color: "#5a9adf",
                       padding: "3px 8px",
                       borderRadius: 6,
@@ -11240,7 +11223,7 @@ function CustomersModule({
           <div
             key={item.label}
             style={{
-              background: COLORS.surface,
+              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
               border: "1px solid #1d2d4a",
               borderRadius: 12,
               padding: "14px 16px",
@@ -11257,7 +11240,7 @@ function CustomersModule({
         <div
           onClick={() => setActiveTab("credit")}
           style={{
-            background: COLORS.surface,
+            background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
             border: "1px solid #3a1010",
             borderRadius: 12,
             padding: "14px 16px",
@@ -11318,7 +11301,7 @@ function CustomersModule({
               style={{
                 flex: 1,
                 minWidth: 200,
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 14px",
@@ -11331,7 +11314,7 @@ function CustomersModule({
               value={filterVip}
               onChange={(e) => setFilterVip(e.target.value)}
               style={{
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 12px",
@@ -11349,7 +11332,7 @@ function CustomersModule({
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
               style={{
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: "1px solid #1d2d4a",
                 borderRadius: 8,
                 padding: "9px 12px",
@@ -11426,7 +11409,7 @@ function CustomersModule({
                 <div
                   key={c.id}
                   style={{
-                    background: COLORS.surface,
+                    background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
                     border: "1px solid #1d2d4a",
                     borderRadius: 12,
                     padding: "12px 16px",
@@ -11533,7 +11516,7 @@ function CustomersModule({
               <div
                 key={c.id}
                 style={{
-                  background: COLORS.surface,
+                  background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
                   border: "1px solid #2a1010",
                   borderRadius: 12,
                   padding: "12px 16px",
@@ -11569,7 +11552,7 @@ function CustomersModule({
                       <span
                         key={i}
                         style={{
-                          background: COLORS.surfaceAlt,
+                          background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                           color: COLORS.textDim,
                           padding: "2px 6px",
                           borderRadius: 4,
@@ -11797,7 +11780,7 @@ function CustomersModule({
 
             {selectedInvoice && (
               <div
-                style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14 }}
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 14 }}
               >
                 <div
                   style={{ color: COLORS.textPrimary, marginBottom: 10, fontSize: 13 }}
@@ -11818,7 +11801,7 @@ function CustomersModule({
                     max={selectedInvoice.remaining}
                     style={{
                       flex: 1,
-                      background: COLORS.surface,
+                      background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
                       border: "1px solid #1d2d4a",
                       borderRadius: 8,
                       padding: "8px 12px",
@@ -12346,7 +12329,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const discountColor = (d) => d >= 50 ? COLORS.red : d >= 25 ? COLORS.coral : d >= 20 ? COLORS.gold : COLORS.gold;
 
   const cardStyle = (border = COLORS.border) => ({
-    background: COLORS.surface, border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
+    background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
 
   const filteredAutoPromos = autoPromoProducts.filter((p) =>
@@ -12382,7 +12365,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, borderRadius: 10, padding: 4 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 4 }}>
         {[
           { k: "auto", l: `⏰ تلقائي (${autoPromoProducts.length})` },
           { k: "manual", l: `✋ يدوي (${activePromos.length})` },
@@ -12409,7 +12392,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   ⚙️ شرط الإضافة
                 </button>
                 <button onClick={() => { setEditRules(discountRules.map(r => ({...r}))); setShowRulesEditor(true); }}
-                  style={{ background: COLORS.surfaceAlt, border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
+                  style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
                   ✏️ تعديل القواعد
                 </button>
               </div>
@@ -12456,7 +12439,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                       setAutoPromoConfig(updated);
                       saveAutoConfig(updated);
                     }}
-                    style={{ width: 60, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    style={{ width: 60, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                   <span style={{ color: COLORS.textDim, fontSize: 12 }}>%</span>
                 </div>
 
@@ -12484,7 +12467,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
               {[...discountRules].sort((a,b) => a.days - b.days).map((r) => (
-                <div key={r.days} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                <div key={r.days} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
                   <div style={{ color: r.color || COLORS.gold, fontWeight: 900, fontSize: 18 }}>{r.discount}%</div>
                   <div style={{ color: COLORS.textDim, fontSize: 11 }}>أقل من {Math.round(r.days/30)} شهور</div>
                   <div style={{ color: COLORS.textDim, fontSize: 10 }}>({r.days} يوم)</div>
@@ -12496,7 +12479,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <input
             value={promoSearch} onChange={(e) => setPromoSearch(e.target.value)}
             placeholder="🔍 بحث..."
-            style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
           />
 
           {filteredAutoPromos.length === 0
@@ -12608,13 +12591,13 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
                   <input type="month" value={incentiveConfig.month}
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, month: e.target.value }))}
-                    style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                    style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                 </div>
                 <div>
                   <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
                   <input type="number" value={incentiveConfig.rate} min="1" max="20"
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
-                    style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                 </div>
                 {/* ── خانة حد الهامش التلقائي ── */}
                 <div>
@@ -12625,7 +12608,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                       if (val !== incentiveConfig.marginThreshold) updateMarginThreshold(val);
                     }}
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, marginThreshold: +e.target.value }))}
-                    style={{ width: 70, background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                 </div>
               </div>
             </div>
@@ -12663,7 +12646,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <input
             value={incentiveSearch} onChange={(e) => setIncentiveSearch(e.target.value)}
             placeholder="🔍 بحث..."
-            style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
           />
 
           {filteredIncentive.map((item) => {
@@ -12774,7 +12757,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                           <div style={{ color: COLORS.textDim, fontSize: 11 }}>عمولة {rate}%</div>
                         </div>
                       </div>
-                      <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 6, marginBottom: 8 }}>
+                      <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 6, marginBottom: 8 }}>
                         <div style={{ background: COLORS.green, height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -12815,10 +12798,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
             <input type="number" value={rule.days} min="1" max="365"
               onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, days: +e.target.value } : r))}
-              style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
             <input type="number" value={rule.discount} min="1" max="100"
               onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, discount: +e.target.value } : r))}
-              style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
             <button onClick={() => setEditRules((p) => p.filter((_, j) => j !== i))}
               style={{ background: COLORS.redSoft, border: "none", borderRadius: 6, padding: "8px 12px", color: COLORS.coral, cursor: "pointer", fontSize: 16 }}>×</button>
           </div>
@@ -12827,7 +12810,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           style={{ background: "#0a1a0a", border: "1px dashed #1a4a1a", borderRadius: 8, padding: "7px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, width: "100%", marginBottom: 14 }}>
           + إضافة مرحلة
         </button>
-        <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
           <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 8 }}>معاينة:</div>
           {[...editRules].sort((a, b) => a.days - b.days).map((r, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
@@ -12864,7 +12847,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
             <select value={promoForm.product_id}
               onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
-              style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
               <option value="">-- اختر صنفاً --</option>
               {products.map((p) => (
                 <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
@@ -12915,7 +12898,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   .map((p) => p.id);
                 setSelectedIncentiveProducts(ids);
               }}
-              style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
               <option value="">-- اختر شركة --</option>
               {manufacturers.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -12938,7 +12921,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           const allSelected = available.length > 0 && available.every((p) => selectedIncentiveProducts.includes(p.id));
 
           return (
-            <div style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 10, overflow: "hidden" }}>
               {/* Header القائمة */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #1d2d4a", background: "#0a1220" }}>
                 <div style={{ color: COLORS.blue, fontWeight: 700, fontSize: 13 }}>
@@ -13228,7 +13211,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
         const cOther = compareName ? calcForPharmacist(compareName) : null;
 
         return (
-          <div key={u.id} style={{ background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
+          <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
             {/* ===== الهيدر + التارجت ===== */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
               <div>
@@ -13269,7 +13252,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                   {c.target ? c.simplePct.toFixed(1) + "%" : "—"}
                 </span>
               </div>
-              <div style={{ background: COLORS.surfaceAlt, borderRadius: 8, height: 10, overflow: "hidden" }}>
+              <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, height: 10, overflow: "hidden" }}>
                 <div style={{
                   width: Math.min(c.simplePct, 100) + "%",
                   height: "100%",
@@ -13300,7 +13283,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                   { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
                   { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
                 ].map((x, i) => (
-                  <div key={i} style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+                  <div key={i} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
                     <div style={{ color: COLORS.textDim, fontSize: 11 }}>{x.l}</div>
                     <div style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
                   </div>
@@ -13369,7 +13352,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                   <select
                     value={compareName}
                     onChange={(e) => setCompareWith((p) => ({ ...p, [u.name]: e.target.value }))}
-                    style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
+                    style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
                   >
                     {otherPharmacists.map((p) => (
                       <option key={p.id} value={p.name}>{p.name}</option>
@@ -13379,7 +13362,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
 
                 {cOther && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
-                    <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+                    <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
                       <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{u.name}</div>
                       {[
                         ["المحقق", c.achieved.toFixed(0) + " ر.س"],
@@ -13397,7 +13380,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
 
                     <div style={{ color: COLORS.border, fontSize: 18, fontWeight: 900 }}>VS</div>
 
-                    <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12 }}>
+                    <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
                       <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{compareName}</div>
                       {[
                         ["المحقق", cOther.achieved.toFixed(0) + " ر.س"],
@@ -13607,10 +13590,10 @@ useEffect(() => {
   const monthExpenses = monthEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
 
   const cardStyle = (border = COLORS.border) => ({
-    background: COLORS.surface, border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
+    background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
   const inputStyle = {
-    background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 8,
+    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8,
     padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const,
   };
   const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0a101a" };
@@ -13633,7 +13616,7 @@ useEffect(() => {
           { label: "🏦 تحويل", value: balanceTransfer, color: COLORS.purple },
           { label: "📦 الإجمالي", value: balanceTotal, color: COLORS.gold },
         ].map((b) => (
-          <div key={b.label} style={{ background: COLORS.surface, border: "1px solid #1d2d4a", borderRadius: 12, padding: 14, textAlign: "center" }}>
+          <div key={b.label} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 12, padding: 14, textAlign: "center" }}>
             <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>{b.label}</div>
             <div style={{ color: b.value < 0 ? COLORS.red : b.color, fontWeight: 900, fontSize: 18 }}>{b.value.toFixed(2)}</div>
             <div style={{ color: COLORS.border, fontSize: 10 }}>ر.س</div>
@@ -13673,7 +13656,7 @@ useEffect(() => {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, borderRadius: 10, padding: 4 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 4 }}>
         {[
           { k: "today", l: "📅 تقفيل اليوم" },
           { k: "shifts", l: "🔄 الشفتات" },
@@ -13719,7 +13702,7 @@ useEffect(() => {
   </div>
 )}
               {editingCard && (
-                <div style={{ width: "100%", background: COLORS.surfaceAlt, border: "1px solid #1d3a6a", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d3a6a", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <input type="number" value={closingForm.card_actual}
                       onChange={(e) => setClosingForm((p) => ({ ...p, card_actual: e.target.value }))}
@@ -13879,7 +13862,7 @@ useEffect(() => {
                         { l: "تحويل", v: ss.transfer, c: COLORS.purple },
                         { l: "إجمالي", v: ss.total, c: COLORS.gold },
                       ].map((x) => (
-                        <div key={x.l} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                        <div key={x.l} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
                           <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>
                           <div style={{ color: x.c, fontWeight: 700, fontSize: 14 }}>{x.v.toFixed(2)}</div>
                         </div>
@@ -13904,7 +13887,7 @@ useEffect(() => {
                     { l: "تحويل", v: todayTransfer, c: COLORS.purple },
                     { l: "الإجمالي", v: todayCash + todayCard + todayTransfer, c: COLORS.gold },
                   ].map((x) => (
-                    <div key={x.l} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                    <div key={x.l} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
                       <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>
                       <div style={{ color: x.c, fontWeight: 700, fontSize: 16 }}>{x.v.toFixed(2)}</div>
                     </div>
@@ -13921,7 +13904,7 @@ useEffect(() => {
                     { l: "مصروفات الشهر", v: monthExpenses, c: COLORS.coral },
                     { l: "صافي الشهر", v: monthIncome - monthExpenses, c: monthIncome - monthExpenses >= 0 ? COLORS.blue : COLORS.red },
                   ].map((x) => (
-                    <div key={x.l} style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 10, textAlign: "center" as const }}>
+                    <div key={x.l} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
                       <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>
                       <div style={{ color: x.c, fontWeight: 700, fontSize: 16 }}>{x.v.toFixed(2)}</div>
                       <div style={{ color: COLORS.border, fontSize: 10 }}>ر.س</div>
@@ -14031,7 +14014,7 @@ useEffect(() => {
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{f.name}</span>
-            <span style={{ fontSize: 10, color: "#7a8aaa", background: COLORS.surfaceAlt, padding: "2px 6px", borderRadius: 5 }}>
+            <span style={{ fontSize: 10, color: "#7a8aaa", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", padding: "2px 6px", borderRadius: 5 }}>
               {recurrenceLabel[rec]}
             </span>
           </div>
@@ -14212,7 +14195,7 @@ function TaxReport({ sales, purchases, returns = [] }) {
         <div style={{ color: COLORS.border, fontSize: 13, marginTop: 20 }}>نسبة الضريبة: 15% (VAT)</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-        <div style={{ background: COLORS.surface, border: "1px solid #1a3a1a", borderRadius: 14, padding: 20 }}>
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1a3a1a", borderRadius: 14, padding: 20 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: COLORS.green, display: "flex", alignItems: "center", gap: 8 }}>
             <IC n="pos" s={16} /> ضريبة المبيعات (الضريبة المحصلة)
           </h3>
@@ -14248,7 +14231,7 @@ function TaxReport({ sales, purchases, returns = [] }) {
             <div style={{ color: "#3a6a3a", fontSize: 12 }}>عدد الفواتير: {filtSales.length}{filtSalesReturns.length > 0 ? ` · مرتجعات: ${filtSalesReturns.length}` : ""}</div>
           </div>
         </div>
-        <div style={{ background: COLORS.surface, border: "1px solid #1a2a3a", borderRadius: 14, padding: 20 }}>
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1a2a3a", borderRadius: 14, padding: 20 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: COLORS.blue, display: "flex", alignItems: "center", gap: 8 }}>
             <IC n="purchase" s={16} /> ضريبة المشتريات (ضريبة المدخلات)
           </h3>
@@ -14593,7 +14576,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               </tbody>
             </table>
           </div>
-          <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+          <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 14, marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textDim, marginBottom: 5 }}>
               <span>قبل الضريبة</span><span>{(showInvoiceDetail.subtotal || 0).toFixed(2)} ر.س</span>
             </div>
@@ -14734,7 +14717,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
       {!currentShift ? (
         <div
           style={{
-            background: COLORS.surface,
+            background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
             border: "1px solid #1d2d4a",
             borderRadius: 14,
             padding: 24,
@@ -14768,7 +14751,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
       ) : (
         <div
           style={{
-            background: COLORS.surface,
+            background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
             backdropFilter: "blur(16px)",
             WebkitBackdropFilter: "blur(16px)",
             border: `1px solid ${COLORS.border}`,
@@ -14809,7 +14792,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
             }}
           >
             <div
-              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 12 }}
             >
               <div style={{ color: COLORS.textDim, fontSize: 11 }}>بداية الشفت</div>
               <div style={{ color: COLORS.textPrimary, fontSize: 13, marginTop: 4 }}>
@@ -14817,7 +14800,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               </div>
             </div>
             <div
-              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 12 }}
             >
               <div style={{ color: COLORS.textDim, fontSize: 11 }}>
                 النقد الافتتاحي
@@ -14834,7 +14817,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               </div>
             </div>
             <div
-              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 12 }}
             >
               <div style={{ color: COLORS.textDim, fontSize: 11 }}>مبيعات الشفت</div>
               <div
@@ -14849,7 +14832,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               </div>
             </div>
             <div
-              style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 12 }}
             >
               <div style={{ color: COLORS.textDim, fontSize: 11 }}>عدد الفواتير</div>
               <div
@@ -14883,7 +14866,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               style={{
                 margin: "10px 0",
                 padding: "10px 14px",
-                background: COLORS.surfaceAlt,
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 borderRadius: 8,
                 color: COLORS.gold,
                 fontSize: 13,
@@ -16212,14 +16195,14 @@ await supabase.from("treasury_entries").insert({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="بحث باسم العميل أو رقم الجوال..."
-              style={{ background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 14px", color: VAR.text, fontSize: 14, outline: "none", width: 300, boxSizing: "border-box" as any }}
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 14px", color: VAR.text, fontSize: 14, outline: "none", width: 300, boxSizing: "border-box" as any }}
             />
           </div>
 
           <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
+                <tr style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
                   {["العميل", "النقاط الحالية (ر.س)", "إجمالي مكتسبة", "إجمالي مستبدلة", ""].map((h, i) => (
                     <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
                   ))}
@@ -16287,7 +16270,7 @@ await supabase.from("treasury_entries").insert({
         <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
+              <tr style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
                 {["التاريخ", "العميل", "النوع", "المبلغ (ر.س)", "ملاحظة"].map((h, i) => (
                   <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
                 ))}
@@ -16359,7 +16342,7 @@ await supabase.from("treasury_entries").insert({
 
             {/* إعدادات وضع الربح */}
             {settings.mode === "profit" && (
-              <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: VAR.muted, marginBottom: 12 }}>
                   مثال: إذا كان الربح من الفاتورة 50 ريال والنسبة 10% — يكسب العميل 5 ريال نقاط
                 </div>
@@ -16369,7 +16352,7 @@ await supabase.from("treasury_entries").insert({
                     type="number" min={1} max={100}
                     value={settings.profit_rate}
                     onChange={(e) => setSettings((p: any) => ({ ...p, profit_rate: +e.target.value }))}
-                    style={{ width: 80, background: COLORS.surface, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                    style={{ width: 80, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
                   />
                   <span style={{ color: VAR.muted, fontSize: 13 }}>%</span>
                 </div>
@@ -16378,7 +16361,7 @@ await supabase.from("treasury_entries").insert({
 
             {/* إعدادات وضع المبيعات */}
             {settings.mode === "sales" && (
-              <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: VAR.muted, marginBottom: 12 }}>
                   مثال: إذا حدّدت 3 ريال لكل 100 ريال — من يشتري بـ 250 ريال يكسب 6 ريال نقاط
                 </div>
@@ -16387,14 +16370,14 @@ await supabase.from("treasury_entries").insert({
                     type="number" min={0.1}
                     value={settings.sales_rate}
                     onChange={(e) => setSettings((p: any) => ({ ...p, sales_rate: +e.target.value }))}
-                    style={{ width: 70, background: COLORS.surface, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                    style={{ width: 70, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
                   />
                   <span style={{ color: VAR.muted, fontSize: 13 }}>ريال لكل</span>
                   <input
                     type="number" min={10}
                     value={settings.sales_per}
                     onChange={(e) => setSettings((p: any) => ({ ...p, sales_per: +e.target.value }))}
-                    style={{ width: 80, background: COLORS.surface, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                    style={{ width: 80, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
                   />
                   <span style={{ color: VAR.muted, fontSize: 13 }}>ريال مشتريات</span>
                 </div>
@@ -16414,7 +16397,7 @@ await supabase.from("treasury_entries").insert({
                   type="number" min={1}
                   value={settings.min_redeem}
                   onChange={(e) => setSettings((p: any) => ({ ...p, min_redeem: +e.target.value }))}
-                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
                 />
               </div>
               <div>
@@ -16425,7 +16408,7 @@ await supabase.from("treasury_entries").insert({
                   type="number" min={1}
                   value={settings.expiry_months}
                   onChange={(e) => setSettings((p: any) => ({ ...p, expiry_months: +e.target.value }))}
-                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "9px 12px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
                 />
               </div>
             </div>
@@ -16441,7 +16424,7 @@ await supabase.from("treasury_entries").insert({
       {redeemModal && (
         <Modal open onClose={() => setRedeemModal(null)} title={`صرف نقدي — ${redeemModal.name}`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, textAlign: "center" }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 14, textAlign: "center" }}>
               <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط المتاحة</div>
               <div style={{ fontSize: 28, fontWeight: 900, color: COLORS.green }}>
                 {((loyaltyMap[redeemModal.id]?.points) || 0).toFixed(2)} ر.س
@@ -16467,7 +16450,7 @@ await supabase.from("treasury_entries").insert({
                 value={redeemAmount}
                 onChange={(e) => setRedeemAmount(e.target.value)}
                 placeholder={`الحد الأدنى ${settings.min_redeem} ريال`}
-                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -16482,7 +16465,7 @@ await supabase.from("treasury_entries").insert({
       {adjustModal && (
         <Modal open onClose={() => setAdjustModal(null)} title={`تعديل نقاط — ${adjustModal.name}`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14, textAlign: "center" }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 14, textAlign: "center" }}>
               <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط الحالية</div>
               <div style={{ fontSize: 28, fontWeight: 900, color: VAR.accent }}>
                 {((loyaltyMap[adjustModal.id]?.points) || 0).toFixed(2)} ر.س
@@ -16497,7 +16480,7 @@ await supabase.from("treasury_entries").insert({
                 value={adjustAmount}
                 onChange={(e) => setAdjustAmount(e.target.value)}
                 placeholder="مثال: 10 أو -5"
-                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 16, outline: "none", boxSizing: "border-box" as any }}
               />
             </div>
             <div>
@@ -16506,7 +16489,7 @@ await supabase.from("treasury_entries").insert({
                 value={adjustNote}
                 onChange={(e) => setAdjustNote(e.target.value)}
                 placeholder="مثال: تعويض عميل..."
-                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -16815,7 +16798,7 @@ function PermissionsModule({
               </div>
 
               <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "12px 20px", background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "12px 20px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700 }}>القسم</div>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>عرض 👁️</div>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>تعديل ✏️</div>
@@ -16868,7 +16851,7 @@ function PermissionsModule({
             <div style={{ textAlign: "center", color: VAR.muted, padding: 40 }}>جاري التحميل...</div>
           ) : (
             <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px", padding: "12px 20px", background: COLORS.surfaceAlt, borderBottom: `1px solid ${VAR.border}` }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px", padding: "12px 20px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
                 {["الاسم", "اسم المستخدم", "الدور", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: i === 3 ? "center" : "right" }}>{h}</div>
                 ))}
@@ -16917,13 +16900,13 @@ function PermissionsModule({
                   value={userForm[f.key as keyof typeof userForm]}
                   onChange={(e) => setUserForm((p) => ({ ...p, [f.key]: e.target.value }))}
                   placeholder={f.placeholder}
-                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }}
                 />
               </div>
             ))}
             <div>
               <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>الدور</label>
-              <select value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))} style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none" }}>
+              <select value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))} style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none" }}>
                 {roles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
             </div>
@@ -16954,9 +16937,9 @@ function PermissionsModule({
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>اسم الدور</label>
-              <input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRole()} placeholder="مثال: مراجع، محاسب..." style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }} />
+              <input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRole()} placeholder="مثال: مراجع، محاسب..." style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "10px 14px", color: VAR.text, fontSize: 14, outline: "none", boxSizing: "border-box" as any }} />
             </div>
-            <div style={{ fontSize: 12, color: VAR.muted, background: COLORS.surfaceAlt, borderRadius: 8, padding: 12 }}>
+            <div style={{ fontSize: 12, color: VAR.muted, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 12 }}>
               💡 سيتم إنشاء الدور بصلاحية عرض لجميع الأقسام بدون تعديل.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
