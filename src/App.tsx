@@ -923,28 +923,25 @@ const BarcodeScanner = ({
     const timeDiff = now - lastKeyTime.current;
     lastKeyTime.current = now;
 
-    // لو الفرق بين ضغطتين أقل من 100ms → scanner حقيقي
-    if (timeDiff < 100) {
+    // لو الفرق بين ضغطتين أقل من 50ms → scanner حقيقي
+    if (timeDiff < 50) {
       keyCount.current += 1;
     } else {
       keyCount.current = 1;
     }
 
-    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 50ms
+    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 80ms
     if (keyCount.current >= 4) {
       if (scanTimer.current) clearTimeout(scanTimer.current);
       scanTimer.current = setTimeout(() => {
         if (newVal.trim()) handleScan(newVal);
-      }, 50);
+      }, 80);
     }
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (scanTimer.current) clearTimeout(scanTimer.current);
-      if (val.trim()) handleScan(val);
-    }
+    if (scanTimer.current) clearTimeout(scanTimer.current);
+    if (e.key === "Enter" && val.trim()) handleScan(val);
   };
 
   return (
@@ -5239,6 +5236,9 @@ const LABEL_SIZES = [
   };
   // ===== نهاية طباعة الباركود =====
 
+  const lastKeyTimePurch = useRef<number>(0);
+  const keyCountPurch = useRef<number>(0);
+  const scanTimerPurch = useRef<ReturnType<typeof setTimeout>>(null);
 
   const handleSearchChange = (val) => {
     setSearchText(val);
@@ -5259,6 +5259,30 @@ const LABEL_SIZES = [
     setShowDropdown(results.length > 0);
     setHighlightedPurchIdx(-1);
 
+    // كشف scanner تلقائي
+    const now = Date.now();
+    const timeDiff = now - lastKeyTimePurch.current;
+    lastKeyTimePurch.current = now;
+    if (timeDiff < 50) { keyCountPurch.current += 1; }
+    else { keyCountPurch.current = 1; }
+
+    if (keyCountPurch.current >= 4) {
+      if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
+      scanTimerPurch.current = setTimeout(() => {
+        const trimmed = val.trim();
+        if (!trimmed) return;
+        const found = products.find(
+          (x) => x.barcode === trimmed || x.id === trimmed || (x.name_ar||x.name||"").includes(trimmed)
+        );
+        if (found) {
+          addItem(found);
+          keyCountPurch.current = 0;
+        } else if (results.length > 0) {
+          addItem(results[0]);
+          keyCountPurch.current = 0;
+        }
+      }, 80);
+    }
   };
 
   const addItem = (p) => {
@@ -5634,25 +5658,10 @@ const LABEL_SIZES = [
           />
         </div>
 
-        {/* باركود سكانر منفصل */}
-        <div style={{ marginBottom: 8 }}>
-          <BarcodeScanner
-            onScan={(scan) => {
-              const code = scan.type === "gs1" ? scan.gtin : scan.code;
-              const found = products.find(
-                (x) => x.barcode === code || x.id === code
-              );
-              if (found) addItem(found);
-              else showToast("الصنف غير موجود: " + code, "error");
-            }}
-            placeholder="امسح باركود الصنف..."
-          />
-        </div>
-
         <div style={{ position: "relative", marginBottom: 14 }}>
           <input
             ref={searchRef}
-            placeholder="🔍 ابحث بالاسم..."
+            placeholder="🔍 ابحث بالاسم أو الباركود أو امسح الباركود..."
             value={searchText}
             onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={handleSearchKeyDown}
@@ -10792,296 +10801,158 @@ function CustomersModule({
   };
 
   // ===== كارت العميل =====
+  const [loyaltyMapC, setLoyaltyMapC] = useState<Record<string, number>>({});
+
+  const loadLoyaltyC = async (customerId: string) => {
+    if (loyaltyMapC[customerId] !== undefined) return;
+    const { data } = await supabase
+      .from("loyalty_points")
+      .select("points")
+      .eq("customer_id", customerId)
+      .eq("pharmacy_id", pharmacyId)
+      .single();
+    setLoyaltyMapC((p) => ({ ...p, [customerId]: data?.points ?? 0 }));
+  };
+
   const CustomerCard = ({ c }) => {
     const s = c.stats;
     const vip = s ? vipConfig[s.vipLevel] : null;
-    const statusC = s ? statusConfig[s.status] : null;
     const isExpanded = expandedCard === c.id;
+    const loyalty = loyaltyMapC[c.id];
+
+    const debt = sales
+      .filter((x) => x.customer === c.id && x.payment === "آجل")
+      .reduce((sum, x) => sum + (x.total || 0), 0);
+
+    const handleExpand = () => {
+      if (!isExpanded) { loadLoyaltyC(c.id); setExpandedCard(c.id); }
+      else setExpandedCard(null);
+    };
 
     return (
-      <div
-        style={{
-          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-          border: `1px solid ${vip ? vip.color + "33" : COLORS.border}`,
-          borderRadius: 14,
-          padding: 18,
-        }}
-      >
-        {/* رأس الكارت */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            marginBottom: 12,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 10,
-                background: "#1a2a5a",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 20,
-              }}
-            >
-              {c.category === "individual"
-                ? "👤"
-                : c.category === "family_no_kids"
-                ? "👫"
-                : "👨‍👩‍👧"}
+      <div style={{
+        background: COLORS.surface,
+        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+        border: `1px solid ${isExpanded ? (vip ? vip.color + "55" : "#3a6aaa") : (vip ? vip.color + "33" : COLORS.border)}`,
+        borderRadius: 12,
+        overflow: "hidden",
+        transition: "border-color 0.2s",
+      }}>
+        {/* رأس الكارت — قابل للضغط */}
+        <div onClick={handleExpand} style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "10px 14px", cursor: "pointer", gap: 8,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: 8, background: "#1a2a5a",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 16, flexShrink: 0,
+            }}>
+              {c.category === "individual" ? "👤" : c.category === "family_no_kids" ? "👫" : "👨‍👩‍👧"}
             </div>
-            <div>
-              <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 14 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {c.name}
               </div>
-              <div style={{ color: COLORS.border, fontSize: 11 }}>
-                {c.id} • {c.phone}
-              </div>
+              <div style={{ color: COLORS.border, fontSize: 10 }}>{c.phone}</div>
             </div>
           </div>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-              alignItems: "flex-end",
-            }}
-          >
-            {vip && (
-              <span
-                style={{
-                  background: vip.bg,
-                  color: vip.color,
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  fontSize: 11,
-                  fontWeight: 700,
-                }}
-              >
-                {vip.label}
-              </span>
-            )}
-            {statusC && (
-              <span
-                style={{
-                  background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                  color: statusC.color,
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  fontSize: 11,
-                }}
-              >
-                {statusC.label}
-              </span>
-            )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            {vip && <span style={{ background: vip.bg, color: vip.color, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>{vip.label}</span>}
+            {debt > 0 && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>💳 {debt.toFixed(0)} ر.س</span>}
+            <span style={{ color: COLORS.textDim, fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
           </div>
         </div>
 
-        {/* الإحصائيات */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 6,
-            marginBottom: 10,
-          }}
-        >
-          {[
-            {
-              label: "إجمالي الزيارات",
-              value: s?.totalVisits || 0,
-              color: COLORS.blue,
-            },
-            {
-              label: "زيارات الشهر",
-              value: s?.monthlyVisits || 0,
-              color: COLORS.green,
-            },
-            {
-              label: "متوسط الفاتورة",
-              value: s ? s.avgInvoice.toFixed(0) + " ر.س" : "-",
-              color: COLORS.purple,
-            },
-            {
-              label: "إجمالي المشتريات",
-              value: s ? s.totalSpent.toFixed(0) + " ر.س" : "-",
-              color: COLORS.gold,
-            },
-            {
-              label: "مشتريات الشهر",
-              value: s ? s.monthlySpent.toFixed(0) + " ر.س" : "-",
-              color: COLORS.gold,
-            },
-            {
-              label: "آخر زيارة",
-              value: s ? `${s.daysSinceLast} يوم` : "لم يزر",
-              color: COLORS.textDim,
-            },
-          ].map((item) => (
-            <div
-              key={item.label}
-              style={{
-                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                borderRadius: 8,
-                padding: "7px 8px",
-              }}
-            >
-              <div style={{ color: COLORS.border, fontSize: 9 }}>{item.label}</div>
-              <div
-                style={{
-                  color: item.color,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  marginTop: 2,
-                }}
-              >
-                {item.value}
-              </div>
+        {/* التفاصيل */}
+        {isExpanded && (
+          <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${COLORS.border}` }}>
+            {/* إحصائيات */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5, marginTop: 10, marginBottom: 8 }}>
+              {[
+                { label: "إجمالي الزيارات", value: s?.totalVisits || 0, color: COLORS.blue },
+                { label: "زيارات الشهر", value: s?.monthlyVisits || 0, color: COLORS.green },
+                { label: "متوسط الفاتورة", value: s ? s.avgInvoice.toFixed(0) + " ر.س" : "-", color: COLORS.purple },
+                { label: "إجمالي المشتريات", value: s ? s.totalSpent.toFixed(0) + " ر.س" : "-", color: COLORS.gold },
+                { label: "مشتريات الشهر", value: s ? s.monthlySpent.toFixed(0) + " ر.س" : "-", color: COLORS.gold },
+                { label: "آخر زيارة", value: s ? `${s.daysSinceLast} يوم` : "لم يزر", color: COLORS.textDim },
+              ].map((item) => (
+                <div key={item.label} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 7, padding: "6px 7px" }}>
+                  <div style={{ color: COLORS.border, fontSize: 9 }}>{item.label}</div>
+                  <div style={{ color: item.color, fontWeight: 700, fontSize: 12, marginTop: 1 }}>{item.value}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* شريط RFM */}
-        {s && (
-          <div style={{ marginBottom: 10 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: 3,
+            {/* نقاط الولاء */}
+            {loyalty !== undefined && loyalty > 0 && (
+              <div style={{ background: "#2a2000", border: "1px solid #5a4000", borderRadius: 7, padding: "6px 10px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ color: COLORS.gold, fontSize: 12 }}>🌟 نقاط الولاء</span>
+                <span style={{ color: COLORS.gold, fontWeight: 800, fontSize: 13 }}>{loyalty.toFixed(2)} ر.س</span>
+              </div>
+            )}
+
+            {/* شريط RFM */}
+            {s && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ color: COLORS.textDim, fontSize: 10 }}>نقاط RFM</span>
+                  <span style={{ color: vip?.color, fontSize: 10, fontWeight: 700 }}>{s.rfmScore}/100</span>
+                </div>
+                <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 4 }}>
+                  <div style={{ background: vip?.color || COLORS.textDim, height: "100%", borderRadius: 4, width: `${s.rfmScore}%`, transition: "width 0.5s" }} />
+                </div>
+              </div>
+            )}
+
+            {/* آخر مشتريات */}
+            {s?.lastItems?.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ color: COLORS.textDim, fontSize: 10, marginBottom: 4 }}>آخر مشتريات ({s.lastItems.length} صنف):</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {s.lastItems.map((item, i) => (
+                    <span key={i} style={{ background: COLORS.surfaceAlt, color: "#5a9adf", padding: "2px 7px", borderRadius: 5, fontSize: 10 }}>
+                      {item.name} × {item.qty}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* أزرار */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+              <button onClick={() => openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 نتمنى أن تكونوا بخير`)}
+                style={{ background: COLORS.greenSoft, border: "1px solid #1a4a1a", borderRadius: 7, padding: "5px 10px", color: COLORS.green, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                📱 واتساب
+              </button>
+              <button onClick={() => openEdit(c)}
+                style={{ background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
+                ✏️ تعديل
+              </button>
+              <button onClick={async () => {
+                if (debt > 0) {
+                  if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف عميل عليه مديونية", "error"); return; }
+                  if (!window.confirm(`⚠️ على ${c.name} مديونية ${debt.toFixed(2)} ر.س
+هل أنت متأكد من الحذف؟`)) return;
+                }
+                const { error } = await supabase.from("customers").delete().eq("id", c.id);
+                if (error) { showToast("خطأ في الحذف", "error"); return; }
+                setCustomers((p) => p.filter((x) => x.id !== c.id));
+                showToast("تم حذف العميل");
               }}
-            >
-              <span style={{ color: COLORS.textDim, fontSize: 10 }}>نقاط RFM</span>
-              <span
-                style={{ color: vip?.color, fontSize: 11, fontWeight: 700 }}
-              >
-                {s.rfmScore}/100
-              </span>
-            </div>
-            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 5 }}>
-              <div
-                style={{
-                  background: vip?.color || COLORS.textDim,
-                  height: "100%",
-                  borderRadius: 4,
-                  width: `${s.rfmScore}%`,
-                  transition: "width 0.5s",
-                }}
-              />
+                style={{ background: COLORS.redSoft, border: "1px solid #3a1010", borderRadius: 7, padding: "5px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>
+                🗑️ حذف
+              </button>
+              {debt > 0 && (
+                <button onClick={() => openCreditModal && openCreditModal(c)}
+                  style={{ background: "#2a1a00", border: "1px solid #5a3000", borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                  💳 سداد آجل
+                </button>
+              )}
             </div>
           </div>
         )}
-
-        {/* آخر مشتريات */}
-        {s?.lastItems?.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
-            <button
-              onClick={() => setExpandedCard(isExpanded ? null : c.id)}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: COLORS.textDim,
-                fontSize: 11,
-                cursor: "pointer",
-                padding: 0,
-              }}
-            >
-              {isExpanded
-                ? "▲ إخفاء"
-                : `▼ آخر مشتريات (${s.lastItems.length} صنف)`}
-            </button>
-            {isExpanded && (
-              <div
-                style={{
-                  marginTop: 6,
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 4,
-                }}
-              >
-                {s.lastItems.map((item, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                      color: "#5a9adf",
-                      padding: "3px 8px",
-                      borderRadius: 6,
-                      fontSize: 10,
-                    }}
-                  >
-                    {item.name} × {item.qty}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* أزرار */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button
-            onClick={() =>
-              openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 نتمنى أن تكونوا بخير`)
-            }
-            style={{
-              background: COLORS.greenSoft,
-              border: "1px solid #1a4a1a",
-              borderRadius: 8,
-              padding: "6px 12px",
-              color: COLORS.green,
-              fontSize: 12,
-              cursor: "pointer",
-              fontWeight: 700,
-            }}
-          >
-            📱 واتساب
-          </button>
-          <button
-            onClick={() => openEdit(c)}
-            style={{
-              background: COLORS.blueSoft,
-              border: "1px solid #1d2d4a",
-              borderRadius: 8,
-              padding: "6px 12px",
-              color: COLORS.blue,
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            ✏️ تعديل
-          </button>
-          <button
-            onClick={async () => {
-              const { error } = await supabase
-                .from("customers")
-                .delete()
-                .eq("id", c.id);
-              if (error) {
-                showToast("خطأ في الحذف", "error");
-                return;
-              }
-              setCustomers((p) => p.filter((x) => x.id !== c.id));
-              showToast("تم حذف العميل");
-            }}
-            style={{
-              background: COLORS.redSoft,
-              border: "1px solid #3a1010",
-              borderRadius: 8,
-              padding: "6px 12px",
-              color: COLORS.red,
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            🗑️ حذف
-          </button>
-        </div>
       </div>
     );
   };
@@ -11115,6 +10986,8 @@ function CustomersModule({
         form.category === "family_with_kids" ? form.children_count : null,
       children_ages:
         form.category === "family_with_kids" ? form.children_ages : [],
+      pharmacy_id: pharmacyId,
+      created_by: form.created_by || currentUser?.name || "",
     };
     if (editing) {
       const { error } = await supabase
@@ -11341,7 +11214,7 @@ function CustomersModule({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
               gap: 14,
             }}
           >
