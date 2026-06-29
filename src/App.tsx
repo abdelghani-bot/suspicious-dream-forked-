@@ -3072,25 +3072,17 @@ function POS({
     const ex = prev.cart.find((i) => i.id === p.id);
     if (ex) {
       const prod = products.find((x) => x.id === p.id);
-      const saleUnits = ex.saleUnits || prod?.saleUnits || 1;
-      const step = saleUnits > 1 ? 1 / saleUnits : 1;
-      const maxQty = saleUnits > 1
-        ? (prod?.stock || 0) * saleUnits
-        : prod?.stock || 99;
-      if (ex.qty + step > maxQty) {
+      if (ex.qty + 1 > (prod?.stock || 99)) {
         showToast("لا يوجد مخزون كافٍ", "error");
         return prev;
       }
       return {
         ...prev,
         cart: prev.cart.map((i) =>
-          i.id === p.id
-            ? { ...i, qty: Math.round((i.qty + step) * 10000) / 10000 }
-            : i
+          i.id === p.id ? { ...i, qty: i.qty + 1 } : i
         ),
       };
     }
-
     // صنف جديد
    const initQty = p.qty !== undefined && !isNaN(p.qty) && !p.isPartial
   ? p.qty
@@ -4236,8 +4228,7 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  const s = i.saleUnits > 1 ? 1 / i.saleUnits : 1;
-                  return { ...i, qty: Math.max(s, Math.round((i.qty - s) * 10000) / 10000) };
+                  return { ...i, qty: Math.max(1, i.qty - 1) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
@@ -4321,11 +4312,8 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  const s = i.saleUnits > 1 ? 1 / i.saleUnits : 1;
-                  const mx = i.saleUnits > 1
-                    ? (products.find(x => x.id === i.id)?.stock || 0) * i.saleUnits
-                    : products.find(x => x.id === i.id)?.stock || 99;
-                  return { ...i, qty: Math.min(Math.round((i.qty + s) * 10000) / 10000, mx) };
+                  const mx = products.find(x => x.id === i.id)?.stock || 99;
+                  return { ...i, qty: Math.min(i.qty + 1, mx) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
