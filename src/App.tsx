@@ -13415,7 +13415,14 @@ useEffect(() => {
   });
 
   // ── حفظ التقفيل ──
+  const openShifts = ((shifts || []).filter((s) => s.start_time?.startsWith(today))).filter((s) => !s.end_time);
+
   const saveClosing = async () => {
+    // تحقق إن كل شفتات اليوم متقفلة
+    if (openShifts.length > 0) {
+      showToast(`❌ يوجد ${openShifts.length} شفت مفتوح — أقفل الشفتات أولاً`, "error");
+      return;
+    }
     const rows = [];
     if (+closingForm.extra_income > 0)
       rows.push({ type: "income", sub_type: "other", method: "نقدي", amount: +closingForm.extra_income, note: closingForm.extra_income_note || "دخل إضافي", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
@@ -13580,6 +13587,18 @@ useEffect(() => {
 
       {activeTab === "today" && !closingSaved && (
         <div>
+          {/* تحذير الشفتات المفتوحة */}
+          {openShifts.length > 0 && (
+            <div style={{ background: "#2a1000", border: "1px solid #8a3000", borderRadius: 10, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              <div>
+                <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13 }}>لا يمكن تقفيل اليوم</div>
+                <div style={{ color: COLORS.textDim, fontSize: 12, marginTop: 2 }}>
+                  يوجد {openShifts.length} شفت مفتوح: {openShifts.map((s) => s.user).join("، ")} — أقفل الشفتات أولاً
+                </div>
+              </div>
+            </div>
+          )}
           {/* الدخل مقسم */}
           <div style={cardStyle(COLORS.greenSoft)}>
             <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📥 الدخل</div>
@@ -13731,7 +13750,23 @@ useEffect(() => {
           </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
-            {!closingSaved && <Btn icon="check" onClick={saveClosing}>حفظ تقفيل اليوم</Btn>}
+            {!closingSaved && (
+              <button
+                onClick={saveClosing}
+                disabled={openShifts.length > 0}
+                style={{
+                  background: openShifts.length > 0 ? COLORS.surfaceAlt : "#1a4a2a",
+                  border: `1px solid ${openShifts.length > 0 ? COLORS.border : "#2a8a4a"}`,
+                  borderRadius: 8, padding: "10px 20px",
+                  color: openShifts.length > 0 ? COLORS.textDim : COLORS.green,
+                  fontSize: 13, fontWeight: 700,
+                  cursor: openShifts.length > 0 ? "not-allowed" : "pointer",
+                  opacity: openShifts.length > 0 ? 0.5 : 1,
+                }}
+              >
+                {openShifts.length > 0 ? `🔒 أقفل ${openShifts.length} شفت أولاً` : "✅ حفظ تقفيل اليوم"}
+              </button>
+            )}
           </div>
         </div>
       )}
