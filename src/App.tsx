@@ -5012,6 +5012,7 @@ function PurchaseModule({
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightedPurchIdx, setHighlightedPurchIdx] = useState(-1);
   const [manualSubtotal, setManualSubtotal] = useState("");
   const [manualTax, setManualTax] = useState("");
   const [showProductCard, setShowProductCard] = useState(null);
@@ -5144,6 +5145,7 @@ const LABEL_SIZES = [
       .slice(0, 8);
     setSearchResults(results);
     setShowDropdown(results.length > 0);
+    setHighlightedPurchIdx(-1);
 
     // كشف scanner تلقائي
     const now = Date.now();
@@ -5210,6 +5212,24 @@ const LABEL_SIZES = [
   };
 
   const handleSearchKeyDown = (e) => {
+    if (showDropdown && searchResults.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightedPurchIdx((prev) => Math.min(prev + 1, searchResults.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightedPurchIdx((prev) => Math.max(prev - 1, 0));
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const target = highlightedPurchIdx >= 0 ? searchResults[highlightedPurchIdx] : searchResults[0];
+        if (target) { addItem(target); setHighlightedPurchIdx(-1); }
+        return;
+      }
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       if (searchResults.length > 0) addItem(searchResults[0]);
@@ -5224,7 +5244,7 @@ const LABEL_SIZES = [
         else showToast("الصنف غير موجود", "error");
       }
     }
-    if (e.key === "Escape") setShowDropdown(false);
+    if (e.key === "Escape") { setShowDropdown(false); setHighlightedPurchIdx(-1); }
   };
 
   const calcCostAfterDiscount = (basePrice, disc1, disc2) => {
@@ -5562,32 +5582,37 @@ const LABEL_SIZES = [
                 boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
               }}
             >
-              {searchResults.map((p) => (
-                <div
-                  key={p.id}
-                  onMouseDown={() => addItem(p)}
-                  style={{
-                    padding: "9px 14px",
-                    cursor: "pointer",
-                    color: COLORS.textPrimary,
-                    fontSize: 13,
-                    borderBottom: `1px solid ${COLORS.border}`,
-                    display: "flex",
-                    justifyContent: "space-between",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = COLORS.surfaceAlt)
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "transparent")
-                  }
-                >
-                  <span>{p.name_ar || p.name}</span>
-                  <span style={{ color: COLORS.textDim, fontSize: 12 }}>
-                    {p.barcode} | مخزون: {p.stock}
-                  </span>
-                </div>
-              ))}
+              {searchResults.map((p, idx) => {
+                const outOfStock = (p.stock ?? 0) <= 0;
+                const lowStock = !outOfStock && (p.stock ?? 0) <= (p.min_stock || p.minStock || 0);
+                const stockColor = outOfStock ? "#dd4444" : lowStock ? COLORS.gold : COLORS.green;
+                const isHighlighted = idx === highlightedPurchIdx;
+                return (
+                  <div
+                    key={p.id}
+                    onMouseDown={() => { addItem(p); setHighlightedPurchIdx(-1); }}
+                    onMouseEnter={() => setHighlightedPurchIdx(idx)}
+                    onMouseLeave={() => setHighlightedPurchIdx(-1)}
+                    style={{
+                      padding: "9px 14px",
+                      cursor: "pointer",
+                      background: isHighlighted ? COLORS.surfaceAlt : "transparent",
+                      borderBottom: `1px solid ${COLORS.border}`,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor, flexShrink: 0, display: "inline-block" }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#1a3a2a" }}>{p.name_ar || p.name}</span>
+                    </div>
+                    <span style={{ color: "#2a4a3a", fontSize: 12 }}>
+                      {p.barcode} | مخزون: {p.stock ?? 0}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
