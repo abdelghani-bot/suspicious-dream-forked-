@@ -923,28 +923,25 @@ const BarcodeScanner = ({
     const timeDiff = now - lastKeyTime.current;
     lastKeyTime.current = now;
 
-    // لو الفرق بين ضغطتين أقل من 100ms → scanner حقيقي
-    if (timeDiff < 100) {
+    // لو الفرق بين ضغطتين أقل من 50ms → scanner حقيقي
+    if (timeDiff < 50) {
       keyCount.current += 1;
     } else {
       keyCount.current = 1;
     }
 
-    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 50ms
+    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 80ms
     if (keyCount.current >= 4) {
       if (scanTimer.current) clearTimeout(scanTimer.current);
       scanTimer.current = setTimeout(() => {
         if (newVal.trim()) handleScan(newVal);
-      }, 50);
+      }, 80);
     }
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (scanTimer.current) clearTimeout(scanTimer.current);
-      if (val.trim()) handleScan(val);
-    }
+    if (scanTimer.current) clearTimeout(scanTimer.current);
+    if (e.key === "Enter" && val.trim()) handleScan(val);
   };
 
   return (
@@ -5266,7 +5263,7 @@ const LABEL_SIZES = [
     const now = Date.now();
     const timeDiff = now - lastKeyTimePurch.current;
     lastKeyTimePurch.current = now;
-    if (timeDiff < 50) { keyCountPurch.current += 1; }
+    if (timeDiff < 100) { keyCountPurch.current += 1; }
     else { keyCountPurch.current = 1; }
 
     if (keyCountPurch.current >= 4) {
@@ -5284,7 +5281,7 @@ const LABEL_SIZES = [
           addItem(results[0]);
           keyCountPurch.current = 0;
         }
-      }, 80);
+      }, 50);
     }
   };
 
@@ -5340,6 +5337,7 @@ const LABEL_SIZES = [
       }
       if (e.key === "Enter") {
         e.preventDefault();
+        if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
         const target = highlightedPurchIdx >= 0 ? searchResults[highlightedPurchIdx] : searchResults[0];
         if (target) { addItem(target); setHighlightedPurchIdx(-1); }
         return;
@@ -5347,6 +5345,7 @@ const LABEL_SIZES = [
     }
     if (e.key === "Enter") {
       e.preventDefault();
+      if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
       if (searchResults.length > 0) addItem(searchResults[0]);
       else if (searchText.trim()) {
         const p = products.find(
