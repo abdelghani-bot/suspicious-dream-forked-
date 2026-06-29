@@ -5236,9 +5236,6 @@ const LABEL_SIZES = [
   };
   // ===== نهاية طباعة الباركود =====
 
-  const lastKeyTimePurch = useRef<number>(0);
-  const keyCountPurch = useRef<number>(0);
-  const scanTimerPurch = useRef<ReturnType<typeof setTimeout>>(null);
 
   const handleSearchChange = (val) => {
     setSearchText(val);
@@ -5259,30 +5256,6 @@ const LABEL_SIZES = [
     setShowDropdown(results.length > 0);
     setHighlightedPurchIdx(-1);
 
-    // كشف scanner تلقائي
-    const now = Date.now();
-    const timeDiff = now - lastKeyTimePurch.current;
-    lastKeyTimePurch.current = now;
-    if (timeDiff < 100) { keyCountPurch.current += 1; }
-    else { keyCountPurch.current = 1; }
-
-    if (keyCountPurch.current >= 4) {
-      if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
-      scanTimerPurch.current = setTimeout(() => {
-        const trimmed = val.trim();
-        if (!trimmed) return;
-        const found = products.find(
-          (x) => x.barcode === trimmed || x.id === trimmed || (x.name_ar||x.name||"").includes(trimmed)
-        );
-        if (found) {
-          addItem(found);
-          keyCountPurch.current = 0;
-        } else if (results.length > 0) {
-          addItem(results[0]);
-          keyCountPurch.current = 0;
-        }
-      }, 50);
-    }
   };
 
   const addItem = (p) => {
@@ -5337,7 +5310,6 @@ const LABEL_SIZES = [
       }
       if (e.key === "Enter") {
         e.preventDefault();
-        if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
         const target = highlightedPurchIdx >= 0 ? searchResults[highlightedPurchIdx] : searchResults[0];
         if (target) { addItem(target); setHighlightedPurchIdx(-1); }
         return;
@@ -5345,7 +5317,6 @@ const LABEL_SIZES = [
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
       if (searchResults.length > 0) addItem(searchResults[0]);
       else if (searchText.trim()) {
         const p = products.find(
@@ -5660,10 +5631,25 @@ const LABEL_SIZES = [
           />
         </div>
 
+        {/* باركود سكانر منفصل */}
+        <div style={{ marginBottom: 8 }}>
+          <BarcodeScanner
+            onScan={(scan) => {
+              const code = scan.type === "gs1" ? scan.gtin : scan.code;
+              const found = products.find(
+                (x) => x.barcode === code || x.id === code
+              );
+              if (found) addItem(found);
+              else showToast("الصنف غير موجود: " + code, "error");
+            }}
+            placeholder="امسح باركود الصنف..."
+          />
+        </div>
+
         <div style={{ position: "relative", marginBottom: 14 }}>
           <input
             ref={searchRef}
-            placeholder="🔍 ابحث بالاسم أو الباركود أو امسح الباركود..."
+            placeholder="🔍 ابحث بالاسم أو الباركود..."
             value={searchText}
             onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={handleSearchKeyDown}
