@@ -891,13 +891,15 @@ const BarcodeScanner = ({
   placeholder = "امسح أو اكتب الباركود...",
 }) => {
   const [val, setVal] = useState("");
-  const ref = useRef();
+  const ref = useRef<HTMLInputElement>(null);
+  const lastKeyTime = useRef<number>(0);
+  const keyCount = useRef<number>(0);
+  const scanTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
-  const handleScan = (raw) => {
+  const handleScan = (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) return;
 
-    // كشف إذا كان GS1 2D باركود
     const isGS1 =
       trimmed.includes("(01)") ||
       trimmed.includes(")01(") ||
@@ -910,30 +912,45 @@ const BarcodeScanner = ({
       onScan({ type: "simple", code: trimmed, raw: trimmed });
     }
     setVal("");
+    keyCount.current = 0;
   };
 
-  const handleKey = (e) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVal = e.target.value;
+    setVal(newVal);
+
+    const now = Date.now();
+    const timeDiff = now - lastKeyTime.current;
+    lastKeyTime.current = now;
+
+    // لو الفرق بين ضغطتين أقل من 50ms → scanner حقيقي
+    if (timeDiff < 50) {
+      keyCount.current += 1;
+    } else {
+      keyCount.current = 1;
+    }
+
+    // لو اتكتبت 4 حروف أو أكثر بسرعة → امسح تلقائياً بعد 80ms
+    if (keyCount.current >= 4) {
+      if (scanTimer.current) clearTimeout(scanTimer.current);
+      scanTimer.current = setTimeout(() => {
+        if (newVal.trim()) handleScan(newVal);
+      }, 80);
+    }
+  };
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (scanTimer.current) clearTimeout(scanTimer.current);
     if (e.key === "Enter" && val.trim()) handleScan(val);
   };
 
   return (
-    <div
-      style={{
-        position: "relative",
-        display: "flex",
-        gap: 8,
-        alignItems: "center",
-      }}
-    >
-      <IC
-        n="barcode"
-        s={18}
-        style={{ position: "absolute", right: 10, color: COLORS.textDim }}
-      />
+    <div style={{ position: "relative", display: "flex", gap: 8, alignItems: "center" }}>
+      <IC n="barcode" s={18} style={{ position: "absolute", right: 10, color: COLORS.textDim }} />
       <input
         ref={ref}
         value={val}
-        onChange={(e) => setVal(e.target.value)}
+        onChange={handleChange}
         onKeyDown={handleKey}
         placeholder={placeholder}
         style={{
@@ -945,7 +962,7 @@ const BarcodeScanner = ({
           fontSize: 14,
           outline: "none",
           width: "100%",
-          boxSizing: "border-box",
+          boxSizing: "border-box" as any,
         }}
       />
       <Btn size="sm" onClick={() => handleScan(val)} icon="search">
