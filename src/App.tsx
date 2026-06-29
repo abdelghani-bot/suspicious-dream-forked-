@@ -5123,6 +5123,10 @@ const LABEL_SIZES = [
   };
   // ===== نهاية طباعة الباركود =====
 
+  const lastKeyTimePurch = useRef<number>(0);
+  const keyCountPurch = useRef<number>(0);
+  const scanTimerPurch = useRef<ReturnType<typeof setTimeout>>(null);
+
   const handleSearchChange = (val) => {
     setSearchText(val);
     if (!val.trim()) {
@@ -5133,13 +5137,38 @@ const LABEL_SIZES = [
     const results = products
       .filter(
         (p) =>
-          (p.name||"").includes(val) ||
-(p.barcode||"").includes(val) ||
-(p.id||"").includes(val)
+          (p.name_ar||p.name||"").includes(val) ||
+          (p.barcode||"").includes(val) ||
+          (p.id||"").includes(val)
       )
       .slice(0, 8);
     setSearchResults(results);
     setShowDropdown(results.length > 0);
+
+    // كشف scanner تلقائي
+    const now = Date.now();
+    const timeDiff = now - lastKeyTimePurch.current;
+    lastKeyTimePurch.current = now;
+    if (timeDiff < 50) { keyCountPurch.current += 1; }
+    else { keyCountPurch.current = 1; }
+
+    if (keyCountPurch.current >= 4) {
+      if (scanTimerPurch.current) clearTimeout(scanTimerPurch.current);
+      scanTimerPurch.current = setTimeout(() => {
+        const trimmed = val.trim();
+        if (!trimmed) return;
+        const found = products.find(
+          (x) => x.barcode === trimmed || x.id === trimmed || (x.name_ar||x.name||"").includes(trimmed)
+        );
+        if (found) {
+          addItem(found);
+          keyCountPurch.current = 0;
+        } else if (results.length > 0) {
+          addItem(results[0]);
+          keyCountPurch.current = 0;
+        }
+      }, 80);
+    }
   };
 
   const addItem = (p) => {
@@ -5164,7 +5193,20 @@ const LABEL_SIZES = [
     setSearchText("");
     setSearchResults([]);
     setShowDropdown(false);
-    setTimeout(() => searchRef.current?.focus(), 50);
+    // فوكس على خانة الكمية للصنف المضاف
+    setTimeout(() => {
+      setItems((prev) => {
+        const rowIndex = prev.findIndex((i) => i.id === p.id);
+        if (rowIndex !== -1) {
+          const qtyCell = document.getElementById(`cell-${rowIndex}-qty`) as HTMLInputElement;
+          if (qtyCell) { qtyCell.focus(); qtyCell.select(); }
+          else searchRef.current?.focus();
+        } else {
+          searchRef.current?.focus();
+        }
+        return prev;
+      });
+    }, 80);
   };
 
   const handleSearchKeyDown = (e) => {
@@ -5176,7 +5218,7 @@ const LABEL_SIZES = [
           (x) =>
             x.barcode === searchText ||
             x.id === searchText ||
-            (x.name||"").includes(searchText)
+            (x.name_ar||x.name||"").includes(searchText)
         );
         if (p) addItem(p);
         else showToast("الصنف غير موجود", "error");
@@ -5237,17 +5279,13 @@ const LABEL_SIZES = [
     if (e.key !== "Enter") return;
     e.preventDefault();
     const currentCol = cols.indexOf(colName);
-    let nextCol = currentCol + 1;
-    let nextRow = rowIndex;
+    const nextCol = currentCol + 1;
+    // آخر خانة (expiry_date) → خانة البحث
     if (nextCol >= cols.length) {
-      nextCol = 0;
-      nextRow = rowIndex + 1;
-      if (nextRow >= items.length) {
-        searchRef.current?.focus();
-        return;
-      }
+      searchRef.current?.focus();
+      return;
     }
-    document.getElementById(`cell-${nextRow}-${cols[nextCol]}`)?.focus();
+    document.getElementById(`cell-${rowIndex}-${cols[nextCol]}`)?.focus();
   };
 
   const cellStyle = {
@@ -5515,12 +5553,13 @@ const LABEL_SIZES = [
                 top: "100%",
                 right: 0,
                 left: 0,
-                background: "#0d1829",
-                border: "1px solid #1d2d4a",
+                background: COLORS.surface,
+                border: `1px solid ${COLORS.borderStrong}`,
                 borderRadius: 8,
                 zIndex: 100,
                 maxHeight: 240,
                 overflowY: "auto",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
               }}
             >
               {searchResults.map((p) => (
@@ -5532,18 +5571,18 @@ const LABEL_SIZES = [
                     cursor: "pointer",
                     color: COLORS.textPrimary,
                     fontSize: 13,
-                    borderBottom: "1px solid #111a2a",
+                    borderBottom: `1px solid ${COLORS.border}`,
                     display: "flex",
                     justifyContent: "space-between",
                   }}
                   onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#152238")
+                    (e.currentTarget.style.background = COLORS.surfaceAlt)
                   }
                   onMouseLeave={(e) =>
                     (e.currentTarget.style.background = "transparent")
                   }
                 >
-                  <span>{p.name}</span>
+                  <span>{p.name_ar || p.name}</span>
                   <span style={{ color: COLORS.textDim, fontSize: 12 }}>
                     {p.barcode} | مخزون: {p.stock}
                   </span>
@@ -5601,7 +5640,7 @@ const LABEL_SIZES = [
                     <div
                       style={{ display: "flex", alignItems: "center", gap: 6 }}
                     >
-                      {item.name}
+                      {item.name_ar || item.name}
                       <button
                         onClick={() => setShowProductCard(item)}
                         title="عرض بيانات الصنف"
