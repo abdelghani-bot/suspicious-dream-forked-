@@ -1154,42 +1154,53 @@ function parseGS1Barcode(raw) {
   };
 
   try {
-    // إزالة الأقواس وتحويل لـ standard GS1 format
-    const cleaned = raw
-      .replace(/\)(\d{2})\(/g, "$1") // )(01)( → 01
-      .replace(/^\(/, "") // إزالة أول قوس
-      .replace(/\)/, ""); // إزالة آخر قوس
+    // الفورمات المدعوم: (01)XXXXXX(21)XXXX(10)XXXX(17)XXXXXX
+    // نفك الأقواس ونحوّل لمصفوفة [ai, value]
+    const bracketFormat = /\((\d{2,4})\)([^(]*)/g;
+    let match;
+    let foundAny = false;
 
-    let i = 0;
-    while (i < cleaned.length) {
-      const ai = cleaned.substring(i, i + 2);
+    while ((match = bracketFormat.exec(raw)) !== null) {
+      foundAny = true;
+      const ai = match[1];
+      const value = match[2].trim();
 
       if (ai === "01") {
-        result.gtin = cleaned.substring(i + 2, i + 16);
-        i += 16;
+        // GTIN-14: 14 رقم
+        result.gtin = value.substring(0, 14);
       } else if (ai === "17") {
-        const raw = cleaned.substring(i + 2, i + 8); // YYMMDD
-        result.expiry = `20${raw.slice(0, 2)}-${raw.slice(2, 4)}-${raw.slice(
-          4,
-          6
-        )}`;
-        i += 8;
+        // تاريخ الصلاحية YYMMDD
+        const d = value.substring(0, 6);
+        result.expiry = `20${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4, 6)}`;
       } else if (ai === "10") {
-        // batch - variable length, ends at next AI or end
-        const rest = cleaned.substring(i + 2);
-        const nextAI = rest.search(/(?:17|21)\d/);
-        if (nextAI === -1) {
-          result.batch = rest;
-          i = cleaned.length;
-        } else {
-          result.batch = rest.substring(0, nextAI);
-          i += 2 + nextAI;
-        }
+        result.batch = value;
       } else if (ai === "21") {
-        result.serial = cleaned.substring(i + 2);
-        i = cleaned.length;
-      } else {
-        i++;
+        result.serial = value;
+      }
+    }
+
+    // fallback: لو مفيش أقواس، جرّب الفورمات الرقمي المتصل 010628...210000...
+    if (!foundAny && /^\d/.test(raw)) {
+      let i = 0;
+      const s = raw;
+      while (i < s.length) {
+        const ai2 = s.substring(i, i + 2);
+        if (ai2 === "01") {
+          result.gtin = s.substring(i + 2, i + 16);
+          i += 16;
+        } else if (ai2 === "17") {
+          const d = s.substring(i + 2, i + 8);
+          result.expiry = `20${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4, 6)}`;
+          i += 8;
+        } else if (ai2 === "10") {
+          const rest = s.substring(i + 2);
+          const next = rest.search(/\d{2}[A-Za-z0-9]/);
+          if (next === -1) { result.batch = rest; i = s.length; }
+          else { result.batch = rest.substring(0, next); i += 2 + next; }
+        } else if (ai2 === "21") {
+          result.serial = s.substring(i + 2);
+          i = s.length;
+        } else { i++; }
       }
     }
   } catch (e) {
@@ -8592,6 +8603,43 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   const updateBarcode = (i, key, val) => setBarcodes((prev) => prev.map((b, idx) => idx === i ? { ...b, [key]: val } : b));
   const removeBarcode = (i) => setBarcodes((prev) => prev.filter((_, idx) => idx !== i));
 
+  // ── سكان GS1 وتوزيع البيانات تلقائياً ──
+  const [gs1ScanVal, setGs1ScanVal] = useState("");
+  const gs1Ref = useRef(null);
+  const handleGs1Scan = (raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const parsed = parseGS1Barcode(trimmed);
+    if (parsed.gtin) {
+      // نضيف سطر جديد أو نعدّل الأول الفاضي
+      const emptyIdx = barcodes.findIndex((b) => !b.base_barcode);
+      const newRow = {
+        base_barcode: parsed.gtin,
+        batch_number: parsed.batch || "",
+        serial_number: parsed.serial || "",
+        expiry_date: parsed.expiry || "",
+        is_primary: barcodes.length === 0 || emptyIdx === 0,
+      };
+      if (emptyIdx !== -1) {
+        setBarcodes((prev) => prev.map((b, idx) => idx === emptyIdx ? newRow : b));
+      } else {
+        setBarcodes((prev) => [...prev, { ...newRow, is_primary: false }]);
+      }
+      setGs1ScanVal("");
+      showToast(`✅ تم استخراج الباركود: ${parsed.gtin}${parsed.expiry ? " | صلاحية: " + parsed.expiry : ""}${parsed.batch ? " | تشغيلة: " + parsed.batch : ""}`, "success");
+    } else {
+      // مش GS1 — حطه كباركود عادي
+      const emptyIdx = barcodes.findIndex((b) => !b.base_barcode);
+      if (emptyIdx !== -1) {
+        updateBarcode(emptyIdx, "base_barcode", trimmed);
+      } else {
+        setBarcodes((prev) => [...prev, { base_barcode: trimmed, batch_number: "", serial_number: "", expiry_date: "", is_primary: false }]);
+      }
+      setGs1ScanVal("");
+      showToast("تم إضافة الباركود البسيط", "success");
+    }
+  };
+
   const addIngredient = async (ing) => {
     if (selectedIngredients.find((x) => x.ingredient_id === ing.id)) { setShowIngredientDropdown(false); setIngredientSearch(""); return; }
     setSelectedIngredients((prev) => [...prev, { ingredient_id: ing.id, name_ar: ing.name_ar, concentration: "", db_id: null }]);
@@ -8986,6 +9034,28 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ fontWeight: 700, color: COLORS.blue, fontSize: 14 }}>📦 الباركودات</div>
             <Btn size="sm" icon="plus" onClick={addBarcode}>إضافة باركود</Btn>
+          </div>
+
+          {/* حقل سكان GS1 */}
+          <div style={{
+            background: COLORS.surfaceAlt, border: `1px dashed ${COLORS.borderStrong}`,
+            borderRadius: 8, padding: "10px 12px", marginBottom: 12,
+            display: "flex", gap: 8, alignItems: "center",
+          }}>
+            <span style={{ fontSize: 18 }}>📷</span>
+            <input
+              ref={gs1Ref}
+              value={gs1ScanVal}
+              onChange={(e) => setGs1ScanVal(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleGs1Scan(gs1ScanVal); }}
+              placeholder="امسح QR/باركود الدواء هنا — هيتوزع تلقائياً ↵"
+              style={{
+                flex: 1, background: "transparent", border: "none", outline: "none",
+                color: COLORS.textPrimary, fontSize: 13, fontFamily: "inherit",
+              }}
+              autoComplete="off"
+            />
+            <Btn size="sm" onClick={() => handleGs1Scan(gs1ScanVal)}>استخراج</Btn>
           </div>
           {barcodes.map((b, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
