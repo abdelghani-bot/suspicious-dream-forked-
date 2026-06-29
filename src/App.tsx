@@ -3072,9 +3072,10 @@ function POS({
     const ex = prev.cart.find((i) => i.id === p.id);
     if (ex) {
       const prod = products.find((x) => x.id === p.id);
-      const step = p.saleUnits > 1 ? 1 / p.saleUnits : 1;  // ✅ p مش item
-      const maxQty = p.saleUnits > 1
-        ? (prod?.stock || 0) * p.saleUnits
+      const saleUnits = ex.saleUnits || prod?.saleUnits || 1;
+      const step = saleUnits > 1 ? 1 / saleUnits : 1;
+      const maxQty = saleUnits > 1
+        ? (prod?.stock || 0) * saleUnits
         : prod?.stock || 99;
       if (ex.qty + step > maxQty) {
         showToast("لا يوجد مخزون كافٍ", "error");
@@ -4235,7 +4236,8 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  return { ...i, qty: Math.max(1, i.qty - 1) };
+                  const s = i.saleUnits > 1 ? 1 / i.saleUnits : 1;
+                  return { ...i, qty: Math.max(s, Math.round((i.qty - s) * 10000) / 10000) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
@@ -4319,7 +4321,11 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.id !== item.id) return i;
-                  return { ...i, qty: Math.min(i.qty + 1, maxQty) };
+                  const s = i.saleUnits > 1 ? 1 / i.saleUnits : 1;
+                  const mx = i.saleUnits > 1
+                    ? (products.find(x => x.id === i.id)?.stock || 0) * i.saleUnits
+                    : products.find(x => x.id === i.id)?.stock || 99;
+                  return { ...i, qty: Math.min(Math.round((i.qty + s) * 10000) / 10000, mx) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
