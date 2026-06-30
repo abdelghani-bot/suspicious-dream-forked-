@@ -1759,7 +1759,11 @@ if (isLoading) return (
   const activeGroup = groups.find(g => g.ids.includes(tab));
   const activeColor = activeGroup?.color || GROUP_COLORS.main;
 
-  return groups.map((group, gi) => (
+  // إخفاء مجموعة "الإدارة" بالكامل عن أي مستخدم غير أدمن
+  const isAdminUser = currentUser?.role === "admin";
+  const visibleGroups = groups.filter((g) => g.label !== "الإدارة" || isAdminUser);
+
+  return visibleGroups.map((group, gi) => (
     <div key={gi}>
       {group.label && (
         <div style={{
@@ -1885,7 +1889,7 @@ if (isLoading) return (
 }} />
 
       {/* MAIN CONTENT */}
-      {tab === "pharmacy_settings" && (
+      {tab === "pharmacy_settings" && currentUser?.role === "admin" && (
         <PharmacySettings showToast={showToast}
           pharmacyId={pharmacyId}
           />
@@ -1956,7 +1960,7 @@ if (isLoading) return (
             currentUser={currentUser}
           />
         )}
-        {tab === "rasd_settings" && <RasdSettings showToast={showToast} />}
+        {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} />}
         {tab === "expiry_report" && <ExpiryReport purchases={purchases} />}
         {tab === "inventory_count" && (
           <InventoryCount
@@ -2044,7 +2048,7 @@ if (isLoading) return (
     showToast={showToast}
   />
 )}
-        {tab === "treasury" && (
+        {tab === "treasury" && currentUser?.role === "admin" && (
           <TreasuryModule
             sales={sales}
             creditPayments={creditPayments}
@@ -2086,12 +2090,13 @@ if (isLoading) return (
     showToast={showToast}
   />
 )}
-{tab === "permissions" && (
+{tab === "permissions" && currentUser?.role === "admin" && (
   <PermissionsModule
     pharmacyId={pharmacyId}
     showToast={showToast}
     users={users}
     setUsers={setUsers}
+    currentUser={currentUser}
   />
 )}    
       </main>
@@ -16639,11 +16644,13 @@ function PermissionsModule({
   showToast,
   users,
   setUsers,
+  currentUser,
 }: {
   pharmacyId: string;
   showToast: (msg: string, type?: string) => void;
   users: any[];
   setUsers: (fn: any) => void;
+  currentUser?: any;
 }) {
   const [activeTab, setActiveTab] = useState<"permissions" | "users">("permissions");
   const [perms, setPerms] = useState<Record<string, Record<string, { can_view: boolean; can_edit: boolean }>>>({});
@@ -16820,6 +16827,15 @@ function PermissionsModule({
   const currentRolePerms = perms[selectedRole] || {};
   const viewCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_view).length;
   const editCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_edit).length;
+
+  // حراسة إضافية (طبقة دفاع ثانية): لو وصل لغير أدمن للموديول ده بأي طريقة، يتمنع فورًا
+  if (currentUser?.role !== "admin") {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "#888" }}>
+        🔒 هذه الصفحة متاحة لمدير النظام فقط
+      </div>
+    );
+  }
 
   return (
     <div>
