@@ -11865,6 +11865,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     marginThreshold: 45, // ← حد الهامش التلقائي قابل للتعديل
   });
   const [showPromoForm, setShowPromoForm] = useState(false);
+  const [editPromoId, setEditPromoId] = useState(null);
   const [showIncentiveForm, setShowIncentiveForm] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [promoSearch, setPromoSearch] = useState("");
@@ -12128,12 +12129,24 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     );
   }, [autoPromoProducts, pharmacyId]);
 
-  // حفظ عرض يدوي
+  // حفظ عرض يدوي (إضافة أو تعديل)
   const savePromo = async () => {
     if (!promoForm.product_id || !promoForm.discount || !promoForm.end_date) {
       showToast("يرجى ملء جميع الحقول", "error"); return;
     }
     const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
+
+    if (editPromoId) {
+      const { error } = await supabase.from("promotions").update(row).eq("id", editPromoId);
+      if (error) { showToast("خطأ: " + error.message, "error"); return; }
+      setPromos((p) => p.map((x) => (x.id === editPromoId ? { ...x, ...row } : x)));
+      setEditPromoId(null);
+      setPromoForm(blankPromo);
+      setShowPromoForm(false);
+      showToast("تم تعديل العرض ✓");
+      return;
+    }
+
     const { data, error } = await supabase.from("promotions").insert([row]).select();
     if (error) { showToast("خطأ: " + error.message, "error"); return; }
     setPromos((p) => [...p, data[0]]);
@@ -12407,10 +12420,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                 const daysLeft = Math.ceil((new Date(promo.end_date) - new Date()) / (1000 * 60 * 60 * 24));
                 return (
                   <div key={promo.id} style={cardStyle(COLORS.greenSoft)}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name || prod?.nameAr || promo.product_id}</span>
+                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name_ar || prod?.name || prod?.nameAr || promo.product_id}</span>
                           <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>-{promo.discount}%</span>
                         </div>
                         <div style={{ color: COLORS.textDim, fontSize: 11 }}>
@@ -12418,9 +12431,20 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                           {promo.note && <span style={{ marginRight: 10, color: COLORS.textDim }}>• {promo.note}</span>}
                         </div>
                       </div>
-                      <div style={{ textAlign: "left" }}>
+                      <div style={{ textAlign: "left", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                         <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</div>
                         <div style={{ color: daysLeft <= 3 ? COLORS.red : COLORS.textDim, fontSize: 11 }}>يتبقى {daysLeft} يوم</div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                          <button onClick={() => {
+                            setPromoForm({ product_id: promo.product_id, discount: String(promo.discount), start_date: promo.start_date, end_date: promo.end_date, note: promo.note || "" });
+                            setEditPromoId(promo.id);
+                            setShowPromoForm(true);
+                          }} style={{ background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
+                          <button onClick={async () => {
+                            await supabase.from("promotions").delete().eq("id", promo.id);
+                            setPromos((p) => p.filter((x) => x.id !== promo.id));
+                          }} style={{ background: COLORS.redSoft, border: "1px solid #3a1010", borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -12500,8 +12524,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   {highMarginProducts.map((p) => {
                     const margin = (((p.price - p.cost) / p.price) * 100).toFixed(0);
                     return (
-                      <div key={p.id} style={{ background: "#0a0a1a", border: "1px solid #2a2a4a", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
-                        <span style={{ color: COLORS.textPrimary }}>{p.name || p.nameAr}</span>
+                      <div key={p.id} style={{ background: COLORS.surfaceAlt, border: "1px solid #3a2a6a", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                        <span style={{ color: COLORS.textPrimary, fontWeight: 600 }}>{p.name_ar || p.name || p.nameAr}</span>
                         <span style={{ color: COLORS.purple, marginRight: 8, fontWeight: 700 }}>{margin}%</span>
                       </div>
                     );
@@ -12526,15 +12550,19 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           {filteredIncentive.map((item) => {
             const prod = products.find((p) => p.id === item.product_id);
             return (
-              <div key={item.id} style={cardStyle()}>
+              <div key={item.id} style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 10, padding: "10px 14px", marginBottom: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name || prod?.nameAr || item.product_id}</div>
+                    <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 13 }}>{prod?.name_ar || prod?.name || prod?.nameAr || item.product_id}</div>
                     {item.note && <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>{item.note}</div>}
                   </div>
-                  <div style={{ textAlign: "left" }}>
-                    {item.rate && <div style={{ color: COLORS.green, fontWeight: 700 }}>{item.rate}% عمولة</div>}
-                    {item.fixed_amount && <div style={{ color: COLORS.blue, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</div>}
+                  <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {item.rate && <span style={{ background: "#1a3a1a", color: COLORS.green, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.rate}% عمولة</span>}
+                    {item.fixed_amount && <span style={{ background: "#1a2a3a", color: COLORS.blue, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</span>}
+                    <button onClick={async () => {
+                      await supabase.from("incentive_products").delete().eq("id", item.id);
+                      setIncentiveList((p) => p.filter((x) => x.id !== item.id));
+                    }} style={{ background: "transparent", border: "none", color: COLORS.red, fontSize: 11, cursor: "pointer", marginTop: 2 }}>🗑️ حذف</button>
                   </div>
                 </div>
               </div>
@@ -12714,8 +12742,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         </div>
       </Modal>
 
-      {/* Modal إضافة عرض يدوي */}
-      <Modal open={showPromoForm} onClose={() => setShowPromoForm(false)} title="➕ إضافة عرض يدوي">
+      {/* Modal إضافة/تعديل عرض يدوي */}
+      <Modal open={showPromoForm} onClose={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); }} title={editPromoId ? "✏️ تعديل عرض يدوي" : "➕ إضافة عرض يدوي"}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div style={{ gridColumn: "1/-1" }}>
             <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
@@ -12746,8 +12774,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           );
         })()}
         <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setShowPromoForm(false)}>إلغاء</Btn>
-          <Btn icon="check" onClick={savePromo}>إضافة العرض</Btn>
+          <Btn variant="ghost" onClick={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); }}>إلغاء</Btn>
+          <Btn icon="check" onClick={savePromo}>{editPromoId ? "حفظ التعديل" : "إضافة العرض"}</Btn>
         </div>
       </Modal>
 
@@ -12913,6 +12941,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
   const [targets, setTargets] = useState([]); // كل التارجتات لكل الشهور
   const [editing, setEditing] = useState(null);
   const [editValue, setEditValue] = useState("");
+  const [expandedTarget, setExpandedTarget] = useState(null);
   const [compareWith, setCompareWith] = useState({}); // { [pharmacistName]: otherName }
 
   const isAdmin = currentUser?.role === "admin";
@@ -13083,192 +13112,209 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
         const otherPharmacists = pharmacists.filter((p) => p.name !== u.name);
         const compareName = compareWith[u.name] || (otherPharmacists[0]?.name ?? "");
         const cOther = compareName ? calcForPharmacist(compareName) : null;
+        const cardColor = pctColor(c.simplePct);
+        const isOpen = expandedTarget === u.name;
 
         return (
-          <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
-            {/* ===== الهيدر + التارجت ===== */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: COLORS.textPrimary }}>{u.name}</div>
-                <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>صيدلاني</div>
-              </div>
-
-              {editing === u.name ? (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <Input value={editValue} onChange={setEditValue} type="number" placeholder="قيمة التارجت" style={{ width: 140 }} />
-                  <Btn size="sm" variant="success" onClick={() => saveTarget(u.name)}>حفظ</Btn>
-                  <Btn size="sm" variant="ghost" onClick={() => setEditing(null)}>إلغاء</Btn>
-                </div>
-              ) : (
+          <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${isOpen ? cardColor + "77" : cardColor + "33"}`, borderRadius: 14, overflow: "hidden", marginBottom: 12, transition: "border-color .2s" }}>
+            {/* ===== رأس الكارت الملون — قابل للضغط ===== */}
+            <div
+              onClick={() => setExpandedTarget(isOpen ? null : u.name)}
+              style={{ cursor: "pointer", padding: 16, background: `linear-gradient(135deg, ${cardColor}18, transparent)` }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>التارجت الشهري</div>
-                    <div style={{ color: "#8ab0ff", fontWeight: 800, fontSize: 15 }}>
-                      {c.target ? c.target.toFixed(0) + " ر.س" : "غير محدد"}
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: cardColor + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
+                    🎯
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: COLORS.textPrimary }}>{u.name}</div>
+                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>صيدلاني</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ color: COLORS.textDim, fontSize: 10 }}>التارجت</div>
+                    <div style={{ color: "#8ab0ff", fontWeight: 800, fontSize: 14 }}>
+                      {c.target ? c.target.toFixed(0) + " ر.س" : "—"}
                     </div>
                   </div>
-                  {isAdmin && (
-                    <Btn size="sm" variant="ghost" icon="edit" onClick={() => { setEditing(u.name); setEditValue(c.target || ""); }}>
-                      تعديل
-                    </Btn>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ color: COLORS.textDim, fontSize: 10 }}>المحقق</div>
+                    <div style={{ color: COLORS.textPrimary, fontWeight: 800, fontSize: 14 }}>
+                      {c.achieved.toFixed(0)} ر.س
+                    </div>
+                  </div>
+                  <div style={{ background: cardColor + "22", color: cardColor, fontWeight: 900, fontSize: 14, padding: "4px 12px", borderRadius: 20 }}>
+                    {c.target ? c.simplePct.toFixed(0) + "%" : "—"}
+                  </div>
+                  <span style={{ color: COLORS.textDim, fontSize: 14 }}>{isOpen ? "▲" : "▼"}</span>
+                </div>
+              </div>
+
+              {/* شريط التقدم */}
+              <div style={{ marginTop: 10, background: COLORS.surfaceAlt, borderRadius: 8, height: 8, overflow: "hidden" }}>
+                <div style={{ width: Math.min(c.simplePct, 100) + "%", height: "100%", background: cardColor, transition: "width .3s" }} />
+              </div>
+            </div>
+
+            {/* ===== التفاصيل — قابلة للطي ===== */}
+            {isOpen && (
+              <div style={{ padding: "0 18px 18px" }}>
+                {/* تعديل التارجت */}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+                  {editing === u.name ? (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <Input value={editValue} onChange={setEditValue} type="number" placeholder="قيمة التارجت" style={{ width: 140 }} />
+                      <Btn size="sm" variant="success" onClick={() => saveTarget(u.name)}>حفظ</Btn>
+                      <Btn size="sm" variant="ghost" onClick={() => setEditing(null)}>إلغاء</Btn>
+                    </div>
+                  ) : (
+                    isAdmin && (
+                      <Btn size="sm" variant="ghost" icon="edit" onClick={() => { setEditing(u.name); setEditValue(c.target || ""); }}>
+                        ✏️ تعديل التارجت
+                      </Btn>
+                    )
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* ===== شريط التقدم ===== */}
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                <span style={{ color: "#8aa0cc" }}>
-                  المحقق: <b style={{ color: COLORS.textPrimary }}>{c.achieved.toFixed(0)} ر.س</b>
-                </span>
-                <span style={{ color: pctColor(c.simplePct), fontWeight: 800 }}>
-                  {c.target ? c.simplePct.toFixed(1) + "%" : "—"}
-                </span>
-              </div>
-              <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, height: 10, overflow: "hidden" }}>
-                <div style={{
-                  width: Math.min(c.simplePct, 100) + "%",
-                  height: "100%",
-                  background: pctColor(c.simplePct),
-                  transition: "width .3s",
-                }} />
-              </div>
-              {c.target > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12 }}>
-                  <span style={{ color: COLORS.textDim }}>
-                    المتوقع نهاية الشهر (Run Rate): <b style={{ color: COLORS.purple }}>{c.projected.toFixed(0)} ر.س</b>
-                  </span>
-                  <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
-                </div>
-              )}
-            </div>
-
-            {/* ===== التحليل الفني — ظاهر لحظيًا بدون أي ضغط ===== */}
-            <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-              <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📊 التحليل الفني</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
-                {[
-                  { l: "عدد الفواتير", v: c.invoiceCount },
-                  { l: "عدد الأصناف المباعة", v: c.itemsSold },
-                  { l: "متوسط الأصناف/فاتورة", v: c.avgItemsPerInvoice.toFixed(1) },
-                  { l: "متوسط قيمة الفاتورة", v: c.avgInvoiceValue.toFixed(0) + " ر.س" },
-                  { l: "نسبة التسجيل على عملاء", v: c.customerRegRate.toFixed(0) + "%" },
-                  { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
-                  { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
-                ].map((x, i) => (
-                  <div key={i} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
-                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>{x.l}</div>
-                    <div style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
+                {c.target > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 12 }}>
+                    <span style={{ color: COLORS.textDim }}>
+                      المتوقع نهاية الشهر (Run Rate): <b style={{ color: COLORS.purple }}>{c.projected.toFixed(0)} ر.س</b>
+                    </span>
+                    <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
                   </div>
-                ))}
-              </div>
-            </div>
+                )}
 
-            {/* ===== الأداء خلال الشهر (يوم بيوم) ===== */}
-            <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-              <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
-                📅 الأداء خلال الشهر (مبيعات يومية)
-              </div>
-              <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 70, overflowX: "auto", paddingBottom: 4 }}>
-                {dailyPerf.map((d) => (
-                  <div key={d.day} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 14 }}>
-                    <div
-                      title={`يوم ${d.day}: ${d.amount.toFixed(0)} ر.س`}
-                      style={{
-                        width: 8,
-                        height: Math.max((d.amount / maxDaily) * 55, 2),
-                        background: d.amount > 0 ? COLORS.green : COLORS.border,
-                        borderRadius: "2px 2px 0 0",
-                      }}
-                    />
-                    <span style={{ fontSize: 8, color: COLORS.border, marginTop: 3 }}>{d.day}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ===== مقارنة عبر آخر 6 شهور ===== */}
-            <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-              <div style={{ color: COLORS.purple, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
-                📈 مقارنة الأداء عبر آخر 6 شهور
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 90 }}>
-                {yearTrend.map((m) => (
-                  <div key={m.mKey} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                    <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 65 }}>
-                      <div
-                        title={`المحقق: ${m.achieved.toFixed(0)} ر.س`}
-                        style={{ flex: 1, background: COLORS.blue, height: `${(m.achieved / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }}
-                      />
-                      {m.target > 0 && (
-                        <div
-                          title={`التارجت: ${m.target.toFixed(0)} ر.س`}
-                          style={{ flex: 1, background: "#4a3a00", height: `${(m.target / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2, border: "1px dashed #ffaa44" }}
-                        />
-                      )}
-                    </div>
-                    <span style={{ fontSize: 9, color: COLORS.textDim }}>{m.label}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
-                <span style={{ fontSize: 11, color: COLORS.blue }}>■ المحقق</span>
-                <span style={{ fontSize: 11, color: COLORS.gold }}>▢ التارجت</span>
-              </div>
-            </div>
-
-            {/* ===== مقارنة مع صيدلي آخر ===== */}
-            {otherPharmacists.length > 0 && (
-              <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}>⚖️ مقارنة مع صيدلي آخر</div>
-                  <select
-                    value={compareName}
-                    onChange={(e) => setCompareWith((p) => ({ ...p, [u.name]: e.target.value }))}
-                    style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
-                  >
-                    {otherPharmacists.map((p) => (
-                      <option key={p.id} value={p.name}>{p.name}</option>
+                {/* ===== التحليل الفني ===== */}
+                <div style={{ borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                  <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📊 التحليل الفني</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
+                    {[
+                      { l: "عدد الفواتير", v: c.invoiceCount },
+                      { l: "عدد الأصناف المباعة", v: c.itemsSold },
+                      { l: "متوسط الأصناف/فاتورة", v: c.avgItemsPerInvoice.toFixed(1) },
+                      { l: "متوسط قيمة الفاتورة", v: c.avgInvoiceValue.toFixed(0) + " ر.س" },
+                      { l: "نسبة التسجيل على عملاء", v: c.customerRegRate.toFixed(0) + "%" },
+                      { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
+                      { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
+                    ].map((x, i) => (
+                      <div key={i} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
+                        <div style={{ color: COLORS.textDim, fontSize: 11 }}>{x.l}</div>
+                        <div style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
+                      </div>
                     ))}
-                  </select>
+                  </div>
                 </div>
 
-                {cOther && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
-                    <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
-                      <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{u.name}</div>
-                      {[
-                        ["المحقق", c.achieved.toFixed(0) + " ر.س"],
-                        ["نسبة التارجت", c.target ? c.simplePct.toFixed(1) + "%" : "—"],
-                        ["عدد الفواتير", c.invoiceCount],
-                        ["متوسط الفاتورة", c.avgInvoiceValue.toFixed(0) + " ر.س"],
-                        ["نسبة التسجيل على عملاء", c.customerRegRate.toFixed(0) + "%"],
-                      ].map(([l, v], i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
-                          <span style={{ color: COLORS.textDim }}>{l}</span>
-                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
+                {/* ===== الأداء خلال الشهر ===== */}
+                <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                  <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+                    📅 الأداء خلال الشهر (مبيعات يومية)
+                  </div>
+                  <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 70, overflowX: "auto", paddingBottom: 4 }}>
+                    {dailyPerf.map((d) => (
+                      <div key={d.day} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 14 }}>
+                        <div
+                          title={`يوم ${d.day}: ${d.amount.toFixed(0)} ر.س`}
+                          style={{
+                            width: 8,
+                            height: Math.max((d.amount / maxDaily) * 55, 2),
+                            background: d.amount > 0 ? COLORS.green : COLORS.border,
+                            borderRadius: "2px 2px 0 0",
+                          }}
+                        />
+                        <span style={{ fontSize: 8, color: COLORS.border, marginTop: 3 }}>{d.day}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ===== مقارنة عبر آخر 6 شهور ===== */}
+                <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                  <div style={{ color: COLORS.purple, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+                    📈 مقارنة الأداء عبر آخر 6 شهور
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 90 }}>
+                    {yearTrend.map((m) => (
+                      <div key={m.mKey} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                        <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 65 }}>
+                          <div
+                            title={`المحقق: ${m.achieved.toFixed(0)} ر.س`}
+                            style={{ flex: 1, background: COLORS.blue, height: `${(m.achieved / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }}
+                          />
+                          {m.target > 0 && (
+                            <div
+                              title={`التارجت: ${m.target.toFixed(0)} ر.س`}
+                              style={{ flex: 1, background: "#4a3a00", height: `${(m.target / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2, border: "1px dashed #ffaa44" }}
+                            />
+                          )}
                         </div>
-                      ))}
+                        <span style={{ fontSize: 9, color: COLORS.textDim }}>{m.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
+                    <span style={{ fontSize: 11, color: COLORS.blue }}>■ المحقق</span>
+                    <span style={{ fontSize: 11, color: COLORS.gold }}>▢ التارجت</span>
+                  </div>
+                </div>
+
+                {/* ===== مقارنة مع صيدلي آخر ===== */}
+                {otherPharmacists.length > 0 && (
+                  <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}>⚖️ مقارنة مع صيدلي آخر</div>
+                      <select
+                        value={compareName}
+                        onChange={(e) => setCompareWith((p) => ({ ...p, [u.name]: e.target.value }))}
+                        style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
+                      >
+                        {otherPharmacists.map((p) => (
+                          <option key={p.id} value={p.name}>{p.name}</option>
+                        ))}
+                      </select>
                     </div>
 
-                    <div style={{ color: COLORS.border, fontSize: 18, fontWeight: 900 }}>VS</div>
-
-                    <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
-                      <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{compareName}</div>
-                      {[
-                        ["المحقق", cOther.achieved.toFixed(0) + " ر.س"],
-                        ["نسبة التارجت", cOther.target ? cOther.simplePct.toFixed(1) + "%" : "—"],
-                        ["عدد الفواتير", cOther.invoiceCount],
-                        ["متوسط الفاتورة", cOther.avgInvoiceValue.toFixed(0) + " ر.س"],
-                        ["نسبة التسجيل على عملاء", cOther.customerRegRate.toFixed(0) + "%"],
-                      ].map(([l, v], i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
-                          <span style={{ color: COLORS.textDim }}>{l}</span>
-                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
+                    {cOther && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
+                        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
+                          <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{u.name}</div>
+                          {[
+                            ["المحقق", c.achieved.toFixed(0) + " ر.س"],
+                            ["نسبة التارجت", c.target ? c.simplePct.toFixed(1) + "%" : "—"],
+                            ["عدد الفواتير", c.invoiceCount],
+                            ["متوسط الفاتورة", c.avgInvoiceValue.toFixed(0) + " ر.س"],
+                            ["نسبة التسجيل على عملاء", c.customerRegRate.toFixed(0) + "%"],
+                          ].map(([l, v], i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
+                              <span style={{ color: COLORS.textDim }}>{l}</span>
+                              <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+
+                        <div style={{ color: COLORS.border, fontSize: 18, fontWeight: 900 }}>VS</div>
+
+                        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
+                          <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{compareName}</div>
+                          {[
+                            ["المحقق", cOther.achieved.toFixed(0) + " ر.س"],
+                            ["نسبة التارجت", cOther.target ? cOther.simplePct.toFixed(1) + "%" : "—"],
+                            ["عدد الفواتير", cOther.invoiceCount],
+                            ["متوسط الفاتورة", cOther.avgInvoiceValue.toFixed(0) + " ر.س"],
+                            ["نسبة التسجيل على عملاء", cOther.customerRegRate.toFixed(0) + "%"],
+                          ].map(([l, v], i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
+                              <span style={{ color: COLORS.textDim }}>{l}</span>
+                              <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
