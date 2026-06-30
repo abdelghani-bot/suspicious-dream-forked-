@@ -2112,30 +2112,39 @@ function Dashboard({
   const [expandedAlertGroup, setExpandedAlertGroup] = useState(null);
 
   // ── فرص ضائعة ──
-  const [missedToday, setMissedToday] = useState({ count: 0, value: 0 });
-  const [missedMonth, setMissedMonth] = useState({ count: 0, value: 0 });
+  const [missedToday, setMissedToday] = useState({ count: 0, value: 0, items: [] });
+  const [missedMonth, setMissedMonth] = useState({ count: 0, value: 0, items: [] });
+  const [showMissedModal, setShowMissedModal] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
   const monthKey = today.substring(0, 7);
 
   useEffect(() => {
+    if (!pharmacyId) return;
     const fetchMissed = async () => {
       const { data: todayData } = await supabase
-        .from("missed_sales").select("price, qty").eq("date", today);
+        .from("missed_sales")
+        .select("id, product_name, price, qty, reason, notes, cashier, date")
+        .eq("date", today)
+        .eq("pharmacy_id", pharmacyId)
+        .order("id", { ascending: false });
       if (todayData) {
         const value = todayData.reduce((s, r) => s + (r.price || 0) * (r.qty || 1), 0);
-        setMissedToday({ count: todayData.length, value });
+        setMissedToday({ count: todayData.length, value, items: todayData });
       }
       const { data: monthData } = await supabase
-        .from("missed_sales").select("price, qty")
-        .gte("date", monthKey + "-01").lte("date", monthKey + "-31");
+        .from("missed_sales")
+        .select("id, product_name, price, qty, reason, notes, cashier, date")
+        .gte("date", monthKey + "-01").lte("date", monthKey + "-31")
+        .eq("pharmacy_id", pharmacyId)
+        .order("date", { ascending: false });
       if (monthData) {
         const value = monthData.reduce((s, r) => s + (r.price || 0) * (r.qty || 1), 0);
-        setMissedMonth({ count: monthData.length, value });
+        setMissedMonth({ count: monthData.length, value, items: monthData });
       }
     };
     fetchMissed();
-  }, [today, monthKey]);
+  }, [today, monthKey, pharmacyId]);
 const [myTarget, setMyTarget] = useState(null);
 
   useEffect(() => {
@@ -2459,20 +2468,23 @@ const [myTarget, setMyTarget] = useState(null);
             { label: "إجمالي المبيعات", val: rev.toFixed(0) + " ر.س", color: VAR.accent, sub: `${invoices.length} فاتورة` },
             { label: "سداد الآجل",      val: creditPaid.toFixed(0) + " ر.س", color: VAR.accent2, sub: `مديونية ${ajilTotal.toFixed(0)}` },
             { label: "مرتجع المبيعات",  val: returns.toFixed(0) + " ر.س", color: VAR.danger, sub: `${returnsCnt} فاتورة مرتجعة` },
-            { label: "الفرص الضائعة",   val: missed.toFixed(0) + " ر.س", color: VAR.warn, sub: `${missedCnt} صنف مفقود` },
+            { label: "الفرص الضائعة",   val: missed.toFixed(0) + " ر.س", color: VAR.warn, sub: `${missedCnt} صنف مفقود`, onClick: () => setShowMissedModal(true) },
             { label: "متوسط الفاتورة",  val: avgInv.toFixed(1) + " ر.س", color: VAR.text, sub: "ريال", neutral: true },
           ].map((cell, i) => (
             <div
               key={i}
+              onClick={cell.onClick}
               style={{
                 padding: "12px 14px",
                 borderRadius: 10,
                 background: cell.neutral ? VAR.surface2 : tint(cell.color, 0.08),
                 border: `1px solid ${cell.neutral ? VAR.border : tint(cell.color, 0.3)}`,
+                cursor: cell.onClick ? "pointer" : "default",
               }}
             >
-              <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600, marginBottom: 4, letterSpacing: "0.05em" }}>
+              <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600, marginBottom: 4, letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 4 }}>
                 {cell.label}
+                {cell.onClick && <span style={{ fontSize: 9, opacity: 0.7 }}>↗</span>}
               </div>
               <div style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 700, color: cell.color }}>
                 {S(cell.val)}
@@ -2553,7 +2565,7 @@ const [myTarget, setMyTarget] = useState(null);
   const CollapsibleCard = ({ cardKey, icon, title, badge, badgeColor, children }) => {
     const isOpen = openCard === cardKey;
     return (
-      <div style={{ ...card, display: "flex", flexDirection: "column" }}>
+      <div style={{ ...card, display: "flex", flexDirection: "column", gridColumn: isOpen ? "1 / -1" : "auto" }}>
         <div
           onClick={() => toggleCard(cardKey)}
           style={{
@@ -2645,6 +2657,51 @@ const [myTarget, setMyTarget] = useState(null);
           </div>
           {renderSalesStats()}
         </CollapsibleCard>
+
+        <Modal
+          open={showMissedModal}
+          onClose={() => setShowMissedModal(false)}
+          title={`الفرص الضائعة — ${salesTab === "today" ? "اليوم" : "الشهر"}`}
+        >
+          {(() => {
+            const items = salesTab === "today" ? missedToday.items : missedMonth.items;
+            if (!items || items.length === 0) {
+              return (
+                <div style={{ textAlign: "center", color: VAR.muted, fontSize: 13, padding: "30px 0" }}>
+                  لا توجد فرص ضائعة 🎉
+                </div>
+              );
+            }
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {items.map((item, idx) => (
+                  <div
+                    key={item.id || idx}
+                    style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                      padding: "10px 12px", borderRadius: 8, background: VAR.surface2, border: `1px solid ${VAR.border}`, gap: 10,
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: VAR.text }}>{S(item.product_name || "—")}</div>
+                      <div style={{ fontSize: 11, color: VAR.muted, marginTop: 3 }}>
+                        {S(`الكمية: ${item.qty || 1}`)} · {S(`السبب: ${item.reason || "غير محدد"}`)}
+                        {item.cashier ? ` · ${item.cashier}` : ""}
+                        {salesTab === "month" && item.date ? ` · ${item.date}` : ""}
+                      </div>
+                      {item.notes && (
+                        <div style={{ fontSize: 11, color: VAR.muted, marginTop: 3 }}>{S(`ملاحظة: ${item.notes}`)}</div>
+                      )}
+                    </div>
+                    <div style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.warn, fontSize: 14, whiteSpace: "nowrap" }}>
+                      {S(((item.price || 0) * (item.qty || 1)).toFixed(0) + " ر.س")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </Modal>
 
         {/* 2) تارجت الشهر */}
         <CollapsibleCard cardKey="target" icon="🎯" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
