@@ -1199,27 +1199,43 @@ function parseGS1Barcode(raw) {
       }
     }
 
-    // fallback: لو مفيش أقواس، جرّب الفورمات الرقمي المتصل 010628...210000...
-    if (!foundAny && /^\d/.test(raw)) {
+    // fallback: GS1 DataMatrix SFDA format
+    if (!foundAny) {
+      const s = raw.replace(/[]/g, "");
       let i = 0;
-      const s = raw;
+      const FIXED: Record<string, number> = {
+        "00": 18, "01": 14, "02": 14,
+        "11": 6, "12": 6, "13": 6, "15": 6, "16": 6, "17": 6,
+        "20": 2,
+      };
+      const varEnd = (from: number): number => {
+        for (let j = from; j < s.length - 1; j++) {
+          if (s[j] === "") return j;
+          const a = s.substring(j, j + 2);
+          if (["17","10","21","01","11","00"].includes(a) && j > from) return j;
+        }
+        return s.length;
+      };
       while (i < s.length) {
-        const ai2 = s.substring(i, i + 2);
-        if (ai2 === "01") {
+        if (s[i] === "") { i++; continue; }
+        const ai = s.substring(i, i + 2);
+        if (ai === "01") {
           result.gtin = s.substring(i + 2, i + 16);
           i += 16;
-        } else if (ai2 === "17") {
+        } else if (ai === "17") {
           const d = s.substring(i + 2, i + 8);
-          result.expiry = `20${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4, 6)}`;
+          result.expiry = `20${d.slice(0,2)}-${d.slice(2,4)}-${d.slice(4,6)}`;
           i += 8;
-        } else if (ai2 === "10") {
-          const rest = s.substring(i + 2);
-          const next = rest.search(/\d{2}[A-Za-z0-9]/);
-          if (next === -1) { result.batch = rest; i = s.length; }
-          else { result.batch = rest.substring(0, next); i += 2 + next; }
-        } else if (ai2 === "21") {
-          result.serial = s.substring(i + 2);
-          i = s.length;
+        } else if (ai === "10") {
+          const end = varEnd(i + 2);
+          result.batch = s.substring(i + 2, end).trim();
+          i = end;
+        } else if (ai === "21") {
+          const end = varEnd(i + 2);
+          result.serial = s.substring(i + 2, end).trim();
+          i = end;
+        } else if (FIXED[ai] !== undefined) {
+          i += 2 + FIXED[ai];
         } else { i++; }
       }
     }
