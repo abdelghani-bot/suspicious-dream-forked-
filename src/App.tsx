@@ -14972,12 +14972,36 @@ function fmtHours(h: number) {
 
 const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
+// ── قائمة المدن السعودية لحساب مواقيت الصلاة ──
+const SAUDI_CITIES = [
+  { id: "riyadh", name: "الرياض", lat: 24.7136, lng: 46.6753 },
+  { id: "jeddah", name: "جدة", lat: 21.4858, lng: 39.1925 },
+  { id: "makkah", name: "مكة المكرمة", lat: 21.3891, lng: 39.8579 },
+  { id: "madinah", name: "المدينة المنورة", lat: 24.5247, lng: 39.5692 },
+  { id: "dammam", name: "الدمام", lat: 26.4207, lng: 50.0888 },
+  { id: "khobar", name: "الخبر", lat: 26.2172, lng: 50.1971 },
+  { id: "dhahran", name: "الظهران", lat: 26.2361, lng: 50.0393 },
+  { id: "taif", name: "الطائف", lat: 21.2703, lng: 40.4158 },
+  { id: "tabuk", name: "تبوك", lat: 28.3998, lng: 36.5700 },
+  { id: "abha", name: "أبها", lat: 18.2164, lng: 42.5053 },
+  { id: "khamis_mushait", name: "خميس مشيط", lat: 18.3000, lng: 42.7333 },
+  { id: "buraidah", name: "بريدة", lat: 26.3260, lng: 43.9750 },
+  { id: "hail", name: "حائل", lat: 27.5114, lng: 41.6900 },
+  { id: "najran", name: "نجران", lat: 17.4924, lng: 44.1277 },
+  { id: "jazan", name: "جازان", lat: 16.8892, lng: 42.5611 },
+  { id: "al_ahsa", name: "الأحساء", lat: 25.3833, lng: 49.5833 },
+  { id: "yanbu", name: "ينبع", lat: 24.0896, lng: 38.0618 },
+  { id: "qatif", name: "القطيف", lat: 26.5208, lng: 49.9989 },
+  { id: "arar", name: "عرعر", lat: 30.9753, lng: 41.0381 },
+  { id: "sakaka", name: "سكاكا", lat: 29.9697, lng: 40.2064 },
+];
+
 const API_KEY_MAP: Record<string, string> = { Fajr: "الفجر", Dhuhr: "الظهر", Asr: "العصر", Maghrib: "المغرب", Isha: "العشاء" };
 const ACTIVE_PRAYERS = ["الظهر", "العصر", "المغرب", "العشاء"];
 
-async function fetchPrayerTimes() {
+async function fetchPrayerTimes(lat = 24.7136, lng = 46.6753) {
   const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-  const url = `https://api.aladhan.com/v1/timings/${today}?latitude=24.7136&longitude=46.6753&method=4`;
+  const url = `https://api.aladhan.com/v1/timings/${today}?latitude=${lat}&longitude=${lng}&method=4`;
   const res = await fetch(url);
   const json = await res.json();
   const timings = json.data.timings;
@@ -15317,6 +15341,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   const [monthlyLogs, setMonthlyLogs] = useState<any[]>([]);
   const [scheduleForm, setScheduleForm] = useState<any>({ pharmacist_name: "", day_of_week: 0, shift_number: 1, shift_start: "09:00", shift_end: "21:00", is_off: false });
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [prayerCity, setPrayerCity] = useState<string>("riyadh");
   const ramadan = isRamadan();
   const intervalRef = useRef<any>(null);
 
@@ -15333,6 +15358,35 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   useEffect(() => { if (pharmacyId) loadAll(); }, [pharmacyId]);
 
   useEffect(() => {
+    if (!pharmacyId) return;
+    supabase
+      .from("pharmacy_settings")
+      .select("prayer_city")
+      .eq("pharmacy_id", pharmacyId)
+      .single()
+      .then(({ data }) => {
+        if (data?.prayer_city) setPrayerCity(data.prayer_city);
+      });
+  }, [pharmacyId]);
+
+  const saveCityAndReload = async (cityId: string) => {
+    setPrayerCity(cityId);
+    await supabase
+      .from("pharmacy_settings")
+      .upsert([{ pharmacy_id: pharmacyId, prayer_city: cityId }], { onConflict: "pharmacy_id" });
+    const city = SAUDI_CITIES.find((c) => c.id === cityId);
+    if (city) {
+      try {
+        const pt = await fetchPrayerTimes(city.lat, city.lng);
+        setPrayerTimes(pt);
+        globalToast(`✅ تم تحديث المواقيت حسب ${city.name}`);
+      } catch {
+        globalToast("تعذّر تحميل مواقيت الصلاة", "error");
+      }
+    }
+  };
+
+  useEffect(() => {
     intervalRef.current = setInterval(checkPrayerAlerts, 30000);
     return () => clearInterval(intervalRef.current);
   }, [prayerTimes, prayerSettings, todayLogs, prayerBreaks]);
@@ -15341,7 +15395,15 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     setLoading(true);
     await Promise.all([loadPharmacists(), loadTodayLogs(), loadPrayerSettings(), loadPrayerBreaks(), loadWorkSchedules()]);
     try {
-      const pt = await fetchPrayerTimes();
+      const { data: settingsData } = await supabase
+        .from("pharmacy_settings")
+        .select("prayer_city")
+        .eq("pharmacy_id", pharmacyId)
+        .single();
+      const cityId = settingsData?.prayer_city || "riyadh";
+      const city = SAUDI_CITIES.find((c) => c.id === cityId) || SAUDI_CITIES[0];
+      setPrayerCity(city.id);
+      const pt = await fetchPrayerTimes(city.lat, city.lng);
       setPrayerTimes(pt);
     } catch {
       globalToast("تعذّر تحميل مواقيت الصلاة", "error");
@@ -15745,6 +15807,24 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
         <div style={cardStyle}>
           <div style={{ fontWeight: 700, color: C.text, fontSize: 14, marginBottom: 4 }}>⚙️ إعدادات وقت الصلوات</div>
           <div style={{ color: C.muted, fontSize: 12, marginBottom: 16 }}>التأخير عن الوقت المسموح يُخصم من ساعات العمل</div>
+
+          {/* اختيار المدينة لحساب مواقيت الصلاة */}
+          <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, color: C.text, fontSize: 13, marginBottom: 8 }}>🕌 المدينة المعتمدة لحساب مواقيت الصلاة</div>
+            <select
+              value={prayerCity}
+              onChange={(e) => saveCityAndReload(e.target.value)}
+              style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: C.text, fontSize: 13, outline: "none" }}
+            >
+              {SAUDI_CITIES.map((city) => (
+                <option key={city.id} value={city.id}>{city.name}</option>
+              ))}
+            </select>
+            <div style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>
+              تغيير المدينة يعيد حساب مواقيت الصلاة فوراً حسب الإحداثيات الجديدة
+            </div>
+          </div>
+
           {prayerSettings.map((s) => (
             <PrayerSettingRow key={s.id} setting={s} onSave={async (updated: any) => {
               await supabase.from("prayer_settings").update({ allowed_minutes: updated.allowed_minutes, ramadan_allowed_minutes: updated.ramadan_allowed_minutes, is_active: updated.is_active, updated_at: new Date().toISOString() }).eq("id", updated.id).eq("pharmacy_id", pharmacyId);
