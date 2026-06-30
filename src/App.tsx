@@ -9333,6 +9333,10 @@ function SuppliersModule({
   const [showStatements, setShowStatements] = useState(null);
   const [coverageDays, setCoverageDays] = useState(30);
   const [orderItems, setOrderItems] = useState([]);
+  const [manualProductSearch, setManualProductSearch] = useState("");
+  const [manualProductSearchOpen, setManualProductSearchOpen] = useState(false);
+  const [expandedSupplierIds, setExpandedSupplierIds] = useState({});
+  const toggleSupplierExpand = (id) => setExpandedSupplierIds((p) => ({ ...p, [id]: !p[id] }));
   const [payForm, setPayForm] = useState({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
 
   // ── مرتجع تلقائي ──
@@ -9600,13 +9604,47 @@ function SuppliersModule({
     return Math.ceil((due - new Date()) / (1000 * 60 * 60 * 24));
   };
 
-  // ========== FIFO للسداد ==========
+  // ========== FIFO للسداد (رصيد أول المدة يُعتبر أقدم دين فيُسدَّد أولاً) ==========
   const processPaymentFIFO = async (supplierId, totalAmount) => {
+    let remaining = totalAmount;
+    const supplier = suppliers.find((s) => s.id === supplierId);
+
+    // 1) نخصم من رصيد أول المدة أولاً (لأنه أقدم دين على المورد)
+    let openingBalance = supplier?.opening_balance || 0;
+    if (remaining > 0 && openingBalance > 0) {
+      const payToOpening = Math.min(remaining, openingBalance);
+      const newOpeningBalance = openingBalance - payToOpening;
+
+      // نخصم من تفاصيل رصيد أول المدة بدءاً بالأقدم (أعلى عدد أيام)
+      let toDeduct = payToOpening;
+      const newDetails = [...(supplier?.opening_balance_details || [])]
+        .sort((a, b) => (b.due_days || 0) - (a.due_days || 0))
+        .map((d) => {
+          if (toDeduct <= 0) return d;
+          const cut = Math.min(toDeduct, d.amount || 0);
+          toDeduct -= cut;
+          return { ...d, amount: (d.amount || 0) - cut };
+        })
+        .filter((d) => (d.amount || 0) > 0.001);
+
+      await supabase.from("suppliers").update({
+        opening_balance: newOpeningBalance,
+        opening_balance_details: newDetails,
+      }).eq("id", supplierId);
+      setSuppliers((prev) =>
+        prev.map((x) => (x.id === supplierId
+          ? { ...x, opening_balance: newOpeningBalance, opening_balance_details: newDetails }
+          : x))
+      );
+
+      remaining -= payToOpening;
+    }
+
+    // 2) الباقي (إن وجد) يوزّع على فواتير الشراء من الأقدم فالأحدث
     const unpaid = purchases
       .filter((p) => p.supplier === supplierId && getPurchaseNetDebt(p) > 0)
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    let remaining = totalAmount;
     const updates = [];
     for (const po of unpaid) {
       if (remaining <= 0) break;
@@ -9879,28 +9917,43 @@ function SuppliersModule({
           const creditUsedPct = creditLimit > 0 ? Math.min((debt / creditLimit) * 100, 100) : 0;
           const supPurchases = purchases.filter((p) => p.supplier === s.id);
           const autoReturnCount = getAutoReturnCandidates(s.id).length;
+          const isExpanded = !!expandedSupplierIds[s.id];
 
           return (
             <div key={s.id} style={{
               background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${sc.border}`,
               borderRadius: 14, padding: 18, borderTop: `3px solid ${sc.text}`,
             }}>
-              {/* اسم + حالة */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              {/* اسم + حالة — اضغط للطي/الفتح */}
+              <div
+                onClick={() => toggleSupplierExpand(s.id)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, cursor: "pointer", userSelect: "none" }}
+              >
                 <div>
                   <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 15 }}>{s.name}</div>
                   <div style={{ color: COLORS.border, fontSize: 11, marginTop: 2 }}>رمز: {s.id}</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                  <Badge color={sc.bg} text={sc.text}>{sc.label}</Badge>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Badge color={sc.bg} text={sc.text}>{sc.label}</Badge>
+                    <span style={{ color: COLORS.textDim, fontSize: 12, transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "none" }}>▼</span>
+                  </div>
                   {rating && <span style={{ fontSize: 11, color: COLORS.textDim }}>تنفيذ: {rating.fulfillmentRate}%</span>}
                 </div>
               </div>
 
-              {/* تنبيه مرتجع تلقائي */}
+              {/* إجمالي المديونية — ملخص دائم الظهور */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, padding: "8px 0", borderTop: `1px solid ${COLORS.border}`, borderBottom: `1px solid ${COLORS.border}` }}>
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>إجمالي المديونية</span>
+                <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 16, color: debt > 0 ? COLORS.gold : COLORS.green }}>
+                  {debt.toFixed(2)} ر.س
+                </span>
+              </div>
+
+              {/* تنبيه مرتجع تلقائي — يظل ظاهراً دائماً لأهميته */}
               {autoReturnCount > 0 && (
                 <div
-                  onClick={() => openAutoReturn(s)}
+                  onClick={(e) => { e.stopPropagation(); openAutoReturn(s); }}
                   style={{
                     background: COLORS.redSoft, border: "1px solid #ff7744",
                     borderRadius: 8, padding: "8px 12px", marginBottom: 12,
@@ -9915,101 +9968,105 @@ function SuppliersModule({
                 </div>
               )}
 
-              {/* رصيد أول المدة */}
-              {(s.opening_balance || 0) > 0 && (
-                <div style={{ background: "#0a0e1a", border: "1px solid #2a1a00", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>رصيد أول المدة</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, marginBottom: 6 }}>
-                    {(s.opening_balance || 0).toFixed(2)} ر.س
-                  </div>
-                  {/* تفاصيل أعمار الدين */}
-                  {(s.opening_balance_details || []).length > 0 && (() => {
-                    const aging = getOpeningBalanceAging(s.opening_balance_details);
-                    return (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 4 }}>
-                        {Object.entries(aging).map(([bucket, val]) => val > 0 && (
-                          <div key={bucket} style={{ textAlign: "center" }}>
-                            <div style={{ fontSize: 9, color: COLORS.textDim }}>{bucket} يوم</div>
-                            <div style={{
-                              fontSize: 11, fontWeight: 700,
-                              color: bucket === "90+" ? COLORS.red : bucket === "61-90" ? COLORS.gold : COLORS.textPrimary,
-                            }}>{val.toFixed(0)}</div>
-                          </div>
-                        ))}
+              {isExpanded && (
+                <>
+                  {/* رصيد أول المدة */}
+                  {(s.opening_balance || 0) > 0 && (
+                    <div style={{ background: "#0a0e1a", border: "1px solid #2a1a00", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>رصيد أول المدة</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, marginBottom: 6 }}>
+                        {(s.opening_balance || 0).toFixed(2)} ر.س
                       </div>
-                    );
-                  })()}
-                </div>
+                      {/* تفاصيل أعمار الدين */}
+                      {(s.opening_balance_details || []).length > 0 && (() => {
+                        const aging = getOpeningBalanceAging(s.opening_balance_details);
+                        return (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 4 }}>
+                            {Object.entries(aging).map(([bucket, val]) => val > 0 && (
+                              <div key={bucket} style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 9, color: COLORS.textDim }}>{bucket} يوم</div>
+                                <div style={{
+                                  fontSize: 11, fontWeight: 700,
+                                  color: bucket === "90+" ? COLORS.red : bucket === "61-90" ? COLORS.gold : COLORS.textPrimary,
+                                }}>{val.toFixed(0)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* الكريدت */}
+                  {creditLimit > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>
+                        <span>الكريدت المستخدم</span>
+                        <span style={{ color: debt > creditLimit * 0.8 ? COLORS.red : COLORS.green }}>
+                          {debt.toFixed(0)} / {creditLimit.toFixed(0)} ر.س
+                        </span>
+                      </div>
+                      <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 6, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", width: `${creditUsedPct}%`,
+                          background: creditUsedPct > 80 ? COLORS.red : creditUsedPct > 50 ? COLORS.gold : COLORS.green,
+                          borderRadius: 4, transition: "width 0.3s",
+                        }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* فواتير مستحقة */}
+                  {supPurchases.filter((p) => getPurchaseNetDebt(p) > 0).length > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>الفواتير المستحقة:</div>
+                      {supPurchases
+                        .filter((p) => getPurchaseNetDebt(p) > 0)
+                        .sort((a, b) => new Date(a.date) - new Date(b.date))
+                        .slice(0, 3)
+                        .map((po) => {
+                          const dueDays = getDueDays(po, s);
+                          const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
+                          return (
+                            <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 6, marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, color: COLORS.textDim }}>{po.id}</span>
+                              <span style={{ fontSize: 11, color: COLORS.textPrimary }}>{balance.toFixed(0)} ر.س</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: dueDays < 0 ? COLORS.red : dueDays <= 7 ? COLORS.gold : COLORS.green }}>
+                                {dueDays < 0 ? `متأخر ${Math.abs(dueDays)} يوم` : `باقي ${dueDays} يوم`}
+                              </span>
+                              {po.returned_amount > 0 && (
+                                <Badge color={COLORS.goldSoft} text={COLORS.coral}>مرتجع: {po.returned_amount.toFixed(0)}</Badge>
+                              )}
+                              {po.payment_status === "مسددة جزئياً" && <Badge color={COLORS.goldSoft} text={COLORS.gold}>جزئي</Badge>}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+
+                  {/* بيانات الاتصال */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>
+                    {s.taxId && (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
+                        <Badge color="#0a2a00" text={COLORS.green}>{s.taxId}</Badge>
+                      </div>
+                    )}
+                    {(s.supply_categories || []).length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text={COLORS.blue}>{cat}</Badge>)}
+                      </div>
+                    )}
+                    {s.payment_terms && <div style={{ fontSize: 11, color: COLORS.textDim }}>⏱ شروط الدفع: {s.payment_terms} يوم</div>}
+                    {s.phone   && <div style={{ fontSize: 11, color: COLORS.textDim }}>📞 {s.phone}</div>}
+                    {s.email   && <div style={{ fontSize: 11, color: COLORS.textDim }}>✉ {s.email}</div>}
+                    {s.contact && <div style={{ fontSize: 11, color: COLORS.textDim }}>👤 {s.contact}</div>}
+                  </div>
+                </>
               )}
 
-              {/* الكريدت */}
-              {creditLimit > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>
-                    <span>الكريدت المستخدم</span>
-                    <span style={{ color: debt > creditLimit * 0.8 ? COLORS.red : COLORS.green }}>
-                      {debt.toFixed(0)} / {creditLimit.toFixed(0)} ر.س
-                    </span>
-                  </div>
-                  <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 6, overflow: "hidden" }}>
-                    <div style={{
-                      height: "100%", width: `${creditUsedPct}%`,
-                      background: creditUsedPct > 80 ? COLORS.red : creditUsedPct > 50 ? COLORS.gold : COLORS.green,
-                      borderRadius: 4, transition: "width 0.3s",
-                    }} />
-                  </div>
-                </div>
-              )}
-
-              {/* فواتير مستحقة */}
-              {supPurchases.filter((p) => getPurchaseNetDebt(p) > 0).length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>الفواتير المستحقة:</div>
-                  {supPurchases
-                    .filter((p) => getPurchaseNetDebt(p) > 0)
-                    .sort((a, b) => new Date(a.date) - new Date(b.date))
-                    .slice(0, 3)
-                    .map((po) => {
-                      const dueDays = getDueDays(po, s);
-                      const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
-                      return (
-                        <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 6, marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, color: COLORS.textDim }}>{po.id}</span>
-                          <span style={{ fontSize: 11, color: COLORS.textPrimary }}>{balance.toFixed(0)} ر.س</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: dueDays < 0 ? COLORS.red : dueDays <= 7 ? COLORS.gold : COLORS.green }}>
-                            {dueDays < 0 ? `متأخر ${Math.abs(dueDays)} يوم` : `باقي ${dueDays} يوم`}
-                          </span>
-                          {po.returned_amount > 0 && (
-                            <Badge color={COLORS.goldSoft} text={COLORS.coral}>مرتجع: {po.returned_amount.toFixed(0)}</Badge>
-                          )}
-                          {po.payment_status === "مسددة جزئياً" && <Badge color={COLORS.goldSoft} text={COLORS.gold}>جزئي</Badge>}
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-
-              {/* بيانات الاتصال */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>
-                {s.taxId && (
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
-                    <Badge color="#0a2a00" text={COLORS.green}>{s.taxId}</Badge>
-                  </div>
-                )}
-                {(s.supply_categories || []).length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {s.supply_categories.map((cat) => <Badge key={cat} color="#0a2040" text={COLORS.blue}>{cat}</Badge>)}
-                  </div>
-                )}
-                {s.payment_terms && <div style={{ fontSize: 11, color: COLORS.textDim }}>⏱ شروط الدفع: {s.payment_terms} يوم</div>}
-                {s.phone   && <div style={{ fontSize: 11, color: COLORS.textDim }}>📞 {s.phone}</div>}
-                {s.email   && <div style={{ fontSize: 11, color: COLORS.textDim }}>✉ {s.email}</div>}
-                {s.contact && <div style={{ fontSize: 11, color: COLORS.textDim }}>👤 {s.contact}</div>}
-              </div>
-
-              {/* أزرار */}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {/* أزرار — تظل ظاهرة دائماً للوصول السريع */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: isExpanded ? 0 : 6 }} onClick={(e) => e.stopPropagation()}>
                 <Btn size="sm" icon="purchase" onClick={() => generateOrder(s)} style={{ flex: 1, justifyContent: "center" }} variant={status === "red" ? "danger" : "primary"}>
                   طلب شراء
                 </Btn>
@@ -10025,6 +10082,12 @@ function SuppliersModule({
                 )}
                 <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(s)}>تعديل</Btn>
                 <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
+                  const supplierDebt = getSupplierDebt(s.id);
+                  if (supplierDebt > 0) {
+                    if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف مورد عليه مديونية", "error"); return; }
+                    if (!window.confirm(`⚠️ على المورد "${s.name}" مديونية ${supplierDebt.toFixed(2)} ر.س
+هل أنت متأكد من الحذف؟`)) return;
+                  }
                   await supabase.from("suppliers").delete().eq("id", s.id);
                   setSuppliers((p) => p.filter((x) => x.id !== s.id));
                   showToast("تم حذف المورد");
@@ -10109,6 +10172,68 @@ function SuppliersModule({
               style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
             <span style={{ color: COLORS.textDim, fontSize: 13 }}>يوم</span>
           </div>
+
+          {/* ➕ إضافة صنف يدوياً */}
+          <div style={{ position: "relative", marginBottom: 16 }}>
+            <label style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4, display: "block" }}>➕ إضافة صنف يدوياً للطلب</label>
+            <input
+              value={manualProductSearch}
+              onChange={(e) => { setManualProductSearch(e.target.value); setManualProductSearchOpen(true); }}
+              onFocus={() => setManualProductSearchOpen(true)}
+              onBlur={() => setTimeout(() => setManualProductSearchOpen(false), 150)}
+              placeholder="ابحث باسم الصنف أو رمزه لإضافته..."
+              style={{
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: "10px 14px", color: COLORS.textPrimary,
+                fontSize: 13, outline: "none", boxSizing: "border-box",
+              }}
+            />
+            {manualProductSearchOpen && manualProductSearch.trim() && (
+              <div style={{
+                position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 8,
+                maxHeight: 220, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
+              }}>
+                {(products || [])
+                  .filter((p) => {
+                    const q = manualProductSearch.toLowerCase();
+                    return (p.name || "").toLowerCase().includes(q) || (p.nameAr || "").toLowerCase().includes(q) || (p.id || "").toLowerCase().includes(q);
+                  })
+                  .filter((p) => !orderItems.some((oi) => oi.id === p.id))
+                  .slice(0, 15)
+                  .map((p) => (
+                    <div
+                      key={p.id}
+                      onMouseDown={() => {
+                        setOrderItems((prev) => [...prev, {
+                          id: p.id,
+                          name: p.name || p.nameAr,
+                          currentStock: p.stock || 0,
+                          minStock: p.min_stock || p.minStock || 0,
+                          orderQty: 1,
+                          cost: p.cost,
+                          movement: { class: "manual", label: "إضافة يدوية", color: COLORS.blue },
+                          editable: true,
+                        }]);
+                        setManualProductSearch("");
+                        setManualProductSearchOpen(false);
+                      }}
+                      style={{ padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                    >
+                      <span style={{ fontSize: 13, color: COLORS.textPrimary }}>{p.name || p.nameAr}</span>
+                      <span style={{ fontSize: 11, color: COLORS.textDim }}>مخزون: {p.stock || 0}</span>
+                    </div>
+                  ))}
+                {(products || []).filter((p) => {
+                  const q = manualProductSearch.toLowerCase();
+                  return (p.name || "").toLowerCase().includes(q) || (p.nameAr || "").toLowerCase().includes(q) || (p.id || "").toLowerCase().includes(q);
+                }).length === 0 && (
+                  <div style={{ padding: 14, color: COLORS.textDim, textAlign: "center", fontSize: 13 }}>لا توجد أصناف مطابقة</div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
