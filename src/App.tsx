@@ -5333,6 +5333,7 @@ const LABEL_SIZES = [
     setSearchText("");
     setSearchResults([]);
     setShowDropdown(false);
+    focusNewItemQty(p);
 
   };
 
@@ -5356,6 +5357,7 @@ const LABEL_SIZES = [
     setSearchText("");
     setSearchResults([]);
     setShowDropdown(false);
+    focusNewItemQty(p);
   };
 
   const _focusBarcode__ = () => {
@@ -5364,6 +5366,7 @@ const LABEL_SIZES = [
   };
 
   // فوكس على خانة الكمية للصنف المضاف
+  const focusNewItemQty = (p) => {
     setTimeout(() => {
       setItems((prev) => {
         const rowIndex = prev.findIndex((i) => i.id === p.id);
