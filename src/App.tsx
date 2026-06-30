@@ -1298,7 +1298,7 @@ function PharmacyShelfBackground() {
         inset: 0,
         zIndex: 0,
         overflow: "hidden",
-        backgroundImage: `linear-gradient(rgba(255,255,255,0.96), rgba(255,255,255,0.96)), url(${PHARMACY_INTERIOR_BG})`,
+        backgroundImage: `linear-gradient(rgba(255,255,255,0.85), rgba(255,255,255,0.85)), url(${PHARMACY_INTERIOR_BG})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
         backgroundAttachment: "fixed",
