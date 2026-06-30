@@ -5307,11 +5307,13 @@ const LABEL_SIZES = [
 
   };
 
-  const addItem = (p) => {
+  const addItem = (p, expiry = "", batch = "") => {
     setItems((prev) => {
-      const ex = prev.find((i) => i.id === p.id);
-      if (ex)
+      const ex = prev.find((i) => i.id === p.id && (i.expiry_date || "") === expiry);
+      if (ex && !expiry)
         return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
+      if (ex && expiry)
+        return prev.map((i) => (i.id === p.id && i.expiry_date === expiry ? { ...i, qty: i.qty + 1 } : i));
       return [
         ...prev,
         {
@@ -5322,14 +5324,46 @@ const LABEL_SIZES = [
           discount2: 0,
           receivedCost: p.cost,
           newSalePrice: p.price,
-          expiry_date: "",
+          expiry_date: expiry,
+          batch_number: batch,
+          _rowKey: p.id + "_" + Date.now(),
         },
       ];
     });
     setSearchText("");
     setSearchResults([]);
     setShowDropdown(false);
-    // فوكس على خانة الكمية للصنف المضاف
+
+  };
+
+  // إضافة نفس الصنف كصف جديد مستقل (تاريخ مختلف)
+  const addItemAsNew = (p, expiry = "", batch = "") => {
+    setItems((prev) => [
+      ...prev,
+      {
+        ...p,
+        qty: 1,
+        bonusQty: 0,
+        discount1: 0,
+        discount2: 0,
+        receivedCost: p.cost,
+        newSalePrice: p.price,
+        expiry_date: expiry,
+        batch_number: batch,
+        _rowKey: p.id + "_" + Date.now(),
+      },
+    ]);
+    setSearchText("");
+    setSearchResults([]);
+    setShowDropdown(false);
+  };
+
+  const _focusBarcode__ = () => {
+    const el = document.querySelector('input[placeholder="امسح باركود الصنف..."]') as HTMLInputElement;
+    if (el) el.focus();
+  };
+
+  // فوكس على خانة الكمية للصنف المضاف
     setTimeout(() => {
       setItems((prev) => {
         const rowIndex = prev.findIndex((i) => i.id === p.id);
@@ -5434,9 +5468,12 @@ const LABEL_SIZES = [
     e.preventDefault();
     const currentCol = cols.indexOf(colName);
     const nextCol = currentCol + 1;
-    // آخر خانة (expiry_date) → خانة البحث
+    // آخر خانة (expiry_date) → بار الباركود
     if (nextCol >= cols.length) {
-      searchRef.current?.focus();
+      // البحث عن input بار الباركود
+      const barcodeInput = document.querySelector('input[placeholder="امسح باركود الصنف..."]') as HTMLInputElement;
+      if (barcodeInput) barcodeInput.focus();
+      else searchRef.current?.focus();
       return;
     }
     document.getElementById(`cell-${rowIndex}-${cols[nextCol]}`)?.focus();
@@ -5685,11 +5722,18 @@ const LABEL_SIZES = [
           <BarcodeScanner
             onScan={(scan) => {
               const code = scan.type === "gs1" ? scan.gtin : scan.code;
-              const found = products.find(
-                (x) => x.barcode === code || x.id === code
-              );
-              if (found) addItem(found);
-              else showToast("الصنف غير موجود: " + code, "error");
+              const expiry = scan.type === "gs1" ? (scan.expiry ? scan.expiry.slice(0, 7) : "") : "";
+              const batch = scan.type === "gs1" ? (scan.batch || "") : "";
+              const found = products.find((x) => x.barcode === code || x.id === code);
+              if (!found) { showToast("الصنف غير موجود: " + code, "error"); return; }
+              // إذا كان نفس الصنف موجود بتاريخ مختلف → أضف كصف جديد
+              const existSameDate = items.find((i) => i.id === found.id && (i.expiry_date || "") === expiry);
+              if (existSameDate || !expiry) {
+                addItem(found, expiry, batch);
+              } else {
+                // نفس الصنف بتاريخ مختلف → صف جديد مستقل
+                addItemAsNew(found, expiry, batch);
+              }
             }}
             placeholder="امسح باركود الصنف..."
           />
@@ -5944,9 +5988,11 @@ const LABEL_SIZES = [
                       onChange={(e) =>
                         updateItem(item.id, "expiry_date", e.target.value)
                       }
-                      onKeyDown={(e) =>
-                        handleCellKeyDown(e, rowIndex, "expiry_date")
-                      }
+                      onKeyDown={(e) => {
+                        // السهام → يتركها للـ browser عشان تنقل بين شهر/سنة
+                        if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(e.key)) return;
+                        handleCellKeyDown(e, rowIndex, "expiry_date");
+                      }}
                       style={{ ...cellStyle, width: 125 }}
                     />
                   </td>
@@ -8726,6 +8772,9 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   // ── المواد الفعالة ──
   const [allIngredients, setAllIngredients] = useState([]);
   const [ingredientSearch, setIngredientSearch] = useState("");
+  const [similarSearch, setSimilarSearch] = useState("");
+  const [similarProductId, setSimilarProductId] = useState("");
+  const [showSimilarDropdown, setShowSimilarDropdown] = useState(false);
   const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
   const [selectedIngredients, setSelectedIngredients] = useState([]);
 
@@ -9215,15 +9264,61 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
           )}
         </div>
 
+        {/* صنف مثيل */}
+        <div style={{ marginTop: 16, borderTop: "1px solid #1d2d4a", paddingTop: 14 }}>
+          <div style={{ fontWeight: 700, color: COLORS.blue, marginBottom: 8, fontSize: 14 }}>🔗 صنف مثيل (اختياري)</div>
+          <div style={{ position: "relative" }}>
+            <input
+              value={similarSearch}
+              onChange={(e) => { setSimilarSearch(e.target.value); setShowSimilarDropdown(true); setSimilarProductId(""); }}
+              onFocus={() => setShowSimilarDropdown(true)}
+              placeholder="ابحث عن الصنف الأصلي المثيل له..."
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #2a4a7a", borderRadius: 7, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" as const }}
+            />
+            {showSimilarDropdown && similarSearch && (
+              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #2a4a7a", borderRadius: 7, zIndex: 200, maxHeight: 180, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                {products.filter((p) => (p.name_ar || p.name || "").includes(similarSearch) && p.id !== form.id).slice(0, 8).map((p) => (
+                  <div key={p.id} onClick={() => {
+                    setSimilarProductId(p.id);
+                    setSimilarSearch(p.name_ar || p.name || "");
+                    setShowSimilarDropdown(false);
+                    // استيراد المواد الفعالة من الصنف المثيل
+                    supabase.from("product_ingredients")
+                      .select("*, active_ingredients(name_ar)")
+                      .eq("product_id", p.id)
+                      .then(({ data }) => {
+                        if (data && data.length > 0) {
+                          setSelectedIngredients(data.map((x) => ({
+                            ingredient_id: x.ingredient_id,
+                            name_ar: x.active_ingredients?.name_ar || "",
+                            concentration: x.concentration || "",
+                          })));
+                          showToast(`✅ تم استيراد ${data.length} مادة فعالة من ${p.name_ar || p.name}`);
+                        }
+                      });
+                  }}
+                    style={{ padding: "9px 14px", cursor: "pointer", color: COLORS.textPrimary, fontSize: 13, borderBottom: `1px solid ${COLORS.border}` }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = COLORS.surfaceAlt; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                    {p.name_ar || p.name}
+                    {(p.active_ingredient || "") && <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 6 }}>— {p.active_ingredient}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {similarProductId && <div style={{ color: COLORS.green, fontSize: 12, marginTop: 5 }}>✅ المواد الفعالة تم استيرادها تلقائياً</div>}
+        </div>
+
         {/* المواد الفعالة */}
         <div style={{ marginTop: 20, borderTop: "1px solid #1d2d4a", paddingTop: 16 }}>
           <div style={{ fontWeight: 700, color: COLORS.blue, marginBottom: 10, fontSize: 14 }}>🧪 المواد الفعالة</div>
           {selectedIngredients.map((ing) => (
             <div key={ing.ingredient_id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ flex: 1, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 12px", color: COLORS.textPrimary, fontSize: 13 }}>{ing.name_ar}</div>
+              <div style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #2a4a7a", borderRadius: 7, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, fontWeight: 600, minHeight: 36 }}>{ing.name_ar}</div>
               <input value={ing.concentration} onChange={(e) => updateIngredientConc(ing.ingredient_id, e.target.value)}
                 placeholder="التركيز (مثال: 500mg)"
-                style={{ width: 160, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ width: 170, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #2a4a7a", borderRadius: 7, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", minHeight: 36 }} />
               <Btn size="sm" variant="danger" onClick={() => removeIngredient(ing.ingredient_id)}>✕</Btn>
             </div>
           ))}
@@ -9233,19 +9328,19 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               placeholder="🔍 بحث عن مادة فعالة أو إضافة جديدة..."
               style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             {showIngredientDropdown && ingredientSearch && (
-              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: "#0d1a2e", border: "1px solid #1d2d4a", borderRadius: 6, zIndex: 100, maxHeight: 200, overflowY: "auto" }}>
+              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #2a4a7a", borderRadius: 6, zIndex: 200, maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
                 {filteredIngredients.map((ing) => (
                   <div key={ing.id} onClick={() => addIngredient(ing)}
-                    style={{ padding: "8px 12px", cursor: "pointer", color: COLORS.textPrimary, fontSize: 13, borderBottom: "1px solid #1d2d4a" }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = COLORS.border}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                    style={{ padding: "9px 14px", cursor: "pointer", color: COLORS.textPrimary, fontSize: 13, borderBottom: `1px solid ${COLORS.border}` }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = COLORS.surfaceAlt; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
                     {ing.name_ar} {ing.name_en && <span style={{ color: COLORS.textDim, fontSize: 11 }}>({ing.name_en})</span>}
                   </div>
                 ))}
                 <div onClick={addNewIngredient}
-                  style={{ padding: "8px 12px", cursor: "pointer", color: COLORS.green, fontSize: 13, fontWeight: 600 }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = COLORS.border}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                  style={{ padding: "9px 14px", cursor: "pointer", color: COLORS.green, fontSize: 13, fontWeight: 600 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = COLORS.surfaceAlt; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
                   ➕ إضافة "{ingredientSearch}" كمادة فعالة جديدة
                 </div>
               </div>
