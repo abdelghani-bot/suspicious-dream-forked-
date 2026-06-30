@@ -997,7 +997,7 @@ const Login = ({ users, onLogin }) => {
         alignItems: "center",
         justifyContent: "center",
         position: "relative",
-        backgroundImage: `linear-gradient(rgba(8,12,24,0.78), rgba(8,12,24,0.85)), url(${LOGIN_BG_IMAGE})`,
+        backgroundImage: `linear-gradient(rgba(8,12,24,0.45), rgba(8,12,24,0.55)), url(${LOGIN_BG_IMAGE})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
         fontFamily: "'Tajawal',sans-serif",
