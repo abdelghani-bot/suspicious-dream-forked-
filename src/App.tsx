@@ -1369,9 +1369,19 @@ export default function PharmacyPro() {
   const [returnsData, setReturnsData] = useStorage("ph_returns", []);
   const [inventoryLogs, setInventoryLogs] = useState([]);
   const [manufacturers, setManufacturers] = useState([]);
-  const [users] = useStorage("ph_users", INIT_USERS);
+  const [users, setUsers] = useState(INIT_USERS);
   const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
   const pharmacyId = currentUser?.pharmacy_id || null;
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase
+      .from("users")
+      .select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .then(({ data }) => {
+        if (data && data.length > 0) setUsers(data);
+      });
+  }, [pharmacyId]);
   const [shifts, setShifts] = useState([]);
   useEffect(() => {
   if (!pharmacyId) return;
@@ -2075,6 +2085,8 @@ if (isLoading) return (
   <PermissionsModule
     pharmacyId={pharmacyId}
     showToast={showToast}
+    users={users}
+    setUsers={setUsers}
   />
 )}    
       </main>
@@ -16540,9 +16552,13 @@ const DEFAULT_ROLES = ["pharmacist", "cashier"];
 function PermissionsModule({
   pharmacyId,
   showToast,
+  users,
+  setUsers,
 }: {
   pharmacyId: string;
   showToast: (msg: string, type?: string) => void;
+  users: any[];
+  setUsers: (fn: any) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"permissions" | "users">("permissions");
   const [perms, setPerms] = useState<Record<string, Record<string, { can_view: boolean; can_edit: boolean }>>>({});
@@ -16554,8 +16570,7 @@ function PermissionsModule({
   const [newRoleName, setNewRoleName] = useState("");
   const [dirty, setDirty] = useState(false);
 
-  // ── المستخدمين ──
-  const [users, setUsers] = useState<any[]>([]);
+  // ── المستخدمين (يأتي من الأب الآن، مش state محلي) ──
   const [usersLoading, setUsersLoading] = useState(false);
   const [userModal, setUserModal] = useState<"add" | "edit" | null>(null);
   const [selectedUser, setSelectedUser] = useState<any>(null);
