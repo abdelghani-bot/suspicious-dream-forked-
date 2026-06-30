@@ -1303,6 +1303,18 @@ function PharmacyShelfBackground() {
         background: "linear-gradient(180deg, #e8f5f3 0%, #d4eeea 40%, #c8e8e3 100%)",
       }}
     >
+      {/* صورة الصيدلية — شفافية خفيفة جداً */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: `url(${LOGIN_BG_IMAGE})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          opacity: 0.06,
+        }}
+      />
+
       {/* الجدار الخلفي */}
       <div
         style={{
