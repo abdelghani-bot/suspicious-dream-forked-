@@ -2545,6 +2545,41 @@ const [myTarget, setMyTarget] = useState(null);
     return changes.slice(0, 15);
   })();
 
+  // ── حالة طي/فتح الكروت الكبيرة ──
+  const [openCard, setOpenCard] = useState(null); // مفتاح الكارت المفتوح حالياً أو null لو كله مقفول
+  const toggleCard = (key) => setOpenCard((prev) => (prev === key ? null : key));
+
+  // غلاف كارت قابل للطي: عنوان + أيقونة + شارة عدد (اختياري) + سهم، والمحتوى يظهر فقط لو الكارت مفتوح
+  const CollapsibleCard = ({ cardKey, icon, title, badge, badgeColor, children }) => {
+    const isOpen = openCard === cardKey;
+    return (
+      <div style={{ ...card, display: "flex", flexDirection: "column" }}>
+        <div
+          onClick={() => toggleCard(cardKey)}
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "14px 16px", cursor: "pointer", userSelect: "none",
+            borderBottom: isOpen ? `1px solid ${VAR.border}` : "none",
+          }}
+        >
+          <span style={{ fontSize: 17 }}>{icon}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: VAR.text, flex: 1 }}>{title}</span>
+          {badge !== undefined && badge !== null && (
+            <span style={{
+              background: badgeColor ? `${badgeColor}26` : VAR.surface2,
+              color: badgeColor || VAR.muted,
+              borderRadius: 99, fontSize: 11, padding: "2px 9px", fontWeight: 700, fontFamily: "monospace",
+            }}>
+              {badge}
+            </span>
+          )}
+          <span style={{ color: VAR.muted, fontSize: 12, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none" }}>▼</span>
+        </div>
+        {isOpen && <div>{children}</div>}
+      </div>
+    );
+  };
+
   return (
     <div style={{ fontFamily: "'Cairo', sans-serif" }}>
 
@@ -2575,79 +2610,329 @@ const [myTarget, setMyTarget] = useState(null);
         </div>
       )}
 
-      {/* ── ROW 1: إحصائيات المبيعات + تارجت الشهر ── */}
+      {/* ── الكروت الرئيسية: مضغوطة وتتفتح بالضغط ── */}
       <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12 }}>
-        إحصائيات المبيعات
+        نظرة عامة
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: 12,
+        marginBottom: 20,
+        maxWidth: 1100,
+        marginLeft: "auto",
+        marginRight: "auto",
+      }}>
 
-        {/* Sales Stats Card */}
-        <div style={{ ...card }}>
-          <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: VAR.text }}>المبيعات والفرص</div>
-            <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2 }}>
-              {SALES_TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setSalesTab(t.key)}
-                  style={{
-                    fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
-                    background: salesTab === t.key ? VAR.accent : "transparent",
-                    color: salesTab === t.key ? VAR.bg : VAR.muted,
-                    border: "none", cursor: "pointer", fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+        {/* 1) المبيعات والفرص */}
+        <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent}>
+          <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
+            {SALES_TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={(e) => { e.stopPropagation(); setSalesTab(t.key); }}
+                style={{
+                  fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                  background: salesTab === t.key ? VAR.accent : "transparent",
+                  color: salesTab === t.key ? VAR.bg : VAR.muted,
+                  border: "none", cursor: "pointer", fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
           {renderSalesStats()}
-        </div>
+        </CollapsibleCard>
 
-       {/* Target Card */}
-<div style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-  <div style={{ fontSize: 11, fontWeight: 700, color: VAR.muted }}>تارجت الشهر</div>
-  {myTarget === null ? (
-    <div style={{ color: VAR.muted, fontSize: 12 }}>جاري التحميل...</div>
-  ) : myTarget === 0 ? (
-    <div style={{ color: VAR.muted, fontSize: 12 }}>لم يتم تحديد تارجت لك هذا الشهر</div>
-  ) : (
-    <>
-      <div>
-        <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
-          {S(`${targetProgress.toFixed(0)}%`)}
+        {/* 2) تارجت الشهر */}
+        <CollapsibleCard cardKey="target" icon="🎯" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            {myTarget === null ? (
+              <div style={{ color: VAR.muted, fontSize: 12 }}>جاري التحميل...</div>
+            ) : myTarget === 0 ? (
+              <div style={{ color: VAR.muted, fontSize: 12 }}>لم يتم تحديد تارجت لك هذا الشهر</div>
+            ) : (
+              <>
+                <div>
+                  <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
+                    {S(`${targetProgress.toFixed(0)}%`)}
+                  </div>
+                  <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>
+                    {S(`من ${myTarget.toLocaleString()} ريال`)}
+                  </div>
+                </div>
+                <div style={{ height: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 99, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", width: `${targetProgress}%`, borderRadius: 99,
+                    background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
+                    boxShadow: "0 0 8px rgba(0,200,150,0.4)",
+                  }} />
+                </div>
+                <div style={{ fontSize: 11, color: VAR.muted }}>
+                  متبقي <strong style={{ color: VAR.warn }}>{S(`${targetRemaining.toFixed(0)} ريال`)}</strong> في {daysLeftInMonth} يوم
+                </div>
+                <div style={{ borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
+                  <div style={{ fontSize: 10, color: VAR.muted, marginBottom: 4 }}>المطلوب يومياً</div>
+                  <div style={{ fontFamily: "monospace", fontSize: 22, color: VAR.warn, fontWeight: 700 }}>
+                    {S(requiredDaily.toFixed(0))} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </CollapsibleCard>
+
+        {/* 3) مركز التنبيهات */}
+        <CollapsibleCard cardKey="alerts" icon="🔔" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger}>
+          <div>
+            {totalAlertsCount === 0 && (
+              <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
+                لا توجد تنبيهات حالياً ✅
+              </div>
+            )}
+            {alertCenterGroups.filter((g) => g.count > 0).map((g) => (
+              <div key={g.key}>
+                <div
+                  onClick={() => setExpandedAlertGroup(expandedAlertGroup === g.key ? null : g.key)}
+                  style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12, cursor: "pointer" }}
+                >
+                  <span style={{ fontSize: 14 }}>{g.icon}</span>
+                  <div style={{ flex: 1, color: VAR.text, fontWeight: 600 }}>{g.label}</div>
+                  <div style={{
+                    fontSize: 10, padding: "2px 8px", borderRadius: 99, fontWeight: 700, fontFamily: "monospace",
+                    background: g.count > 0 ? `${g.color}26` : "rgba(125,133,144,0.12)",
+                    color: g.count > 0 ? g.color : VAR.muted,
+                  }}>
+                    {g.count}
+                  </div>
+                  <span style={{ color: VAR.muted, fontSize: 11 }}>{expandedAlertGroup === g.key ? "▲" : "▼"}</span>
+                  <span onClick={(e) => { e.stopPropagation(); setTab(g.tab); }} style={{ color: VAR.accent2, fontSize: 11 }}>فتح →</span>
+                </div>
+                {expandedAlertGroup === g.key && (
+                  <div style={{ background: VAR.bg, padding: "8px 14px 12px" }}>
+                    {g.key === "essential" && (
+                      alerts.length === 0 ? <EmptyAlertRow text="لا توجد أدوية أساسية ناقصة ✅" muted={VAR.muted} /> :
+                      alerts.map((a, i) => (
+                        <AlertRow key={i} text={a.name} badge={a.type === "danger" ? "نافذ" : `متبقي ${a.stock}`} color={a.type === "danger" ? VAR.danger : VAR.warn} VAR={VAR} />
+                      ))
+                    )}
+                    {g.key === "lowstock" && (
+                      lowStock.length === 0 ? <EmptyAlertRow text="لا يوجد مخزون منخفض ✅" muted={VAR.muted} /> :
+                      lowStock.slice(0, 8).map((p) => (
+                        <AlertRow key={p.id} text={p.name} badge={`${p.stock} / ${p.min_stock || p.minStock || 0}`} color={VAR.warn} VAR={VAR} />
+                      ))
+                    )}
+                    {g.key === "expiry" && (
+                      expiringSoon.length === 0 ? <EmptyAlertRow text="لا توجد أصناف قرب الانتهاء ✅" muted={VAR.muted} /> :
+                      expiringSoon.slice(0, 8).map((p) => {
+                        const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+                        return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={VAR.warn} VAR={VAR} />;
+                      })
+                    )}
+                    {g.key === "supplier" && (
+                      supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :
+                      supplierDues.slice(0, 8).map((d) => (
+                        <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? VAR.danger : VAR.warn} VAR={VAR} />
+                      ))
+                    )}
+                    {g.key === "newcust" && (
+                      newCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء جدد هذا الأسبوع" muted={VAR.muted} /> :
+                      newCustomers.slice(0, 8).map((c) => (
+                        <AlertRow key={c.id} text={c.name} badge="جديد" color={VAR.accent} VAR={VAR} />
+                      ))
+                    )}
+                    {g.key === "lostcust" && (
+                      disappearedCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء مختفون" muted={VAR.muted} /> :
+                      disappearedCustomers.slice(0, 8).map((c) => (
+                        <AlertRow key={c.id} text={c.name} badge={`آخر زيارة ${c.lastVisit}`} color={VAR.muted} VAR={VAR} />
+                      ))
+                    )}
+                    {g.key === "tax" && (
+                      <AlertRow text="الإقرار الضريبي الربعي القادم" badge={`خلال ${taxDeadlineInfo.daysLeft} يوم`} color={taxDeadlineInfo.daysLeft <= 7 ? VAR.danger : VAR.warn} VAR={VAR} />
+                    )}
+                    {g.key === "appoint" && (
+                      <>
+                        <AlertRow text="تجديد الرخصة التجارية" badge="18 يوم" color={VAR.accent} VAR={VAR} />
+                        <AlertRow text="إيجار الصيدلية" badge="غداً" color={VAR.warn} VAR={VAR} />
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </CollapsibleCard>
+
+        {/* 4) العروض المتوفرة */}
+        <CollapsibleCard cardKey="promos" icon="🏷️" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
+          <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
+            {activePromos.length === 0 && autoPromoProducts.length === 0 && (
+              <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد عروض نشطة</div>
+            )}
+            {/* العروض اليدوية */}
+            {activePromos.map((p) => {
+              const prod = products.find((pr) => pr.id === p.product_id);
+              return (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{prod?.name_ar || prod?.name || p.product_id}</div>
+                    <div style={{ fontSize: 10, color: VAR.muted }}>حتى {p.end_date}</div>
+                  </div>
+                  <span style={{ background: COLORS.tealSoft || "rgba(0,200,150,0.12)", color: VAR.accent, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
+                    خصم {p.discount_percent}%
+                  </span>
+                </div>
+              );
+            })}
+            {/* العروض التلقائية (قرب الصلاحية) */}
+            {autoPromoProducts.map((p) => {
+              const daysLeft = Math.ceil((new Date(p.expiry_date).getTime() - Date.now()) / 86400000);
+              return (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{p.name_ar || p.name}</div>
+                    <div style={{ fontSize: 10, color: COLORS.gold }}>⏳ صلاحية: {daysLeft} يوم · مخزون: {p.stock}</div>
+                  </div>
+                  <span style={{ background: COLORS.goldSoft || "#fef3c7", color: COLORS.gold, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
+                    تلقائي
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </CollapsibleCard>
+
+        {/* 5) تغيرات الأسعار */}
+        <CollapsibleCard cardKey="prices" icon="💰" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
+          <div style={{ fontSize: 10, color: VAR.muted, padding: "8px 14px 0" }}>آخر 7 أيام</div>
+          <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
+            {recentPriceChanges.length === 0 && (
+              <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد تغيرات في الأسعار هذا الأسبوع</div>
+            )}
+            {recentPriceChanges.map((c, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{c.name}</div>
+                  <div style={{ fontSize: 10, color: VAR.muted }}>{c.date} · {c.oldPrice} ← {c.newPrice} ر.س</div>
+                </div>
+                <span style={{
+                  background: c.diff > 0 ? (COLORS.redSoft || "#fde8e8") : (COLORS.greenSoft || "#d1fae5"),
+                  color: c.diff > 0 ? COLORS.red : COLORS.green,
+                  borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700,
+                }}>
+                  {c.diff > 0 ? "▲" : "▼"} {Math.abs(c.diff)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </CollapsibleCard>
+
+        {/* 6) بطاقة الصيدلي */}
+        <CollapsibleCard cardKey="shift" icon="👤" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: "50%",
+              background: `linear-gradient(135deg, ${VAR.accent}, ${VAR.accent2})`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, fontWeight: 700, color: VAR.bg, flexShrink: 0,
+            }}>
+              {currentUser?.name?.[0] || "م"}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: VAR.muted }}>
+                {currentShift ? `شفت نشط · بدأ ${new Date(currentShift.start_time).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}` : "لا يوجد شفت مفتوح"}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 1, background: VAR.border }}>
+            {[
+              { label: "فواتير الشفت",           val: shiftSales.length },
+              { label: "متوسط الأصناف/فاتورة",   val: avgItemsPerInvoice },
+              { label: "عملاء مسجلين",            val: shiftSales.filter((s) => s.customer_id).length + " / " + shiftSales.length },
+              { label: "مبيعات الشفت",            val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
+              { label: "مرتجع الشفت",             val: S(shiftReturnsTotal.toFixed(0) + " ر.س"), color: VAR.danger },
+            ].map((stat, i) => (
+              <div key={i} style={{ background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", padding: "8px 10px" }}>
+                <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
+                <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: stat.color || VAR.text, marginTop: 2 }}>{stat.val}</div>
+              </div>
+            ))}
+          </div>
+        </CollapsibleCard>
+
+        {/* 7) خزنة اليوم */}
+        <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
+          <div style={{ padding: 16 }}>
+            {[
+              { label: "مبيعات كاش",    val: todayCashOnlySales.toFixed(0), type: "in" },
+              { label: "شبكة / صراف",   val: todayNetworkSales.toFixed(0),  type: "in" },
+              { label: "سداد الآجل",    val: todayCreditPaid.toFixed(0),    type: "in" },
+              { label: "مصاريف نثرية",  val: todayPettyExpenses.toFixed(0), type: "out" },
+              { label: "مرتجعات",       val: todayReturnsForDash.toFixed(0), type: "out" },
+            ].map((row, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
+                <span style={{ color: VAR.muted }}>{row.label}</span>
+                <span style={{ fontFamily: "monospace", fontWeight: 600, color: row.type === "in" ? VAR.accent : VAR.danger }}>
+                  {row.type === "in" ? "+" : "-"} {S(row.val)}
+                </span>
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
+              <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
+              <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
+                + {S((todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0))}
+              </span>
+            </div>
+          </div>
+        </CollapsibleCard>
+
+        {/* 8) إجراءات سريعة */}
+        <CollapsibleCard cardKey="actions" icon="⚡" title="إجراءات سريعة">
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            {[
+              { icon: "💊", label: "فاتورة بيع جديدة",  tab: "pos",       bg: "rgba(0,200,150,0.15)" },
+              { icon: "📦", label: "استلام مشتريات",     tab: "purchase",  bg: "rgba(59,130,246,0.15)" },
+              { icon: "🔄", label: "تسجيل مرتجع",        tab: "returns",   bg: "rgba(245,158,11,0.15)" },
+              { icon: "🔒", label: "تقفيل الشفت",         tab: "shift",     bg: "rgba(239,68,68,0.15)" },
+            ].map((btn) => (
+              <button
+                key={btn.tab}
+                onClick={() => setTab(btn.tab)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 12px", borderRadius: 8,
+                  background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`,
+                  cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                  color: VAR.text, fontWeight: 600, transition: "border-color 0.15s",
+                  textAlign: "right",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = VAR.accent}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = VAR.border}
+              >
+                <div style={{ width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, background: btn.bg }}>
+                  {btn.icon}
+                </div>
+                {btn.label}
+              </button>
+            ))}
+          </div>
+        </CollapsibleCard>
+      </div>
+
+      {/* ── تايم لاين حركة اليوم — أسفل الداشبورد بعرض كامل ── */}
+      <div style={{
+        ...card,
+        padding: "16px 18px 14px",
+        marginTop: 8,
+        background: `linear-gradient(135deg, ${VAR.surface}, ${tint(VAR.accent, 0.05)})`,
+        border: `1px solid ${tint(VAR.accent, 0.25)}`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 16 }}>🕐</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: VAR.text }}>حركة اليوم بالساعة</span>
         </div>
-        <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>
-          {S(`من ${myTarget.toLocaleString()} ريال`)}
-        </div>
-      </div>
-      <div style={{ height: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 99, overflow: "hidden" }}>
-        <div style={{
-          height: "100%", width: `${targetProgress}%`, borderRadius: 99,
-          background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
-          boxShadow: "0 0 8px rgba(0,200,150,0.4)",
-        }} />
-      </div>
-      <div style={{ fontSize: 11, color: VAR.muted }}>
-        متبقي <strong style={{ color: VAR.warn }}>{S(`${targetRemaining.toFixed(0)} ريال`)}</strong> في {daysLeftInMonth} يوم
-      </div>
-      <div style={{ borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
-        <div style={{ fontSize: 10, color: VAR.muted, marginBottom: 4 }}>المطلوب يومياً</div>
-        <div style={{ fontFamily: "monospace", fontSize: 22, color: VAR.warn, fontWeight: 700 }}>
-          {S(requiredDaily.toFixed(0))} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
-        </div>
-      </div>
-    </>
-  )}
-</div>
-      </div>
-      {/* ── ROW 1.5: تايم لاين حركة اليوم ── */}
-      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
-        حركة اليوم بالساعة
-      </div>
-      <div style={{ ...card, padding: "16px 16px 12px", marginBottom: 12 }}>
         {todaySalesForTimeline.length === 0 ? (
           <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
             لا توجد مبيعات مسجّلة اليوم بعد
@@ -2679,288 +2964,6 @@ const [myTarget, setMyTarget] = useState(null);
           </>
         )}
       </div>
-
-      {/* ── ROW 2: مركز التنبيهات ── */}
-      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
-        مركز التنبيهات
-      </div>
-      <div style={{ ...card, marginBottom: 12 }}>
-        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${VAR.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text, display: "flex", alignItems: "center", gap: 6 }}>
-            🔔 مركز التنبيهات
-            <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(239,68,68,0.15)", color: VAR.danger, fontFamily: "monospace" }}>
-              {totalAlertsCount}
-            </span>
-          </div>
-        </div>
-        <div>
-          {totalAlertsCount === 0 && (
-            <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
-              لا توجد تنبيهات حالياً ✅
-            </div>
-          )}
-          {alertCenterGroups.filter((g) => g.count > 0).map((g) => (
-            <div key={g.key}>
-              <div
-                onClick={() => setExpandedAlertGroup(expandedAlertGroup === g.key ? null : g.key)}
-                style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12, cursor: "pointer" }}
-              >
-                <span style={{ fontSize: 14 }}>{g.icon}</span>
-                <div style={{ flex: 1, color: VAR.text, fontWeight: 600 }}>{g.label}</div>
-                <div style={{
-                  fontSize: 10, padding: "2px 8px", borderRadius: 99, fontWeight: 700, fontFamily: "monospace",
-                  background: g.count > 0 ? `${g.color}26` : "rgba(125,133,144,0.12)",
-                  color: g.count > 0 ? g.color : VAR.muted,
-                }}>
-                  {g.count}
-                </div>
-                <span style={{ color: VAR.muted, fontSize: 11 }}>{expandedAlertGroup === g.key ? "▲" : "▼"}</span>
-                <span onClick={(e) => { e.stopPropagation(); setTab(g.tab); }} style={{ color: VAR.accent2, fontSize: 11 }}>فتح →</span>
-              </div>
-              {expandedAlertGroup === g.key && (
-                <div style={{ background: VAR.bg, padding: "8px 14px 12px" }}>
-                  {g.key === "essential" && (
-                    alerts.length === 0 ? <EmptyAlertRow text="لا توجد أدوية أساسية ناقصة ✅" muted={VAR.muted} /> :
-                    alerts.map((a, i) => (
-                      <AlertRow key={i} text={a.name} badge={a.type === "danger" ? "نافذ" : `متبقي ${a.stock}`} color={a.type === "danger" ? VAR.danger : VAR.warn} VAR={VAR} />
-                    ))
-                  )}
-                  {g.key === "lowstock" && (
-                    lowStock.length === 0 ? <EmptyAlertRow text="لا يوجد مخزون منخفض ✅" muted={VAR.muted} /> :
-                    lowStock.slice(0, 8).map((p) => (
-                      <AlertRow key={p.id} text={p.name} badge={`${p.stock} / ${p.min_stock || p.minStock || 0}`} color={VAR.warn} VAR={VAR} />
-                    ))
-                  )}
-                  {g.key === "expiry" && (
-                    expiringSoon.length === 0 ? <EmptyAlertRow text="لا توجد أصناف قرب الانتهاء ✅" muted={VAR.muted} /> :
-                    expiringSoon.slice(0, 8).map((p) => {
-                      const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
-                      return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={VAR.warn} VAR={VAR} />;
-                    })
-                  )}
-                  {g.key === "supplier" && (
-                    supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :
-                    supplierDues.slice(0, 8).map((d) => (
-                      <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? VAR.danger : VAR.warn} VAR={VAR} />
-                    ))
-                  )}
-                  {g.key === "newcust" && (
-                    newCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء جدد هذا الأسبوع" muted={VAR.muted} /> :
-                    newCustomers.slice(0, 8).map((c) => (
-                      <AlertRow key={c.id} text={c.name} badge="جديد" color={VAR.accent} VAR={VAR} />
-                    ))
-                  )}
-                  {g.key === "lostcust" && (
-                    disappearedCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء مختفون" muted={VAR.muted} /> :
-                    disappearedCustomers.slice(0, 8).map((c) => (
-                      <AlertRow key={c.id} text={c.name} badge={`آخر زيارة ${c.lastVisit}`} color={VAR.muted} VAR={VAR} />
-                    ))
-                  )}
-                  {g.key === "tax" && (
-                    <AlertRow text="الإقرار الضريبي الربعي القادم" badge={`خلال ${taxDeadlineInfo.daysLeft} يوم`} color={taxDeadlineInfo.daysLeft <= 7 ? VAR.danger : VAR.warn} VAR={VAR} />
-                  )}
-                  {g.key === "appoint" && (
-                    <>
-                      <AlertRow text="تجديد الرخصة التجارية" badge="18 يوم" color={VAR.accent} VAR={VAR} />
-                      <AlertRow text="إيجار الصيدلية" badge="غداً" color={VAR.warn} VAR={VAR} />
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── ROW 3: العروض + تغيير الأسعار ── */}
-      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
-        العروض وتحديثات الأسعار
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-
-        {/* كارت العروض */}
-        <div style={{ ...card }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-            <span style={{ fontSize: 16 }}>🏷️</span>
-            <span style={{ fontWeight: 700, fontSize: 13, color: VAR.accent }}>العروض المتوفرة</span>
-            <span style={{ marginRight: "auto", background: VAR.accent, color: "#fff", borderRadius: 10, fontSize: 11, padding: "1px 8px", fontWeight: 700 }}>
-              {activePromos.length + autoPromoProducts.length}
-            </span>
-          </div>
-          <div style={{ maxHeight: 220, overflowY: "auto", padding: "4px 0" }}>
-            {activePromos.length === 0 && autoPromoProducts.length === 0 && (
-              <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد عروض نشطة</div>
-            )}
-            {/* العروض اليدوية */}
-            {activePromos.map((p) => {
-              const prod = products.find((x) => x.id === p.product_id);
-              const name = prod?.name_ar || prod?.name || p.product_id;
-              const discPrice = prod ? Math.round(prod.price * (1 - p.discount / 100) * 100) / 100 : null;
-              return (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{name}</div>
-                    <div style={{ fontSize: 10, color: VAR.muted }}>ينتهي {p.end_date}</div>
-                  </div>
-                  <div style={{ textAlign: "left" }}>
-                    <span style={{ background: COLORS.redSoft || "#fde8e8", color: COLORS.red, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
-                      {p.discount}% خصم
-                    </span>
-                    {discPrice && <div style={{ fontSize: 10, color: VAR.muted, marginTop: 2 }}>السعر: {discPrice} ر.س</div>}
-                  </div>
-                </div>
-              );
-            })}
-            {/* العروض التلقائية (قرب الصلاحية) */}
-            {autoPromoProducts.map((p) => {
-              const daysLeft = Math.ceil((new Date(p.expiry_date).getTime() - Date.now()) / 86400000);
-              return (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{p.name_ar || p.name}</div>
-                    <div style={{ fontSize: 10, color: COLORS.gold }}>⏳ صلاحية: {daysLeft} يوم · مخزون: {p.stock}</div>
-                  </div>
-                  <span style={{ background: COLORS.goldSoft || "#fef3c7", color: COLORS.gold, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
-                    تلقائي
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* كارت تغيير الأسعار */}
-        <div style={{ ...card }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-            <span style={{ fontSize: 16 }}>💰</span>
-            <span style={{ fontWeight: 700, fontSize: 13, color: VAR.accent2 }}>تغيرات الأسعار</span>
-            <span style={{ fontSize: 10, color: VAR.muted, marginRight: "auto" }}>آخر 7 أيام</span>
-            <span style={{ background: VAR.accent2, color: "#fff", borderRadius: 10, fontSize: 11, padding: "1px 8px", fontWeight: 700 }}>
-              {recentPriceChanges.length}
-            </span>
-          </div>
-          <div style={{ maxHeight: 220, overflowY: "auto", padding: "4px 0" }}>
-            {recentPriceChanges.length === 0 && (
-              <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد تغيرات في الأسعار هذا الأسبوع</div>
-            )}
-            {recentPriceChanges.map((c, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{c.name}</div>
-                  <div style={{ fontSize: 10, color: VAR.muted }}>{c.date} · {c.oldPrice} ← {c.newPrice} ر.س</div>
-                </div>
-                <span style={{
-                  background: c.diff > 0 ? (COLORS.redSoft || "#fde8e8") : (COLORS.greenSoft || "#d1fae5"),
-                  color: c.diff > 0 ? COLORS.red : COLORS.green,
-                  borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700,
-                }}>
-                  {c.diff > 0 ? "▲" : "▼"} {Math.abs(c.diff)}%
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── ROW 4: الشفت الحالي + الخزنة + إجراءات سريعة ── */}
-      <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12, marginTop: 20 }}>
-        الشفت الحالي والخزنة
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-
-        {/* بطاقة الصيدلي */}
-        <div style={{ ...card }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: "50%",
-              background: `linear-gradient(135deg, ${VAR.accent}, ${VAR.accent2})`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 14, fontWeight: 700, color: VAR.bg, flexShrink: 0,
-            }}>
-              {currentUser?.name?.[0] || "م"}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{currentUser?.name || "الصيدلي"}</div>
-              <div style={{ fontSize: 10, color: VAR.muted }}>
-                {currentShift ? `شفت نشط · بدأ ${new Date(currentShift.start_time).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}` : "لا يوجد شفت مفتوح"}
-              </div>
-            </div>
-            <div style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 700, color: VAR.accent }}>
-              {S(`${shiftSales.length}`)}
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 1, background: VAR.border }}>
-            {[
-              { label: "فواتير الشفت",           val: shiftSales.length },
-              { label: "متوسط الأصناف/فاتورة",   val: avgItemsPerInvoice },
-              { label: "عملاء مسجلين",            val: shiftSales.filter((s) => s.customer_id).length + " / " + shiftSales.length },
-              { label: "مبيعات الشفت",            val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
-              { label: "مرتجع الشفت",             val: S(shiftReturnsTotal.toFixed(0) + " ر.س"), color: VAR.danger },
-            ].map((stat, i) => (
-              <div key={i} style={{ background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", padding: "8px 10px" }}>
-                <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
-                <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: stat.color || VAR.text, marginTop: 2 }}>{stat.val}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* خزنة اليوم */}
-        <div style={{ ...card, padding: 16 }}>
-          <div style={{ fontSize: 11, color: VAR.muted, fontWeight: 600, marginBottom: 12 }}>خزنة اليوم</div>
-          {[
-            { label: "مبيعات كاش",    val: todayCashOnlySales.toFixed(0), type: "in" },
-            { label: "شبكة / صراف",   val: todayNetworkSales.toFixed(0),  type: "in" },
-            { label: "سداد الآجل",    val: todayCreditPaid.toFixed(0),    type: "in" },
-            { label: "مصاريف نثرية",  val: todayPettyExpenses.toFixed(0), type: "out" },
-            { label: "مرتجعات",       val: todayReturnsForDash.toFixed(0), type: "out" },
-          ].map((row, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
-              <span style={{ color: VAR.muted }}>{row.label}</span>
-              <span style={{ fontFamily: "monospace", fontWeight: 600, color: row.type === "in" ? VAR.accent : VAR.danger }}>
-                {row.type === "in" ? "+" : "-"} {S(row.val)}
-              </span>
-            </div>
-          ))}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
-            <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
-              + {S((todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0))}
-            </span>
-          </div>
-        </div>
-
-        {/* إجراءات سريعة */}
-        <div style={{ ...card, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: VAR.muted, marginBottom: 2 }}>إجراءات سريعة</div>
-          {[
-            { icon: "💊", label: "فاتورة بيع جديدة",  tab: "pos",       bg: "rgba(0,200,150,0.15)" },
-            { icon: "📦", label: "استلام مشتريات",     tab: "purchase",  bg: "rgba(59,130,246,0.15)" },
-            { icon: "🔄", label: "تسجيل مرتجع",        tab: "returns",   bg: "rgba(245,158,11,0.15)" },
-            { icon: "🔒", label: "تقفيل الشفت",         tab: "shift",     bg: "rgba(239,68,68,0.15)" },
-          ].map((btn) => (
-            <button
-              key={btn.tab}
-              onClick={() => setTab(btn.tab)}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 12px", borderRadius: 8,
-                background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`,
-                cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-                color: VAR.text, fontWeight: 600, transition: "border-color 0.15s",
-                textAlign: "right",
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.borderColor = VAR.accent}
-              onMouseLeave={(e) => e.currentTarget.style.borderColor = VAR.border}
-            >
-              <div style={{ width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, background: btn.bg }}>
-                {btn.icon}
-              </div>
-              {btn.label}
-            </button>
-          ))}
-        </div>
-       </div>
     </div>
   );
 }
