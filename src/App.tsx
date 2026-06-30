@@ -13103,7 +13103,76 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
         <div style={{ color: COLORS.textDim, padding: 20 }}>لا يوجد صيادلة مسجلين بدور "pharmacist".</div>
       )}
 
-      {pharmacists.map((u) => {
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12, marginBottom: 16 }}>
+        {pharmacists.map((u) => {
+          const c = calcForPharmacist(u.name);
+          const cardColor = pctColor(c.simplePct);
+          const isOpen = expandedTarget === u.name;
+
+          return (
+            <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${cardColor}44`, borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 9, background: cardColor + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+                    🎯
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: COLORS.textPrimary }}>{u.name}</div>
+                    <div style={{ color: COLORS.textDim, fontSize: 10 }}>صيدلاني</div>
+                  </div>
+                </div>
+                <div style={{ background: cardColor + "22", color: cardColor, fontWeight: 900, fontSize: 13, padding: "3px 10px", borderRadius: 20 }}>
+                  {c.target ? c.simplePct.toFixed(0) + "%" : "—"}
+                </div>
+              </div>
+
+              <div style={{ background: COLORS.surfaceAlt, borderRadius: 8, height: 7, overflow: "hidden" }}>
+                <div style={{ width: Math.min(c.simplePct, 100) + "%", height: "100%", background: cardColor, transition: "width .3s" }} />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <div>
+                  <div style={{ color: COLORS.textDim, fontSize: 10 }}>التارجت</div>
+                  <div style={{ color: "#8ab0ff", fontWeight: 800 }}>{c.target ? c.target.toFixed(0) + " ر.س" : "—"}</div>
+                </div>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ color: COLORS.textDim, fontSize: 10 }}>المحقق</div>
+                  <div style={{ color: COLORS.textPrimary, fontWeight: 800 }}>{c.achieved.toFixed(0)} ر.س</div>
+                </div>
+              </div>
+
+              {/* تعديل التارجت — ظاهر دايماً */}
+              {editing === u.name ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <Input value={editValue} onChange={setEditValue} type="number" placeholder="قيمة التارجت" style={{ flex: 1 }} />
+                  <Btn size="sm" variant="success" onClick={() => saveTarget(u.name)}>حفظ</Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => setEditing(null)}>✕</Btn>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 6 }}>
+                  {isAdmin && (
+                    <button
+                      onClick={() => { setEditing(u.name); setEditValue(c.target || ""); }}
+                      style={{ flex: 1, background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 7, padding: "6px 10px", color: COLORS.blue, fontSize: 12, cursor: "pointer", fontWeight: 700 }}
+                    >
+                      ✏️ تعديل التارجت
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setExpandedTarget(isOpen ? null : u.name)}
+                    style={{ flex: 1, background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "6px 10px", color: COLORS.textDim, fontSize: 12, cursor: "pointer" }}
+                  >
+                    {isOpen ? "▲ إخفاء التفاصيل" : "▼ عرض التفاصيل"}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ===== التفاصيل الموسعة — تظهر تحت الكروت لصيدلي واحد بس ===== */}
+      {pharmacists.filter((u) => expandedTarget === u.name).map((u) => {
         const c = calcForPharmacist(u.name);
         const dailyPerf = getDailyPerformance(u.name, c);
         const yearTrend = getYearTrend(u.name);
@@ -13112,213 +13181,154 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
         const otherPharmacists = pharmacists.filter((p) => p.name !== u.name);
         const compareName = compareWith[u.name] || (otherPharmacists[0]?.name ?? "");
         const cOther = compareName ? calcForPharmacist(compareName) : null;
-        const cardColor = pctColor(c.simplePct);
-        const isOpen = expandedTarget === u.name;
 
         return (
-          <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${isOpen ? cardColor + "77" : cardColor + "33"}`, borderRadius: 14, overflow: "hidden", marginBottom: 12, transition: "border-color .2s" }}>
-            {/* ===== رأس الكارت الملون — قابل للضغط ===== */}
-            <div
-              onClick={() => setExpandedTarget(isOpen ? null : u.name)}
-              style={{ cursor: "pointer", padding: 16, background: `linear-gradient(135deg, ${cardColor}18, transparent)` }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: cardColor + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
-                    🎯
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: COLORS.textPrimary }}>{u.name}</div>
-                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>صيدلاني</div>
-                  </div>
-                </div>
+          <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 14, overflow: "hidden", marginBottom: 12 }}>
+            <div style={{ padding: 18 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: COLORS.textPrimary }}>📋 تفاصيل {u.name}</div>
+                <button onClick={() => setExpandedTarget(null)} style={{ background: "transparent", border: "none", color: COLORS.textDim, cursor: "pointer", fontSize: 13 }}>✕ إغلاق</button>
+              </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{ textAlign: "left" }}>
-                    <div style={{ color: COLORS.textDim, fontSize: 10 }}>التارجت</div>
-                    <div style={{ color: "#8ab0ff", fontWeight: 800, fontSize: 14 }}>
-                      {c.target ? c.target.toFixed(0) + " ر.س" : "—"}
+              {c.target > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 12 }}>
+                  <span style={{ color: COLORS.textDim }}>
+                    المتوقع نهاية الشهر (Run Rate): <b style={{ color: COLORS.purple }}>{c.projected.toFixed(0)} ر.س</b>
+                  </span>
+                  <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
+                </div>
+              )}
+
+              {/* ===== التحليل الفني ===== */}
+              <div style={{ borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📊 التحليل الفني</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
+                  {[
+                    { l: "عدد الفواتير", v: c.invoiceCount },
+                    { l: "عدد الأصناف المباعة", v: c.itemsSold },
+                    { l: "متوسط الأصناف/فاتورة", v: c.avgItemsPerInvoice.toFixed(1) },
+                    { l: "متوسط قيمة الفاتورة", v: c.avgInvoiceValue.toFixed(0) + " ر.س" },
+                    { l: "نسبة التسجيل على عملاء", v: c.customerRegRate.toFixed(0) + "%" },
+                    { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
+                    { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
+                  ].map((x, i) => (
+                    <div key={i} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
+                      <div style={{ color: COLORS.textDim, fontSize: 11 }}>{x.l}</div>
+                      <div style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
                     </div>
-                  </div>
-                  <div style={{ textAlign: "left" }}>
-                    <div style={{ color: COLORS.textDim, fontSize: 10 }}>المحقق</div>
-                    <div style={{ color: COLORS.textPrimary, fontWeight: 800, fontSize: 14 }}>
-                      {c.achieved.toFixed(0)} ر.س
-                    </div>
-                  </div>
-                  <div style={{ background: cardColor + "22", color: cardColor, fontWeight: 900, fontSize: 14, padding: "4px 12px", borderRadius: 20 }}>
-                    {c.target ? c.simplePct.toFixed(0) + "%" : "—"}
-                  </div>
-                  <span style={{ color: COLORS.textDim, fontSize: 14 }}>{isOpen ? "▲" : "▼"}</span>
+                  ))}
                 </div>
               </div>
 
-              {/* شريط التقدم */}
-              <div style={{ marginTop: 10, background: COLORS.surfaceAlt, borderRadius: 8, height: 8, overflow: "hidden" }}>
-                <div style={{ width: Math.min(c.simplePct, 100) + "%", height: "100%", background: cardColor, transition: "width .3s" }} />
-              </div>
-            </div>
-
-            {/* ===== التفاصيل — قابلة للطي ===== */}
-            {isOpen && (
-              <div style={{ padding: "0 18px 18px" }}>
-                {/* تعديل التارجت */}
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
-                  {editing === u.name ? (
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <Input value={editValue} onChange={setEditValue} type="number" placeholder="قيمة التارجت" style={{ width: 140 }} />
-                      <Btn size="sm" variant="success" onClick={() => saveTarget(u.name)}>حفظ</Btn>
-                      <Btn size="sm" variant="ghost" onClick={() => setEditing(null)}>إلغاء</Btn>
+              {/* ===== الأداء خلال الشهر ===== */}
+              <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+                  📅 الأداء خلال الشهر (مبيعات يومية)
+                </div>
+                <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 70, overflowX: "auto", paddingBottom: 4 }}>
+                  {dailyPerf.map((d) => (
+                    <div key={d.day} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 14 }}>
+                      <div
+                        title={`يوم ${d.day}: ${d.amount.toFixed(0)} ر.س`}
+                        style={{
+                          width: 8,
+                          height: Math.max((d.amount / maxDaily) * 55, 2),
+                          background: d.amount > 0 ? COLORS.green : COLORS.border,
+                          borderRadius: "2px 2px 0 0",
+                        }}
+                      />
+                      <span style={{ fontSize: 8, color: COLORS.border, marginTop: 3 }}>{d.day}</span>
                     </div>
-                  ) : (
-                    isAdmin && (
-                      <Btn size="sm" variant="ghost" icon="edit" onClick={() => { setEditing(u.name); setEditValue(c.target || ""); }}>
-                        ✏️ تعديل التارجت
-                      </Btn>
-                    )
+                  ))}
+                </div>
+              </div>
+
+              {/* ===== مقارنة عبر آخر 6 شهور ===== */}
+              <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                <div style={{ color: COLORS.purple, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+                  📈 مقارنة الأداء عبر آخر 6 شهور
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 90 }}>
+                  {yearTrend.map((m) => (
+                    <div key={m.mKey} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                      <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 65 }}>
+                        <div
+                          title={`المحقق: ${m.achieved.toFixed(0)} ر.س`}
+                          style={{ flex: 1, background: COLORS.blue, height: `${(m.achieved / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }}
+                        />
+                        {m.target > 0 && (
+                          <div
+                            title={`التارجت: ${m.target.toFixed(0)} ر.س`}
+                            style={{ flex: 1, background: "#4a3a00", height: `${(m.target / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2, border: "1px dashed #ffaa44" }}
+                          />
+                        )}
+                      </div>
+                      <span style={{ fontSize: 9, color: COLORS.textDim }}>{m.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: COLORS.blue }}>■ المحقق</span>
+                  <span style={{ fontSize: 11, color: COLORS.gold }}>▢ التارجت</span>
+                </div>
+              </div>
+
+              {/* ===== مقارنة مع صيدلي آخر ===== */}
+              {otherPharmacists.length > 0 && (
+                <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}>⚖️ مقارنة مع صيدلي آخر</div>
+                    <select
+                      value={compareName}
+                      onChange={(e) => setCompareWith((p) => ({ ...p, [u.name]: e.target.value }))}
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
+                    >
+                      {otherPharmacists.map((p) => (
+                        <option key={p.id} value={p.name}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {cOther && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
+                      <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
+                        <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{u.name}</div>
+                        {[
+                          ["المحقق", c.achieved.toFixed(0) + " ر.س"],
+                          ["نسبة التارجت", c.target ? c.simplePct.toFixed(1) + "%" : "—"],
+                          ["عدد الفواتير", c.invoiceCount],
+                          ["متوسط الفاتورة", c.avgInvoiceValue.toFixed(0) + " ر.س"],
+                          ["نسبة التسجيل على عملاء", c.customerRegRate.toFixed(0) + "%"],
+                        ].map(([l, v], i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
+                            <span style={{ color: COLORS.textDim }}>{l}</span>
+                            <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ color: COLORS.border, fontSize: 18, fontWeight: 900 }}>VS</div>
+
+                      <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
+                        <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{compareName}</div>
+                        {[
+                          ["المحقق", cOther.achieved.toFixed(0) + " ر.س"],
+                          ["نسبة التارجت", cOther.target ? cOther.simplePct.toFixed(1) + "%" : "—"],
+                          ["عدد الفواتير", cOther.invoiceCount],
+                          ["متوسط الفاتورة", cOther.avgInvoiceValue.toFixed(0) + " ر.س"],
+                          ["نسبة التسجيل على عملاء", cOther.customerRegRate.toFixed(0) + "%"],
+                        ].map(([l, v], i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
+                            <span style={{ color: COLORS.textDim }}>{l}</span>
+                            <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-
-                {c.target > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 12 }}>
-                    <span style={{ color: COLORS.textDim }}>
-                      المتوقع نهاية الشهر (Run Rate): <b style={{ color: COLORS.purple }}>{c.projected.toFixed(0)} ر.س</b>
-                    </span>
-                    <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
-                  </div>
-                )}
-
-                {/* ===== التحليل الفني ===== */}
-                <div style={{ borderTop: "1px solid #161d30", paddingTop: 14 }}>
-                  <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📊 التحليل الفني</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
-                    {[
-                      { l: "عدد الفواتير", v: c.invoiceCount },
-                      { l: "عدد الأصناف المباعة", v: c.itemsSold },
-                      { l: "متوسط الأصناف/فاتورة", v: c.avgItemsPerInvoice.toFixed(1) },
-                      { l: "متوسط قيمة الفاتورة", v: c.avgInvoiceValue.toFixed(0) + " ر.س" },
-                      { l: "نسبة التسجيل على عملاء", v: c.customerRegRate.toFixed(0) + "%" },
-                      { l: "عملاء جدد هذا الشهر", v: c.newCustomers },
-                      { l: "عملاء سجّلهم وأصبحوا خاملين", v: c.inactiveCustomers },
-                    ].map((x, i) => (
-                      <div key={i} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
-                        <div style={{ color: COLORS.textDim, fontSize: 11 }}>{x.l}</div>
-                        <div style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: 800, marginTop: 4 }}>{x.v}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ===== الأداء خلال الشهر ===== */}
-                <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-                  <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
-                    📅 الأداء خلال الشهر (مبيعات يومية)
-                  </div>
-                  <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 70, overflowX: "auto", paddingBottom: 4 }}>
-                    {dailyPerf.map((d) => (
-                      <div key={d.day} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 14 }}>
-                        <div
-                          title={`يوم ${d.day}: ${d.amount.toFixed(0)} ر.س`}
-                          style={{
-                            width: 8,
-                            height: Math.max((d.amount / maxDaily) * 55, 2),
-                            background: d.amount > 0 ? COLORS.green : COLORS.border,
-                            borderRadius: "2px 2px 0 0",
-                          }}
-                        />
-                        <span style={{ fontSize: 8, color: COLORS.border, marginTop: 3 }}>{d.day}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ===== مقارنة عبر آخر 6 شهور ===== */}
-                <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-                  <div style={{ color: COLORS.purple, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
-                    📈 مقارنة الأداء عبر آخر 6 شهور
-                  </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 90 }}>
-                    {yearTrend.map((m) => (
-                      <div key={m.mKey} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                        <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 65 }}>
-                          <div
-                            title={`المحقق: ${m.achieved.toFixed(0)} ر.س`}
-                            style={{ flex: 1, background: COLORS.blue, height: `${(m.achieved / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }}
-                          />
-                          {m.target > 0 && (
-                            <div
-                              title={`التارجت: ${m.target.toFixed(0)} ر.س`}
-                              style={{ flex: 1, background: "#4a3a00", height: `${(m.target / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2, border: "1px dashed #ffaa44" }}
-                            />
-                          )}
-                        </div>
-                        <span style={{ fontSize: 9, color: COLORS.textDim }}>{m.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
-                    <span style={{ fontSize: 11, color: COLORS.blue }}>■ المحقق</span>
-                    <span style={{ fontSize: 11, color: COLORS.gold }}>▢ التارجت</span>
-                  </div>
-                </div>
-
-                {/* ===== مقارنة مع صيدلي آخر ===== */}
-                {otherPharmacists.length > 0 && (
-                  <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-                      <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}>⚖️ مقارنة مع صيدلي آخر</div>
-                      <select
-                        value={compareName}
-                        onChange={(e) => setCompareWith((p) => ({ ...p, [u.name]: e.target.value }))}
-                        style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
-                      >
-                        {otherPharmacists.map((p) => (
-                          <option key={p.id} value={p.name}>{p.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {cOther && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
-                        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
-                          <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{u.name}</div>
-                          {[
-                            ["المحقق", c.achieved.toFixed(0) + " ر.س"],
-                            ["نسبة التارجت", c.target ? c.simplePct.toFixed(1) + "%" : "—"],
-                            ["عدد الفواتير", c.invoiceCount],
-                            ["متوسط الفاتورة", c.avgInvoiceValue.toFixed(0) + " ر.س"],
-                            ["نسبة التسجيل على عملاء", c.customerRegRate.toFixed(0) + "%"],
-                          ].map(([l, v], i) => (
-                            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
-                              <span style={{ color: COLORS.textDim }}>{l}</span>
-                              <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div style={{ color: COLORS.border, fontSize: 18, fontWeight: 900 }}>VS</div>
-
-                        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12 }}>
-                          <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{compareName}</div>
-                          {[
-                            ["المحقق", cOther.achieved.toFixed(0) + " ر.س"],
-                            ["نسبة التارجت", cOther.target ? cOther.simplePct.toFixed(1) + "%" : "—"],
-                            ["عدد الفواتير", cOther.invoiceCount],
-                            ["متوسط الفاتورة", cOther.avgInvoiceValue.toFixed(0) + " ر.س"],
-                            ["نسبة التسجيل على عملاء", cOther.customerRegRate.toFixed(0) + "%"],
-                          ].map(([l, v], i) => (
-                            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
-                              <span style={{ color: COLORS.textDim }}>{l}</span>
-                              <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{v}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         );
       })}
