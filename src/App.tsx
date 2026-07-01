@@ -8856,16 +8856,21 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     const { data: bc } = await supabase.from("product_barcodes").select("*").eq("product_id", p.id).order("is_primary", { ascending: false });
     setBarcodes(bc || []);
 
-    const { data: pi } = await supabase.from("product_ingredients").select("*, active_ingredients(name_ar)").eq("product_id", p.id);
-    setSelectedIngredients((pi || []).map((x) => ({
-      ingredient_id: x.ingredient_id,
-      name_ar:
-        x.active_ingredients?.name_ar ||
-        allIngredients.find((a) => a.id === x.ingredient_id)?.name_ar ||
-        "⚠️ مادة فعالة غير موجودة",
-      concentration: x.concentration || "",
-      db_id: x.id,
-    })));
+    const { data: pi } = await supabase.from("product_ingredients").select("*, active_ingredients(name_ar, name_en)").eq("product_id", p.id);
+    setSelectedIngredients((pi || []).map((x) => {
+      const fromAll = allIngredients.find((a) => a.id === x.ingredient_id);
+      return {
+        ingredient_id: x.ingredient_id,
+        name_ar:
+          x.active_ingredients?.name_ar ||
+          x.active_ingredients?.name_en ||
+          fromAll?.name_ar ||
+          fromAll?.name_en ||
+          "⚠️ مادة فعالة غير موجودة",
+        concentration: x.concentration || "",
+        db_id: x.id,
+      };
+    }));
 
     setShowForm(true);
   };
@@ -8921,7 +8926,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
   const addIngredient = async (ing) => {
     if (selectedIngredients.find((x) => x.ingredient_id === ing.id)) { setShowIngredientDropdown(false); setIngredientSearch(""); return; }
-    setSelectedIngredients((prev) => [...prev, { ingredient_id: ing.id, name_ar: ing.name_ar, concentration: "", db_id: null }]);
+    setSelectedIngredients((prev) => [...prev, { ingredient_id: ing.id, name_ar: ing.name_ar || ing.name_en || "", concentration: "", db_id: null }]);
     setShowIngredientDropdown(false);
     setIngredientSearch("");
   };
@@ -9290,18 +9295,23 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                     setShowSimilarDropdown(false);
                     // استيراد المواد الفعالة من الصنف المثيل
                     supabase.from("product_ingredients")
-                      .select("*, active_ingredients(name_ar)")
+                      .select("*, active_ingredients(name_ar, name_en)")
                       .eq("product_id", p.id)
                       .then(({ data }) => {
                         if (data && data.length > 0) {
-                          setSelectedIngredients(data.map((x) => ({
-                            ingredient_id: x.ingredient_id,
-                            name_ar:
-                              x.active_ingredients?.name_ar ||
-                              allIngredients.find((a) => a.id === x.ingredient_id)?.name_ar ||
-                              "⚠️ مادة فعالة غير موجودة",
-                            concentration: x.concentration || "",
-                          })));
+                          setSelectedIngredients(data.map((x) => {
+                            const fromAll = allIngredients.find((a) => a.id === x.ingredient_id);
+                            return {
+                              ingredient_id: x.ingredient_id,
+                              name_ar:
+                                x.active_ingredients?.name_ar ||
+                                x.active_ingredients?.name_en ||
+                                fromAll?.name_ar ||
+                                fromAll?.name_en ||
+                                "⚠️ مادة فعالة غير موجودة",
+                              concentration: x.concentration || "",
+                            };
+                          }));
                           showToast(`✅ تم استيراد ${data.length} مادة فعالة من ${p.name_ar || p.name}`);
                         }
                       });
@@ -9343,7 +9353,11 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                     style={{ padding: "9px 14px", cursor: "pointer", color: COLORS.textPrimary, fontSize: 13, borderBottom: `1px solid ${COLORS.border}` }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = COLORS.surfaceAlt; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                    {ing.name_ar} {ing.name_en && <span style={{ color: COLORS.textDim, fontSize: 11 }}>({ing.name_en})</span>}
+                    {ing.name_ar ? (
+                      <>{ing.name_ar} {ing.name_en && <span style={{ color: COLORS.textDim, fontSize: 11 }}>({ing.name_en})</span>}</>
+                    ) : (
+                      <>{ing.name_en || "—"} <span style={{ color: COLORS.gold, fontSize: 10 }}>(بدون اسم عربي)</span></>
+                    )}
                   </div>
                 ))}
                 <div onClick={addNewIngredient}
