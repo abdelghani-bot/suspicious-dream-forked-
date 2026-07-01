@@ -6192,7 +6192,7 @@ const LABEL_SIZES = [
               ["الرمز", showProductCard.id],
               ["الباركود", showProductCard.barcode],
               ["الفئة", showProductCard.category],
-              ["المادة الفعالة", showProductCard.activeIngredient],
+              ["المادة الفعالة", showProductCard.active_ingredient || showProductCard.activeIngredient],
               ["التركيز", showProductCard.concentration],
               ["المخزون الحالي", showProductCard.stock],
               ["سعر البيع الحالي", showProductCard.price + " ر.س"],
