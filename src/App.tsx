@@ -5249,12 +5249,12 @@ function PrintReceipt({ invoice, onClose }) {
   );
 }
 // ==================== Pharmacy Settings ====================
-const getPharmacySettings = async () => {
+const getPharmacySettings = async (pharmacyId) => {
   try {
     const { data } = await supabase
       .from("pharmacy_settings")
       .select("*")
-      .eq("id", "main")
+      .eq("pharmacy_id", pharmacyId)
       .single();
     return data || {};
   } catch {
@@ -5424,9 +5424,10 @@ const LABEL_SIZES = [
   { id: "60x40", label: "60×40 mm", w: 60, h: 40 },
 ];
   useEffect(() => {
-    supabase.from("pharmacy_settings").select("*").eq("id", "main").single()
+    if (!pharmacyId) return;
+    supabase.from("pharmacy_settings").select("*").eq("pharmacy_id", pharmacyId).single()
       .then(({ data }) => { if (data) setPharmSettings(data); });
-  }, []);
+  }, [pharmacyId]);
 
   const printLabels = (invoiceItems) => {
     setPrintItems(invoiceItems.map((i) => ({ ...i, copies: i.qty + (i.bonusQty || 0), selected: true })));
@@ -5778,12 +5779,15 @@ const LABEL_SIZES = [
     });
     if (error) {
       showToast("فشل الحفظ في السيرفر: " + error.message, "error");
+      setPurchases((p) => p.filter((x) => x.id !== po.id)); // نتراجع عن الإضافة المحلية لأن الحفظ فشل
+      return; // لا نكمّل تحديث المخزون لأن الفاتورة نفسها لم تُحفظ
     }
+    const stockUpdateFailures = [];
     for (const ci of items) {
       const product = products.find((x) => x.id === ci.id);
       if (!product) continue;
       const newStock = product.stock + ci.qty + (ci.bonusQty || 0);
-      await supabase
+      const { error: stockErr } = await supabase
         .from("products")
         .update({
           stock: newStock,
@@ -5791,7 +5795,12 @@ const LABEL_SIZES = [
           price: ci.newSalePrice,
           not_available_market: false,
         })
-        .eq("id", ci.id);
+        .eq("id", ci.id)
+        .eq("pharmacy_id", pharmacyId);
+      if (stockErr) stockUpdateFailures.push(product.name || ci.id);
+    }
+    if (stockUpdateFailures.length > 0) {
+      showToast("⚠️ تم حفظ الفاتورة لكن فشل تحديث مخزون: " + stockUpdateFailures.join("، "), "error");
     }
     setProducts((prev) =>
       prev.map((x) => {
@@ -7091,11 +7100,49 @@ const LABEL_SIZES = [
                     tax_amount: editTaxAmt,
                     total: editSubtotal + editTaxAmt,
                   })
-                  .eq("id", showDetail.id);
+                  .eq("id", showDetail.id)
+                  .eq("pharmacy_id", pharmacyId);
                 if (error) {
                   showToast("فشل التعديل: " + error.message, "error");
                   return;
                 }
+
+                // 🆕 مطابقة المخزون: الفاتورة القديمة أصلاً زوّدت المخزون بكمياتها،
+                // فلو الكميات اتغيرت في التعديل، لازم نعدّل الفرق بس على المخزون
+                const oldQtyById = {};
+                (showDetail.items || []).forEach((i) => {
+                  oldQtyById[i.id] = (oldQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
+                });
+                const newQtyById = {};
+                editItems.forEach((i) => {
+                  newQtyById[i.id] = (newQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
+                });
+                const affectedIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
+                const stockFailures = [];
+                const stockDeltaById = {};
+                for (const pid of affectedIds) {
+                  const delta = (newQtyById[pid] || 0) - (oldQtyById[pid] || 0);
+                  if (delta === 0) continue;
+                  const prod = products.find((x) => x.id === pid);
+                  if (!prod) continue;
+                  const newStock = prod.stock + delta;
+                  const { error: stockErr } = await supabase
+                    .from("products")
+                    .update({ stock: newStock })
+                    .eq("id", pid)
+                    .eq("pharmacy_id", pharmacyId);
+                  if (stockErr) { stockFailures.push(prod.name || pid); continue; }
+                  stockDeltaById[pid] = newStock;
+                }
+                if (stockFailures.length > 0) {
+                  showToast("⚠️ تم تعديل الفاتورة لكن فشل تحديث مخزون: " + stockFailures.join("، "), "error");
+                }
+                if (Object.keys(stockDeltaById).length > 0) {
+                  setProducts((prev) =>
+                    prev.map((x) => (stockDeltaById[x.id] !== undefined ? { ...x, stock: stockDeltaById[x.id] } : x))
+                  );
+                }
+
                 setPurchases((prev) =>
                   prev.map((p) => (p.id === showDetail.id ? updated : p))
                 );
@@ -9197,7 +9244,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   };
 
   const deleteManufacturer = async (id) => {
-    await supabase.from("manufacturers").delete().eq("id", id);
+    const { error } = await supabase.from("manufacturers").delete().eq("id", id).eq("pharmacy_id", pharmacyId);
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
     setManufacturers((p) => p.filter((m) => m.id !== id));
     showToast("تم الحذف");
   };
@@ -9230,7 +9278,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     let productId = form.id;
 
     if (editing) {
-      const { error } = await supabase.from("products").update(p).eq("id", editing);
+      const { error } = await supabase.from("products").update(p).eq("id", editing).eq("pharmacy_id", pharmacyId);
       if (error) { showToast("خطأ في التعديل: " + error.message, "error"); return; }
       setProducts((prev) => prev.map((x) => (x.id === editing ? { ...x, ...p } : x)));
     } else {
@@ -9350,7 +9398,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               <div style={{ display: "flex", gap: 5 }}>
               <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
               <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
-                await supabase.from("products").delete().eq("id", p.id);
+                const { error } = await supabase.from("products").delete().eq("id", p.id).eq("pharmacy_id", pharmacyId);
+                if (error) { showToast("خطأ: " + error.message, "error"); return; }
                 setProducts((prev) => prev.filter((x) => x.id !== p.id));
                 showToast("تم حذف الصنف");
               }}>حذف</Btn>
@@ -9874,12 +9923,15 @@ function SuppliersModule({
 
   const persistReturnFIFO = async (supplierId, totalReturnAmount) => {
     const { updates, unallocated } = applyReturnFIFO(supplierId, totalReturnAmount);
+    const okUpdates = [];
     for (const u of updates) {
-      await supabase.from("purchases").update({ returned_amount: u.returned_amount }).eq("id", u.id);
+      const { error: retError } = await supabase.from("purchases").update({ returned_amount: u.returned_amount }).eq("id", u.id).eq("pharmacy_id", pharmacyId);
+      if (retError) { showToast("خطأ في تحديث المرتجع: " + retError.message, "error"); continue; }
+      okUpdates.push(u);
     }
     setPurchases((prev) =>
       prev.map((p) => {
-        const u = updates.find((x) => x.id === p.id);
+        const u = okUpdates.find((x) => x.id === p.id);
         return u ? { ...p, returned_amount: u.returned_amount } : p;
       })
     );
@@ -9904,13 +9956,24 @@ function SuppliersModule({
     const returnId = "RET-" + Date.now();
     const today = new Date().toISOString().split("T")[0];
 
+    const stockUpdates = [];
     for (const ri of items) {
       const prod = products.find((x) => x.id === ri.id);
       if (prod) {
-        await supabase.from("products")
-          .update({ stock: prod.stock - ri.returnQty })
-          .eq("id", ri.id);
+        const newStock = prod.stock - ri.returnQty;
+        const { error: stockError } = await supabase.from("products")
+          .update({ stock: newStock })
+          .eq("id", ri.id)
+          .eq("pharmacy_id", pharmacyId);
+        if (stockError) { showToast(`خطأ في تحديث مخزون ${prod.name || ri.id}: ` + stockError.message, "error"); continue; }
+        stockUpdates.push({ id: ri.id, stock: newStock });
       }
+    }
+    if (stockUpdates.length > 0) {
+      setProducts((prev) => prev.map((p) => {
+        const u = stockUpdates.find((x) => x.id === p.id);
+        return u ? { ...p, stock: u.stock } : p;
+      }));
     }
 
     const { error } = await supabase.from("returns").insert([{
@@ -9989,10 +10052,11 @@ function SuppliersModule({
         })
         .filter((d) => (d.amount || 0) > 0.001);
 
-      await supabase.from("suppliers").update({
+      const { error: obError } = await supabase.from("suppliers").update({
         opening_balance: newOpeningBalance,
         opening_balance_details: newDetails,
-      }).eq("id", supplierId);
+      }).eq("id", supplierId).eq("pharmacy_id", pharmacyId);
+      if (obError) { showToast("خطأ في تحديث رصيد أول المدة: " + obError.message, "error"); return; }
       setSuppliers((prev) =>
         prev.map((x) => (x.id === supplierId
           ? { ...x, opening_balance: newOpeningBalance, opening_balance_details: newDetails }
@@ -10017,11 +10081,14 @@ function SuppliersModule({
       updates.push({ id: po.id, paid: newPaid, payment_status: stillOwed <= 0 ? "مسددة" : "مسددة جزئياً" });
       remaining -= payment;
     }
+    const okUpdates = [];
     for (const u of updates) {
-      await supabase.from("purchases").update({ paid: u.paid, payment_status: u.payment_status }).eq("id", u.id);
+      const { error: puError } = await supabase.from("purchases").update({ paid: u.paid, payment_status: u.payment_status }).eq("id", u.id).eq("pharmacy_id", pharmacyId);
+      if (puError) { showToast("خطأ في تحديث فاتورة الشراء: " + puError.message, "error"); continue; }
+      okUpdates.push(u);
     }
     setPurchases((prev) =>
-      prev.map((p) => { const u = updates.find((x) => x.id === p.id); return u ? { ...p, ...u } : p; })
+      prev.map((p) => { const u = okUpdates.find((x) => x.id === p.id); return u ? { ...p, ...u } : p; })
     );
     return updates;
   };
@@ -10210,11 +10277,11 @@ function SuppliersModule({
       opening_balance_details: form.opening_balance_details || [],
     };
     if (editing) {
-      const { error } = await supabase.from("suppliers").update(payload).eq("id", editing);
+      const { error } = await supabase.from("suppliers").update(payload).eq("id", editing).eq("pharmacy_id", pharmacyId);
       if (error) { showToast("فشل التعديل: " + error.message, "error"); return; }
       setSuppliers((p) => p.map((x) => (x.id === editing ? { ...x, ...form, opening_balance: openingBal } : x)));
     } else {
-      const { data, error } = await supabase.from("suppliers").insert({ id: form.id, ...payload }).select();
+      const { data, error } = await supabase.from("suppliers").insert({ id: form.id, ...payload, pharmacy_id: pharmacyId }).select();
       if (error) { showToast("فشل الإضافة: " + error.message, "error"); return; }
       setSuppliers((p) => [...p, data[0]]);
     }
@@ -10450,7 +10517,8 @@ function SuppliersModule({
                     if (!window.confirm(`⚠️ على المورد "${s.name}" مديونية ${supplierDebt.toFixed(2)} ر.س
 هل أنت متأكد من الحذف؟`)) return;
                   }
-                  await supabase.from("suppliers").delete().eq("id", s.id);
+                  const { error: delSupError } = await supabase.from("suppliers").delete().eq("id", s.id).eq("pharmacy_id", pharmacyId);
+                  if (delSupError) { showToast("خطأ: " + delSupError.message, "error"); return; }
                   setSuppliers((p) => p.filter((x) => x.id !== s.id));
                   showToast("تم حذف المورد");
                 }}>حذف</Btn>
@@ -11088,8 +11156,12 @@ function CustomersModule({
       pharmacy_id: pharmacyId,
     };
 
-    await supabase.from("sales").insert(paymentRecord);
-    setSales((p) => [...p, paymentRecord]);
+    const { error: salesInsertError } = await supabase.from("sales").insert(paymentRecord);
+    if (salesInsertError) {
+      showToast("⚠️ تم تسجيل السداد لكن فشل تسجيله في المبيعات: " + salesInsertError.message, "error");
+    } else {
+      setSales((p) => [...p, paymentRecord]);
+    }
     setCreditPayments((p) => [...p, {
   invoice_id: selectedInvoice.id,
   customer_id: selectedCreditCustomer.id,
@@ -11460,7 +11532,7 @@ function CustomersModule({
                   if (!window.confirm(`⚠️ على ${c.name} مديونية ${debt.toFixed(2)} ر.س
 هل أنت متأكد من الحذف؟`)) return;
                 }
-                const { error } = await supabase.from("customers").delete().eq("id", c.id);
+                const { error } = await supabase.from("customers").delete().eq("id", c.id).eq("pharmacy_id", pharmacyId);
                 if (error) { showToast("خطأ في الحذف", "error"); return; }
                 setCustomers((p) => p.filter((x) => x.id !== c.id));
                 showToast("تم حذف العميل");
@@ -12436,6 +12508,16 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     });
   };
 
+  // ── دالة حفظ نسبة العمولة (كانت مفقودة — التعديل كان بيضيع بعد الريفرش) ──
+  const saveIncentiveRate = async (newRate: number) => {
+    const { error } = await supabase.from("incentive_config").upsert({
+      pharmacy_id: pharmacyId,
+      rate: newRate,
+    }, { onConflict: "pharmacy_id" });
+    if (error) { showToast("خطأ في حفظ نسبة العمولة: " + error.message, "error"); return; }
+    showToast("تم حفظ نسبة العمولة ✓");
+  };
+
   // ── دالة تغيير الهامش مع حفظ التاريخ ──
   const updateMarginThreshold = async (newThreshold: number) => {
     const now = new Date().toISOString();
@@ -12651,7 +12733,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
 
     if (editPromoId) {
-      const { error } = await supabase.from("promotions").update(row).eq("id", editPromoId);
+      const { error } = await supabase.from("promotions").update(row).eq("id", editPromoId).eq("pharmacy_id", pharmacyId);
       if (error) { showToast("خطأ: " + error.message, "error"); return; }
       setPromos((p) => p.map((x) => (x.id === editPromoId ? { ...x, ...row } : x)));
       setEditPromoId(null);
@@ -12955,7 +13037,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                             setShowPromoForm(true);
                           }} style={{ background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
                           <button onClick={async () => {
-                            await supabase.from("promotions").delete().eq("id", promo.id);
+                            const { error: delPromoError } = await supabase.from("promotions").delete().eq("id", promo.id).eq("pharmacy_id", pharmacyId);
+                            if (delPromoError) { showToast("خطأ: " + delPromoError.message, "error"); return; }
                             setPromos((p) => p.filter((x) => x.id !== promo.id));
                           }} style={{ background: COLORS.redSoft, border: "1px solid #3a1010", borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
                         </div>
@@ -13009,6 +13092,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
                   <input type="number" value={incentiveConfig.rate} min="1" max="20"
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
+                    onBlur={(e) => saveIncentiveRate(+e.target.value)}
                     style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                 </div>
                 {/* ── خانة حد الهامش التلقائي ── */}
@@ -13074,7 +13158,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                     {item.rate && <span style={{ background: "#1a3a1a", color: COLORS.green, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.rate}% عمولة</span>}
                     {item.fixed_amount && <span style={{ background: "#1a2a3a", color: COLORS.blue, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</span>}
                     <button onClick={async () => {
-                      await supabase.from("incentive_products").delete().eq("id", item.id);
+                      const { error: delIncError } = await supabase.from("incentive_products").delete().eq("id", item.id).eq("pharmacy_id", pharmacyId);
+                      if (delIncError) { showToast("خطأ: " + delIncError.message, "error"); return; }
                       setIncentiveList((p) => p.filter((x) => x.id !== item.id));
                     }} style={{ background: "transparent", border: "none", color: COLORS.red, fontSize: 11, cursor: "pointer", marginTop: 2 }}>🗑️ حذف</button>
                   </div>
@@ -14042,11 +14127,19 @@ useEffect(() => {
       if (error) { showToast("خطأ: " + error.message, "error"); return; }
       setEntries((p) => [...data, ...p]);
     }
-    await supabase.from("treasury_entries").insert({
-      type: "closing", sub_type: "daily_closing", method: "نقدي",
-      amount: 0, note: "تقفيل اليوم", date: today,
-      pharmacy_id: pharmacyId, created_by: currentUser.name,
-    });
+    const { data: closingRow, error: closingError } = await supabase
+      .from("treasury_entries")
+      .insert({
+        type: "closing", sub_type: "daily_closing", method: "نقدي",
+        amount: 0, note: "تقفيل اليوم", date: today,
+        pharmacy_id: pharmacyId, created_by: currentUser.name,
+      })
+      .select();
+    if (closingError) {
+      showToast("❌ فشل حفظ تقفيل اليوم: " + closingError.message, "error");
+      return;
+    }
+    if (closingRow) setEntries((p) => [...closingRow, ...p]);
     setClosingSaved(true);
     showToast("تم حفظ تقفيل اليوم ✓");
     setClosingForm({
@@ -16063,7 +16156,12 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   }
 
   async function deleteSchedule(id: string) {
-    await supabase.from("work_schedules").delete().eq("id", id);
+    const { error } = await supabase
+      .from("work_schedules")
+      .delete()
+      .eq("id", id)
+      .eq("pharmacy_id", pharmacyId);
+    if (error) { globalToast("خطأ: " + error.message, "error"); return; }
     loadWorkSchedules();
     globalToast("تم الحذف ✓");
   }
