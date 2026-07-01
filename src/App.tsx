@@ -2106,13 +2106,15 @@ if (isLoading) return (
             invoices={posInvoices}
           />
         )}
-{tab === "attendance" && (
+{tab === "attendance" && canView("attendance") && (
   <AttendanceModule
   pharmacyId={pharmacyId}
   shifts={shifts}
   setShifts={setShifts}
   currentUser={currentUser}
   showToast={showToast}
+  canViewSub={(sub) => canView("attendance", sub)}
+  canEditSub={(sub) => canEdit("attendance", sub)}
 />
 )}
     {tab === "loyalty" && (
@@ -15634,7 +15636,7 @@ async function fetchPrayerTimes(lat = 24.7136, lng = 46.6753) {
 // ══════════════════════════════════════════════════════
 // Component منفصل — ضعه خارج AttendanceModule
 // ══════════════════════════════════════════════════════
-function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, onSaved, globalToast }: any) {
+function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, onSaved, globalToast, readOnly = false }: any) {
   const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
   const [selectedPharmacist, setSelectedPharmacist] = useState("");
@@ -15692,6 +15694,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
   };
 
   const saveWeekSchedule = async () => {
+    if (readOnly) { globalToast("❌ لا تملك صلاحية تعديل جدول الدوام", "error"); return; }
     if (!selectedPharmacist) { globalToast("اختر الصيدلي أولاً"); return; }
     setSaving(true);
 
@@ -15777,8 +15780,8 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
               </span>
               <button
                 onClick={saveWeekSchedule}
-                disabled={saving}
-                style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 20px", color: C.green, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+                disabled={saving || readOnly}
+                style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 20px", color: C.green, fontSize: 13, fontWeight: 700, cursor: readOnly ? "not-allowed" : "pointer", opacity: (saving || readOnly) ? 0.6 : 1 }}
               >
                 {saving ? "جاري الحفظ..." : "💾 حفظ الجدول"}
               </button>
@@ -15891,10 +15894,10 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             </span>
             <button
               onClick={saveWeekSchedule}
-              disabled={saving}
-              style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "9px 24px", color: C.green, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+              disabled={saving || readOnly}
+              style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "9px 24px", color: C.green, fontSize: 13, fontWeight: 700, cursor: readOnly ? "not-allowed" : "pointer", opacity: (saving || readOnly) ? 0.6 : 1 }}
             >
-              {saving ? "جاري الحفظ..." : "💾 حفظ جدول الأسبوع"}
+              {readOnly ? "🔒 عرض فقط" : (saving ? "جاري الحفظ..." : "💾 حفظ جدول الأسبوع")}
             </button>
           </div>
         </div>
@@ -15931,13 +15934,22 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
   );
 }
 // ══════════════════════════════════════════════════════════════════════════════
-function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToast: globalToast }: {
+function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToast: globalToast, canViewSub = (_sub) => true, canEditSub = (_sub) => true }: {
   pharmacyId: string;
   shifts: any[];
   setShifts: (fn: any) => void;
   currentUser: any;
   showToast: (msg: string, type?: string) => void;
+  canViewSub?: (sub: string) => boolean;
+  canEditSub?: (sub: string) => boolean;
 }) {
+  // ── ربط تابات الشاشة بمعرّفات الصلاحيات في SYSTEM_SECTIONS ──
+  const TAB_PERM_KEY: Record<string, string> = {
+    attendance: "checkin", schedule: "schedule", settings: "prayers",
+    report: "daily_report", monthly: "monthly_report",
+  };
+  const canViewTab = (t: string) => canViewSub(TAB_PERM_KEY[t] || t);
+  const canEditTab = (t: string) => canEditSub(TAB_PERM_KEY[t] || t);
   const [tab, setTab] = useState<"attendance" | "schedule" | "settings" | "report" | "monthly">("attendance");
   const [pharmacists, setPharmacists] = useState<string[]>([]);
   const [todayLogs, setTodayLogs] = useState<any[]>([]);
@@ -16090,6 +16102,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
 
   // ── حضور (مرتبط بالشفت) ──
   async function handleCheckIn(pharmacistName: string) {
+    if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الحضور", "error"); return; }
     const shiftNum = getCurrentShiftNumber(pharmacistName);
     const existing = todayLogs.find((l) => l.pharmacist_name === pharmacistName && l.shift_number === shiftNum && !l.check_out);
     if (existing) { globalToast(`${pharmacistName} مسجّل بالفعل في شفت ${shiftNum}`, "warn"); return; }
@@ -16119,6 +16132,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
 
   // ── انصراف (مرتبط بقفل الشفت) ──
   async function handleCheckOut(log: any) {
+    if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الانصراف", "error"); return; }
     const now = new Date();
     const totalMinutes = diffMin(log.check_in, now.toISOString());
     const totalHours = totalMinutes / 60;
@@ -16264,7 +16278,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
           { k: "settings",   l: "⚙️ الصلوات" },
           { k: "report",     l: "📊 تقرير يومي" },
           { k: "monthly",    l: "📈 تقرير شهري" },
-        ].map((t) => (
+        ].filter((t) => canViewTab(t.k)).map((t) => (
           <button key={t.k} onClick={() => {
             setTab(t.k as any);
             if (t.k === "report") loadReport(selectedDate);
@@ -16278,8 +16292,14 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
         ))}
       </div>
 
+      {!canViewTab(tab) && (
+        <div style={{ textAlign: "center", color: C.muted, padding: 40 }}>
+          🔒 لا تملك صلاحية عرض هذا القسم
+        </div>
+      )}
+
       {/* ════ TAB: ATTENDANCE ════ */}
-      {tab === "attendance" && (
+      {tab === "attendance" && canViewTab("attendance") && (
         <div>
           {/* مواقيت الصلاة */}
           <div style={cardStyle}>
@@ -16408,7 +16428,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
         </div>
       )}
 
-      {tab === "schedule" && (
+      {tab === "schedule" && canViewTab("schedule") && (
   <WorkScheduleTab
     pharmacists={pharmacists}
     workSchedules={workSchedules}
@@ -16417,10 +16437,11 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     C={C}
     onSaved={loadWorkSchedules}
     globalToast={globalToast}
+    readOnly={!canEditTab("schedule")}
   />
 )}
       {/* ════ TAB: PRAYER SETTINGS ════ */}
-      {tab === "settings" && (
+      {tab === "settings" && canViewTab("settings") && (
         <div style={cardStyle}>
           <div style={{ fontWeight: 700, color: C.text, fontSize: 14, marginBottom: 4 }}>⚙️ إعدادات وقت الصلوات</div>
           <div style={{ color: C.muted, fontSize: 12, marginBottom: 16 }}>التأخير عن الوقت المسموح يُخصم من ساعات العمل</div>
@@ -16444,16 +16465,18 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
 
           {prayerSettings.map((s) => (
             <PrayerSettingRow key={s.id} setting={s} onSave={async (updated: any) => {
-              await supabase.from("prayer_settings").update({ allowed_minutes: updated.allowed_minutes, ramadan_allowed_minutes: updated.ramadan_allowed_minutes, is_active: updated.is_active, updated_at: new Date().toISOString() }).eq("id", updated.id).eq("pharmacy_id", pharmacyId);
+              if (!canEditTab("settings")) { globalToast("❌ لا تملك صلاحية تعديل إعدادات الصلوات", "error"); return; }
+              const { error } = await supabase.from("prayer_settings").update({ allowed_minutes: updated.allowed_minutes, ramadan_allowed_minutes: updated.ramadan_allowed_minutes, is_active: updated.is_active, updated_at: new Date().toISOString() }).eq("id", updated.id).eq("pharmacy_id", pharmacyId);
+              if (error) { globalToast("خطأ: " + error.message, "error"); return; }
               globalToast("تم حفظ الإعدادات ✓");
               loadPrayerSettings();
-            }} ramadan={ramadan} C={C} />
+            }} ramadan={ramadan} C={C} readOnly={!canEditTab("settings")} />
           ))}
         </div>
       )}
 
       {/* ════ TAB: DAILY REPORT ════ */}
-      {tab === "report" && (
+      {tab === "report" && canViewTab("report") && (
         <div>
           <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12 }}>
             <label style={{ fontWeight: 600, fontSize: 13, color: C.text }}>📅 اختر التاريخ:</label>
@@ -16501,7 +16524,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
       )}
 
       {/* ════ TAB: MONTHLY REPORT ════ */}
-      {tab === "monthly" && (
+      {tab === "monthly" && canViewTab("monthly") && (
         <div>
           <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12 }}>
             <label style={{ fontWeight: 600, fontSize: 13, color: C.text }}>📅 اختر الشهر:</label>
@@ -16602,29 +16625,29 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
 }
 
 // ── Prayer Setting Row ──────────────────────────────────────────────────────
-function PrayerSettingRow({ setting, onSave, ramadan, C }: any) {
+function PrayerSettingRow({ setting, onSave, ramadan, C, readOnly = false }: any) {
   const [local, setLocal] = useState({ ...setting });
   const changed = JSON.stringify(local) !== JSON.stringify(setting);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
       <div style={{ width: 70, fontWeight: 700, color: C.text, fontSize: 14 }}>{setting.prayer_name}</div>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: C.muted }}>
-        <input type="checkbox" checked={local.is_active} onChange={(e) => setLocal({ ...local, is_active: e.target.checked })} style={{ width: 16, height: 16 }} />
+      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: readOnly ? "not-allowed" : "pointer", fontSize: 13, color: C.muted }}>
+        <input type="checkbox" checked={local.is_active} disabled={readOnly} onChange={(e) => setLocal({ ...local, is_active: e.target.checked })} style={{ width: 16, height: 16 }} />
         تفعيل
       </label>
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text }}>
         وقت مسموح:
-        <input type="number" min={5} max={120} value={local.allowed_minutes} onChange={(e) => setLocal({ ...local, allowed_minutes: +e.target.value })}
+        <input type="number" min={5} max={120} value={local.allowed_minutes} disabled={readOnly} onChange={(e) => setLocal({ ...local, allowed_minutes: +e.target.value })}
           style={{ width: 60, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", color: C.text, textAlign: "center", outline: "none" }} />
         <span style={{ color: C.muted }}>دقيقة</span>
       </label>
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text }}>
         🌙 رمضان:
-        <input type="number" min={5} max={120} value={local.ramadan_allowed_minutes} onChange={(e) => setLocal({ ...local, ramadan_allowed_minutes: +e.target.value })}
+        <input type="number" min={5} max={120} value={local.ramadan_allowed_minutes} disabled={readOnly} onChange={(e) => setLocal({ ...local, ramadan_allowed_minutes: +e.target.value })}
           style={{ width: 60, background: ramadan ? "#1a1500" : C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", color: C.text, textAlign: "center", outline: "none" }} />
         <span style={{ color: C.muted }}>دقيقة</span>
       </label>
-      {changed && (
+      {changed && !readOnly && (
         <button onClick={() => onSave(local)} style={{ background: COLORS.blueSoft, border: "1px solid #1a4a8a", borderRadius: 7, padding: "6px 16px", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           حفظ
         </button>
@@ -17244,7 +17267,13 @@ const SYSTEM_SECTIONS = [
   { id: "target",            label: "تارجت المبيعات",      icon: "🎯" },
   { id: "inventory_count",   label: "الجرد",               icon: "📋" },
   { id: "expiry_report",     label: "تقرير الصلاحيات",    icon: "⚠️" },
-  { id: "attendance",        label: "الحضور والانصراف",   icon: "⏱️" },
+  { id: "attendance",        label: "الحضور والانصراف",   icon: "⏱️", subItems: [
+      { id: "checkin",        label: "الحضور" },
+      { id: "schedule",       label: "جدول الدوام" },
+      { id: "prayers",        label: "الصلوات" },
+      { id: "daily_report",   label: "تقرير يومي" },
+      { id: "monthly_report", label: "تقرير شهري" },
+    ] },
   { id: "pharmacy_settings", label: "بيانات الصيدلية",    icon: "⚙️" },
   { id: "rasd_settings",     label: "إعدادات رصد",         icon: "🔗" },
 ];
