@@ -3249,8 +3249,10 @@ const [myTarget, setMyTarget] = useState(null);
 }
 
 //   ==================== FIFO Helper ====================
-function sellFromBatches(product, qtyToSell) {
-  const batches = product.batches?.length
+// preferredExpiry: لو الكاشير حدد تاريخ صلاحية معين للسطر (يدوي أو من باركود GS1)،
+// بنخصم من التشغيلة اللي تاريخها مطابق أولاً، بدل ما نجبره على أقرب تاريخ صلاحية دايمًا.
+function sellFromBatches(product, qtyToSell, preferredExpiry) {
+  let batches = product.batches?.length
     ? [...product.batches]
     : product.stock > 0
     ? [
@@ -3263,10 +3265,23 @@ function sellFromBatches(product, qtyToSell) {
       ]
     : [];
 
+  if (preferredExpiry) {
+    const norm = (v) => (v ? String(v).slice(0, 10) : "");
+    const target = norm(preferredExpiry);
+    const matched = [];
+    const rest = [];
+    batches.forEach((b) => {
+      const bExp = norm(b.expiry_date || b.expiry || b.date);
+      (bExp === target ? matched : rest).push(b);
+    });
+    if (matched.length) batches = [...matched, ...rest];
+  }
+
   let remaining = qtyToSell;
   const soldBatches = [];
 
   for (let i = 0; i < batches.length && remaining > 0; i++) {
+    if (batches[i].qty <= 0) continue;
     const take = Math.min(batches[i].qty, remaining);
     soldBatches.push({ ...batches[i], qtySold: take });
     batches[i] = { ...batches[i], qty: batches[i].qty - take };
@@ -3471,8 +3486,13 @@ function POS({
     }
   }
 
+  // كل سطر في السلة بيتحدد بالصنف + تاريخ الصلاحية + رقم التشغيلة معًا،
+  // عشان لو نفس الصنف موجود ع الرف بأكتر من تاريخ صلاحية يقدر الكاشير يبيعهم كسطرين منفصلين
+  // بدل ما يتجمعوا غصب على بعض تحت تاريخ واحد.
+  const lineId = p.lineId || `${p.id}::${p.expiry || ""}::${p.batch || ""}`;
+
   setInv((prev) => {
-    const ex = prev.cart.find((i) => i.id === p.id);
+    const ex = prev.cart.find((i) => i.lineId === lineId);
     if (ex) {
       const prod = products.find((x) => x.id === p.id);
       if (ex.qty + 1 > (prod?.stock || 99)) {
@@ -3482,7 +3502,7 @@ function POS({
       return {
         ...prev,
         cart: prev.cart.map((i) =>
-          i.id === p.id ? { ...i, qty: i.qty + 1 } : i
+          i.lineId === lineId ? { ...i, qty: i.qty + 1 } : i
         ),
       };
     }
@@ -3504,6 +3524,7 @@ function POS({
       ...prev,
       cart: [...prev.cart, {
         ...p,
+        lineId,
         qty: initQty,
         dose: "",
         price: cartPrice,
@@ -3602,11 +3623,20 @@ function POS({
         .replace(/[-:T.Z]/g, "")
         .slice(0, 14);
 
+    // بنمرر تاريخ الصلاحية المحدد في السطر (preferredExpiry) عشان الخصم يحصل من التشغيلة الصح.
+    // ولو نفس الصنف موجود في أكتر من سطر في نفس الفاتورة (بتواريخ مختلفة)، بنمرر التشغيلات
+    // المتبقية من السطر الأول للسطر اللي بعده (runningBatches) عشان مانخصمش نفس الكمية مرتين.
     const newFifoResults = {};
+    const runningBatches = {};
     for (const ci of inv.cart) {
       const prod = products.find((x) => x.id === ci.id);
       if (prod) {
-        newFifoResults[ci.id] = sellFromBatches(prod, +ci.qty);
+        const baseProd = runningBatches[ci.id]
+          ? { ...prod, batches: runningBatches[ci.id] }
+          : prod;
+        const result = sellFromBatches(baseProd, +ci.qty, ci.expiry || ci.batch || null);
+        newFifoResults[ci.lineId] = result;
+        runningBatches[ci.id] = result.updatedBatches;
       }
     }
     setFifoResults(newFifoResults);
@@ -3621,9 +3651,9 @@ function POS({
         id: i.id,
         name: i.name,
         qty: +i.qty,
-        price: newFifoResults[i.id]?.salePrice ?? i.price,
+        price: newFifoResults[i.lineId]?.salePrice ?? i.price,
         cost:
-          newFifoResults[i.id]?.soldBatches?.[0]?.cost ??
+          newFifoResults[i.lineId]?.soldBatches?.[0]?.cost ??
           products.find((x) => x.id === i.id)?.cost ??
           0,
         taxable: i.taxable,
@@ -3635,7 +3665,7 @@ function POS({
         isJoker: !!i.isJoker,
         expiry:
           i.expiry ||
-          newFifoResults[i.id]?.soldBatches?.[0]?.expiry_date ||
+          newFifoResults[i.lineId]?.soldBatches?.[0]?.expiry_date ||
           null,
         category: i.main_category || i.mainCategory || i.category || "أخرى",
       })),
@@ -3663,19 +3693,25 @@ function POS({
       return;
     }
 
+    // بنجمع الكمية المباعة لكل منتج (ممكن يكون موزّع على أكتر من سطر بتواريخ صلاحية مختلفة)
+    // قبل ما نكتب على المخزون، عشان مانعملش تحديث مكرر يمسح بعضه.
+    const soldQtyByProduct = {};
     for (const ci of inv.cart) {
       if (ci.isMissed) continue;
-      const prod = products.find((x) => x.id === ci.id);
+      soldQtyByProduct[ci.id] = (soldQtyByProduct[ci.id] || 0) + (+ci.qty);
+    }
+    for (const pid of Object.keys(soldQtyByProduct)) {
+      const prod = products.find((x) => x.id === pid);
       if (prod) {
-        const { updatedBatches } = newFifoResults[ci.id] || {};
+        const updatedBatches = runningBatches[pid];
         const { error: stockError } = await supabase
           .from("products")
           .update({
-            stock: prod.stock - +ci.qty,
+            stock: prod.stock - soldQtyByProduct[pid],
             batches: updatedBatches ?? prod.batches ?? [],
             price: updatedBatches?.[0]?.salePrice ?? prod.price,
           })
-          .eq("id", ci.id);
+          .eq("id", pid);
         if (stockError) {
           showToast("خطأ في تحديث المخزون: " + stockError.message, "error");
         }
@@ -4599,11 +4635,11 @@ function POS({
   {inv.cart.map((item) => {
     const step = item.saleUnits > 1 ? 1 / item.saleUnits : 1;
     const maxQty = products.find(x => x.id === item.id)?.stock || 99;
-    const displayPrice = item.unitPrice ?? (fifoResults?.[item.id]?.salePrice ?? item.price);
-    const displayTotal = (fifoResults?.[item.id]?.salePrice ?? item.price) * item.qty;
+    const displayPrice = item.unitPrice ?? (fifoResults?.[item.lineId]?.salePrice ?? item.price);
+    const displayTotal = (fifoResults?.[item.lineId]?.salePrice ?? item.price) * item.qty;
 
     return (
-      <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
+      <tr key={item.lineId} style={{ borderBottom: "1px solid #0a101a" }}>
         <td style={{ padding: "8px 4px" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
           {item.discountPct > 0 && (
@@ -4620,13 +4656,37 @@ function POS({
             value={item.dose}
             onChange={(e) => setInv((p) => ({
               ...p,
-              cart: p.cart.map((i) => i.id === item.id ? { ...i, dose: e.target.value } : i),
+              cart: p.cart.map((i) => i.lineId === item.lineId ? { ...i, dose: e.target.value } : i),
             }))}
             placeholder="الجرعة..."
             style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.textDim, fontSize: 11, outline: "none", padding: "2px 0" }}
           />
-          {item.expiry && (
-            <div style={{ fontSize: 10, color: COLORS.gold, marginTop: 2 }}>ينتهي: {item.expiry}</div>
+          {!item.isMissed && !item.isJoker && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+              <span style={{ fontSize: 10, color: COLORS.gold, flexShrink: 0 }}>⏰</span>
+              <input
+                type="date"
+                value={item.expiry || ""}
+                onChange={(e) => {
+                  const newExpiry = e.target.value;
+                  setInv((p) => ({
+                    ...p,
+                    cart: p.cart.map((i) =>
+                      i.lineId === item.lineId
+                        ? {
+                            ...i,
+                            expiry: newExpiry,
+                            // تحديث lineId عشان لو اتضاف نفس الصنف بنفس التاريخ الجديد يتجمع صح
+                            lineId: `${i.id}::${newExpiry || ""}::${i.batch || ""}`,
+                          }
+                        : i
+                    ),
+                  }));
+                }}
+                title="عدّل تاريخ الصلاحية لو الصنف على الرف بتاريخ مختلف عن المسجل"
+                style={{ background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.gold, fontSize: 10, outline: "none", padding: "1px 0", colorScheme: "dark" }}
+              />
+            </div>
           )}
         </td>
 
@@ -4636,7 +4696,7 @@ function POS({
               onClick={() => setInv((p) => ({
                 ...p,
                 cart: p.cart.map((i) => {
-                  if (i.id !== item.id) return i;
+                  if (i.lineId !== item.lineId) return i;
                   return { ...i, qty: Math.max(1, i.qty - 1) };
                 }),
               }))}
@@ -4651,7 +4711,7 @@ function POS({
                 setInv((p) => ({
                   ...p,
                   cart: p.cart.map((i) =>
-                    i.id === item.id ? { ...i, qtyDisplay: e.target.value } : i
+                    i.lineId === item.lineId ? { ...i, qtyDisplay: e.target.value } : i
                   ),
                 }));
               }}
@@ -4666,7 +4726,7 @@ function POS({
     setInv((p) => ({
       ...p,
       cart: p.cart.map((i) =>
-        i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+        i.lineId === item.lineId ? { ...i, qtyDisplay: undefined } : i
       ),
     }));
     return;
@@ -4686,7 +4746,7 @@ function POS({
     setInv((p) => ({
       ...p,
       cart: p.cart.map((i) =>
-        i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+        i.lineId === item.lineId ? { ...i, qtyDisplay: undefined } : i
       ),
     }));
     return;
@@ -4698,7 +4758,7 @@ function POS({
     setInv((p) => ({
       ...p,
       cart: p.cart.map((i) =>
-        i.id === item.id ? { ...i, qtyDisplay: undefined } : i
+        i.lineId === item.lineId ? { ...i, qtyDisplay: undefined } : i
       ),
     }));
     return;
@@ -4707,7 +4767,7 @@ function POS({
   setInv((p) => ({
     ...p,
     cart: p.cart.map((i) =>
-      i.id === item.id
+      i.lineId === item.lineId
         ? { ...i, qty: Math.min(val, maxQty), qtyDisplay: undefined }
         : i
     ),
@@ -4720,7 +4780,7 @@ function POS({
               onClick={() => setInv((p) => ({
                 ...p,
                 cart: p.cart.map((i) => {
-                  if (i.id !== item.id) return i;
+                  if (i.lineId !== item.lineId) return i;
                   const mx = products.find(x => x.id === i.id)?.stock || 99;
                   return { ...i, qty: Math.min(i.qty + 1, mx) };
                 }),
@@ -4738,7 +4798,7 @@ function POS({
         </td>
         <td style={{ textAlign: "center" }}>
           <button
-            onClick={() => setInv((p) => ({ ...p, cart: p.cart.filter((i) => i.id !== item.id) }))}
+            onClick={() => setInv((p) => ({ ...p, cart: p.cart.filter((i) => i.lineId !== item.lineId) }))}
             style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}
           >✕</button>
         </td>
