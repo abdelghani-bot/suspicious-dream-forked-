@@ -1,33 +1,48 @@
 import { QRCodeSVG } from "qrcode.react";
 import { COLORS, tint } from "./theme";
 import { createClient } from "@supabase/supabase-js";
+const SUPABASE_URL = "https://glcdvwpwxbhutfecljdj.supabase.co";
 const supabase = createClient(
-  "https://glcdvwpwxbhutfecljdj.supabase.co",
+  SUPABASE_URL,
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdsY2R2d3B3eGJodXRmZWNsamRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5NzE1OTIsImV4cCI6MjA5NTU0NzU5Mn0.w-dLQiFTTPzB0eeA7Asf95hy5x7kjA-OvilneYAIHHA"
 );
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 
-// ==================== AUTH SERVICE ====================
-const SESSION_KEY = "pharmacy_session";
+// ==================== AUTH SERVICE (Supabase Auth) ====================
+// username بيتحوّل لإيميل وهمي داخلياً لأن Supabase Auth بيشتغل بالإيميل.
+// كلمة المرور متخزّنة مشفّرة في auth.users — مش plaintext في جدول users.
 const authService = {
   async login(username: string, password: string) {
-    const { data, error } = await supabase
+    const email = `${username.trim().toLowerCase()}@pharmacy.internal`;
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    if (authError || !authData?.user) throw new Error("اسم المستخدم أو كلمة المرور غير صحيحة");
+    const { data: profile, error: profileError } = await supabase
       .from("users")
       .select("id, name, role, username, pharmacy_id")
-      .eq("username", username)
-      .eq("password", password)
+      .eq("auth_user_id", authData.user.id)
       .single();
-    if (error || !data) throw new Error("اسم المستخدم أو كلمة المرور غير صحيحة");
-    if (!data.pharmacy_id) throw new Error("هذا المستخدم غير مرتبط بصيدلية");
-    localStorage.setItem(SESSION_KEY, JSON.stringify(data));
-    return data;
+    if (profileError || !profile) {
+      await supabase.auth.signOut();
+      throw new Error("هذا الحساب غير مفعّل، راجع مدير النظام");
+    }
+    if (!profile.pharmacy_id) {
+      await supabase.auth.signOut();
+      throw new Error("هذا المستخدم غير مرتبط بصيدلية");
+    }
+    return profile;
   },
-  logout() { localStorage.removeItem(SESSION_KEY); },
-  getCurrentUser() {
-    try {
-      const s = localStorage.getItem(SESSION_KEY);
-      return s ? JSON.parse(s) : null;
-    } catch { return null; }
+  async logout() {
+    await supabase.auth.signOut();
+  },
+  async getCurrentUser() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return null;
+    const { data: profile } = await supabase
+      .from("users")
+      .select("id, name, role, username, pharmacy_id")
+      .eq("auth_user_id", session.user.id)
+      .single();
+    return profile || null;
   },
 };
 
@@ -1324,7 +1339,21 @@ export default function PharmacyPro() {
   const [inventoryLogs, setInventoryLogs] = useState([]);
   const [manufacturers, setManufacturers] = useState([]);
   const [users, setUsers] = useState(INIT_USERS);
-  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // استعادة الجلسة عند تحميل التطبيق + الاستماع لتغيّرات Auth
+  useEffect(() => {
+    let active = true;
+    authService.getCurrentUser().then((u) => {
+      if (active) { setCurrentUser(u); setAuthChecked(true); }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) { setCurrentUser(null); }
+    });
+    return () => { active = false; listener?.subscription?.unsubscribe(); };
+  }, []);
+
   const pharmacyId = currentUser?.pharmacy_id || null;
   useEffect(() => {
     if (!pharmacyId) return;
@@ -1542,6 +1571,18 @@ loadData();
       tax_report: taxDaysLeft <= 14 ? 1 : 0,
     };
   }, [products, suppliers, purchases, customers, essentialAlerts]);
+
+  // لو لسه بيتحقق من الجلسة، نعرض شاشة انتظار بسيطة
+  if (!authChecked)
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        height: "100vh", background: COLORS.appBg, color: "#888", flexDirection: "column", gap: 12
+      }}>
+        <div style={{ fontSize: 28 }}>💊</div>
+        <div style={{ fontSize: 14 }}>جارٍ التحقق من الجلسة...</div>
+      </div>
+    );
 
   if (!currentUser)
     return (
@@ -1842,8 +1883,8 @@ if (isLoading) return (
             </div>
           )}
           <button
-            onClick={() => {
-              authService.logout();
+            onClick={async () => {
+              await authService.logout();
               setCurrentUser(null);
               setTab("dashboard");
             }}
@@ -17279,33 +17320,44 @@ function PermissionsModule({
     showToast(`تم إضافة دور "${name}"`);
   };
 
-  // ── إضافة/تعديل مستخدم ──
+  // ── إضافة/تعديل مستخدم (عبر Edge Function — لأنها تنشئ/تعدّل حساب Auth حقيقي بـ service_role) ──
   const saveUser = async () => {
-    if (!userForm.name || !userForm.username || !userForm.password) {
+    if (!userForm.name || !userForm.username || (userModal === "add" && !userForm.password)) {
       return showToast("يرجى تعبئة جميع الحقول", "error");
     }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return showToast("الجلسة منتهية، سجّل الدخول من جديد", "error");
+
     if (userModal === "add") {
-      const id = "U" + Date.now();
-      const { error } = await supabase.from("users").insert({
-        id,
-        name: userForm.name,
-        username: userForm.username,
-        password: userForm.password,
-        role: userForm.role,
-        pharmacy_id: pharmacyId,
-        created_at: new Date().toISOString(),
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          name: userForm.name,
+          username: userForm.username,
+          password: userForm.password,
+          role: userForm.role,
+          pharmacy_id: pharmacyId,
+        }),
       });
-      if (error) return showToast("خطأ في الإضافة: " + error.message, "error");
-      setUsers((p) => [...p, { id, ...userForm, pharmacy_id: pharmacyId, created_at: new Date().toISOString() }]);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast("خطأ في الإضافة: " + (json.error || "غير معروف"), "error");
+      setUsers((p) => [...p, json.user]);
       showToast("تم إضافة المستخدم ✓");
     } else {
-      const { error } = await supabase.from("users").update({
-        name: userForm.name,
-        username: userForm.username,
-        password: userForm.password,
-        role: userForm.role,
-      }).eq("id", selectedUser.id);
-      if (error) return showToast("خطأ في التعديل: " + error.message, "error");
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-update-user`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          id: selectedUser.id,
+          name: userForm.name,
+          username: userForm.username,
+          ...(userForm.password ? { password: userForm.password } : {}),
+          role: userForm.role,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast("خطأ في التعديل: " + (json.error || "غير معروف"), "error");
       setUsers((p) => p.map((u) => u.id === selectedUser.id ? { ...u, ...userForm } : u));
       showToast("تم تعديل المستخدم ✓");
     }
@@ -17313,10 +17365,17 @@ function PermissionsModule({
     setUserForm({ name: "", username: "", password: "", role: "pharmacist" });
   };
 
-  // ── حذف مستخدم ──
+  // ── حذف مستخدم (عبر Edge Function — عشان يُحذف حساب Auth برضو) ──
   const deleteUser = async (id: string) => {
-    const { error } = await supabase.from("users").delete().eq("id", id);
-    if (error) return showToast("خطأ في الحذف", "error");
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return showToast("الجلسة منتهية، سجّل الدخول من جديد", "error");
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-delete-user`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ id }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast("خطأ في الحذف: " + (json.error || "غير معروف"), "error");
     setUsers((p) => p.filter((u) => u.id !== id));
     setDeleteConfirm(null);
     showToast("تم حذف المستخدم ✓");
