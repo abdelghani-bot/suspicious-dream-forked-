@@ -8859,7 +8859,10 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     const { data: pi } = await supabase.from("product_ingredients").select("*, active_ingredients(name_ar)").eq("product_id", p.id);
     setSelectedIngredients((pi || []).map((x) => ({
       ingredient_id: x.ingredient_id,
-      name_ar: x.active_ingredients?.name_ar || "",
+      name_ar:
+        x.active_ingredients?.name_ar ||
+        allIngredients.find((a) => a.id === x.ingredient_id)?.name_ar ||
+        "⚠️ مادة فعالة غير موجودة",
       concentration: x.concentration || "",
       db_id: x.id,
     })));
@@ -9293,7 +9296,10 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                         if (data && data.length > 0) {
                           setSelectedIngredients(data.map((x) => ({
                             ingredient_id: x.ingredient_id,
-                            name_ar: x.active_ingredients?.name_ar || "",
+                            name_ar:
+                              x.active_ingredients?.name_ar ||
+                              allIngredients.find((a) => a.id === x.ingredient_id)?.name_ar ||
+                              "⚠️ مادة فعالة غير موجودة",
                             concentration: x.concentration || "",
                           })));
                           showToast(`✅ تم استيراد ${data.length} مادة فعالة من ${p.name_ar || p.name}`);
