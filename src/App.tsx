@@ -1362,6 +1362,44 @@ export default function PharmacyPro() {
   }, [pharmacyId]);
   const [tab, setTab] = useState("dashboard");
   const [toast, setToast] = useState(null);
+
+  // ── صلاحيات الدور الحالي (تتحكم في ظهور الأقسام + ما بداخلها) ──
+  const [rolePermissions, setRolePermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean }> | null>(null);
+  useEffect(() => {
+    if (!pharmacyId || !currentUser?.role) { setRolePermissions(null); return; }
+    if (currentUser.role === "admin") { setRolePermissions("admin" as any); return; }
+    supabase
+      .from("role_permissions")
+      .select("section, sub_section, can_view, can_edit")
+      .eq("pharmacy_id", pharmacyId)
+      .eq("role", currentUser.role)
+      .then(({ data }) => {
+        const map: Record<string, { can_view: boolean; can_edit: boolean }> = {};
+        (data || []).forEach((r: any) => {
+          map[permKey(r.section, r.sub_section)] = { can_view: r.can_view, can_edit: r.can_edit };
+        });
+        setRolePermissions(map);
+      });
+  }, [pharmacyId, currentUser?.role]);
+
+  // ── الأدمن دايمًا عنده كل الصلاحيات. أثناء التحميل لا نمنع شيء تفاديًا لوميض الواجهة. ──
+  const canView = useCallback((section: string, sub?: string) => {
+    if (rolePermissions === "admin" || rolePermissions === null) return true;
+    const direct = rolePermissions[permKey(section, sub)];
+    if (direct) return direct.can_view;
+    // لو مفيش صلاحية محفوظة لعنصر فرعي بالذات، استخدم صلاحية القسم العام كافتراضي
+    if (sub) return rolePermissions[permKey(section)]?.can_view ?? true;
+    return true;
+  }, [rolePermissions]);
+
+  const canEdit = useCallback((section: string, sub?: string) => {
+    if (rolePermissions === "admin" || rolePermissions === null) return true;
+    const direct = rolePermissions[permKey(section, sub)];
+    if (direct) return direct.can_edit;
+    if (sub) return rolePermissions[permKey(section)]?.can_edit ?? false;
+    return false;
+  }, [rolePermissions]);
+
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
   const [posActiveTab, setPosActiveTab] = useState(0);
   const [posPromos, setPosPromos] = useState([]);
@@ -1895,7 +1933,7 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
           />
         )}
-        {tab === "returns" && (
+        {tab === "returns" && canView("returns") && (
           <ReturnsModule
             products={products}
             setProducts={setProducts}
@@ -1907,6 +1945,10 @@ if (isLoading) return (
             showToast={showToast}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
+            canViewSalesReturns={canView("returns", "sales")}
+            canViewPurchaseReturns={canView("returns", "purchases")}
+            canEditSalesReturns={canEdit("returns", "sales")}
+            canEditPurchaseReturns={canEdit("returns", "purchases")}
           />
         )}
         {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} />}
@@ -1997,7 +2039,7 @@ if (isLoading) return (
     showToast={showToast}
   />
 )}
-        {tab === "treasury" && currentUser?.role === "admin" && (
+        {tab === "treasury" && canView("treasury") && (
           <TreasuryModule
             sales={sales}
             creditPayments={creditPayments}
@@ -2008,6 +2050,8 @@ if (isLoading) return (
             shifts={shifts}
             entries={treasuryEntries}
             setEntries={setTreasuryEntries}
+            canViewSub={(sub) => canView("treasury", sub)}
+            canEditSub={(sub) => canEdit("treasury", sub)}
           />
         )}
         {tab === "shift" && (
@@ -6906,8 +6950,12 @@ function ReturnsModule({
   pharmacyId,
   currentUser,
   setTreasuryEntries, // 🆕 لازم تتمرر من الأب (App.tsx) لنفس الـ pattern المستخدم في SuppliersModule
+  canViewSalesReturns = true,
+  canViewPurchaseReturns = true,
+  canEditSalesReturns = true,
+  canEditPurchaseReturns = true,
 }) {
-  const [type, setType] = useState("sales");
+  const [type, setType] = useState(canViewSalesReturns ? "sales" : "purchases");
   const [returnItems, setReturnItems] = useState([]);
   const [reason, setReason] = useState("");
   const [selInvoice, setSelInvoice] = useState(null); // كائن الفاتورة كاملة
@@ -7332,7 +7380,9 @@ function ReturnsModule({
 
       {/* نوع المرتجع */}
       <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
-        {["sales", "purchases"].map((t) => (
+        {["sales", "purchases"]
+          .filter((t) => (t === "sales" ? canViewSalesReturns : canViewPurchaseReturns))
+          .map((t) => (
           <button key={t} onClick={() => setType(t)}
             style={{
               padding: "9px 22px", borderRadius: 9, border: "1px solid",
@@ -7348,7 +7398,7 @@ function ReturnsModule({
       </div>
 
       {/* ════ مرتجع مبيعات ════ */}
-      {type === "sales" && (
+      {type === "sales" && canViewSalesReturns && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
 
           {/* بحث فاتورة */}
@@ -7473,7 +7523,7 @@ function ReturnsModule({
       )}
 
       {/* ════ مرتجع مشتريات ════ */}
-      {type === "purchases" && (
+      {type === "purchases" && canViewPurchaseReturns && (
         <div style={{ marginBottom: 14 }}>
           <Select
             label="اختر فاتورة الشراء"
@@ -7571,7 +7621,13 @@ function ReturnsModule({
         </div>
       )}
 
-      <Btn icon="returns" onClick={processReturn} variant="danger">تأكيد الإرجاع</Btn>
+      {(type === "sales" ? canEditSalesReturns : canEditPurchaseReturns) ? (
+        <Btn icon="returns" onClick={processReturn} variant="danger">تأكيد الإرجاع</Btn>
+      ) : (
+        <div style={{ padding: "10px 14px", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textDim, fontSize: 12, textAlign: "center" }}>
+          🔒 ليس لديك صلاحية تنفيذ {type === "sales" ? "مرتجع المبيعات" : "مرتجع المشتريات"} — عرض فقط
+        </div>
+      )}
     </div>
   );
 }
@@ -13621,8 +13677,12 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
   );
 }
 // ==================== TREASURY MODULE ====================
-function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries }) {
-  const [activeTab, setActiveTab] = useState("today");
+function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, canViewSub = (_sub) => true, canEditSub = (_sub) => true }) {
+  const canViewDayClosing = canViewSub("day_closing");
+  const canEditDayClosing = canEditSub("day_closing");
+  const canViewOverview   = canViewSub("overview");
+  const canEditOverview   = canEditSub("overview");
+  const [activeTab, setActiveTab] = useState(canViewDayClosing ? "today" : canViewOverview ? "shifts" : "today");
   const [fixedExpenses, setFixedExpenses] = useState([]);
   const [licenses, setLicenses] = useState([]);
   const [showFixedForm, setShowFixedForm] = useState(false);
@@ -13863,6 +13923,7 @@ useEffect(() => {
       </div>
 
       {/* ── رصيد الخزنة اللحظي ── */}
+      {canViewOverview && (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
         {[
           { label: "💵 نقدي", value: balanceCash, color: COLORS.green },
@@ -13877,9 +13938,10 @@ useEffect(() => {
           </div>
         ))}
       </div>
+      )}
 
       {/* تنبيهات */}
-      {(dueFixed.length > 0 || upcomingLicenses.length > 0) && (
+      {canViewOverview && (dueFixed.length > 0 || upcomingLicenses.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: dueFixed.length > 0 && upcomingLicenses.length > 0 ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 14 }}>
           {dueFixed.length > 0 && (
             <div style={{ background: COLORS.goldSoft, border: "1px solid #4a2800", borderRadius: 12, padding: 12 }}>
@@ -13912,12 +13974,12 @@ useEffect(() => {
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 4 }}>
         {[
-          { k: "today", l: "📅 تقفيل اليوم" },
-          { k: "shifts", l: "🔄 الشفتات" },
-          { k: "history", l: "📋 السجل" },
-          { k: "fixed", l: "🔒 مصاريف ثابتة" },
-          { k: "licenses", l: "📄 التراخيص" },
-        ].map((t) => (
+          { k: "today", l: "📅 تقفيل اليوم", allowed: canViewDayClosing },
+          { k: "shifts", l: "🔄 الشفتات", allowed: canViewOverview },
+          { k: "history", l: "📋 السجل", allowed: canViewOverview },
+          { k: "fixed", l: "🔒 مصاريف ثابتة", allowed: canViewOverview },
+          { k: "licenses", l: "📄 التراخيص", allowed: canViewOverview },
+        ].filter((t) => t.allowed).map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
             flex: 1, padding: "9px 6px", borderRadius: 8, border: "none",
             background: activeTab === t.k ? COLORS.surface : "transparent",
@@ -13927,8 +13989,16 @@ useEffect(() => {
         ))}
       </div>
 
+      {/* تقفيل اليوم غير مسموح به لهذا الدور */}
+      {activeTab === "today" && !canViewDayClosing && (
+        <div style={{ padding: 20, textAlign: "center", color: COLORS.textDim, fontSize: 13 }}>🔒 ليس لديك صلاحية عرض تقفيل اليوم</div>
+      )}
+      {activeTab !== "today" && !canViewOverview && (
+        <div style={{ padding: 20, textAlign: "center", color: COLORS.textDim, fontSize: 13 }}>🔒 ليس لديك صلاحية عرض محتويات الخزنة</div>
+      )}
+
       {/* ══════════ تقفيل اليوم ══════════ */}
-      {activeTab === "today" && closingSaved && (
+      {activeTab === "today" && canViewDayClosing && closingSaved && (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
           <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 24, marginBottom: 8 }}>تم تقفيل يوم {today}</div>
@@ -13942,7 +14012,7 @@ useEffect(() => {
         </div>
       )}
 
-      {activeTab === "today" && !closingSaved && (
+      {activeTab === "today" && canViewDayClosing && !closingSaved && (
         <div>
           {/* تحذير الشفتات المفتوحة */}
           {openShifts.length > 0 && (
@@ -14107,7 +14177,7 @@ useEffect(() => {
           </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
-            {!closingSaved && (
+            {!closingSaved && canEditDayClosing && (
               <button
                 onClick={saveClosing}
                 disabled={openShifts.length > 0}
@@ -14124,12 +14194,15 @@ useEffect(() => {
                 {openShifts.length > 0 ? `🔒 أقفل ${openShifts.length} شفت أولاً` : "✅ حفظ تقفيل اليوم"}
               </button>
             )}
+            {!closingSaved && !canEditDayClosing && (
+              <div style={{ padding: "10px 20px", color: COLORS.textDim, fontSize: 12 }}>🔒 عرض فقط — لا تملك صلاحية حفظ تقفيل اليوم</div>
+            )}
           </div>
         </div>
       )}
 
       {/* ══════════ تاب الشفتات ══════════ */}
-      {activeTab === "shifts" && (
+      {activeTab === "shifts" && canViewOverview && (
         <div>
           {todayShifts.length === 0 ? (
             <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد شفتات اليوم</div>
@@ -14211,7 +14284,7 @@ useEffect(() => {
       )}
 
       {/* ══════════ السجل ══════════ */}
-      {activeTab === "history" && (
+      {activeTab === "history" && canViewOverview && (
         <div>
           {/* ملخص الشهر */}
           <div style={{ ...cardStyle(COLORS.surfaceAlt), display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -14285,10 +14358,10 @@ useEffect(() => {
       )}
 
       {/* ══════════ المصاريف الثابتة ══════════ */}
-      {activeTab === "fixed" && (
+      {activeTab === "fixed" && canViewOverview && (
         <div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>
+            {canEditOverview && <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>}
           </div>
           {fixedExpenses.length === 0
             ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد مصاريف ثابتة</div>
@@ -14359,10 +14432,10 @@ useEffect(() => {
         </div>
       )}       
       {/* ══════════ التراخيص ══════════ */}
-      {activeTab === "licenses" && (
+      {activeTab === "licenses" && canViewOverview && (
         <div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>
+            {canEditOverview && <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>}
           </div>
           {licenses.length === 0
             ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد تراخيص</div>
@@ -16881,7 +16954,10 @@ const SYSTEM_SECTIONS = [
   { id: "dashboard",         label: "الرئيسية",             icon: "📊" },
   { id: "pos",               label: "نقطة البيع",           icon: "🛒" },
   { id: "purchase",          label: "فواتير الشراء",        icon: "📦" },
-  { id: "returns",           label: "المرتجعات",            icon: "↩️" },
+  { id: "returns",           label: "المرتجعات",            icon: "↩️", subItems: [
+      { id: "sales",     label: "مرتجع المبيعات" },
+      { id: "purchases", label: "مرتجع المشتريات" },
+    ] },
   { id: "products",          label: "الأصناف والمخزون",    icon: "💊" },
   { id: "suppliers",         label: "الموردون",             icon: "🏭" },
   { id: "customers",         label: "العملاء",              icon: "👥" },
@@ -16889,7 +16965,10 @@ const SYSTEM_SECTIONS = [
   { id: "reports",           label: "التقارير",             icon: "📈" },
   { id: "tax_report",        label: "التقرير الضريبي",     icon: "🧾" },
   { id: "promotions",        label: "العروض والخصومات",    icon: "🏷️" },
-  { id: "treasury",          label: "الخزنة",              icon: "💰" },
+  { id: "treasury",          label: "الخزنة",              icon: "💰", subItems: [
+      { id: "day_closing", label: "تقفيل اليوم" },
+      { id: "overview",    label: "محتويات الخزنة (الأرصدة، الشفتات، السجل، المصاريف، التراخيص)" },
+    ] },
   { id: "shift",             label: "الشفتات",             icon: "🕐" },
   { id: "target",            label: "تارجت المبيعات",      icon: "🎯" },
   { id: "inventory_count",   label: "الجرد",               icon: "📋" },
@@ -16898,6 +16977,9 @@ const SYSTEM_SECTIONS = [
   { id: "pharmacy_settings", label: "بيانات الصيدلية",    icon: "⚙️" },
   { id: "rasd_settings",     label: "إعدادات رصد",         icon: "🔗" },
 ];
+
+// ── مفتاح موحّد لتخزين/قراءة صلاحية القسم أو صلاحية عنصر فرعي داخله ──
+const permKey = (sectionId, subId = undefined) => (subId ? `${sectionId}::${subId}` : sectionId);
 
 // ── الأدوار الافتراضية ──
 const DEFAULT_ROLES = ["pharmacist", "cashier"];
@@ -16924,6 +17006,7 @@ function PermissionsModule({
   const [addRoleModal, setAddRoleModal] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   // ── المستخدمين (يأتي من الأب الآن، مش state محلي) ──
   const [usersLoading, setUsersLoading] = useState(false);
@@ -16946,18 +17029,20 @@ function PermissionsModule({
         data.forEach((r: any) => {
           foundRoles.add(r.role);
           if (!map[r.role]) map[r.role] = {};
-          map[r.role][r.section] = { can_view: r.can_view, can_edit: r.can_edit };
+          map[r.role][permKey(r.section, r.sub_section)] = { can_view: r.can_view, can_edit: r.can_edit };
         });
       }
       [...foundRoles].forEach((role) => {
         if (!map[role]) map[role] = {};
         SYSTEM_SECTIONS.forEach((sec) => {
-          if (!map[role][sec.id]) {
-            map[role][sec.id] = {
-              can_view: role === "cashier" ? sec.id === "pos" : true,
-              can_edit: role === "cashier" ? sec.id === "pos" : sec.id !== "pharmacy_settings" && sec.id !== "rasd_settings",
-            };
-          }
+          const defaultPerm = {
+            can_view: role === "cashier" ? sec.id === "pos" : true,
+            can_edit: role === "cashier" ? sec.id === "pos" : sec.id !== "pharmacy_settings" && sec.id !== "rasd_settings",
+          };
+          if (!map[role][permKey(sec.id)]) map[role][permKey(sec.id)] = defaultPerm;
+          (sec.subItems || []).forEach((sub) => {
+            if (!map[role][permKey(sec.id, sub.id)]) map[role][permKey(sec.id, sub.id)] = { ...defaultPerm };
+          });
         });
       });
       setRoles([...foundRoles]);
@@ -17000,9 +17085,12 @@ function PermissionsModule({
     setPerms((prev) => {
       const rolePerms = { ...(prev[selectedRole] || {}) };
       SYSTEM_SECTIONS.forEach((sec) => {
-        if (type === "view_all") rolePerms[sec.id] = { can_view: true, can_edit: rolePerms[sec.id]?.can_edit ?? false };
-        else if (type === "edit_all") rolePerms[sec.id] = { can_view: true, can_edit: true };
-        else rolePerms[sec.id] = { can_view: false, can_edit: false };
+        const keys = [permKey(sec.id), ...(sec.subItems || []).map((sub) => permKey(sec.id, sub.id))];
+        keys.forEach((k) => {
+          if (type === "view_all") rolePerms[k] = { can_view: true, can_edit: rolePerms[k]?.can_edit ?? false };
+          else if (type === "edit_all") rolePerms[k] = { can_view: true, can_edit: true };
+          else rolePerms[k] = { can_view: false, can_edit: false };
+        });
       });
       return { ...prev, [selectedRole]: rolePerms };
     });
@@ -17011,15 +17099,30 @@ function PermissionsModule({
 
   const save = async () => {
     setSaving(true);
-    const rows = SYSTEM_SECTIONS.map((sec) => ({
-      pharmacy_id: pharmacyId,
-      role: selectedRole,
-      section: sec.id,
-      can_view: perms[selectedRole]?.[sec.id]?.can_view ?? true,
-      can_edit: perms[selectedRole]?.[sec.id]?.can_edit ?? false,
-      updated_at: new Date().toISOString(),
-    }));
-    const { error } = await supabase.from("role_permissions").upsert(rows, { onConflict: "pharmacy_id,role,section" });
+    const rows: any[] = [];
+    SYSTEM_SECTIONS.forEach((sec) => {
+      rows.push({
+        pharmacy_id: pharmacyId,
+        role: selectedRole,
+        section: sec.id,
+        sub_section: "",
+        can_view: perms[selectedRole]?.[permKey(sec.id)]?.can_view ?? true,
+        can_edit: perms[selectedRole]?.[permKey(sec.id)]?.can_edit ?? false,
+        updated_at: new Date().toISOString(),
+      });
+      (sec.subItems || []).forEach((sub) => {
+        rows.push({
+          pharmacy_id: pharmacyId,
+          role: selectedRole,
+          section: sec.id,
+          sub_section: sub.id,
+          can_view: perms[selectedRole]?.[permKey(sec.id, sub.id)]?.can_view ?? true,
+          can_edit: perms[selectedRole]?.[permKey(sec.id, sub.id)]?.can_edit ?? false,
+          updated_at: new Date().toISOString(),
+        });
+      });
+    });
+    const { error } = await supabase.from("role_permissions").upsert(rows, { onConflict: "pharmacy_id,role,section,sub_section" });
     setSaving(false);
     if (error) return showToast("خطأ في الحفظ", "error");
     showToast(`تم حفظ صلاحيات ${roleLabel(selectedRole)} ✓`);
@@ -17031,7 +17134,10 @@ function PermissionsModule({
     if (!name) return;
     if (roles.includes(name)) return showToast("الدور موجود بالفعل", "warn");
     const defaultPerms: Record<string, { can_view: boolean; can_edit: boolean }> = {};
-    SYSTEM_SECTIONS.forEach((sec) => { defaultPerms[sec.id] = { can_view: true, can_edit: false }; });
+    SYSTEM_SECTIONS.forEach((sec) => {
+      defaultPerms[permKey(sec.id)] = { can_view: true, can_edit: false };
+      (sec.subItems || []).forEach((sub) => { defaultPerms[permKey(sec.id, sub.id)] = { can_view: true, can_edit: false }; });
+    });
     setRoles((p) => [...p, name]);
     setPerms((p) => ({ ...p, [name]: defaultPerms }));
     setSelectedRole(name);
@@ -17191,29 +17297,71 @@ function PermissionsModule({
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>تعديل ✏️</div>
                 </div>
                 {SYSTEM_SECTIONS.map((sec, i) => {
-                  const p = currentRolePerms[sec.id] || { can_view: false, can_edit: false };
+                  const p = currentRolePerms[permKey(sec.id)] || { can_view: false, can_edit: false };
+                  const hasSubItems = (sec.subItems || []).length > 0;
+                  const isExpanded = !!expandedSections[sec.id];
                   return (
-                    <div key={sec.id} style={{
-                      display: "grid", gridTemplateColumns: "1fr 120px 120px",
-                      padding: "13px 20px", alignItems: "center",
-                      borderBottom: i < SYSTEM_SECTIONS.length - 1 ? "1px solid #0a1020" : "none",
-                      background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
-                      opacity: !p.can_view ? 0.55 : 1,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: 18 }}>{sec.icon}</span>
-                        <span style={{ fontSize: 14, color: p.can_view ? VAR.text : VAR.muted, fontWeight: p.can_view ? 600 : 400 }}>{sec.label}</span>
+                    <div key={sec.id}>
+                      <div style={{
+                        display: "grid", gridTemplateColumns: "1fr 120px 120px",
+                        padding: "13px 20px", alignItems: "center",
+                        borderBottom: (i < SYSTEM_SECTIONS.length - 1 || (hasSubItems && isExpanded)) ? "1px solid #0a1020" : "none",
+                        background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
+                        opacity: !p.can_view ? 0.55 : 1,
+                      }}>
+                        <div
+                          style={{ display: "flex", alignItems: "center", gap: 10, cursor: hasSubItems ? "pointer" : "default" }}
+                          onClick={() => hasSubItems && setExpandedSections((prev) => ({ ...prev, [sec.id]: !prev[sec.id] }))}
+                        >
+                          <span style={{ fontSize: 18 }}>{sec.icon}</span>
+                          <span style={{ fontSize: 14, color: p.can_view ? VAR.text : VAR.muted, fontWeight: p.can_view ? 600 : 400 }}>{sec.label}</span>
+                          {hasSubItems && (
+                            <span style={{ color: VAR.muted, fontSize: 11, transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "none" }}>▼</span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_view")} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_view ? "#1a5a30" : "#2a1020", cursor: "pointer", position: "relative" }}>
+                            <div style={{ position: "absolute", top: 3, right: p.can_view ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
+                          </button>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_edit")} disabled={!p.can_view} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_edit ? "#1a3a6a" : "#1a1a2a", cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
+                            <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_edit ? COLORS.blue : "#3a3a5a", transition: "right 0.2s" }} />
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", justifyContent: "center" }}>
-                        <button onClick={() => togglePerm(sec.id, "can_view")} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_view ? "#1a5a30" : "#2a1020", cursor: "pointer", position: "relative" }}>
-                          <div style={{ position: "absolute", top: 3, right: p.can_view ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
-                        </button>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "center" }}>
-                        <button onClick={() => togglePerm(sec.id, "can_edit")} disabled={!p.can_view} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_edit ? "#1a3a6a" : "#1a1a2a", cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
-                          <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_edit ? COLORS.blue : "#3a3a5a", transition: "right 0.2s" }} />
-                        </button>
-                      </div>
+
+                      {/* ── العناصر الفرعية داخل القسم: تتحكم في ما يظهر/يُعدَّل داخل القسم نفسه ── */}
+                      {hasSubItems && isExpanded && (
+                        <div style={{ background: "#080d18" }}>
+                          {sec.subItems.map((sub, si) => {
+                            const sp = currentRolePerms[permKey(sec.id, sub.id)] || { can_view: false, can_edit: false };
+                            return (
+                              <div key={sub.id} style={{
+                                display: "grid", gridTemplateColumns: "1fr 120px 120px",
+                                padding: "10px 20px 10px 20px", paddingRight: 44, alignItems: "center",
+                                borderBottom: (si < sec.subItems.length - 1 || i < SYSTEM_SECTIONS.length - 1) ? "1px solid #0a1020" : "none",
+                                opacity: !sp.can_view ? 0.55 : 1,
+                              }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ color: VAR.muted, fontSize: 12 }}>└</span>
+                                  <span style={{ fontSize: 12.5, color: sp.can_view ? VAR.text : VAR.muted }}>{sub.label}</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "center" }}>
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_view")} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_view ? "#1a5a30" : "#2a1020", cursor: "pointer", position: "relative" }}>
+                                    <div style={{ position: "absolute", top: 2, right: sp.can_view ? 2 : 19, width: 18, height: 18, borderRadius: "50%", background: sp.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
+                                  </button>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "center" }}>
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_edit")} disabled={!sp.can_view} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_edit ? "#1a3a6a" : "#1a1a2a", cursor: sp.can_view ? "pointer" : "not-allowed", position: "relative", opacity: sp.can_view ? 1 : 0.4 }}>
+                                    <div style={{ position: "absolute", top: 2, right: sp.can_edit ? 2 : 19, width: 18, height: 18, borderRadius: "50%", background: sp.can_edit ? COLORS.blue : "#3a3a5a", transition: "right 0.2s" }} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
