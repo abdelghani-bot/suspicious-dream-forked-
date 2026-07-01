@@ -2156,6 +2156,7 @@ function Dashboard({
 }) {
   const alerts = useEssentialAlerts(products);
   const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
+  const [deptTab, setDeptTab] = useState("today"); // "today" | "month" — لكارت مبيعات الأقسام
   const [privacyMode, setPrivacyMode] = useState(true);
   const [expandedAlertGroup, setExpandedAlertGroup] = useState(null);
 
@@ -2310,6 +2311,36 @@ const [myTarget, setMyTarget] = useState(null);
     const label = new Date(mk + "-01").toLocaleDateString("ar-EG", { month: "short", year: "2-digit" });
     return { mk, label, mRev, mPurchases, mCreditPaid, mProfit };
   });
+
+  // ══════════ مبيعات الأقسام (يومي/شهري) — إيراد + ربح لكل قسم ══════════
+  const DEPT_PALETTE = [COLORS.blue, COLORS.purple, COLORS.teal, COLORS.gold, COLORS.coral, COLORS.green, COLORS.red];
+  const computeDeptStats = (salesArr) => {
+    const map = {};
+    salesArr.forEach((s) => {
+      const items = getSaleItems(s).filter((it) => !it.isMissed);
+      items.forEach((it) => {
+        const cat = it.category || it.main_category || it.mainCategory ||
+          products.find((p) => p.id === it.id)?.main_category ||
+          products.find((p) => p.id === it.id)?.category || "أخرى";
+        const cost = it.cost ?? products.find((p) => p.id === it.id)?.cost ?? 0;
+        const price = it.price ?? 0;
+        const qty = it.qty || 0;
+        if (!map[cat]) map[cat] = { category: cat, revenue: 0, cost: 0 };
+        map[cat].revenue += price * qty;
+        map[cat].cost += cost * qty;
+      });
+    });
+    const rows = Object.values(map).map((r) => ({
+      ...r,
+      profit: r.revenue - r.cost,
+      profitPct: r.revenue > 0 ? ((r.revenue - r.cost) / r.revenue) * 100 : 0,
+    })).sort((a, b) => b.revenue - a.revenue);
+    const totalRevenue = rows.reduce((a, r) => a + r.revenue, 0);
+    const totalProfit = rows.reduce((a, r) => a + r.profit, 0);
+    return { rows: rows.map((r) => ({ ...r, share: totalRevenue > 0 ? (r.revenue / totalRevenue) * 100 : 0 })), totalRevenue, totalProfit };
+  };
+  const deptStatsToday = computeDeptStats(todaySales);
+  const deptStatsMonth = computeDeptStats(monthSales);
 
   // ── تنبيهات الأصناف ──
   const lowStock      = products.filter((p) => p.stock <= (p.min_stock || p.minStock || 0));
@@ -2750,6 +2781,107 @@ const [myTarget, setMyTarget] = useState(null);
             );
           })()}
         </Modal>
+
+        {/* مبيعات الأقسام — يومي/شهري مع نسبة وقيمة الربح */}
+        <CollapsibleCard
+          cardKey="departments"
+          icon="🏬"
+          title="مبيعات الأقسام"
+          badge={`${(deptTab === "today" ? deptStatsToday.totalRevenue : deptStatsMonth.totalRevenue).toFixed(0)} ر.س`}
+          badgeColor={VAR.accent2}
+        >
+          <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
+            {[{ key: "today", label: "اليوم" }, { key: "month", label: "الشهر" }].map((t) => (
+              <button
+                key={t.key}
+                onClick={(e) => { e.stopPropagation(); setDeptTab(t.key); }}
+                style={{
+                  fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                  background: deptTab === t.key ? VAR.accent2 : "transparent",
+                  color: deptTab === t.key ? VAR.bg : VAR.muted,
+                  border: "none", cursor: "pointer", fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {(() => {
+            const stats = deptTab === "today" ? deptStatsToday : deptStatsMonth;
+            if (stats.rows.length === 0) {
+              return (
+                <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "24px 0" }}>
+                  لا توجد مبيعات مسجّلة {deptTab === "today" ? "اليوم" : "هذا الشهر"} بعد
+                </div>
+              );
+            }
+            const overallProfitPct = stats.totalRevenue > 0 ? (stats.totalProfit / stats.totalRevenue) * 100 : 0;
+            return (
+              <>
+                {/* ملخص علوي */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, padding: "14px 14px 6px" }}>
+                  <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(VAR.accent, 0.08), border: `1px solid ${tint(VAR.accent, 0.28)}` }}>
+                    <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>إجمالي الإيراد</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: VAR.accent }}>{S(stats.totalRevenue.toFixed(0) + " ر.س")}</div>
+                  </div>
+                  <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.green, 0.08), border: `1px solid ${tint(COLORS.green, 0.28)}` }}>
+                    <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>إجمالي الربح</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: COLORS.green }}>{S(stats.totalProfit.toFixed(0) + " ر.س")}</div>
+                  </div>
+                  <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.gold, 0.08), border: `1px solid ${tint(COLORS.gold, 0.28)}` }}>
+                    <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>نسبة الربح</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: COLORS.gold }}>{overallProfitPct.toFixed(1)}%</div>
+                  </div>
+                </div>
+
+                {/* كروت زجاجية ملونة لكل قسم — عرض الشريط بنسبة الحصة من الإيراد */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px 14px" }}>
+                  {stats.rows.map((r, i) => {
+                    const color = DEPT_PALETTE[i % DEPT_PALETTE.length];
+                    return (
+                      <div
+                        key={r.category}
+                        style={{
+                          position: "relative", borderRadius: 10, overflow: "hidden",
+                          background: `linear-gradient(135deg, ${tint(color, 0.16)}, ${tint(color, 0.04)})`,
+                          backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                          border: `1px solid ${tint(color, 0.32)}`,
+                          padding: "10px 12px",
+                        }}
+                      >
+                        {/* شريط تقدّم زجاجي بنسبة الحصة من إجمالي إيراد الفترة */}
+                        <div style={{
+                          position: "absolute", top: 0, bottom: 0, right: 0,
+                          width: `${Math.max(r.share, 3)}%`,
+                          background: `linear-gradient(90deg, transparent, ${tint(color, 0.22)})`,
+                          transition: "width 0.4s",
+                        }} />
+                        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 99, background: color, boxShadow: `0 0 8px ${color}` }} />
+                            <span style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{r.category}</span>
+                          </div>
+                          <span style={{ fontSize: 10, color: VAR.muted, fontFamily: "monospace" }}>{r.share.toFixed(0)}%</span>
+                        </div>
+                        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
+                          <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color }}>{S(r.revenue.toFixed(0) + " ر.س")}</span>
+                          <span style={{ fontSize: 11, color: VAR.muted }}>
+                            ربح {S(r.profit.toFixed(0) + " ر.س")}{" "}
+                            <span style={{ color: r.profitPct >= 0 ? COLORS.green : COLORS.red, fontWeight: 700 }}>
+                              ({r.profitPct.toFixed(0)}%)
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
+        </CollapsibleCard>
 
         {/* 2) تارجت الشهر */}
         <CollapsibleCard cardKey="target" icon="🎯" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
