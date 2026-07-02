@@ -2713,7 +2713,7 @@ const [myTarget, setMyTarget] = useState(null);
       "كوزمتك عادي": COLORS.teal,
       "كوزمتك طبي": COLORS.purple,
       "مستلزمات أطفال": COLORS.gold,
-      "مستلزمات طبية": COLORS.coral,
+      "مستلزمات طبية": COLORS.red,
     };
     const cats = Object.keys(MAIN_CATEGORIES);
     const grouped = {};
