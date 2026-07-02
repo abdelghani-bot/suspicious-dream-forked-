@@ -3293,6 +3293,25 @@ function sellFromBatches(product, qtyToSell, preferredExpiry) {
 
   return { updatedBatches, salePrice, soldBatches };
 }
+
+// صوت تنبيه قصير (بيب) لما الباركود يقرا تاريخ صلاحية مش مطابق للمسجل بالمخزون
+function playWarningBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+    osc.onended = () => ctx.close();
+  } catch (e) {
+    // متصفح مايدعمش Web Audio — نتجاهل بهدوء
+  }
+}
 // ==================== POS ====================
 const MAX_INVOICES = 8;
 const CART_ROW_HEIGHT = 49; // ارتفاع تقريبي لكل صف في جدول السلة
@@ -3486,6 +3505,19 @@ function POS({
     }
   }
 
+  // لو الصنف اتضاف من غير تحديد تاريخ صلاحية، نحدده تلقائيًا بأقرب تشغيلة فعليًا موجودة بالمخزون
+  // (بنفس منطق FIFO القديم)، والكاشير بعدين يقدر يغيّره من قائمة التشغيلات المتاحة في السلة.
+  let effectiveExpiry = p.expiry;
+  if (!effectiveExpiry && !p.isMissed && !p.isJoker) {
+    const prodBatches = products.find((x) => x.id === p.id)?.batches || [];
+    const validExpiries = prodBatches
+      .filter((b) => b.qty > 0 && b.expiry_date)
+      .map((b) => b.expiry_date)
+      .sort();
+    if (validExpiries.length) effectiveExpiry = validExpiries[0];
+  }
+  p = { ...p, expiry: effectiveExpiry };
+
   // كل سطر في السلة بيتحدد بالصنف + تاريخ الصلاحية + رقم التشغيلة معًا،
   // عشان لو نفس الصنف موجود ع الرف بأكتر من تاريخ صلاحية يقدر الكاشير يبيعهم كسطرين منفصلين
   // بدل ما يتجمعوا غصب على بعض تحت تاريخ واحد.
@@ -3543,6 +3575,23 @@ function POS({
         (x) => x.barcode === scan.gtin || x.gtin === scan.gtin
       );
       if (product) {
+        const norm = (v) => (v ? String(v).slice(0, 10) : "");
+        const scannedExpiry = norm(scan.expiry);
+        const knownExpiries = (product.batches || [])
+          .filter((b) => b.qty > 0 && b.expiry_date)
+          .map((b) => norm(b.expiry_date));
+
+        // لو الصنف عنده تشغيلات مسجلة بتاريخ صلاحية، والتاريخ اللي قراه الباركود مش
+        // مطابق لأي واحدة منها → نرفض ونطلع تنبيه صوتي، بدل ما نبيع بتاريخ غلط.
+        if (scannedExpiry && knownExpiries.length && !knownExpiries.includes(scannedExpiry)) {
+          playWarningBeep();
+          showToast(
+            `⚠️ تاريخ الصلاحية على الباركود (${scan.expiry}) مش مطابق لأي تشغيلة مسجلة لـ "${product.name}". تحقق من الصنف أو سجّل التشغيلة الجديدة في فاتورة الشراء الأول.`,
+            "error"
+          );
+          return;
+        }
+
         addToCart({
           ...product,
           batch: scan.batch,
@@ -4661,33 +4710,52 @@ function POS({
             placeholder="الجرعة..."
             style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.textDim, fontSize: 11, outline: "none", padding: "2px 0" }}
           />
-          {!item.isMissed && !item.isJoker && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-              <span style={{ fontSize: 10, color: COLORS.gold, flexShrink: 0 }}>⏰</span>
-              <input
-                type="date"
-                value={item.expiry || ""}
-                onChange={(e) => {
-                  const newExpiry = e.target.value;
-                  setInv((p) => ({
-                    ...p,
-                    cart: p.cart.map((i) =>
-                      i.lineId === item.lineId
-                        ? {
-                            ...i,
-                            expiry: newExpiry,
-                            // تحديث lineId عشان لو اتضاف نفس الصنف بنفس التاريخ الجديد يتجمع صح
-                            lineId: `${i.id}::${newExpiry || ""}::${i.batch || ""}`,
-                          }
-                        : i
-                    ),
-                  }));
-                }}
-                title="عدّل تاريخ الصلاحية لو الصنف على الرف بتاريخ مختلف عن المسجل"
-                style={{ background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.gold, fontSize: 10, outline: "none", padding: "1px 0", colorScheme: "dark" }}
-              />
-            </div>
-          )}
+          {!item.isMissed && !item.isJoker && (() => {
+            const prodBatches = products.find((x) => x.id === item.id)?.batches || [];
+            const expiryOptions = Array.from(
+              new Set(
+                prodBatches
+                  .filter((b) => b.qty > 0 && b.expiry_date)
+                  .map((b) => b.expiry_date)
+              )
+            ).sort();
+
+            if (expiryOptions.length === 0) return null;
+
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                <span style={{ fontSize: 10, color: COLORS.gold, flexShrink: 0 }}>⏰</span>
+                <select
+                  value={item.expiry || ""}
+                  onChange={(e) => {
+                    const newExpiry = e.target.value;
+                    setInv((p) => ({
+                      ...p,
+                      cart: p.cart.map((i) =>
+                        i.lineId === item.lineId
+                          ? {
+                              ...i,
+                              expiry: newExpiry,
+                              // تحديث lineId عشان لو اتضاف نفس الصنف بنفس التاريخ الجديد يتجمع صح
+                              lineId: `${i.id}::${newExpiry || ""}::${i.batch || ""}`,
+                            }
+                          : i
+                      ),
+                    }));
+                  }}
+                  title="اختر التشغيلة (تاريخ الصلاحية) اللي هتبيع منها — القائمة بتعرض التشغيلات الموجودة فعلاً في المخزون بس"
+                  style={{ background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.gold, fontSize: 10, outline: "none", padding: "1px 0", colorScheme: "dark" }}
+                >
+                  {!expiryOptions.includes(item.expiry) && (
+                    <option value="">اختر تاريخ الصلاحية...</option>
+                  )}
+                  {expiryOptions.map((exp) => (
+                    <option key={exp} value={exp}>{exp}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          })()}
         </td>
 
         <td style={{ textAlign: "center", padding: "8px 4px" }}>
@@ -8647,17 +8715,60 @@ function InventoryCount({
   const [selectedLog, setSelectedLog] = useState(null);
 
   const startCount = () => {
-    setCountItems(
-      products.map((p) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        systemQty: p.stock,
-        actualQty: p.stock,
-        diff: 0,
-      }))
-    );
+    // كل تشغيلة (صنف + تاريخ صلاحية) بتاخد سطر منفصل في الجرد،
+    // عشان الكمية الفعلية للصنف تقدر تتوزع على أكتر من تاريخ صلاحية.
+    const rows = [];
+    products.forEach((p) => {
+      const batches = (p.batches || []).filter((b) => b.qty > 0);
+      if (batches.length > 0) {
+        batches.forEach((b, idx) => {
+          rows.push({
+            id: p.id,
+            lineKey: `${p.id}::${b.expiry_date || "بدون-تاريخ"}::${idx}`,
+            name: p.name,
+            category: p.category,
+            expiry: b.expiry_date || "",
+            systemQty: b.qty,
+            actualQty: b.qty,
+            diff: 0,
+            isNew: false,
+          });
+        });
+      } else {
+        rows.push({
+          id: p.id,
+          lineKey: `${p.id}::بدون-تاريخ::0`,
+          name: p.name,
+          category: p.category,
+          expiry: "",
+          systemQty: p.stock,
+          actualQty: p.stock,
+          diff: 0,
+          isNew: false,
+        });
+      }
+    });
+    setCountItems(rows);
     setShowNew(true);
+  };
+
+  // إضافة سطر تاريخ صلاحية إضافي لنفس الصنف — للحالة اللي بيتلاقى فيها كمية
+  // على الرف بتاريخ مش مسجل أصلاً في المخزون.
+  const addExtraExpiryLine = (item) => {
+    setCountItems((p) => [
+      ...p,
+      {
+        id: item.id,
+        lineKey: `${item.id}::جديد::${Date.now()}`,
+        name: item.name,
+        category: item.category,
+        expiry: "",
+        systemQty: 0,
+        actualQty: 0,
+        diff: 0,
+        isNew: true,
+      },
+    ]);
   };
 
   const saveCount = async () => {
@@ -8668,6 +8779,7 @@ function InventoryCount({
       items: countItems.map((i) => ({
         id: i.id,
         name: i.name,
+        expiry: i.expiry || null,
         systemQty: i.systemQty,
         actualQty: i.actualQty,
         diff: i.actualQty - i.systemQty,
@@ -8686,13 +8798,23 @@ function InventoryCount({
       return;
     }
 
-    const changedItems = countItems.filter((i) => i.actualQty !== i.systemQty);
+    // بنجمع كل أسطر تواريخ الصلاحية الخاصة بنفس الصنف عشان نحسب إجمالي الكمية الفعلية له
+    const productTotals = {};
+    countItems.forEach((i) => {
+      if (!productTotals[i.id]) productTotals[i.id] = { systemQty: 0, actualQty: 0 };
+      productTotals[i.id].systemQty += +i.systemQty;
+      productTotals[i.id].actualQty += +i.actualQty;
+    });
 
-    if (changedItems.length > 0) {
-      const adjustments = changedItems.map((i) => ({
+    const changedProductIds = Object.keys(productTotals).filter(
+      (id) => productTotals[id].actualQty !== productTotals[id].systemQty
+    );
+
+    if (changedProductIds.length > 0) {
+      const adjustments = changedProductIds.map((id) => ({
         inventory_log_id: logData.id,
-        product_id: i.id,
-        quantity: i.actualQty - i.systemQty,
+        product_id: id,
+        quantity: productTotals[id].actualQty - productTotals[id].systemQty,
         date: logData.date,
         created_by: currentUser.name,
         pharmacy_id: pharmacyId,
@@ -8706,23 +8828,46 @@ function InventoryCount({
         showToast("❌ خطأ في حفظ التسويات: " + adjError.message);
         return;
       }
-
-      await Promise.all(
-        changedItems.map((i) =>
-          supabase
-            .from("products")
-            .update({ stock: i.actualQty })
-            .eq("id", i.id)
-            .eq("pharmacy_id", pharmacyId)
-        )
-      );
     }
+
+    // بنعيد بناء تشغيلات كل صنف حسب التواريخ اللي اتسجلت فعليًا في الجرد
+    const productUpdates = Object.keys(productTotals).map((id) => {
+      const prod = products.find((x) => x.id === id);
+      const rows = countItems.filter((i) => i.id === id && +i.actualQty > 0);
+      const newBatches = rows.map((r) => {
+        const origBatch = (prod?.batches || []).find(
+          (b) => (b.expiry_date || "") === (r.expiry || "")
+        );
+        return {
+          qty: +r.actualQty,
+          cost: origBatch?.cost ?? prod?.cost ?? 0,
+          salePrice: origBatch?.salePrice ?? prod?.price ?? 0,
+          expiry_date: r.expiry || null,
+          date: origBatch?.date || logData.date,
+        };
+      });
+      return {
+        id,
+        stock: productTotals[id].actualQty,
+        batches: newBatches,
+      };
+    });
+
+    await Promise.all(
+      productUpdates.map((u) =>
+        supabase
+          .from("products")
+          .update({ stock: u.stock, batches: u.batches })
+          .eq("id", u.id)
+          .eq("pharmacy_id", pharmacyId)
+      )
+    );
 
     setInventoryLogs((p) => [logData, ...p]);
     setProducts((p) =>
       p.map((x) => {
-        const ci = changedItems.find((i) => i.id === x.id);
-        return ci ? { ...x, stock: ci.actualQty } : x;
+        const u = productUpdates.find((uu) => uu.id === x.id);
+        return u ? { ...x, stock: u.stock, batches: u.batches } : x;
       })
     );
 
@@ -8817,7 +8962,7 @@ function InventoryCount({
                       top: 0,
                     }}
                   >
-                    {["الصنف", "كمية النظام", "الكمية الفعلية", "الفرق"].map(
+                    {["الصنف", "تاريخ الصلاحية", "كمية النظام", "الكمية الفعلية", "الفرق"].map(
                       (h) => (
                         <th
                           key={h}
@@ -8839,7 +8984,7 @@ function InventoryCount({
                     const changed = item.diff !== 0;
                     return (
                       <tr
-                        key={item.id}
+                        key={`${item.id}-${i}`}
                         style={{
                           borderBottom: "1px solid #0a101a",
                           // ✅ الأصناف المتغيرة بخلفية مميزة
@@ -8872,6 +9017,9 @@ function InventoryCount({
                               {item.diff < 0 ? "▼ نقص" : "▲ زيادة"}
                             </span>
                           )}
+                        </td>
+                        <td style={{ padding: "8px 14px", color: COLORS.textDim, fontSize: 12 }}>
+                          {item.expiry || "-"}
                         </td>
                         <td style={{ padding: "8px 14px", color: COLORS.textDim }}>
                           {item.systemQty}
@@ -8949,9 +9097,11 @@ function InventoryCount({
                 {[
                   "الصنف",
                   "الفئة",
+                  "تاريخ الصلاحية",
                   "كمية النظام",
                   "الكمية الفعلية",
                   "الفرق",
+                  "",
                 ].map((h) => (
                   <th
                     key={h}
@@ -8970,10 +9120,12 @@ function InventoryCount({
             <tbody>
               {filtered.map((item, i) => (
                 <tr
-                  key={item.id}
+                  key={item.lineKey}
                   style={{
                     borderBottom: "1px solid #0a101a",
-                    background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
+                    background: item.isNew
+                      ? "rgba(68,221,136,0.06)"
+                      : i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                   }}
                 >
                   <td
@@ -8988,6 +9140,31 @@ function InventoryCount({
                   <td style={{ padding: "8px 14px" }}>
                     <Badge>{item.category}</Badge>
                   </td>
+                  <td style={{ padding: "8px 14px" }}>
+                    <input
+                      type="date"
+                      value={item.expiry || ""}
+                      onChange={(e) =>
+                        setCountItems((p) =>
+                          p.map((x) =>
+                            x.lineKey === item.lineKey
+                              ? { ...x, expiry: e.target.value }
+                              : x
+                          )
+                        )
+                      }
+                      style={{
+                        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                        border: "1px solid #1d2d4a",
+                        borderRadius: 6,
+                        padding: "5px 8px",
+                        color: item.expiry ? COLORS.textPrimary : COLORS.textDim,
+                        fontSize: 12,
+                        outline: "none",
+                        colorScheme: "dark",
+                      }}
+                    />
+                  </td>
                   <td style={{ padding: "8px 14px", color: COLORS.textDim }}>
                     {item.systemQty}
                   </td>
@@ -8999,7 +9176,7 @@ function InventoryCount({
                       onChange={(e) =>
                         setCountItems((p) =>
                           p.map((x) =>
-                            x.id === item.id
+                            x.lineKey === item.lineKey
                               ? {
                                   ...x,
                                   actualQty: +e.target.value,
@@ -9035,6 +9212,18 @@ function InventoryCount({
                   >
                     {item.actualQty - item.systemQty > 0 ? "+" : ""}
                     {item.actualQty - item.systemQty}
+                  </td>
+                  <td style={{ padding: "8px 14px" }}>
+                    <button
+                      onClick={() => addExtraExpiryLine(item)}
+                      title="أضف تاريخ صلاحية إضافي لنفس الصنف (لو لقيت كمية على الرف بتاريخ مختلف)"
+                      style={{
+                        width: 24, height: 24, borderRadius: 6,
+                        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                        border: "1px solid #1d2d4a", color: COLORS.green,
+                        cursor: "pointer", fontWeight: 700, fontSize: 13,
+                      }}
+                    >+</button>
                   </td>
                 </tr>
               ))}
