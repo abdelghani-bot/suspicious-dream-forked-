@@ -2003,6 +2003,7 @@ if (isLoading) return (
             currentUser={currentUser}
             showToast={showToast}
             pharmacyId={pharmacyId}
+            purchases={purchases}
           />
         )}
         {tab === "products" && (
@@ -5920,9 +5921,27 @@ const LABEL_SIZES = [
       return; // لا نكمّل تحديث المخزون لأن الفاتورة نفسها لم تُحفظ
     }
     const stockUpdateFailures = [];
+    // بنجهز الـ batches الجديدة لكل صنف قبل الكتابة، عشان نضمن إنها تتحفظ فعليًا
+    // في Supabase (مش بس في الذاكرة المحلية) — ده كان السبب في ضياع تواريخ الصلاحية
+    // القديمة عند دخول فاتورة شراء جديدة لنفس الصنف.
+    const newBatchesByProduct = {};
     for (const ci of items) {
       const product = products.find((x) => x.id === ci.id);
       if (!product) continue;
+      const newBatch = {
+        qty: ci.qty + (ci.bonusQty || 0),
+        cost: ci.receivedCost,
+        salePrice: ci.newSalePrice,
+        expiry_date: ci.expiry_date || null,
+        date: new Date().toISOString().split("T")[0],
+      };
+      const existingBatches = product.batches?.length
+        ? product.batches
+        : product.stock > 0
+        ? [{ qty: product.stock, cost: product.cost, salePrice: product.price, date: "قديم" }]
+        : [];
+      newBatchesByProduct[ci.id] = [...existingBatches, newBatch];
+
       const newStock = product.stock + ci.qty + (ci.bonusQty || 0);
       const { error: stockErr } = await supabase
         .from("products")
@@ -5930,6 +5949,7 @@ const LABEL_SIZES = [
           stock: newStock,
           cost: ci.receivedCost,
           price: ci.newSalePrice,
+          batches: newBatchesByProduct[ci.id],
           not_available_market: false,
         })
         .eq("id", ci.id)
@@ -5943,24 +5963,12 @@ const LABEL_SIZES = [
       prev.map((x) => {
         const ci = items.find((i) => i.id === x.id);
         if (!ci) return x;
-        const newBatch = {
-          qty: ci.qty + (ci.bonusQty || 0),
-          cost: ci.receivedCost,
-          salePrice: ci.newSalePrice,
-          expiry_date: ci.expiry_date || null,
-          date: new Date().toISOString().split("T")[0],
-        };
-        const existingBatches = x.batches?.length
-          ? x.batches
-          : x.stock > 0
-          ? [{ qty: x.stock, cost: x.cost, salePrice: x.price, date: "قديم" }]
-          : [];
         return {
           ...x,
           stock: x.stock + ci.qty + (ci.bonusQty || 0),
           cost: ci.receivedCost,
           price: ci.newSalePrice,
-          batches: [...existingBatches, newBatch],
+          batches: newBatchesByProduct[x.id] ?? x.batches,
           not_available_market: false,
         };
       })
@@ -8714,12 +8722,14 @@ function InventoryCount({
   currentUser,
   showToast,
   pharmacyId,
+  purchases,
 }) {
   const [showNew, setShowNew] = useState(false);
   const [countItems, setCountItems] = useState([]);
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
   const [selectedLog, setSelectedLog] = useState(null);
+  const [repairing, setRepairing] = useState(false);
 
   const startCount = () => {
     // كل تشغيلة (صنف + تاريخ صلاحية) بتاخد سطر منفصل في الجرد،
@@ -8776,6 +8786,114 @@ function InventoryCount({
         isNew: true,
       },
     ]);
+  };
+
+  // ✅ أداة إصلاح لمرة واحدة: فاتورة الشراء كانت بتحدّث تشغيلات الصنف (batches) في
+  // الذاكرة المحلية بس من غير ما تحفظها في Supabase، فتواريخ صلاحية كتير اتفقدت.
+  // الأداة دي بتعيد بناء batches كل صنف من كل فواتير الشراء المسجلة + الكمية الحالية
+  // في المخزون، بافتراض إن الاستهلاك بيحصل بترتيب فواتير الشراء (الأقدم يتباع الأول).
+  const repairBatchesFromPurchases = async () => {
+    if (repairing) return;
+    const confirmed = window.confirm(
+      "هيتم إعادة بناء تشغيلات (batches) كل الأصناف من فواتير الشراء المسجلة، وهيتكتب فوق أي تشغيلات حالية في المخزون. الكمية الإجمالية للصنف مش هتتغير. تكمل؟"
+    );
+    if (!confirmed) return;
+
+    setRepairing(true);
+    try {
+      // 1) نجمع كل تشغيلات كل صنف من كل فواتير الشراء، مرتبة زمنيًا (الأقدم أولاً)
+      const purchaseBatchesByProduct = {};
+      (purchases || [])
+        .slice()
+        .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+        .forEach((po) => {
+          const poItems =
+            typeof po.items === "string" ? JSON.parse(po.items) : po.items || [];
+          poItems.forEach((it) => {
+            if (!it.id) return;
+            const qty = (+it.qty || 0) + (+it.bonusQty || 0);
+            if (qty <= 0) return;
+            if (!purchaseBatchesByProduct[it.id]) purchaseBatchesByProduct[it.id] = [];
+            purchaseBatchesByProduct[it.id].push({
+              qty,
+              cost: it.cost ?? it.receivedCost ?? 0,
+              salePrice: it.salePrice ?? it.newSalePrice ?? 0,
+              expiry_date: it.expiry_date || null,
+              date: po.date || null,
+            });
+          });
+        });
+
+      // 2) لكل صنف، بنستهلك التشغيلات الأقدم أولاً لحد ما نوصل للكمية الحالية بالظبط
+      const updates = [];
+      products.forEach((p) => {
+        const poBatches = purchaseBatchesByProduct[p.id];
+        if (!poBatches || poBatches.length === 0) return; // مفيش فواتير شراء مسجلة لهذا الصنف، نسيبه زي ما هو
+
+        const totalPurchased = poBatches.reduce((s, b) => s + b.qty, 0);
+        let toConsume = Math.max(0, totalPurchased - Math.max(0, p.stock || 0));
+
+        const remainingBatches = [];
+        for (const b of poBatches) {
+          if (toConsume >= b.qty) {
+            toConsume -= b.qty;
+            continue; // اتستهلكت بالكامل
+          }
+          const remainingQty = b.qty - toConsume;
+          toConsume = 0;
+          if (remainingQty > 0) {
+            remainingBatches.push({ ...b, qty: remainingQty });
+          }
+        }
+
+        // لو المتبقي من التشغيلات مجموعه أقل من المخزون الفعلي (فروقات جرد/مرتجعات
+        // مش موجودة في فواتير الشراء)، نضيف الفرق كتشغيلة "غير محددة التاريخ"
+        const remainingTotal = remainingBatches.reduce((s, b) => s + b.qty, 0);
+        const gap = (p.stock || 0) - remainingTotal;
+        if (gap > 0) {
+          remainingBatches.push({
+            qty: gap,
+            cost: p.cost || 0,
+            salePrice: p.price || 0,
+            expiry_date: null,
+            date: "قديم",
+          });
+        }
+
+        updates.push({ id: p.id, batches: remainingBatches });
+      });
+
+      if (updates.length === 0) {
+        showToast("مفيش أصناف محتاجة إصلاح — كل التشغيلات متوفرة أصلاً من فواتير الشراء");
+        setRepairing(false);
+        return;
+      }
+
+      let failCount = 0;
+      for (const u of updates) {
+        const { error } = await supabase
+          .from("products")
+          .update({ batches: u.batches })
+          .eq("id", u.id)
+          .eq("pharmacy_id", pharmacyId);
+        if (error) failCount++;
+      }
+
+      setProducts((prev) =>
+        prev.map((x) => {
+          const u = updates.find((uu) => uu.id === x.id);
+          return u ? { ...x, batches: u.batches } : x;
+        })
+      );
+
+      showToast(
+        failCount > 0
+          ? `تم إصلاح ${updates.length - failCount} صنف، وفشل ${failCount} — جرب تاني`
+          : `✓ تم إصلاح تشغيلات ${updates.length} صنف من فواتير الشراء`
+      );
+    } finally {
+      setRepairing(false);
+    }
   };
 
   const saveCount = async () => {
@@ -8898,9 +9016,20 @@ function InventoryCount({
         }}
       >
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>نظام الجرد</h2>
-        <Btn icon="count" onClick={startCount}>
-          بدء جرد جديد
-        </Btn>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn
+            variant="ghost"
+            icon="tools"
+            onClick={repairBatchesFromPurchases}
+            disabled={repairing}
+            title="إعادة بناء تشغيلات وتواريخ صلاحية الأصناف من فواتير الشراء المسجلة"
+          >
+            {repairing ? "جارِ الإصلاح..." : "إصلاح تشغيلات المخزون"}
+          </Btn>
+          <Btn icon="count" onClick={startCount}>
+            بدء جرد جديد
+          </Btn>
+        </div>
       </div>
 
       <Table
