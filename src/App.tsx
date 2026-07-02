@@ -1509,7 +1509,12 @@ export default function PharmacyPro() {
     );
     setSuppliers(s.data ?? []);
     setCustomers(c.data ?? []);
-    setSales(sa.data ?? []);
+    setSales(
+      (sa.data ?? []).map((row) => ({
+        ...row,
+        returnDate: row.return_date ?? row.returnDate ?? undefined,
+      }))
+    );
     setReturnsData(ret.data ?? []);
     setCreditPayments(cp.data ?? []);
     setInventoryLogs(inv.data ?? []);
@@ -7559,7 +7564,7 @@ function ReturnsModule({
         .update({
           items: updatedItems,
           returned: allReturned, // علم فقط لو كل البنود رجعت بالكامل
-          returnDate: allReturned ? today : undefined,
+          return_date: allReturned ? today : null,
         })
         .eq("id", selInvoice.id);
 
