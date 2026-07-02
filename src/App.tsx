@@ -3266,7 +3266,9 @@ function sellFromBatches(product, qtyToSell, preferredExpiry) {
     : [];
 
   if (preferredExpiry) {
-    const norm = (v) => (v ? String(v).slice(0, 10) : "");
+    // تشغيلات المخزون متسجلة بدقة الشهر/السنة بس (زي "2030-05")، فبنقارن بنفس الدقة
+    // عشان تاريخ يوم دقيق (من باركود مثلاً) يتطابق صح مع التشغيلة المسجلة.
+    const norm = (v) => (v ? String(v).slice(0, 7) : "");
     const target = norm(preferredExpiry);
     const matched = [];
     const rest = [];
@@ -3575,7 +3577,10 @@ function POS({
         (x) => x.barcode === scan.gtin || x.gtin === scan.gtin
       );
       if (product) {
-        const norm = (v) => (v ? String(v).slice(0, 10) : "");
+        // تشغيلات المخزون متسجلة بدقة الشهر/السنة بس (حقل التاريخ في فاتورة الشراء
+        // من نوع شهر)، والباركود بيقرا تاريخ كامل بالليوم — فبنقارن بدقة الشهر
+        // عشان مايترفضش الصنف غلط بسبب اختلاف دقة التاريخ بس.
+        const norm = (v) => (v ? String(v).slice(0, 7) : "");
         const scannedExpiry = norm(scan.expiry);
         const knownExpiries = (product.batches || [])
           .filter((b) => b.qty > 0 && b.expiry_date)
@@ -3596,7 +3601,9 @@ function POS({
           ...product,
           batch: scan.batch,
           serial: scan.serial,
-          expiry: scan.expiry,
+          // بنخزن بدقة الشهر زي ما هي متسجلة في التشغيلة، عشان تتطابق مع قائمة
+          // اختيار التشغيلة في السلة (الأصل الكامل باليوم بيفضل موجود في scan.expiry لو احتجناه)
+          expiry: scannedExpiry || scan.expiry,
         });
         return;
       }
@@ -9142,7 +9149,7 @@ function InventoryCount({
                   </td>
                   <td style={{ padding: "8px 14px" }}>
                     <input
-                      type="date"
+                      type="month"
                       value={item.expiry || ""}
                       onChange={(e) =>
                         setCountItems((p) =>
