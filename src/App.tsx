@@ -7353,6 +7353,7 @@ function ReturnsModule({
 }) {
   const [type, setType] = useState(fixedType || (canViewSalesReturns ? "sales" : "purchases"));
   const [returnItems, setReturnItems] = useState([]);
+  const [lastScanResult, setLastScanResult] = useState(null); // 🆕 نتيجة آخر مسح ضوئي (بار المقارنة)
   const [reasonOption, setReasonOption] = useState("");
   const [reasonCustom, setReasonCustom] = useState("");
   const reason = reasonOption === "أخرى" ? reasonCustom : reasonOption;
@@ -7409,6 +7410,7 @@ function ReturnsModule({
     setReasonCustom("");
     setSelPurchaseInvoice("");
     setAdminOverride(false);
+    setLastScanResult(null);
   }, [type]);
 
   // ── فلترة فواتير المبيعات ──
@@ -7433,6 +7435,7 @@ function ReturnsModule({
       return;
     }
     setSelInvoice(invoice);
+    setLastScanResult(null);
     setInvoiceSearch(invoice.id);
     setInvoiceSearchOpen(false);
     // تحميل أصناف الفاتورة
@@ -7496,21 +7499,28 @@ function ReturnsModule({
     const scannedExpiry = scan.type === "gs1" && scan.expiry ? scan.expiry.slice(0, 7) : "";
     const scannedBatch = scan.type === "gs1" ? scan.batch || "" : "";
     const prod = products.find((x) => x.barcode === code || x.id === code);
+
     if (!prod) {
+      setLastScanResult({ status: "not_found", code });
       showToast("الصنف غير موجود: " + code, "error");
       return;
     }
+
     const idx = returnItems.findIndex((i) => i.id === prod.id);
     if (idx === -1) {
+      setLastScanResult({ status: "not_in_invoice", name: prod.name, code });
       showToast(`⚠️ "${prod.name}" غير موجود ضمن أصناف هذه الفاتورة`, "error");
       return;
     }
+
     const item = returnItems[idx];
     const maxReturnable = Math.max(0, (item.qty || 0) - (item.alreadyReturnedQty || 0));
     if (item.returnQty >= maxReturnable) {
+      setLastScanResult({ status: "max_reached", name: item.name, maxReturnable });
       showToast(`⚠️ ${item.name}: وصلت لأقصى كمية قابلة للإرجاع (${maxReturnable})`, "error");
       return;
     }
+
     // مقارنة الباتش/الصلاحية الممسوحة بالفاتورة الأصلية
     const batchMismatch =
       (scannedBatch && item.originalBatch && scannedBatch !== item.originalBatch) ||
@@ -7529,6 +7539,16 @@ function ReturnsModule({
           : x
       )
     );
+
+    setLastScanResult({
+      status: batchMismatch ? "mismatch" : "matched",
+      name: item.name,
+      originalBatch: item.originalBatch || null,
+      originalExpiry: item.originalExpiry || null,
+      scannedBatch: scannedBatch || null,
+      scannedExpiry: scannedExpiry || null,
+      newQty: Math.min(item.returnQty + 1, maxReturnable),
+    });
 
     if (batchMismatch) {
       showToast(`⚠️ ${item.name}: الباتش/الصلاحية الممسوحة لا تطابق الفاتورة الأصلية`, "error");
@@ -7912,7 +7932,7 @@ function ReturnsModule({
                   {" — "}
                   <strong>{selInvoice.payment === "آجل" ? "آجل (سينزل من مديونية العميل)" : "نقدي (سينزل من الخزنة)"}</strong>
                 </span>
-                <button onClick={() => { setSelInvoice(null); setInvoiceSearch(""); setReturnItems([]); }}
+                <button onClick={() => { setSelInvoice(null); setInvoiceSearch(""); setReturnItems([]); setLastScanResult(null); }}
                   style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}>✕</button>
               </div>
             )}
@@ -8054,8 +8074,86 @@ function ReturnsModule({
 
       {/* 🆕 باركود سكانر لمرتجع المبيعات — يمسح الصنف ويقارنه بباتش الفاتورة الأصلية */}
       {type === "sales" && (selInvoice || adminOverride) && returnItems.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 10 }}>
           <BarcodeScanner onScan={handleReturnScan} placeholder="امسح باركود الصنف المرتجع..." />
+        </div>
+      )}
+
+      {/* 🆕 بار نتيجة آخر مسح — ثابت وواضح لحد ما تمسح صنف تاني */}
+      {lastScanResult && (
+        <div
+          style={{
+            marginBottom: 14,
+            borderRadius: 10,
+            padding: "12px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            border: `1px solid ${
+              lastScanResult.status === "matched" ? COLORS.green
+                : lastScanResult.status === "mismatch" ? COLORS.red
+                : COLORS.gold
+            }`,
+            background:
+              lastScanResult.status === "matched" ? "#0a2a0a"
+                : lastScanResult.status === "mismatch" ? "#2a0a0a"
+                : "#2a2205",
+          }}
+        >
+          <div style={{ fontSize: 22, flexShrink: 0 }}>
+            {lastScanResult.status === "matched" && "✅"}
+            {lastScanResult.status === "mismatch" && "⛔"}
+            {(lastScanResult.status === "not_found" || lastScanResult.status === "not_in_invoice" || lastScanResult.status === "max_reached") && "⚠️"}
+          </div>
+          <div style={{ flex: 1 }}>
+            {lastScanResult.status === "matched" && (
+              <>
+                <div style={{ fontWeight: 800, color: COLORS.green, fontSize: 14 }}>
+                  {lastScanResult.name} — مطابق للفاتورة ✓
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.textDim, marginTop: 3 }}>
+                  {lastScanResult.originalBatch && <span>باتش: {lastScanResult.originalBatch} </span>}
+                  {lastScanResult.originalExpiry && <span>| صلاحية: {lastScanResult.originalExpiry} </span>}
+                  | الكمية المرتجعة الآن: {lastScanResult.newQty}
+                </div>
+              </>
+            )}
+            {lastScanResult.status === "mismatch" && (
+              <>
+                <div style={{ fontWeight: 800, color: COLORS.red, fontSize: 14 }}>
+                  {lastScanResult.name} — لا يطابق الفاتورة الأصلية!
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.textDim, marginTop: 3, display: "flex", gap: 14, flexWrap: "wrap" }}>
+                  <span>باتش الفاتورة: <b style={{ color: COLORS.textPrimary }}>{lastScanResult.originalBatch || "—"}</b></span>
+                  <span>الباتش الممسوح: <b style={{ color: COLORS.red }}>{lastScanResult.scannedBatch || "—"}</b></span>
+                  {(lastScanResult.originalExpiry || lastScanResult.scannedExpiry) && (
+                    <span>صلاحية الفاتورة: <b style={{ color: COLORS.textPrimary }}>{lastScanResult.originalExpiry || "—"}</b> / الممسوحة: <b style={{ color: COLORS.red }}>{lastScanResult.scannedExpiry || "—"}</b></span>
+                  )}
+                </div>
+              </>
+            )}
+            {lastScanResult.status === "not_found" && (
+              <div style={{ fontWeight: 700, color: COLORS.gold, fontSize: 13 }}>
+                باركود غير مسجل في المنتجات: {lastScanResult.code}
+              </div>
+            )}
+            {lastScanResult.status === "not_in_invoice" && (
+              <div style={{ fontWeight: 700, color: COLORS.gold, fontSize: 13 }}>
+                "{lastScanResult.name}" غير موجود ضمن أصناف هذه الفاتورة
+              </div>
+            )}
+            {lastScanResult.status === "max_reached" && (
+              <div style={{ fontWeight: 700, color: COLORS.gold, fontSize: 13 }}>
+                {lastScanResult.name}: وصلت لأقصى كمية قابلة للإرجاع ({lastScanResult.maxReturnable})
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setLastScanResult(null)}
+            style={{ background: "transparent", border: "none", color: COLORS.textDim, cursor: "pointer", fontSize: 16, flexShrink: 0 }}
+          >
+            ✕
+          </button>
         </div>
       )}
 
