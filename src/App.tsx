@@ -16150,15 +16150,49 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     p.map((s) => (s.id === currentShift.id ? { ...s, ...updates } : s))
   );
 
-  // ✅ تسجيل انصراف تلقائي
+  // ✅ تسجيل انصراف تلقائي — بيحسب الساعات الفعلية مربوطة بجدول الدوام (زيادة عن الشفت متتحسبش إلا لو أوفر تايم معتمد)
   const today = new Date().toISOString().split("T")[0];
-  await supabase
+  const nowISO = new Date().toISOString();
+  const { data: openLog } = await supabase
     .from("attendance_logs")
-    .update({ check_out: new Date().toISOString() })
+    .select("*")
     .eq("pharmacy_id", pharmacyId)
     .eq("pharmacist_name", currentUser.name)
     .eq("date", today)
-    .is("check_out", null);
+    .is("check_out", null)
+    .maybeSingle();
+
+  if (openLog) {
+    const { data: schedRows } = await supabase
+      .from("work_schedules")
+      .select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .eq("pharmacist_name", currentUser.name)
+      .eq("day_of_week", new Date(openLog.check_in).getDay())
+      .eq("shift_number", openLog.shift_number || 1)
+      .eq("is_off", false)
+      .maybeSingle();
+
+    const { data: breaks } = await supabase
+      .from("prayer_breaks")
+      .select("deducted_minutes")
+      .eq("attendance_id", openLog.id);
+
+    const { totalHours } = calcCappedHours(openLog.check_in, nowISO, schedRows);
+    const totalDeductions = (breaks || []).reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
+    const netHours = Math.max(0, totalHours - totalDeductions);
+
+    await supabase
+      .from("attendance_logs")
+      .update({
+        check_out: nowISO,
+        total_hours: +totalHours.toFixed(2),
+        total_deductions: +totalDeductions.toFixed(2),
+        net_hours: +netHours.toFixed(2),
+      })
+      .eq("id", openLog.id)
+      .eq("pharmacy_id", pharmacyId);
+  }
 
   showToast("تم إغلاق الشفت وتسليمه ✓");
 };
@@ -16403,6 +16437,31 @@ function fmtHours(h: number) {
   return `${hrs}:${String(mins).padStart(2, "0")}`;
 }
 
+// 🆕 حساب ساعات العمل الفعلية مربوطة بجدول الدوام:
+// لو الصيدلي داوم زيادة عن نهاية شفته المجدولة، الوقت الزايد ميتحسبش —
+// إلا لو فيه دقائق أوفر تايم معتمدة مسبقاً على نفس الشفت (schedule.overtime_minutes)، تتحسب لحد سقفها بس.
+function calcCappedHours(checkInISO: string, checkOutISO: string, schedule: any) {
+  const checkInDate = new Date(checkInISO);
+  const actualCheckOut = new Date(checkOutISO);
+  let effectiveCheckOut = actualCheckOut;
+
+  if (schedule?.shift_end) {
+    const [endH, endM] = schedule.shift_end.split(":").map(Number);
+    const scheduledEnd = new Date(checkInDate);
+    scheduledEnd.setHours(endH, endM, 0, 0);
+    // لو الشفت بيعدي نص الليل (النهاية أصغر من البداية رقمياً) نضيف يوم
+    const [startH, startM] = (schedule.shift_start || "00:00").split(":").map(Number);
+    if (endH * 60 + endM <= startH * 60 + startM) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
+
+    const overtimeAllowed = +schedule.overtime_minutes || 0;
+    const cappedEnd = new Date(scheduledEnd.getTime() + overtimeAllowed * 60000);
+    if (actualCheckOut > cappedEnd) effectiveCheckOut = cappedEnd;
+  }
+
+  const totalMinutes = Math.max(0, (effectiveCheckOut.getTime() - checkInDate.getTime()) / 60000);
+  return { totalHours: totalMinutes / 60, capped: effectiveCheckOut < actualCheckOut };
+}
+
 const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
 // ── قائمة المدن السعودية لحساب مواقيت الصلاة ──
@@ -16467,8 +16526,8 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
       day_of_week: dow,
       is_off: dow === 6, // السبت إجازة افتراضياً
       shifts: [
-        { shift_number: 1, shift_start: "09:00", shift_end: "21:00", enabled: true },
-        { shift_number: 2, shift_start: "15:00", shift_end: "21:00", enabled: false },
+        { shift_number: 1, shift_start: "09:00", shift_end: "21:00", enabled: true, overtime_minutes: 0 },
+        { shift_number: 2, shift_start: "15:00", shift_end: "21:00", enabled: false, overtime_minutes: 0 },
       ],
     }));
 
@@ -16492,8 +16551,8 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
         ...day,
         is_off: isOff,
         shifts: [
-          { shift_number: 1, shift_start: sh1?.shift_start || "09:00", shift_end: sh1?.shift_end || "21:00", enabled: !!sh1 && !isOff },
-          { shift_number: 2, shift_start: sh2?.shift_start || "15:00", shift_end: sh2?.shift_end || "21:00", enabled: !!sh2 && !isOff },
+          { shift_number: 1, shift_start: sh1?.shift_start || "09:00", shift_end: sh1?.shift_end || "21:00", enabled: !!sh1 && !isOff, overtime_minutes: sh1?.overtime_minutes || 0 },
+          { shift_number: 2, shift_start: sh2?.shift_start || "15:00", shift_end: sh2?.shift_end || "21:00", enabled: !!sh2 && !isOff, overtime_minutes: sh2?.overtime_minutes || 0 },
         ],
       };
     });
@@ -16547,6 +16606,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             shift_start: sh.shift_start,
             shift_end: sh.shift_end,
             is_off: false,
+            overtime_minutes: +sh.overtime_minutes || 0,
           });
         });
       }
@@ -16691,6 +16751,17 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
                                 return h > 0 ? `${h.toFixed(1)} س` : "";
                               })()}
                             </span>
+                            <span style={{ fontSize: 11, color: C.muted, marginRight: 4 }}>+أوفر تايم</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={5}
+                              value={sh.overtime_minutes || 0}
+                              onChange={(e) => updateShift(day.day_of_week, sh.shift_number, "overtime_minutes", e.target.value)}
+                              style={{ ...inputStyle, width: 60 }}
+                              title="دقائق أوفر تايم معتمدة تُحتسب لو داوم فيها فعلاً — أي وقت زيادة غيرها لا يُحسب"
+                            />
+                            <span style={{ fontSize: 10, color: C.muted }}>د</span>
                           </>
                         )}
                       </div>
@@ -16953,8 +17024,8 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   async function handleCheckOut(log: any) {
     if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الانصراف", "error"); return; }
     const now = new Date();
-    const totalMinutes = diffMin(log.check_in, now.toISOString());
-    const totalHours = totalMinutes / 60;
+    const schedule = getExpectedShift(log.pharmacist_name, new Date(log.check_in).getDay(), log.shift_number || 1);
+    const { totalHours, capped } = calcCappedHours(log.check_in, now.toISOString(), schedule);
     const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
     const totalDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
     const netHours = Math.max(0, totalHours - totalDeductions);
@@ -16967,7 +17038,8 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     }).eq("id", log.id).eq("pharmacy_id", pharmacyId);
 
     if (!error) {
-      globalToast(`✅ تم تسجيل انصراف ${log.pharmacist_name}`);
+      if (capped) globalToast(`✅ تم تسجيل انصراف ${log.pharmacist_name} — وقت زيادة عن الشفت متحسبش`, "warn");
+      else globalToast(`✅ تم تسجيل انصراف ${log.pharmacist_name}`);
       loadTodayLogs();
     }
   }
