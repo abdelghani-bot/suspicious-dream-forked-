@@ -14772,7 +14772,8 @@ useEffect(() => {
     // سداد آجل (كاش دايماً)
     const creditIn = method === "نقدي" ? creditPayments.reduce((a, p) => a + p.amount, 0) : 0;
     // من سجل الخزنة (يشمل المصروفات العادية ومدفوعات الموردين سوا — type === "expense")
-    const entryIn = safe.filter((e) => e.type === "income" && e.method === method).reduce((a, e) => a + e.amount, 0);
+    // 🆕 sub_type "daily_sales" مستبعد هنا عشان دخل المبيعات محسوب فعلاً من جدول sales (salesIncome فوق) — القيد ده للعرض في السجل بس
+    const entryIn = safe.filter((e) => e.type === "income" && e.method === method && e.sub_type !== "daily_sales").reduce((a, e) => a + e.amount, 0);
     const entryOut = safe.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
     return salesIncome + creditIn + entryIn - entryOut;
   };
@@ -14843,6 +14844,13 @@ useEffect(() => {
       return;
     }
     const rows = [];
+    // 🆕 ترحيل دخل مبيعات اليوم للسجل كحركات موجبة (لكل طريقة دفع على حدة)
+    if (todayCash > 0)
+      rows.push({ type: "income", sub_type: "daily_sales", method: "نقدي", amount: todayCash, note: "دخل مبيعات اليوم (نقدي)", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+    if (todayCard > 0)
+      rows.push({ type: "income", sub_type: "daily_sales", method: "بطاقة", amount: todayCard, note: "دخل مبيعات اليوم (بطاقة)", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+    if (todayTransfer > 0)
+      rows.push({ type: "income", sub_type: "daily_sales", method: "تحويل", amount: todayTransfer, note: "دخل مبيعات اليوم (تحويل)", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     if (+closingForm.extra_income > 0)
       rows.push({ type: "income", sub_type: "other", method: "نقدي", amount: +closingForm.extra_income, note: closingForm.extra_income_note || "دخل إضافي", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     if (+closingForm.petty > 0)
