@@ -2298,12 +2298,14 @@ const [myTarget, setMyTarget] = useState(null);
   const todaySales    = sales.filter((s) => s.date === today && !s.returned);
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
   const todayCreditPaid = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
-  const todayReturnsForDash = sales
-  .filter((s) => s.returned && s.returnDate === today)
-  .reduce((a, s) => a + (s.total || 0), 0);
-  const monthReturnsForDash = sales
-  .filter((s) => s.returned && s.returnDate?.startsWith(monthKey))
-  .reduce((a, s) => a + (s.total || 0), 0);
+  // 🆕 المرتجعات هنا بتتحسب من treasury_entries (نفس مصدر تقفيل اليوم) مش من sales.returned مباشرة،
+  // عشان: 1) مرتجع فاتورة آجل ميتخصمش من الخزنة (مفيش كاش خرج أصلاً)، 2) المرتجع الجزئي (مش كل الفاتورة) يتحسب صح.
+  const todayReturnsForDash = (treasuryEntries || [])
+    .filter((e) => e.date === today && e.type === "expense" && e.sub_type === "sales_return")
+    .reduce((a, e) => a + (e.amount || 0), 0);
+  const monthReturnsForDash = (treasuryEntries || [])
+    .filter((e) => e.date?.startsWith(monthKey) && e.type === "expense" && e.sub_type === "sales_return")
+    .reduce((a, e) => a + (e.amount || 0), 0);
   const todayRev = todayCashSales.reduce((a, s) => a + s.total, 0);
   const todayAjilTotal = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
   const todayAvgInvoice = todayCashSales.length > 0 ? todayRev / todayCashSales.length : 0;
@@ -15051,12 +15053,6 @@ useEffect(() => {
                   </button>
                 </div>
               </div>
-              {todayReturns > 0 && (
-  <div style={rowStyle}>
-    <span style={{ color: COLORS.textDim, fontSize: 13 }}>↩️ مرتجعات نقدي</span>
-    <span style={{ color: COLORS.red, fontWeight: 700 }}>− {todayReturns.toFixed(2)} ر.س</span>
-  </div>
-)}
               {editingCard && (
                 <div style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d3a6a", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -15094,6 +15090,12 @@ useEffect(() => {
               <span style={{ color: COLORS.textDim, fontSize: 13 }}>✅ سداد آجل</span>
               <span style={{ color: COLORS.blue, fontWeight: 700 }}>{todayCreditIncome.toFixed(2)} ر.س</span>
             </div>
+            {todayReturns > 0 && (
+              <div style={rowStyle}>
+                <span style={{ color: COLORS.coral, fontSize: 13 }}>↩️ مرتجع المبيعات اليوم</span>
+                <span style={{ color: COLORS.red, fontWeight: 700 }}>− {todayReturns.toFixed(2)} ر.س</span>
+              </div>
+            )}
             <div style={{ ...rowStyle, borderBottom: "none" }}>
               <span style={{ color: COLORS.red, fontSize: 13 }}>📋 مديونية اليوم (غير محصلة)</span>
               <span style={{ color: COLORS.red, fontWeight: 700 }}>{todayAjil.toFixed(2)} ر.س</span>
