@@ -15428,18 +15428,19 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   const returnsPurchases = filteredReturns.filter((r) => r.type === "purchases");
   const totalReturnsSales = returnsSales.reduce((a, r) => a + (r.total || 0), 0);
   const totalReturnsPurchases = returnsPurchases.reduce((a, r) => a + (r.total || 0), 0);
-  const totalReturnsTax = filteredReturns.reduce((a, r) => a + (r.tax || 0), 0);
+  const returnsSalesTax = returnsSales.reduce((a, r) => a + (r.tax || 0), 0);
+  const returnsPurchasesTax = returnsPurchases.reduce((a, r) => a + (r.tax || 0), 0);
   const isAutoReturn = (r) => (r.reason || "").includes("تلقائي");
 
-  // فلتر الشركة يظهر في: product, purchase, returns
-  const showMfrFilter = ["product", "purchase", "returns"].includes(type);
+  // فلتر الشركة يظهر في: product, purchase, مرتجع المبيعات، مرتجع المشتريات
+  const showMfrFilter = ["product", "purchase", "sales_returns", "purchase_returns"].includes(type);
 
   return (
     <div>
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>التقارير والإحصائيات</h2>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
-        {["sales", "purchase", "product", "monthly", "returns"].map((t) => (
+        {["sales", "purchase", "product", "monthly", "sales_returns", "purchase_returns"].map((t) => (
           <button key={t} onClick={() => setType(t)} style={{
             padding: "8px 18px", borderRadius: 8, border: "1px solid",
             borderColor: type === t ? COLORS.blue : COLORS.border,
@@ -15447,7 +15448,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
             color: type === t ? COLORS.blue : COLORS.textDim,
             fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 13,
           }}>
-            {t === "sales" ? "تقرير المبيعات" : t === "purchase" ? "تقرير المشتريات" : t === "product" ? "تقرير الأصناف" : t === "monthly" ? "تقرير شهري" : "تقرير المرتجعات"}
+            {t === "sales" ? "تقرير المبيعات" : t === "purchase" ? "تقرير المشتريات" : t === "product" ? "تقرير الأصناف" : t === "monthly" ? "تقرير شهري" : t === "sales_returns" ? "تقرير مرتجع المبيعات" : "تقرير مرتجع المشتريات"}
           </button>
         ))}
 
@@ -15566,29 +15567,57 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
         />
       )}
 
-      {/* تقرير المرتجعات */}
-      {type === "returns" && (
+      {/* تقرير مرتجع المبيعات */}
+      {type === "sales_returns" && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
-            <StatCard label="عدد المرتجعات" value={filteredReturns.length} icon="returns" color={COLORS.coral} />
-            <StatCard label="مرتجعات المبيعات" value={totalReturnsSales.toFixed(2) + " ر.س"} icon="pos" color={COLORS.blue} />
-            <StatCard label="مرتجعات المشتريات" value={totalReturnsPurchases.toFixed(2) + " ر.س"} icon="purchase" color={COLORS.coral} />
-            <StatCard label="الضريبة المستردة" value={totalReturnsTax.toFixed(2) + " ر.س"} icon="tax" color={COLORS.green} />
+          {filterManufacturer && (
+            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
+              🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
+            <StatCard label="عدد مرتجعات المبيعات" value={returnsSales.length} icon="returns" color={COLORS.coral} />
+            <StatCard label="إجمالي مرتجعات المبيعات" value={totalReturnsSales.toFixed(2) + " ر.س"} icon="pos" color={COLORS.blue} />
+            <StatCard label="الضريبة المستردة" value={returnsSalesTax.toFixed(2) + " ر.س"} icon="tax" color={COLORS.green} />
           </div>
           <Table
-            headers={["رقم المرتجع", "التاريخ", "النوع", "العميل / المورد", "السبب", "الإجمالي"]}
-            rows={filteredReturns.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
+            headers={["رقم المرتجع", "التاريخ", "العميل", "السبب", "الإجمالي"]}
+            rows={returnsSales.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
               <span style={{ color: COLORS.blue, fontWeight: 700 }}>{r.id}</span>,
               r.date,
-              r.type === "sales"
-                ? <Badge color="#0a2040" text={COLORS.blue}>مرتجع مبيعات</Badge>
-                : <Badge color={COLORS.goldSoft} text={COLORS.coral}>مرتجع مشتريات</Badge>,
-              r.type === "sales" ? (r.customer_name || "زبون عادي") : (r.supplier_name || "—"),
+              r.customer_name || "زبون عادي",
               <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color={COLORS.redSoft} text={COLORS.coral}>تلقائي</Badge></span>}</span>,
               <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
             ])}
           />
-          {filteredReturns.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مرتجعات في هذه الفترة</div>}
+          {returnsSales.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مرتجعات مبيعات في هذه الفترة</div>}
+        </>
+      )}
+
+      {/* تقرير مرتجع المشتريات */}
+      {type === "purchase_returns" && (
+        <>
+          {filterManufacturer && (
+            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
+              🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
+            <StatCard label="عدد مرتجعات المشتريات" value={returnsPurchases.length} icon="returns" color={COLORS.coral} />
+            <StatCard label="إجمالي مرتجعات المشتريات" value={totalReturnsPurchases.toFixed(2) + " ر.س"} icon="purchase" color={COLORS.coral} />
+            <StatCard label="الضريبة المستردة" value={returnsPurchasesTax.toFixed(2) + " ر.س"} icon="tax" color={COLORS.green} />
+          </div>
+          <Table
+            headers={["رقم المرتجع", "التاريخ", "المورد", "السبب", "الإجمالي"]}
+            rows={returnsPurchases.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
+              <span style={{ color: COLORS.blue, fontWeight: 700 }}>{r.id}</span>,
+              r.date,
+              r.supplier_name || "—",
+              <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color={COLORS.redSoft} text={COLORS.coral}>تلقائي</Badge></span>}</span>,
+              <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
+            ])}
+          />
+          {returnsPurchases.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مرتجعات مشتريات في هذه الفترة</div>}
         </>
       )}
 
