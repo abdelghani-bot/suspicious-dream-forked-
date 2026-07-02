@@ -322,7 +322,7 @@ const CATEGORIES = [
 const TAX_RATE = 0.15;
 
 // ==================== ICONS ====================
-const IC = ({ n, s = 18 }) => {
+const IC = ({ n, s = 18, sw = 1.8 }) => {
   const m = {
     dashboard: <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />,
     pos: (
@@ -510,7 +510,7 @@ const IC = ({ n, s = 18 }) => {
       height={s}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth={sw}
       viewBox="0 0 24 24"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -1837,7 +1837,27 @@ if (isLoading) return (
               transition: "all 0.12s",
             }}
           >
-            <IC n={t.icon} s={15} />
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 28,
+                height: 28,
+                borderRadius: 9,
+                flexShrink: 0,
+                background: isActive
+                  ? `linear-gradient(145deg, ${group.color}, ${group.color}cc)`
+                  : `linear-gradient(145deg, ${group.color}22, ${group.color}0d)`,
+                boxShadow: isActive
+                  ? `0 3px 8px ${group.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`
+                  : `inset 0 1px 0 rgba(255,255,255,0.4), 0 1px 2px rgba(0,0,0,0.04)`,
+                color: isActive ? "#fff" : group.color,
+                transition: "all 0.15s",
+              }}
+            >
+              <IC n={t.icon} s={15} sw={2.1} />
+            </span>
             <span style={{ flex: 1 }}>{t.label}</span>
             {tabAlertCounts[t.id] > 0 && (
               <span style={{
