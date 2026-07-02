@@ -7353,10 +7353,36 @@ function ReturnsModule({
 }) {
   const [type, setType] = useState(fixedType || (canViewSalesReturns ? "sales" : "purchases"));
   const [returnItems, setReturnItems] = useState([]);
-  const [reason, setReason] = useState("");
+  const [reasonOption, setReasonOption] = useState("");
+  const [reasonCustom, setReasonCustom] = useState("");
+  const reason = reasonOption === "أخرى" ? reasonCustom : reasonOption;
   const [selInvoice, setSelInvoice] = useState(null); // كائن الفاتورة كاملة
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceSearchOpen, setInvoiceSearchOpen] = useState(false);
+
+  // 🆕 أسباب الإرجاع الجاهزة (مبيعات ومشتريات)
+  const SALES_RETURN_REASONS = [
+    "منتج تالف",
+    "قريب من انتهاء الصلاحية",
+    "منتهي الصلاحية",
+    "صنف خاطئ (تم صرف صنف غير مطلوب)",
+    "كمية زائدة عن حاجة العميل",
+    "رد فعل تحسسي / عدم تحمل",
+    "الطبيب غيّر العلاج / وصفة جديدة",
+    "العميل عدل رأيه",
+    "عيب تصنيع",
+    "أخرى",
+  ];
+  const PURCHASE_RETURN_REASONS = [
+    "منتج تالف من المورد",
+    "قريب من انتهاء الصلاحية",
+    "منتهي الصلاحية",
+    "صنف خاطئ في التوريد",
+    "كمية زائدة عن المطلوب",
+    "عيب تصنيع",
+    "عدم مطابقة للمواصفات",
+    "أخرى",
+  ];
 
   // بحث العميل
   const [customerSearch, setCustomerSearch] = useState("");
@@ -7379,7 +7405,8 @@ function ReturnsModule({
     setSelInvoice(null);
     setCustomerSearch("");
     setSelCustomer(null);
-    setReason("");
+    setReasonOption("");
+    setReasonCustom("");
     setSelPurchaseInvoice("");
     setAdminOverride(false);
   }, [type]);
@@ -7458,6 +7485,58 @@ function ReturnsModule({
   );
   const returnTotal = returnSubtotal + returnTax;
 
+  // ── 🆕 مسح باركود صنف مرتجع (مبيعات) ومقارنته بالصنف المباع في الفاتورة الأصلية ──
+  const handleReturnScan = (scan) => {
+    if (type !== "sales") return;
+    if (!selInvoice && !adminOverride) {
+      showToast("اختر فاتورة البيع أولاً قبل المسح", "error");
+      return;
+    }
+    const code = scan.type === "gs1" ? scan.gtin : scan.code;
+    const scannedExpiry = scan.type === "gs1" && scan.expiry ? scan.expiry.slice(0, 7) : "";
+    const scannedBatch = scan.type === "gs1" ? scan.batch || "" : "";
+    const prod = products.find((x) => x.barcode === code || x.id === code);
+    if (!prod) {
+      showToast("الصنف غير موجود: " + code, "error");
+      return;
+    }
+    const idx = returnItems.findIndex((i) => i.id === prod.id);
+    if (idx === -1) {
+      showToast(`⚠️ "${prod.name}" غير موجود ضمن أصناف هذه الفاتورة`, "error");
+      return;
+    }
+    const item = returnItems[idx];
+    const maxReturnable = Math.max(0, (item.qty || 0) - (item.alreadyReturnedQty || 0));
+    if (item.returnQty >= maxReturnable) {
+      showToast(`⚠️ ${item.name}: وصلت لأقصى كمية قابلة للإرجاع (${maxReturnable})`, "error");
+      return;
+    }
+    // مقارنة الباتش/الصلاحية الممسوحة بالفاتورة الأصلية
+    const batchMismatch =
+      (scannedBatch && item.originalBatch && scannedBatch !== item.originalBatch) ||
+      (scannedExpiry && item.originalExpiry && scannedExpiry !== item.originalExpiry);
+
+    setReturnItems((p) =>
+      p.map((x, j) =>
+        j === idx
+          ? {
+              ...x,
+              returnQty: Math.min(x.returnQty + 1, maxReturnable),
+              scannedBatch: scannedBatch || x.scannedBatch || "",
+              scannedExpiry: scannedExpiry || x.scannedExpiry || "",
+              batchMismatch,
+            }
+          : x
+      )
+    );
+
+    if (batchMismatch) {
+      showToast(`⚠️ ${item.name}: الباتش/الصلاحية الممسوحة لا تطابق الفاتورة الأصلية`, "error");
+    } else {
+      showToast(`✓ تم تسجيل إرجاع: ${item.name}`, "success");
+    }
+  };
+
   // ── تحقق من الباتش والصلاحية ──
   const validateItem = (item) => {
     if (!selInvoice || adminOverride) return true;
@@ -7469,6 +7548,11 @@ function ReturnsModule({
     // تحقق expiry
     if (item.originalExpiry && item.expiry && item.expiry !== item.originalExpiry) {
       showToast(`⚠️ ${item.name}: تاريخ الصلاحية لا يطابق الفاتورة الأصلية`, "error");
+      return false;
+    }
+    // 🆕 تحقق الباتش/الصلاحية الممسوحة ضوئيًا عند الإرجاع
+    if (item.batchMismatch) {
+      showToast(`⚠️ ${item.name}: الباتش الممسوح لا يطابق باتش الفاتورة الأصلية — راجع الصنف`, "error");
       return false;
     }
     return true;
@@ -7712,7 +7796,8 @@ function ReturnsModule({
     }
 
     setReturnItems([]);
-    setReason("");
+    setReasonOption("");
+    setReasonCustom("");
     setSelCustomer(null);
     setCustomerSearch("");
     setSelInvoice(null);
@@ -7945,9 +8030,34 @@ function ReturnsModule({
       )}
 
       {/* سبب الإرجاع */}
-      <div style={{ marginBottom: 14 }}>
-        <Input label="سبب الإرجاع" value={reason} onChange={setReason} placeholder="سبب الإرجاع (اختياري)" />
+      <div style={{ marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Select
+          label="سبب الإرجاع"
+          value={reasonOption}
+          onChange={setReasonOption}
+          style={{ flex: 1, minWidth: 200 }}
+          options={[
+            { v: "", l: "اختر السبب..." },
+            ...(type === "purchases" ? PURCHASE_RETURN_REASONS : SALES_RETURN_REASONS).map((r) => ({ v: r, l: r })),
+          ]}
+        />
+        {reasonOption === "أخرى" && (
+          <Input
+            label="اكتب السبب"
+            value={reasonCustom}
+            onChange={setReasonCustom}
+            placeholder="وضّح سبب الإرجاع..."
+            style={{ flex: 1, minWidth: 200 }}
+          />
+        )}
       </div>
+
+      {/* 🆕 باركود سكانر لمرتجع المبيعات — يمسح الصنف ويقارنه بباتش الفاتورة الأصلية */}
+      {type === "sales" && (selInvoice || adminOverride) && returnItems.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <BarcodeScanner onScan={handleReturnScan} placeholder="امسح باركود الصنف المرتجع..." />
+        </div>
+      )}
 
       {/* الأصناف */}
       {returnItems.length > 0 && (
@@ -7959,17 +8069,25 @@ function ReturnsModule({
           {returnItems.map((item, i) => {
             const maxReturnable = Math.max(0, (item.qty || 0) - (item.alreadyReturnedQty || 0));
             return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #0a101a" }}>
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: item.batchMismatch ? `1px solid ${COLORS.red}` : "1px solid #0a101a" }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
                   <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
-                    {item.originalBatch && <span>باتش: {item.originalBatch}</span>}
+                    {item.originalBatch && <span>باتش الفاتورة: {item.originalBatch}</span>}
                     {item.originalExpiry && <span style={{ marginRight: 8 }}>صلاحية: {item.originalExpiry}</span>}
                     <span style={{ marginRight: 8 }}>الكمية: {item.qty}</span>
                     {item.alreadyReturnedQty > 0 && (
                       <span style={{ marginRight: 8, color: COLORS.gold }}>سبق إرجاعه: {item.alreadyReturnedQty}</span>
                     )}
                   </div>
+                  {item.scannedBatch && (
+                    <div style={{ fontSize: 11, marginTop: 3, color: item.batchMismatch ? COLORS.red : COLORS.green }}>
+                      {item.batchMismatch ? "⚠️ " : "✓ "}
+                      الباتش الممسوح: {item.scannedBatch}
+                      {item.scannedExpiry ? ` — صلاحية: ${item.scannedExpiry}` : ""}
+                      {item.batchMismatch ? " (لا يطابق الفاتورة الأصلية!)" : ""}
+                    </div>
+                  )}
                 </div>
                 <div style={{ color: COLORS.textDim, fontSize: 12, flexShrink: 0 }}>
                   {(type === "purchases" ? item.cost || item.price : item.price).toFixed(2)} ر.س
