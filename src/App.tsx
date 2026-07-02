@@ -357,6 +357,16 @@ const IC = ({ n, s = 18, sw = 1.8 }) => {
         <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
       </>
     ),
+    family3: (
+      <>
+        <circle cx="6" cy="8" r="2.6" />
+        <path d="M1 21v-1.5A3.5 3.5 0 014.5 16h3A3.5 3.5 0 0111 19.5V21" />
+        <circle cx="18" cy="8" r="2.6" />
+        <path d="M13 21v-1.5a3.5 3.5 0 013.5-3.5h1a3.5 3.5 0 013.5 3.5V21" />
+        <circle cx="12" cy="13.5" r="2" />
+        <path d="M9 21v-1a3 3 0 013-3 3 3 0 013 3v1" />
+      </>
+    ),
     suppliers: (
       <>
         <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
@@ -503,6 +513,20 @@ const IC = ({ n, s = 18, sw = 1.8 }) => {
         <circle cx="17.5" cy="17.5" r="2.5" />
       </>
     ),
+    target: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="5" />
+        <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      </>
+    ),
+    bell: (
+      <>
+        <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path d="M13.73 21a2 2 0 01-3.46 0" />
+      </>
+    ),
+    zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
   };
   return (
     <svg
@@ -786,16 +810,17 @@ const StatCard = ({ label, value, icon, color, sub }) => (
       style={{
         width: 48,
         height: 48,
-        borderRadius: 12,
-        background: color + "1F",
+        borderRadius: 13,
+        background: `linear-gradient(145deg, ${color}, ${color}cc)`,
+        boxShadow: `0 4px 10px ${color}45, inset 0 1px 0 rgba(255,255,255,0.25)`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color,
+        color: "#fff",
         flexShrink: 0,
       }}
     >
-      <IC n={icon} s={22} />
+      <IC n={icon} s={22} sw={2} />
     </div>
     <div style={{ minWidth: 0 }}>
       <div
@@ -2791,7 +2816,15 @@ const [myTarget, setMyTarget] = useState(null);
             borderBottom: isOpen ? `1px solid ${VAR.border}` : "none",
           }}
         >
-          <span style={{ fontSize: 17 }}>{icon}</span>
+          <span style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 30, height: 30, borderRadius: 9, flexShrink: 0,
+            background: `linear-gradient(145deg, ${badgeColor || VAR.accent}, ${badgeColor || VAR.accent}cc)`,
+            boxShadow: `0 3px 8px ${badgeColor || VAR.accent}45, inset 0 1px 0 rgba(255,255,255,0.25)`,
+            color: "#fff",
+          }}>
+            <IC n={icon} s={16} sw={2} />
+          </span>
           <span style={{ fontSize: 13, fontWeight: 700, color: VAR.text, flex: 1 }}>{title}</span>
           {badge !== undefined && badge !== null && (
             <span style={{
@@ -2854,7 +2887,7 @@ const [myTarget, setMyTarget] = useState(null);
       }}>
 
         {/* 1) المبيعات والفرص */}
-        <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="sales" icon="reports" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent}>
           <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
             {SALES_TABS.map((t) => (
               <button
@@ -3022,7 +3055,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 2) تارجت الشهر */}
-        <CollapsibleCard cardKey="target" icon="🎯" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
+        <CollapsibleCard cardKey="target" icon="target" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
           <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             {myTarget === null ? (
               <div style={{ color: VAR.muted, fontSize: 12 }}>جاري التحميل...</div>
@@ -3060,7 +3093,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 3) مركز التنبيهات */}
-        <CollapsibleCard cardKey="alerts" icon="🔔" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger}>
+        <CollapsibleCard cardKey="alerts" icon="bell" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger}>
           <div>
             {totalAlertsCount === 0 && (
               <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
@@ -3199,7 +3232,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 5) العروض المتوفرة */}
-        <CollapsibleCard cardKey="promos" icon="🏷️" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="promos" icon="tag" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
           <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
             {activePromos.length === 0 && autoPromoProducts.length === 0 && (
               <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد عروض نشطة</div>
@@ -3238,7 +3271,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 6) تغيرات الأسعار */}
-        <CollapsibleCard cardKey="prices" icon="💰" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
+        <CollapsibleCard cardKey="prices" icon="money" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
           <div style={{ fontSize: 10, color: VAR.muted, padding: "8px 14px 0" }}>آخر 7 أيام</div>
           <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
             {recentPriceChanges.length === 0 && (
@@ -3263,7 +3296,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 7) بطاقة الصيدلي */}
-        <CollapsibleCard cardKey="shift" icon="👤" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="shift" icon="user" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
             <div style={{
               width: 32, height: 32, borderRadius: "50%",
@@ -3296,7 +3329,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 8) خزنة اليوم */}
-        <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="treasury" icon="money" title="خزنة اليوم" badge={(todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
           <div style={{ padding: 16 }}>
             {[
               { label: "مبيعات كاش",    val: todayCashOnlySales.toFixed(0), type: "in" },
@@ -3322,7 +3355,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 9) إجراءات سريعة */}
-        <CollapsibleCard cardKey="actions" icon="⚡" title="إجراءات سريعة">
+        <CollapsibleCard cardKey="actions" icon="zap" title="إجراءات سريعة" badgeColor={VAR.accent}>
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             {[
               { icon: "💊", label: "فاتورة بيع جديدة",  tab: "pos",       bg: "rgba(0,200,150,0.15)" },
@@ -11845,6 +11878,28 @@ function CustomersModule({
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  // 🆕 أفاتار العميل — بادج متدرج بأيقونة SVG نظيفة بدل الإيموجي الخام (شكل أوضح وثابت على كل الأجهزة)
+  const CustomerAvatar = ({ category, size = 34 }) => {
+    const styleByCat = {
+      individual:       { icon: "user",     grad: ["#3b82f6", "#1d4ed8"] },
+      family_no_kids:   { icon: "customers", grad: ["#8b5cf6", "#6d28d9"] },
+      family_with_kids: { icon: "family3",   grad: ["#14b8a6", "#0d9488"] },
+    };
+    const cfg = styleByCat[category] || styleByCat.individual;
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: size * 0.28,
+        background: `linear-gradient(145deg, ${cfg.grad[0]}, ${cfg.grad[1]})`,
+        boxShadow: `0 3px 8px ${cfg.grad[1]}55, inset 0 1px 0 rgba(255,255,255,0.25)`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: "#fff", flexShrink: 0,
+      }}>
+        <IC n={cfg.icon} s={size * 0.52} sw={2} />
+      </div>
+    );
+  };
+
   const openCreditModal = async (customer) => {
     setSelectedCreditCustomer(customer);
 
@@ -12204,13 +12259,7 @@ function CustomersModule({
           padding: "10px 14px", cursor: "pointer", gap: 8,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 8, background: "#1a2a5a",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 16, flexShrink: 0,
-            }}>
-              {c.category === "individual" ? "👤" : c.category === "family_no_kids" ? "👫" : "👨‍👩‍👧"}
-            </div>
+            <CustomerAvatar category={c.category} size={34} />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {c.name}
@@ -12646,9 +12695,7 @@ function CustomersModule({
                   <div
                     style={{ display: "flex", alignItems: "center", gap: 10 }}
                   >
-                    <span style={{ fontSize: 20 }}>
-                      {c.category === "individual" ? "👤" : "👨‍👩‍👧"}
-                    </span>
+                    <CustomerAvatar category={c.category} size={30} />
                     <div>
                       <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>
                         {c.name}
