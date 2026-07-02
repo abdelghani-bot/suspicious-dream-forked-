@@ -1993,6 +1993,7 @@ if (isLoading) return (
             showToast={showToast}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
+            setTreasuryEntries={setTreasuryEntries}
             canViewSalesReturns={canView("returns", "sales")}
             canViewPurchaseReturns={canView("returns", "purchases")}
             canEditSalesReturns={canEdit("returns", "sales")}
@@ -2012,6 +2013,7 @@ if (isLoading) return (
             showToast={showToast}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
+            setTreasuryEntries={setTreasuryEntries}
             canViewSalesReturns={canView("returns", "sales")}
             canViewPurchaseReturns={canView("returns", "purchases")}
             canEditSalesReturns={canEdit("returns", "sales")}
