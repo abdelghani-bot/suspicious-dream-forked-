@@ -2706,6 +2706,50 @@ const [myTarget, setMyTarget] = useState(null);
     return changes.slice(0, 15);
   })();
 
+  // ── قيمة المخزون حسب التصنيف الرئيسي ──
+  const stockByCategory = (() => {
+    const catColors = {
+      "دواء": COLORS.blue,
+      "كوزمتك عادي": COLORS.teal,
+      "كوزمتك طبي": COLORS.purple,
+      "مستلزمات أطفال": COLORS.gold,
+      "مستلزمات طبية": COLORS.coral,
+    };
+    const cats = Object.keys(MAIN_CATEGORIES);
+    const grouped = {};
+    cats.forEach((c) => { grouped[c] = 0; });
+    let otherVal = 0;
+
+    products.forEach((p) => {
+      const cat = p.main_category || p.mainCategory || p.category || "";
+      const val = (p.cost || 0) * (p.stock || 0);
+      if (grouped.hasOwnProperty(cat)) grouped[cat] += val;
+      else otherVal += val;
+    });
+
+    const total = Object.values(grouped).reduce((s, v) => s + v, 0) + otherVal;
+
+    const rows = cats
+      .map((c) => ({ label: c, value: grouped[c], color: catColors[c] }))
+      .concat(otherVal > 0 ? [{ label: "أخرى", value: otherVal, color: VAR.muted }] : [])
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .map((r) => ({ ...r, pct: total > 0 ? (r.value / total) * 100 : 0 }));
+
+    return { rows, total };
+  })();
+
+  const stockDonutGradient = (() => {
+    let acc = 0;
+    return stockByCategory.rows
+      .map((r) => {
+        const start = acc;
+        acc += r.pct;
+        return `${r.color} ${start}% ${acc}%`;
+      })
+      .join(", ");
+  })();
+
   // ── حالة طي/فتح الكروت الكبيرة ──
   const [openCard, setOpenCard] = useState(null); // مفتاح الكارت المفتوح حالياً أو null لو كله مقفول
   const toggleCard = (key) => setOpenCard((prev) => (prev === key ? null : key));
@@ -3072,7 +3116,65 @@ const [myTarget, setMyTarget] = useState(null);
           </div>
         </CollapsibleCard>
 
-        {/* 4) العروض المتوفرة */}
+        {/* 4) قيمة المخزون حسب التصنيف الرئيسي */}
+        <CollapsibleCard
+          cardKey="stockCategory"
+          icon="🥧"
+          title="قيمة المخزون حسب التصنيف"
+          badge={stockByCategory.total.toFixed(0) + " ر.س"}
+          badgeColor={COLORS.purple}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 20, padding: 16, flexWrap: "wrap" }}>
+            {/* الدونات */}
+            <div style={{ position: "relative", width: 140, height: 140, flexShrink: 0, margin: "0 auto" }}>
+              <div
+                style={{
+                  width: "100%", height: "100%", borderRadius: "50%",
+                  background: stockByCategory.rows.length
+                    ? `conic-gradient(${stockDonutGradient})`
+                    : VAR.surface2,
+                  boxShadow: `0 0 24px ${tint(COLORS.purple, 0.25)}, inset 0 0 0 1px ${VAR.border}`,
+                  transition: "background 0.4s",
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute", inset: 18, borderRadius: "50%",
+                  background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+                  border: `1px solid ${VAR.border}`,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <div style={{ fontSize: 9, color: VAR.muted, fontWeight: 600 }}>إجمالي</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: VAR.text, fontFamily: "monospace" }}>
+                  {stockByCategory.total.toFixed(0)}
+                </div>
+                <div style={{ fontSize: 9, color: VAR.muted }}>ر.س</div>
+              </div>
+            </div>
+
+            {/* المفتاح (Legend) */}
+            <div style={{ flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 8 }}>
+              {stockByCategory.rows.length === 0 && (
+                <div style={{ fontSize: 12, color: VAR.muted, textAlign: "center", padding: "10px 0" }}>
+                  لا توجد بيانات مخزون بعد
+                </div>
+              )}
+              {stockByCategory.rows.map((r) => (
+                <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 9, height: 9, borderRadius: "50%", background: r.color, flexShrink: 0, boxShadow: `0 0 6px ${r.color}` }} />
+                  <div style={{ flex: 1, fontSize: 12, color: VAR.text }}>{r.label}</div>
+                  <div style={{ fontSize: 11, color: VAR.muted, fontFamily: "monospace" }}>{r.value.toFixed(0)} ر.س</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: r.color, fontFamily: "monospace", minWidth: 38, textAlign: "left" }}>
+                    {r.pct.toFixed(1)}%
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CollapsibleCard>
+
+        {/* 5) العروض المتوفرة */}
         <CollapsibleCard cardKey="promos" icon="🏷️" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
           <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
             {activePromos.length === 0 && autoPromoProducts.length === 0 && (
@@ -3111,7 +3213,7 @@ const [myTarget, setMyTarget] = useState(null);
           </div>
         </CollapsibleCard>
 
-        {/* 5) تغيرات الأسعار */}
+        {/* 6) تغيرات الأسعار */}
         <CollapsibleCard cardKey="prices" icon="💰" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
           <div style={{ fontSize: 10, color: VAR.muted, padding: "8px 14px 0" }}>آخر 7 أيام</div>
           <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
@@ -3136,7 +3238,7 @@ const [myTarget, setMyTarget] = useState(null);
           </div>
         </CollapsibleCard>
 
-        {/* 6) بطاقة الصيدلي */}
+        {/* 7) بطاقة الصيدلي */}
         <CollapsibleCard cardKey="shift" icon="👤" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
             <div style={{
@@ -3169,7 +3271,7 @@ const [myTarget, setMyTarget] = useState(null);
           </div>
         </CollapsibleCard>
 
-        {/* 7) خزنة اليوم */}
+        {/* 8) خزنة اليوم */}
         <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
           <div style={{ padding: 16 }}>
             {[
@@ -3195,7 +3297,7 @@ const [myTarget, setMyTarget] = useState(null);
           </div>
         </CollapsibleCard>
 
-        {/* 8) إجراءات سريعة */}
+        {/* 9) إجراءات سريعة */}
         <CollapsibleCard cardKey="actions" icon="⚡" title="إجراءات سريعة">
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             {[
