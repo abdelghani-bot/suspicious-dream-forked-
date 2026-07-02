@@ -5277,14 +5277,18 @@ function PrintReceipt({ invoice, onClose }) {
         >
           <h2 style={{ margin: "4px 0", fontSize: 16 }}>صيدلية برو</h2>
           <div style={{ fontSize: 11, color: "#555" }}>
-            فاتورة مبيعات رقم: {invoice.id}
+            {invoice.isReturn ? `فاتورة مرتجع رقم: ${invoice.id}` : `فاتورة مبيعات رقم: ${invoice.id}`}
           </div>
+          {invoice.isReturn && invoice.originalInvoiceId && (
+            <div style={{ fontSize: 11, color: "#555" }}>
+              مرتبط بفاتورة رقم: {invoice.originalInvoiceId}
+            </div>
+          )}
           <div style={{ fontSize: 11, color: "#555" }}>
-            التاريخ: {invoice.date} | الدفع: {invoice.payment}
+            التاريخ: {invoice.date}{invoice.payment && invoice.payment !== "—" ? ` | الدفع: ${invoice.payment}` : ""}
           </div>
-          // ✅
-          {invoice.customer_name && invoice.customer_name !== "زبون عادي" && (
-            <div style={{ fontSize: 11 }}>العميل: {invoice.customer_name}</div>
+          {(invoice.partyName || invoice.customer_name) && (invoice.partyName || invoice.customer_name) !== "زبون عادي" && (
+            <div style={{ fontSize: 11 }}>{invoice.partyLabel || "العميل"}: {invoice.partyName || invoice.customer_name}</div>
           )}
           <hr />
         </div>
@@ -15583,7 +15587,23 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           <Table
             headers={["رقم المرتجع", "التاريخ", "العميل", "السبب", "الإجمالي"]}
             rows={returnsSales.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
-              <span style={{ color: COLORS.blue, fontWeight: 700 }}>{r.id}</span>,
+              <span
+                onClick={() => setShowInvoiceDetail({
+                  id: r.id,
+                  date: r.date,
+                  partyLabel: "العميل",
+                  partyName: r.customer_name || "زبون عادي",
+                  payment: sales.find((s) => s.id === r.invoice_id)?.payment || "—",
+                  items: (r.items || []).map((it) => ({ name: it.name, qty: it.returnQty ?? it.qty, price: it.price })),
+                  subtotal: r.subtotal,
+                  taxAmount: r.tax,
+                  total: r.total,
+                  isReturn: true,
+                  originalInvoiceId: r.invoice_id,
+                  reason: r.reason,
+                })}
+                style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}
+              >{r.id}</span>,
               r.date,
               r.customer_name || "زبون عادي",
               <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color={COLORS.redSoft} text={COLORS.coral}>تلقائي</Badge></span>}</span>,
@@ -15610,7 +15630,23 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           <Table
             headers={["رقم المرتجع", "التاريخ", "المورد", "السبب", "الإجمالي"]}
             rows={returnsPurchases.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
-              <span style={{ color: COLORS.blue, fontWeight: 700 }}>{r.id}</span>,
+              <span
+                onClick={() => setShowInvoiceDetail({
+                  id: r.id,
+                  date: r.date,
+                  partyLabel: "المورد",
+                  partyName: r.supplier_name || "—",
+                  payment: "—",
+                  items: (r.items || []).map((it) => ({ name: it.name, qty: it.returnQty ?? it.qty, price: it.price })),
+                  subtotal: r.subtotal,
+                  taxAmount: r.tax,
+                  total: r.total,
+                  isReturn: true,
+                  originalInvoiceId: r.purchase_invoice_id,
+                  reason: r.reason,
+                })}
+                style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}
+              >{r.id}</span>,
               r.date,
               r.supplier_name || "—",
               <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color={COLORS.redSoft} text={COLORS.coral}>تلقائي</Badge></span>}</span>,
@@ -15623,11 +15659,19 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
 
       {/* Modal تفاصيل الفاتورة */}
       {showInvoiceDetail && (
-        <Modal open title={`تفاصيل الفاتورة — ${showInvoiceDetail.id}`} onClose={() => setShowInvoiceDetail(null)} wide>
+        <Modal open title={`${showInvoiceDetail.isReturn ? "تفاصيل المرتجع" : "تفاصيل الفاتورة"} — ${showInvoiceDetail.id}`} onClose={() => setShowInvoiceDetail(null)} wide>
+          {showInvoiceDetail.isReturn && (
+            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
+              🔗 مرتبط بفاتورة رقم: {showInvoiceDetail.originalInvoiceId || "—"}
+              {showInvoiceDetail.reason && <span> · السبب: {showInvoiceDetail.reason}</span>}
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 13, color: COLORS.textDim }}>
             <span>التاريخ: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.date}</span></span>
-            <span>العميل: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.customer_name || "زبون عادي"}</span></span>
-            <span>طريقة الدفع: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.payment}</span></span>
+            <span>{showInvoiceDetail.partyLabel || "العميل"}: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.partyName || showInvoiceDetail.customer_name || "زبون عادي"}</span></span>
+            {showInvoiceDetail.payment && showInvoiceDetail.payment !== "—" && (
+              <span>طريقة الدفع: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.payment}</span></span>
+            )}
           </div>
           <div style={{ overflowX: "auto", marginBottom: 14 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
