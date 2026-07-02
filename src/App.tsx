@@ -1636,7 +1636,7 @@ if (isLoading) return (
   { id: "customers",  label: "العملاء",             icon: "customers" },
   { id: "loyalty",    label: "نقاط الولاء",         icon: "star" },
   { id: "pos",        label: "نقطة البيع",          icon: "pos" },
-  { id: "returns",    label: "المرتجعات",           icon: "returns" },
+  { id: "sales_returns", label: "مرتجع المبيعات",   icon: "returns" },
   { id: "promotions", label: "العروض",              icon: "tag" },
   { id: "target",     label: "🎯 تارجت المبيعات",  icon: "target" },
 
@@ -1644,6 +1644,7 @@ if (isLoading) return (
   { id: "purchase",        label: "فواتير الشراء",  icon: "purchase" },
   { id: "products",        label: "الأصناف",         icon: "inventory" },
   { id: "suppliers",       label: "الموردون",        icon: "suppliers" },
+  { id: "purchase_returns", label: "مرتجع المشتريات", icon: "returns" },
   { id: "inventory_count", label: "الجرد",           icon: "count" },
 
   // ── التقارير ──
@@ -1777,8 +1778,8 @@ if (isLoading) return (
   const groups = [
     { label: null,               color: GROUP_COLORS.main,    ids: ["dashboard"] },
     { label: "الفريق والالتزام", color: GROUP_COLORS.team,    ids: ["shift", "attendance"] },
-    { label: "العملاء والمبيعات",color: GROUP_COLORS.sales,   ids: ["customers", "loyalty", "pos", "returns", "promotions", "target"] },
-    { label: "المخزون والموردين",color: GROUP_COLORS.stock,   ids: ["purchase", "products", "suppliers", "inventory_count"] },
+    { label: "العملاء والمبيعات",color: GROUP_COLORS.sales,   ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
+    { label: "المخزون والموردين",color: GROUP_COLORS.stock,   ids: ["purchase", "products", "suppliers", "purchase_returns", "inventory_count"] },
     { label: "التقارير",         color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "treasury"] },
     { label: "الإدارة",          color: GROUP_COLORS.admin,   ids: ["pharmacy_settings", "permissions", "rasd_settings"] },
   ];
@@ -1974,8 +1975,28 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
           />
         )}
-        {tab === "returns" && canView("returns") && (
+        {tab === "sales_returns" && canView("returns", "sales") && (
           <ReturnsModule
+            fixedType="sales"
+            products={products}
+            setProducts={setProducts}
+            sales={sales}
+            setSales={setSales}
+            purchases={purchases}
+            setPurchases={setPurchases}
+            customers={customers}
+            showToast={showToast}
+            pharmacyId={pharmacyId}
+            currentUser={currentUser}
+            canViewSalesReturns={canView("returns", "sales")}
+            canViewPurchaseReturns={canView("returns", "purchases")}
+            canEditSalesReturns={canEdit("returns", "sales")}
+            canEditPurchaseReturns={canEdit("returns", "purchases")}
+          />
+        )}
+        {tab === "purchase_returns" && canView("returns", "purchases") && (
+          <ReturnsModule
+            fixedType="purchases"
             products={products}
             setProducts={setProducts}
             sales={sales}
@@ -3175,7 +3196,7 @@ const [myTarget, setMyTarget] = useState(null);
             {[
               { icon: "💊", label: "فاتورة بيع جديدة",  tab: "pos",       bg: "rgba(0,200,150,0.15)" },
               { icon: "📦", label: "استلام مشتريات",     tab: "purchase",  bg: "rgba(59,130,246,0.15)" },
-              { icon: "🔄", label: "تسجيل مرتجع",        tab: "returns",   bg: "rgba(245,158,11,0.15)" },
+              { icon: "🔄", label: "تسجيل مرتجع مبيعات", tab: "sales_returns", bg: "rgba(245,158,11,0.15)" },
               { icon: "🔒", label: "تقفيل الشفت",         tab: "shift",     bg: "rgba(239,68,68,0.15)" },
             ].map((btn) => (
               <button
@@ -7319,8 +7340,9 @@ function ReturnsModule({
   canViewPurchaseReturns = true,
   canEditSalesReturns = true,
   canEditPurchaseReturns = true,
+  fixedType = null, // 🆕 لو اتبعت "sales" أو "purchases" بيثبّت النوع ويخفي زر التبديل (تبويب مستقل بالقائمة الجانبية)
 }) {
-  const [type, setType] = useState(canViewSalesReturns ? "sales" : "purchases");
+  const [type, setType] = useState(fixedType || (canViewSalesReturns ? "sales" : "purchases"));
   const [returnItems, setReturnItems] = useState([]);
   const [reason, setReason] = useState("");
   const [selInvoice, setSelInvoice] = useState(null); // كائن الفاتورة كاملة
@@ -7741,26 +7763,30 @@ function ReturnsModule({
         </div>
       )}
 
-      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>المرتجعات</h2>
+      <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
+        {fixedType === "sales" ? "مرتجع المبيعات" : fixedType === "purchases" ? "مرتجع المشتريات" : "المرتجعات"}
+      </h2>
 
-      {/* نوع المرتجع */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
-        {["sales", "purchases"]
-          .filter((t) => (t === "sales" ? canViewSalesReturns : canViewPurchaseReturns))
-          .map((t) => (
-          <button key={t} onClick={() => setType(t)}
-            style={{
-              padding: "9px 22px", borderRadius: 9, border: "1px solid",
-              borderColor: type === t ? COLORS.blue : COLORS.border,
-              background: type === t ? COLORS.blueSoft : "transparent",
-              color: type === t ? COLORS.blue : COLORS.textDim,
-              fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 14,
-            }}
-          >
-            مرتجع {t === "sales" ? "مبيعات" : "مشتريات"}
-          </button>
-        ))}
-      </div>
+      {/* نوع المرتجع — يظهر فقط لو التبويب مش مثبّت على نوع واحد */}
+      {!fixedType && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+          {["sales", "purchases"]
+            .filter((t) => (t === "sales" ? canViewSalesReturns : canViewPurchaseReturns))
+            .map((t) => (
+            <button key={t} onClick={() => setType(t)}
+              style={{
+                padding: "9px 22px", borderRadius: 9, border: "1px solid",
+                borderColor: type === t ? COLORS.blue : COLORS.border,
+                background: type === t ? COLORS.blueSoft : "transparent",
+                color: type === t ? COLORS.blue : COLORS.textDim,
+                fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 14,
+              }}
+            >
+              مرتجع {t === "sales" ? "مبيعات" : "مشتريات"}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ════ مرتجع مبيعات ════ */}
       {type === "sales" && canViewSalesReturns && (
