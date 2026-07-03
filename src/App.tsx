@@ -14715,6 +14715,14 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const addClosingAdjustment = async () => {
     if (!hasPostClosingActivity || postClosingNet === 0) return;
     if (addingAdjustmentRef.current) return; // 🆕
+    // ⛔ نفس شرط تقفيل اليوم بالظبط: ما ينفعش نضيف تسوية والشفت لسه مفتوح —
+    // لازم الصيدلي يقفل شفته الأول عشان نضمن إن كل مبيعات/مرتجعات الشفت اتلحقت في التسوية
+    // ومفيش حركة هتحصل بعدها من غير ما تتسجل.
+    const openShiftsNow = ((shifts || []).filter((s) => s.start_time?.startsWith(today))).filter((s) => !s.end_time);
+    if (openShiftsNow.length > 0) {
+      showToast(`❌ يوجد ${openShiftsNow.length} شفت مفتوح — أقفل الشفت أولاً قبل إضافة التسوية`, "error");
+      return;
+    }
     addingAdjustmentRef.current = true;
     setAddingAdjustment(true);
     const invoiceIds = [...postClosingSales, ...postClosingReturns].map((s) => s.id)
@@ -15079,15 +15087,20 @@ useEffect(() => {
               </div>
               <button
                 onClick={addClosingAdjustment}
-                disabled={addingAdjustment || postClosingNet === 0}
+                disabled={addingAdjustment || postClosingNet === 0 || openShifts.length > 0}
                 style={{
                   marginTop: 10, width: "100%", background: COLORS.gold, border: "none", borderRadius: 8,
                   padding: "8px 12px", color: "#1a0f00", fontWeight: 700, fontSize: 12,
-                  cursor: addingAdjustment ? "default" : "pointer", opacity: addingAdjustment ? 0.6 : 1,
+                  cursor: (addingAdjustment || openShifts.length > 0) ? "default" : "pointer", opacity: (addingAdjustment || openShifts.length > 0) ? 0.6 : 1,
                 }}
               >
                 {addingAdjustment ? "جارٍ الإضافة..." : "➕ إضافة كتسوية على تقفيل اليوم"}
               </button>
+              {openShifts.length > 0 && (
+                <div style={{ marginTop: 8, color: COLORS.red, fontSize: 11, fontWeight: 700, textAlign: "center" }}>
+                  ⛔ مينفعش تضيف التسوية والشفت لسه مفتوح — أقفل الشفت الأول ({openShifts.map((s) => s.user).join("، ")})
+                </div>
+              )}
             </div>
           )}
 
