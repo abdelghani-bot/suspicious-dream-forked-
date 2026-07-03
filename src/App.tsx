@@ -2016,6 +2016,7 @@ if (isLoading) return (
             showToast={showToast}
             pharmacyId={pharmacyId}
             invoices={posInvoices}
+            returns={returnsData}
           />
         )}
 {tab === "attendance" && canView("attendance") && (
@@ -14710,8 +14711,11 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const hasPostClosingActivity = postClosingSales.length > 0 || postClosingReturns.length > 0 || postClosingPartialReturns.length > 0;
 
   const [addingAdjustment, setAddingAdjustment] = useState(false);
+  const addingAdjustmentRef = useRef(false); // 🆕 حماية فورية من الضغط المتكرر (state وحده مش كفاية لأن التحديث async)
   const addClosingAdjustment = async () => {
     if (!hasPostClosingActivity || postClosingNet === 0) return;
+    if (addingAdjustmentRef.current) return; // 🆕
+    addingAdjustmentRef.current = true;
     setAddingAdjustment(true);
     const invoiceIds = [...postClosingSales, ...postClosingReturns].map((s) => s.id)
       .concat(postClosingPartialReturns.map((r) => r.invoice_id || r.id))
@@ -14728,6 +14732,7 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     };
     const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
     setAddingAdjustment(false);
+    addingAdjustmentRef.current = false; // 🆕
     if (error) {
       showToast("خطأ في إضافة تسوية التقفيل: " + error.message, "error");
       return;
@@ -14862,8 +14867,10 @@ useEffect(() => {
   const openShifts = ((shifts || []).filter((s) => s.start_time?.startsWith(today))).filter((s) => !s.end_time);
 
   const [savingClosing, setSavingClosing] = useState(false); // 🆕 يمنع تكرار حفظ التقفيل لو المستخدم دوس مرتين بسرعة
+  const savingClosingRef = useRef(false); // 🆕 حماية فورية (state وحده مش كفاية لأن التحديث async)
   const saveClosing = async () => {
-    if (savingClosing) return; // 🆕 حماية من الضغط المزدوج
+    if (savingClosingRef.current) return; // 🆕 حماية من الضغط المزدوج
+    savingClosingRef.current = true;
     setSavingClosing(true);
     try {
     // تحقق إن كل شفتات اليوم متقفلة
@@ -14934,6 +14941,7 @@ useEffect(() => {
     });
     } finally {
       setSavingClosing(false); // 🆕
+      savingClosingRef.current = false; // 🆕
     }
   };
   // ── تجميع السجل ──
@@ -16118,7 +16126,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   );
 }
 // ==================== SHIFT MODULE ====================
-function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices }) {
+function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices, returns = [] }) {
   const [openCash, setOpenCash] = useState("500");
   const [closeCash, setCloseCash] = useState("");
   const [notes, setNotes] = useState("");
@@ -16126,10 +16134,18 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   const currentShift = shifts.find(
   (s) => !s.end_time && s.user === currentUser?.name
 );
-  const shiftSales = currentShift
-    ? sales.filter((s) => s.shift === currentShift.id)
+  // 🆕 نفس منطق تاب الشفتات في الخزنة: نستبعد الفواتير اللي رجعت بالكامل (returned=true)،
+  // ونخصم قيمة المرتجعات الجزئية (جدول returns) من إجمالي مبيعات الشفت
+  const shiftSalesRaw = currentShift
+    ? sales.filter((s) => s.shift === currentShift.id && !s.returned)
     : [];
-  const shiftRevenue = shiftSales.reduce((a, s) => a + s.total, 0);
+  const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
+  const shiftPartialReturns = currentShift
+    ? (returns || []).filter((r) => r.type === "sales" && salesById[r.invoice_id]?.shift === currentShift.id)
+    : [];
+  const shiftReturnsTotal = shiftPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
+  const shiftSales = shiftSalesRaw; // 🆕 تبقى للاستخدام في عدد الفواتير كما كانت
+  const shiftRevenue = shiftSalesRaw.reduce((a, s) => a + s.total, 0) - shiftReturnsTotal;
 
  const openShift = async () => {
   if (currentShift) {
@@ -16401,6 +16417,11 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               </div>
             </div>
           </div>
+          {shiftReturnsTotal > 0 && (
+            <div style={{ color: COLORS.red, fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+              🔄 مرتجعات: {shiftReturnsTotal.toFixed(2)} ر.س (مخصومة من مبيعات الشفت)
+            </div>
+          )}
           <Input
             label="النقد الفعلي عند الإغلاق (ر.س)"
             value={closeCash}
