@@ -1874,6 +1874,7 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
             currentUser={currentUser}
             setTreasuryEntries={setTreasuryEntries}
+            setReturnsData={setReturnsData}
             canViewSalesReturns={canView("returns", "sales")}
             canViewPurchaseReturns={canView("returns", "purchases")}
             canEditSalesReturns={canEdit("returns", "sales")}
@@ -1894,6 +1895,7 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
             currentUser={currentUser}
             setTreasuryEntries={setTreasuryEntries}
+            setReturnsData={setReturnsData}
             canViewSalesReturns={canView("returns", "sales")}
             canViewPurchaseReturns={canView("returns", "purchases")}
             canEditSalesReturns={canEdit("returns", "sales")}
@@ -7367,6 +7369,7 @@ function ReturnsModule({
   pharmacyId,
   currentUser,
   setTreasuryEntries, // 🆕 لازم تتمرر من الأب (App.tsx) لنفس الـ pattern المستخدم في SuppliersModule
+  setReturnsData, // 🆕 لتحديث state المرتجعات فورًا بعد الحفظ (تاب الشفتات وتقفيل اليوم بيعتمدوا عليه)
   canViewSalesReturns = true,
   canViewPurchaseReturns = true,
   canEditSalesReturns = true,
@@ -7817,7 +7820,7 @@ function ReturnsModule({
     }
 
     // ── حفظ سجل المرتجع نفسه ──
-    const { error } = await supabase.from("returns").insert([
+    const { data: newReturnRows, error } = await supabase.from("returns").insert([
       {
         id: returnId,
         date: today,
@@ -7835,11 +7838,16 @@ function ReturnsModule({
         admin_override: adminOverride,
         pharmacy_id: pharmacyId,
       },
-    ]);
+    ]).select();
 
     if (error) {
       showToast("خطأ في حفظ المرتجع: " + error.message, "error");
       return;
+    }
+
+    // 🆕 تحديث state المرتجعات محليًا فورًا (من غير كده تفضل كارتات الشفتات وتسوية التقفيل قديمة لحد ما تعمل refresh كامل)
+    if (newReturnRows && newReturnRows[0]) {
+      setReturnsData?.((prev) => [...(prev || []), newReturnRows[0]]);
     }
 
     // رصد
@@ -14685,20 +14693,29 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
           s.created_at && new Date(s.created_at).getTime() > closingCreatedAt
       )
     : [];
+  // 🆕 مرتجعات جزئية بعد التقفيل (من جدول returns — sales.returned بيفضل false في المرتجع الجزئي فمكانتش بتتلحق قبل كده)
+  const postClosingPartialReturns = closingCreatedAt
+    ? (returns || []).filter(
+        (r) => r.type === "sales" && r.date === today &&
+          r.created_at && new Date(r.created_at).getTime() > closingCreatedAt
+      )
+    : [];
   const postClosingSalesTotal = postClosingSales
     .filter((s) => s.payment !== "آجل")
     .reduce((a, s) => a + (s.total || 0), 0);
-  const postClosingReturnsTotal = postClosingReturns
-    .filter((s) => s.payment !== "آجل")
-    .reduce((a, s) => a + (s.total || 0), 0);
+  const postClosingReturnsTotal =
+    postClosingReturns.filter((s) => s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0) +
+    postClosingPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
   const postClosingNet = postClosingSalesTotal - postClosingReturnsTotal;
-  const hasPostClosingActivity = postClosingSales.length > 0 || postClosingReturns.length > 0;
+  const hasPostClosingActivity = postClosingSales.length > 0 || postClosingReturns.length > 0 || postClosingPartialReturns.length > 0;
 
   const [addingAdjustment, setAddingAdjustment] = useState(false);
   const addClosingAdjustment = async () => {
     if (!hasPostClosingActivity || postClosingNet === 0) return;
     setAddingAdjustment(true);
-    const invoiceIds = [...postClosingSales, ...postClosingReturns].map((s) => s.id).join("، ");
+    const invoiceIds = [...postClosingSales, ...postClosingReturns].map((s) => s.id)
+      .concat(postClosingPartialReturns.map((r) => r.invoice_id || r.id))
+      .join("، ");
     const payload = {
       type: postClosingNet > 0 ? "income" : "expense",
       sub_type: "closing_adjustment",
@@ -14844,7 +14861,11 @@ useEffect(() => {
   // ── حفظ التقفيل ──
   const openShifts = ((shifts || []).filter((s) => s.start_time?.startsWith(today))).filter((s) => !s.end_time);
 
+  const [savingClosing, setSavingClosing] = useState(false); // 🆕 يمنع تكرار حفظ التقفيل لو المستخدم دوس مرتين بسرعة
   const saveClosing = async () => {
+    if (savingClosing) return; // 🆕 حماية من الضغط المزدوج
+    setSavingClosing(true);
+    try {
     // تحقق إن كل شفتات اليوم متقفلة
     if (openShifts.length > 0) {
       showToast(`❌ يوجد ${openShifts.length} شفت مفتوح — أقفل الشفتات أولاً`, "error");
@@ -14911,6 +14932,9 @@ useEffect(() => {
       card_actual: "",
       card_adjust_reason: "",
     });
+    } finally {
+      setSavingClosing(false); // 🆕
+    }
   };
   // ── تجميع السجل ──
   const safeEntries = (entries || []).filter(Boolean);
@@ -15236,18 +15260,18 @@ useEffect(() => {
             {!closingSaved && canEditDayClosing && (
               <button
                 onClick={saveClosing}
-                disabled={openShifts.length > 0}
+                disabled={openShifts.length > 0 || savingClosing}
                 style={{
-                  background: openShifts.length > 0 ? COLORS.surfaceAlt : "#1a4a2a",
-                  border: `1px solid ${openShifts.length > 0 ? COLORS.border : "#2a8a4a"}`,
+                  background: (openShifts.length > 0 || savingClosing) ? COLORS.surfaceAlt : "#1a4a2a",
+                  border: `1px solid ${(openShifts.length > 0 || savingClosing) ? COLORS.border : "#2a8a4a"}`,
                   borderRadius: 8, padding: "10px 20px",
-                  color: openShifts.length > 0 ? COLORS.textDim : COLORS.green,
+                  color: (openShifts.length > 0 || savingClosing) ? COLORS.textDim : COLORS.green,
                   fontSize: 13, fontWeight: 700,
-                  cursor: openShifts.length > 0 ? "not-allowed" : "pointer",
-                  opacity: openShifts.length > 0 ? 0.5 : 1,
+                  cursor: (openShifts.length > 0 || savingClosing) ? "not-allowed" : "pointer",
+                  opacity: (openShifts.length > 0 || savingClosing) ? 0.5 : 1,
                 }}
               >
-                {openShifts.length > 0 ? `🔒 أقفل ${openShifts.length} شفت أولاً` : "✅ حفظ تقفيل اليوم"}
+                {savingClosing ? "⏳ جارِ الحفظ..." : openShifts.length > 0 ? `🔒 أقفل ${openShifts.length} شفت أولاً` : "✅ حفظ تقفيل اليوم"}
               </button>
             )}
             {!closingSaved && !canEditDayClosing && (
