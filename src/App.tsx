@@ -5235,6 +5235,37 @@ function POS({
     </div>
   );
 } 
+// ==================== ZATCA QR (Simplified Tax Invoice TLV) ====================
+// السطر التالي بيبني QR متوافق مع متطلبات هيئة الزكاة والضريبة (ZATCA) بصيغة TLV/Base64
+// بدل ما كان نص عادي (تاريخ|إجمالي|ضريبة) اللي بيظهر كأرقام لما يتم مسحه.
+const toTLVBytes = (tag, value) => {
+  const valueBytes = new TextEncoder().encode(String(value ?? ""));
+  const out = new Uint8Array(2 + valueBytes.length);
+  out[0] = tag;
+  out[1] = valueBytes.length;
+  out.set(valueBytes, 2);
+  return out;
+};
+const buildZatcaQR = ({ sellerName, vatNumber, timestamp, invoiceTotal, vatTotal }) => {
+  const fields = [
+    toTLVBytes(1, sellerName || "صيدلية برو"),
+    toTLVBytes(2, vatNumber || ""),
+    toTLVBytes(3, timestamp || new Date().toISOString()),
+    toTLVBytes(4, Number(invoiceTotal || 0).toFixed(2)),
+    toTLVBytes(5, Number(vatTotal || 0).toFixed(2)),
+  ];
+  const totalLen = fields.reduce((s, f) => s + f.length, 0);
+  const merged = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const f of fields) {
+    merged.set(f, offset);
+    offset += f.length;
+  }
+  let binary = "";
+  merged.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+};
+
 // ==================== PRINT RECEIPT ====================
 function PrintReceipt({ invoice, onClose }) {
   const printArea = useRef();
@@ -5293,7 +5324,9 @@ function PrintReceipt({ invoice, onClose }) {
             </tr>
           </thead>
           <tbody>
-            {invoice.items.map((item, i) => (
+            {invoice.items
+              .filter((item) => !item.isMissed && !item.isJoker)
+              .map((item, i) => (
               <tr key={i}>
                 <td>
                   <div>{item.name}</div>
@@ -5379,11 +5412,13 @@ function PrintReceipt({ invoice, onClose }) {
 
         <div style={{ textAlign: "center", marginTop: 12 }}>
           <QRCodeSVG
-            value={`${invoice.date}|${(invoice.total || 0).toFixed(2)}|${(
-              invoice.taxAmount ||
-              invoice.tax_amount ||
-              0
-            ).toFixed(2)}`}
+            value={buildZatcaQR({
+              sellerName: invoice.pharmacyName || "صيدلية برو",
+              vatNumber: invoice.vatNumber || invoice.tax_number || "",
+              timestamp: invoice.created_at || invoice.date,
+              invoiceTotal: invoice.total || 0,
+              vatTotal: invoice.taxAmount || invoice.tax_amount || 0,
+            })}
             size={100}
           />
           <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>
