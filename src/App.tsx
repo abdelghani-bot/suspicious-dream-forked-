@@ -2000,6 +2000,7 @@ if (isLoading) return (
             shifts={shifts}
             entries={treasuryEntries}
             setEntries={setTreasuryEntries}
+            returns={returnsData}
             canViewSub={(sub) => canView("treasury", sub)}
             canEditSub={(sub) => canEdit("treasury", sub)}
           />
@@ -14619,7 +14620,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
   );
 }
 // ==================== TREASURY MODULE ====================
-function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, canViewSub = (_sub) => true, canEditSub = (_sub) => true }) {
+function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, returns = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true }) {
   const canViewDayClosing = canViewSub("day_closing");
   const canEditDayClosing = canEditSub("day_closing");
   const canViewOverview   = canViewSub("overview");
@@ -14779,14 +14780,26 @@ useEffect(() => {
 
   // ── تقفيل الشفتات ──
   const todayShifts = shifts.filter((s) => s.start_time?.startsWith(today));
+
+  // 🆕 مرتجعات كل شفت — بنربط كل سطر في جدول returns بالفاتورة الأصلية (invoice_id) عشان نعرف شفتها
+  const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
+  const todayReturnsSales = (returns || []).filter((r) => r.type === "sales" && r.date === today);
+  const getShiftReturns = (shiftId) =>
+    todayReturnsSales
+      .filter((r) => salesById[r.invoice_id]?.shift === shiftId)
+      .reduce((a, r) => a + (r.total || 0), 0);
+
   const getShiftSales = (shiftId) => {
     const shiftSales = todaySales.filter((s) => s.shift === shiftId);
+    const shiftReturns = getShiftReturns(shiftId);
+    const grossTotal = shiftSales.filter((s) => s.payment !== "آجل").reduce((a, s) => a + s.total, 0);
     return {
       cash: shiftSales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0),
       card: shiftSales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0),
       transfer: shiftSales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0),
       ajil: shiftSales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0),
-      total: shiftSales.filter((s) => s.payment !== "آجل").reduce((a, s) => a + s.total, 0),
+      returns: shiftReturns, // 🆕 إجمالي مرتجعات الشفت (كامل + جزئي) من جدول returns
+      total: grossTotal - shiftReturns, // 🆕 صافي بعد خصم المرتجعات
       count: shiftSales.length,
     };
   };
@@ -15280,6 +15293,11 @@ useEffect(() => {
                     {ss.ajil > 0 && (
                       <div style={{ marginTop: 8, color: COLORS.red, fontSize: 12 }}>
                         مديونية: {ss.ajil.toFixed(2)} ر.س ({ss.count} فاتورة)
+                      </div>
+                    )}
+                    {ss.returns > 0 && (
+                      <div style={{ marginTop: 8, color: COLORS.red, fontSize: 12 }}>
+                        🔄 مرتجعات: {ss.returns.toFixed(2)} ر.س (مخصومة من الإجمالي)
                       </div>
                     )}
                   </div>
