@@ -322,225 +322,61 @@ const CATEGORIES = [
 const TAX_RATE = 0.15;
 
 // ==================== ICONS ====================
-const IC = ({ n, s = 18, sw = 1.8 }) => {
+const IC = ({ n, s = 18, style = {} }) => {
   const m = {
-    dashboard: <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />,
-    pos: (
-      <>
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <path d="M8 21h8M12 17v4" />
-      </>
-    ),
-    inventory: (
-      <>
-        <path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" />
-        <path d="M16 3H8L6 7h12l-2-4z" />
-      </>
-    ),
-    purchase: (
-      <>
-        <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
-        <line x1="3" y1="6" x2="21" y2="6" />
-        <path d="M16 10a4 4 0 01-8 0" />
-      </>
-    ),
-    returns: (
-      <>
-        <polyline points="1 4 1 10 7 10" />
-        <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
-      </>
-    ),
-    customers: (
-      <>
-        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
-      </>
-    ),
-    family3: (
-      <>
-        <circle cx="6" cy="8" r="2.6" />
-        <path d="M1 21v-1.5A3.5 3.5 0 014.5 16h3A3.5 3.5 0 0111 19.5V21" />
-        <circle cx="18" cy="8" r="2.6" />
-        <path d="M13 21v-1.5a3.5 3.5 0 013.5-3.5h1a3.5 3.5 0 013.5 3.5V21" />
-        <circle cx="12" cy="13.5" r="2" />
-        <path d="M9 21v-1a3 3 0 013-3 3 3 0 013 3v1" />
-      </>
-    ),
-    suppliers: (
-      <>
-        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-        <path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16" />
-      </>
-    ),
-    reports: (
-      <>
-        <path d="M18 20V10M12 20V4M6 20v-6" />
-      </>
-    ),
-    tax: (
-      <>
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="9" y1="15" x2="15" y2="15" />
-      </>
-    ),
-    shift: (
-      <>
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-      </>
-    ),
-    count: (
-      <>
-        <path d="M9 11l3 3L22 4" />
-        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-      </>
-    ),
-    logout: (
-      <>
-        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
-        <polyline points="16 17 21 12 16 7" />
-        <line x1="21" y1="12" x2="9" y2="12" />
-      </>
-    ),
-    cart: (
-      <>
-        <circle cx="9" cy="21" r="1" />
-        <circle cx="20" cy="21" r="1" />
-        <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
-      </>
-    ),
-    trash: (
-      <>
-        <polyline points="3 6 5 6 21 6" />
-        <path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2" />
-      </>
-    ),
-    plus: (
-      <>
-        <line x1="12" y1="5" x2="12" y2="19" />
-        <line x1="5" y1="12" x2="19" y2="12" />
-      </>
-    ),
-    minus: <line x1="5" y1="12" x2="19" y2="12" />,
-    search: (
-      <>
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </>
-    ),
-    check: <polyline points="20 6 9 17 4 12" />,
-    x: (
-      <>
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </>
-    ),
-    edit: (
-      <>
-        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-      </>
-    ),
-    barcode: (
-      <>
-        <path d="M3 5v14M8 5v14M16 5v14M21 5v14M12 5v5M12 14v5" />
-      </>
-    ),
-    print: (
-      <>
-        <polyline points="6 9 6 2 18 2 18 9" />
-        <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" />
-        <rect x="6" y="14" width="12" height="8" />
-      </>
-    ),
-    img: (
-      <>
-        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-        <circle cx="8.5" cy="8.5" r="1.5" />
-        <polyline points="21 15 16 10 5 21" />
-      </>
-    ),
-    pill: (
-      <>
-        <rect x="2" y="9" width="20" height="6" rx="3" />
-        <path d="M12 9v6" />
-      </>
-    ),
-    alert: (
-      <>
-        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-        <line x1="12" y1="9" x2="12" y2="13" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
-      </>
-    ),
-    money: (
-      <>
-        <rect x="2" y="5" width="20" height="14" rx="2" />
-        <line x1="2" y1="10" x2="22" y2="10" />
-      </>
-    ),
-    user: (
-      <>
-        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </>
-    ),
-    eye: (
-      <>
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-        <circle cx="12" cy="12" r="3" />
-      </>
-    ),
-    download: (
-      <>
-        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
-      </>
-    ),
-    tag: (
-      <>
-        <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
-        <line x1="7" y1="7" x2="7.01" y2="7" />
-      </>
-    ),
-    percent: (
-      <>
-        <line x1="19" y1="5" x2="5" y2="19" />
-        <circle cx="6.5" cy="6.5" r="2.5" />
-        <circle cx="17.5" cy="17.5" r="2.5" />
-      </>
-    ),
-    target: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <circle cx="12" cy="12" r="5" />
-        <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
-      </>
-    ),
-    bell: (
-      <>
-        <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-        <path d="M13.73 21a2 2 0 01-3.46 0" />
-      </>
-    ),
-    zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
+    dashboard: "📊",
+    pos: "🛒",
+    inventory: "💊",
+    purchase: "📦",
+    returns: "↩️",
+    customers: "👥",
+    suppliers: "🏭",
+    reports: "📈",
+    chart: "📈",
+    tax: "🧾",
+    shift: "🕐",
+    count: "📋",
+    logout: "🚪",
+    cart: "🛒",
+    trash: "🗑️",
+    plus: "➕",
+    minus: "➖",
+    search: "🔍",
+    check: "✅",
+    x: "❌",
+    edit: "✏️",
+    barcode: "🔢",
+    print: "🖨️",
+    printer: "🖨️",
+    img: "🖼️",
+    pill: "💊",
+    alert: "⚠️",
+    money: "💰",
+    user: "👤",
+    eye: "👁️",
+    download: "📥",
+    tag: "🏷️",
+    percent: "%",
+    settings: "⚙️",
+    tools: "🛠️",
+    whatsapp: "💬",
+    star: "🌟",
+    target: "🎯",
   };
   return (
-    <svg
-      width={s}
-      height={s}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={sw}
-      viewBox="0 0 24 24"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <span
+      style={{
+        fontSize: s,
+        lineHeight: 1,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontStyle: "normal",
+        ...style,
+      }}
     >
-      {m[n]}
-    </svg>
+      {m[n] || ""}
+    </span>
   );
 };
 
@@ -810,17 +646,16 @@ const StatCard = ({ label, value, icon, color, sub }) => (
       style={{
         width: 48,
         height: 48,
-        borderRadius: 13,
-        background: `linear-gradient(145deg, ${color}, ${color}cc)`,
-        boxShadow: `0 4px 10px ${color}45, inset 0 1px 0 rgba(255,255,255,0.25)`,
+        borderRadius: 12,
+        background: color + "1F",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "#fff",
+        color,
         flexShrink: 0,
       }}
     >
-      <IC n={icon} s={22} sw={2} />
+      <IC n={icon} s={22} />
     </div>
     <div style={{ minWidth: 0 }}>
       <div
@@ -2816,15 +2651,7 @@ const [myTarget, setMyTarget] = useState(null);
             borderBottom: isOpen ? `1px solid ${VAR.border}` : "none",
           }}
         >
-          <span style={{
-            display: "flex", alignItems: "center", justifyContent: "center",
-            width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-            background: `linear-gradient(145deg, ${badgeColor || VAR.accent}, ${badgeColor || VAR.accent}cc)`,
-            boxShadow: `0 3px 8px ${badgeColor || VAR.accent}45, inset 0 1px 0 rgba(255,255,255,0.25)`,
-            color: "#fff",
-          }}>
-            <IC n={icon} s={16} sw={2} />
-          </span>
+          <span style={{ fontSize: 17 }}>{icon}</span>
           <span style={{ fontSize: 13, fontWeight: 700, color: VAR.text, flex: 1 }}>{title}</span>
           {badge !== undefined && badge !== null && (
             <span style={{
@@ -2887,7 +2714,7 @@ const [myTarget, setMyTarget] = useState(null);
       }}>
 
         {/* 1) المبيعات والفرص */}
-        <CollapsibleCard cardKey="sales" icon="reports" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent}>
           <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
             {SALES_TABS.map((t) => (
               <button
@@ -3055,7 +2882,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 2) تارجت الشهر */}
-        <CollapsibleCard cardKey="target" icon="target" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
+        <CollapsibleCard cardKey="target" icon="🎯" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
           <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             {myTarget === null ? (
               <div style={{ color: VAR.muted, fontSize: 12 }}>جاري التحميل...</div>
@@ -3093,7 +2920,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 3) مركز التنبيهات */}
-        <CollapsibleCard cardKey="alerts" icon="bell" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger}>
+        <CollapsibleCard cardKey="alerts" icon="🔔" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger}>
           <div>
             {totalAlertsCount === 0 && (
               <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
@@ -3232,7 +3059,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 5) العروض المتوفرة */}
-        <CollapsibleCard cardKey="promos" icon="tag" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="promos" icon="🏷️" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
           <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
             {activePromos.length === 0 && autoPromoProducts.length === 0 && (
               <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد عروض نشطة</div>
@@ -3271,7 +3098,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 6) تغيرات الأسعار */}
-        <CollapsibleCard cardKey="prices" icon="money" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
+        <CollapsibleCard cardKey="prices" icon="💰" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
           <div style={{ fontSize: 10, color: VAR.muted, padding: "8px 14px 0" }}>آخر 7 أيام</div>
           <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
             {recentPriceChanges.length === 0 && (
@@ -3296,7 +3123,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 7) بطاقة الصيدلي */}
-        <CollapsibleCard cardKey="shift" icon="user" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="shift" icon="👤" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
             <div style={{
               width: 32, height: 32, borderRadius: "50%",
@@ -3329,7 +3156,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 8) خزنة اليوم */}
-        <CollapsibleCard cardKey="treasury" icon="money" title="خزنة اليوم" badge={(todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
           <div style={{ padding: 16 }}>
             {[
               { label: "مبيعات كاش",    val: todayCashOnlySales.toFixed(0), type: "in" },
@@ -3355,7 +3182,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 9) إجراءات سريعة */}
-        <CollapsibleCard cardKey="actions" icon="zap" title="إجراءات سريعة" badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="actions" icon="⚡" title="إجراءات سريعة">
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             {[
               { icon: "💊", label: "فاتورة بيع جديدة",  tab: "pos",       bg: "rgba(0,200,150,0.15)" },
@@ -11878,28 +11705,6 @@ function CustomersModule({
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-
-  // 🆕 أفاتار العميل — بادج متدرج بأيقونة SVG نظيفة بدل الإيموجي الخام (شكل أوضح وثابت على كل الأجهزة)
-  const CustomerAvatar = ({ category, size = 34 }) => {
-    const styleByCat = {
-      individual:       { icon: "user",     grad: ["#3b82f6", "#1d4ed8"] },
-      family_no_kids:   { icon: "customers", grad: ["#8b5cf6", "#6d28d9"] },
-      family_with_kids: { icon: "family3",   grad: ["#14b8a6", "#0d9488"] },
-    };
-    const cfg = styleByCat[category] || styleByCat.individual;
-    return (
-      <div style={{
-        width: size, height: size, borderRadius: size * 0.28,
-        background: `linear-gradient(145deg, ${cfg.grad[0]}, ${cfg.grad[1]})`,
-        boxShadow: `0 3px 8px ${cfg.grad[1]}55, inset 0 1px 0 rgba(255,255,255,0.25)`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        color: "#fff", flexShrink: 0,
-      }}>
-        <IC n={cfg.icon} s={size * 0.52} sw={2} />
-      </div>
-    );
-  };
-
   const openCreditModal = async (customer) => {
     setSelectedCreditCustomer(customer);
 
@@ -12259,7 +12064,13 @@ function CustomersModule({
           padding: "10px 14px", cursor: "pointer", gap: 8,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-            <CustomerAvatar category={c.category} size={34} />
+            <div style={{
+              width: 34, height: 34, borderRadius: 8, background: "#1a2a5a",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 16, flexShrink: 0,
+            }}>
+              {c.category === "individual" ? "👤" : c.category === "family_no_kids" ? "👫" : "👨‍👩‍👧"}
+            </div>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {c.name}
@@ -12695,7 +12506,9 @@ function CustomersModule({
                   <div
                     style={{ display: "flex", alignItems: "center", gap: 10 }}
                   >
-                    <CustomerAvatar category={c.category} size={30} />
+                    <span style={{ fontSize: 20 }}>
+                      {c.category === "individual" ? "👤" : "👨‍👩‍👧"}
+                    </span>
                     <div>
                       <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>
                         {c.name}
