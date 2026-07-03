@@ -7684,27 +7684,21 @@ function ReturnsModule({
         (item) => (item.returnedQty || 0) >= item.qty
       );
 
-      const { error: saleUpdateError } = await supabase
-        .from("sales")
-        .update({
-          items: updatedItems,
-          returned: allReturned, // علم فقط لو كل البنود رجعت بالكامل
-          return_date: allReturned ? today : null,
-        })
-        .eq("id", selInvoice.id);
-
-      if (saleUpdateError) {
-        showToast("خطأ في تحديث الفاتورة الأصلية: " + saleUpdateError.message, "error");
-        return;
-      }
-
-      setSales((prev) =>
-        prev.map((s) =>
-          s.id === selInvoice.id
-            ? { ...s, items: updatedItems, returned: allReturned, returnDate: allReturned ? today : s.returnDate }
-            : s
-        )
-      );
+      // ═══════════════════════════════════════════════════
+      // 🆕 الجانب المالي (خزنة/مديونية) الأول، وبعده بس تحديث sales.returned
+      // عشان مايبقاش فيه حالة متضاربة: فاتورة متعلّم "مرتجعة" من غير أي أثر مالي
+      // فيها لو فشل الـ insert بتاع treasury_entries أو credit_payments.
+      // مع محاولة إعادة (retry) واحدة قبل ما نوقف العملية بالكامل.
+      // ═══════════════════════════════════════════════════
+      const insertWithRetry = async (table, payload) => {
+        let { data, error } = await supabase.from(table).insert(payload).select();
+        if (error) {
+          // محاولة تانية بعد نص ثانية قبل الاستسلام (فشل شبكة مؤقت غالبًا)
+          await new Promise((r) => setTimeout(r, 500));
+          ({ data, error } = await supabase.from(table).insert(payload).select());
+        }
+        return { data, error };
+      };
 
       if ((selInvoice.payment || "نقدي") === "آجل") {
         // 🆕 فاتورة آجل → ينزل من مديونية العميل عبر credit_payments (نفس آلية السداد بالضبط)
@@ -7713,7 +7707,7 @@ function ReturnsModule({
           showToast("⚠️ لا يمكن تحديد العميل لخصم المرتجع من مديونيته", "error");
           return;
         }
-        const { error: creditError } = await supabase.from("credit_payments").insert([
+        const { error: creditError } = await insertWithRetry("credit_payments", [
           {
             invoice_id: selInvoice.id,
             customer_id: customerId,
@@ -7725,8 +7719,11 @@ function ReturnsModule({
           },
         ]);
         if (creditError) {
-          showToast("خطأ في تسجيل خصم المرتجع من مديونية العميل: " + creditError.message, "error");
-          return;
+          showToast(
+            "❌ فشل تسجيل خصم المرتجع من مديونية العميل بعد محاولتين — لم يتم حفظ المرتجع، حاول مرة أخرى: " + creditError.message,
+            "error"
+          );
+          return; // لا نكمل: مفيش تحديث لـ sales.returned طالما الجانب المالي فشل
         }
       } else {
         // 🆕 فاتورة نقدي → ينزل من الخزنة كمصروف (نفس pattern سداد المورد في SuppliersModule)
@@ -7740,17 +7737,45 @@ function ReturnsModule({
           pharmacy_id: pharmacyId,
           created_by: currentUser?.name || "",
         };
-        const { data: trData, error: trError } = await supabase
-          .from("treasury_entries")
-          .insert(trPayload)
-          .select();
+        const { data: trData, error: trError } = await insertWithRetry("treasury_entries", trPayload);
         if (trError) {
-          showToast("تم تسجيل المرتجع لكن فشل تحديث الخزنة: " + trError.message, "error");
-        } else if (setTreasuryEntries) {
+          showToast(
+            "❌ فشل تحديث الخزنة بعد محاولتين — لم يتم حفظ المرتجع، حاول مرة أخرى: " + trError.message,
+            "error"
+          );
+          return; // لا نكمل: مفيش تحديث لـ sales.returned طالما الخزنة فشلت
+        }
+        if (setTreasuryEntries) {
           const newEntry = trData && trData[0] ? trData[0] : { id: `TMP-${Date.now()}`, ...trPayload };
           setTreasuryEntries((p) => [newEntry, ...p]);
         }
       }
+
+      // ── الجانب المالي نجح → دلوقتي بس نعلّم الفاتورة كمرتجعة ──
+      const { error: saleUpdateError } = await supabase
+        .from("sales")
+        .update({
+          items: updatedItems,
+          returned: allReturned, // علم فقط لو كل البنود رجعت بالكامل
+          return_date: allReturned ? today : null,
+        })
+        .eq("id", selInvoice.id);
+
+      if (saleUpdateError) {
+        showToast(
+          "⚠️ تم تحديث الخزنة/المديونية لكن فشل تحديث الفاتورة الأصلية — راجع فاتورة " + selInvoice.id + ": " + saleUpdateError.message,
+          "error"
+        );
+        return;
+      }
+
+      setSales((prev) =>
+        prev.map((s) =>
+          s.id === selInvoice.id
+            ? { ...s, items: updatedItems, returned: allReturned, returnDate: allReturned ? today : s.returnDate }
+            : s
+        )
+      );
     }
 
     // ═══════════════════════════════════════════════════
@@ -14622,23 +14647,77 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   });
   const [editingCard, setEditingCard] = useState(false);
   const [closingSaved, setClosingSaved] = useState(false);
+  // 🆕 نسخة كاملة من سجل التقفيل نفسه (مش بس boolean) عشان نعرف امتى اتقفل بالظبط
+  const [closingRecord, setClosingRecord] = useState(null);
   useEffect(() => {
     if (!pharmacyId) return;
-    const alreadyClosed = (entries || []).some(
+    const localClosing = (entries || []).find(
       (e) => e.date === today && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
     );
-    if (alreadyClosed) { setClosingSaved(true); return; }
+    if (localClosing) { setClosingSaved(true); setClosingRecord(localClosing); return; }
     supabase
       .from("treasury_entries")
-      .select("id")
+      .select("id, created_at")
       .eq("pharmacy_id", pharmacyId)
       .eq("date", today)
       .eq("sub_type", "daily_closing")
       .limit(1)
       .then(({ data }) => {
-        if (data && data.length > 0) setClosingSaved(true);
+        if (data && data.length > 0) { setClosingSaved(true); setClosingRecord(data[0]); }
       });
   }, [entries, today, pharmacyId]);
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 مبيعات/مرتجعات حصلت بعد ما تقفيل اليوم اتحفظ فعليًا
+  // (زبون جه بعد التقفيل، صيدلي فتح شفت واستلم) — عشان تتلحق وتتضاف كتسوية
+  // بدل ما تفضل غير محسوبة في التقفيل المحفوظ ولا في تقفيل يوم تاني
+  // ═══════════════════════════════════════════════════
+  const closingCreatedAt = closingRecord?.created_at ? new Date(closingRecord.created_at).getTime() : null;
+  const postClosingSales = closingCreatedAt
+    ? (sales || []).filter(
+        (s) => s.date === today && !s.returned && s.created_at && new Date(s.created_at).getTime() > closingCreatedAt
+      )
+    : [];
+  const postClosingReturns = closingCreatedAt
+    ? (sales || []).filter(
+        (s) => s.date === today && s.returned && s.returnDate === today &&
+          s.created_at && new Date(s.created_at).getTime() > closingCreatedAt
+      )
+    : [];
+  const postClosingSalesTotal = postClosingSales
+    .filter((s) => s.payment !== "آجل")
+    .reduce((a, s) => a + (s.total || 0), 0);
+  const postClosingReturnsTotal = postClosingReturns
+    .filter((s) => s.payment !== "آجل")
+    .reduce((a, s) => a + (s.total || 0), 0);
+  const postClosingNet = postClosingSalesTotal - postClosingReturnsTotal;
+  const hasPostClosingActivity = postClosingSales.length > 0 || postClosingReturns.length > 0;
+
+  const [addingAdjustment, setAddingAdjustment] = useState(false);
+  const addClosingAdjustment = async () => {
+    if (!hasPostClosingActivity || postClosingNet === 0) return;
+    setAddingAdjustment(true);
+    const invoiceIds = [...postClosingSales, ...postClosingReturns].map((s) => s.id).join("، ");
+    const payload = {
+      type: postClosingNet > 0 ? "income" : "expense",
+      sub_type: "closing_adjustment",
+      method: "نقدي",
+      amount: Math.abs(postClosingNet),
+      note: `تسوية مبيعات/مرتجعات بعد تقفيل اليوم — فواتير: ${invoiceIds}`,
+      date: today,
+      pharmacy_id: pharmacyId,
+      created_by: currentUser?.name || "",
+    };
+    const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+    setAddingAdjustment(false);
+    if (error) {
+      showToast("خطأ في إضافة تسوية التقفيل: " + error.message, "error");
+      return;
+    }
+    if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
+    showToast("✅ تمت إضافة التسوية لتقفيل اليوم");
+  };
+
   const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(0);
 
 useEffect(() => {
@@ -14936,8 +15015,39 @@ useEffect(() => {
           <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
           <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 24, marginBottom: 8 }}>تم تقفيل يوم {today}</div>
           <div style={{ color: COLORS.textDim, fontSize: 14, marginBottom: 28 }}>جاهز لليوم التالي</div>
+
+          {/* 🆕 تنبيه مبيعات/مرتجعات حصلت بعد ما التقفيل اتحفظ (زبون جه بعد الإغلاق) */}
+          {hasPostClosingActivity && (
+            <div style={{
+              maxWidth: 420, margin: "0 auto 24px", textAlign: "right",
+              background: "#2a1000", border: "1px solid #8a3000", borderRadius: 10, padding: "14px 16px",
+            }}>
+              <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+                ⚠️ فيه حركة بعد التقفيل مش داخلة في السجل المحفوظ
+              </div>
+              <div style={{ color: COLORS.textDim, fontSize: 12, lineHeight: 1.8 }}>
+                {postClosingSales.length > 0 && <div>مبيعات جديدة: {postClosingSales.length} فاتورة</div>}
+                {postClosingReturns.length > 0 && <div>مرتجعات جديدة: {postClosingReturns.length} فاتورة</div>}
+                <div style={{ marginTop: 4, fontWeight: 700, color: postClosingNet >= 0 ? COLORS.green : COLORS.red }}>
+                  الصافي: {postClosingNet >= 0 ? "+" : ""}{postClosingNet.toFixed(2)} ر.س
+                </div>
+              </div>
+              <button
+                onClick={addClosingAdjustment}
+                disabled={addingAdjustment || postClosingNet === 0}
+                style={{
+                  marginTop: 10, width: "100%", background: COLORS.gold, border: "none", borderRadius: 8,
+                  padding: "8px 12px", color: "#1a0f00", fontWeight: 700, fontSize: 12,
+                  cursor: addingAdjustment ? "default" : "pointer", opacity: addingAdjustment ? 0.6 : 1,
+                }}
+              >
+                {addingAdjustment ? "جارٍ الإضافة..." : "➕ إضافة كتسوية على تقفيل اليوم"}
+              </button>
+            </div>
+          )}
+
           <button
-            onClick={() => setActiveTab("log")}
+            onClick={() => setActiveTab("history")}
             style={{ background: COLORS.blueSoft, border: "1px solid #2a5aaa", borderRadius: 8, padding: "8px 20px", color: COLORS.blue, fontSize: 13, cursor: "pointer" }}
           >
             📋 عرض سجل الأيام
