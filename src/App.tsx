@@ -16261,7 +16261,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
       .select("deducted_minutes")
       .eq("attendance_id", openLog.id);
 
-    const { totalHours } = calcCappedHours(openLog.check_in, nowISO, schedRows);
+    const { totalHours, outsideSchedule } = calcCappedHours(openLog.check_in, nowISO, schedRows);
     const totalDeductions = (breaks || []).reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
     const netHours = Math.max(0, totalHours - totalDeductions);
 
@@ -16275,6 +16275,10 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
       })
       .eq("id", openLog.id)
       .eq("pharmacy_id", pharmacyId);
+
+    if (outsideSchedule) {
+      showToast("⚠️ تم إغلاق الشفت — هذا الحضور خارج جدول الدوام المعتمد، لم تُحتسب له ساعات عمل", "warn");
+    }
   }
 
   showToast("تم إغلاق الشفت وتسليمه ✓");
@@ -16526,28 +16530,42 @@ function fmtHours(h: number) {
 }
 
 // 🆕 حساب ساعات العمل الفعلية مربوطة بجدول الدوام:
+// القاعدة: أي حضور برا جدول الدوام المعتمد (مفيش شفت مطابق لليوم/الرقم، أو الحضور كله بعد
+// نهاية الشفت + الأوفر تايم المعتمد) ميتحسبش ولا دقيقة — صفر ساعات، مش الوقت الفعلي كامل.
 // لو الصيدلي داوم زيادة عن نهاية شفته المجدولة، الوقت الزايد ميتحسبش —
 // إلا لو فيه دقائق أوفر تايم معتمدة مسبقاً على نفس الشفت (schedule.overtime_minutes)، تتحسب لحد سقفها بس.
 function calcCappedHours(checkInISO: string, checkOutISO: string, schedule: any) {
   const checkInDate = new Date(checkInISO);
   const actualCheckOut = new Date(checkOutISO);
-  let effectiveCheckOut = actualCheckOut;
 
-  if (schedule?.shift_end) {
-    const [endH, endM] = schedule.shift_end.split(":").map(Number);
-    const scheduledEnd = new Date(checkInDate);
-    scheduledEnd.setHours(endH, endM, 0, 0);
-    // لو الشفت بيعدي نص الليل (النهاية أصغر من البداية رقمياً) نضيف يوم
-    const [startH, startM] = (schedule.shift_start || "00:00").split(":").map(Number);
-    if (endH * 60 + endM <= startH * 60 + startM) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
-
-    const overtimeAllowed = +schedule.overtime_minutes || 0;
-    const cappedEnd = new Date(scheduledEnd.getTime() + overtimeAllowed * 60000);
-    if (actualCheckOut > cappedEnd) effectiveCheckOut = cappedEnd;
+  // ⛔ مفيش جدول دوام مطابق أصلاً لهذا اليوم/الشفت (زي فتح شفت إضافي بعد التقفيل الرسمي) →
+  // الحضور خارج الدوام بالكامل ولا يُحتسب أي ساعات.
+  if (!schedule?.shift_start || !schedule?.shift_end) {
+    return { totalHours: 0, capped: true, outsideSchedule: true };
   }
 
+  const [startH, startM] = schedule.shift_start.split(":").map(Number);
+  const scheduledStart = new Date(checkInDate);
+  scheduledStart.setHours(startH, startM, 0, 0);
+
+  const [endH, endM] = schedule.shift_end.split(":").map(Number);
+  const scheduledEnd = new Date(checkInDate);
+  scheduledEnd.setHours(endH, endM, 0, 0);
+  // لو الشفت بيعدي نص الليل (النهاية أصغر من البداية رقمياً) نضيف يوم
+  if (endH * 60 + endM <= startH * 60 + startM) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
+
+  const overtimeAllowed = +schedule.overtime_minutes || 0;
+  const cappedEnd = new Date(scheduledEnd.getTime() + overtimeAllowed * 60000);
+
+  // ⛔ وقت الحضور نفسه وقع كله بعد نهاية الشفت + الأوفر تايم المسموح (يعني فتح خارج نطاق الدوام تمامًا) →
+  // صفر ساعات، مش الوقت الفعلي.
+  if (checkInDate >= cappedEnd) {
+    return { totalHours: 0, capped: true, outsideSchedule: true };
+  }
+
+  const effectiveCheckOut = actualCheckOut > cappedEnd ? cappedEnd : actualCheckOut;
   const totalMinutes = Math.max(0, (effectiveCheckOut.getTime() - checkInDate.getTime()) / 60000);
-  return { totalHours: totalMinutes / 60, capped: effectiveCheckOut < actualCheckOut };
+  return { totalHours: totalMinutes / 60, capped: effectiveCheckOut < actualCheckOut, outsideSchedule: false };
 }
 
 const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -17055,6 +17073,19 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     );
   }
 
+  // 🆕 هل سجل الحضور ده خارج جدول الدوام المعتمد؟ (مفيش شفت مطابق، أو الحضور كله وقع بعد نهاية الشفت + الأوفر تايم)
+  function isOutsideSchedule(log: any) {
+    if (!log?.check_in) return false;
+    const dow = new Date(log.check_in).getDay();
+    const schedule = getExpectedShift(log.pharmacist_name, dow, log.shift_number || 1);
+    if (!schedule) return true;
+    if (log.check_out) {
+      const { outsideSchedule } = calcCappedHours(log.check_in, log.check_out, schedule);
+      return outsideSchedule;
+    }
+    return false;
+  }
+
   function getCurrentShiftNumber(pharmacistName: string) {
     const now = new Date();
     const nowTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -17102,7 +17133,8 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     });
 
     if (!error) {
-      if (lateMin > 0) globalToast(`⚠️ ${pharmacistName} تأخر ${lateMin} دقيقة`, "warn");
+      if (!schedule) globalToast(`⚠️ تم تسجيل حضور ${pharmacistName} لكن لا يوجد شفت مطابق في جدول الدوام — لن تُحتسب له ساعات عمل`, "warn");
+      else if (lateMin > 0) globalToast(`⚠️ ${pharmacistName} تأخر ${lateMin} دقيقة`, "warn");
       else globalToast(`✅ تم تسجيل حضور ${pharmacistName} - شفت ${shiftNum}`);
       loadTodayLogs();
     }
@@ -17113,7 +17145,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الانصراف", "error"); return; }
     const now = new Date();
     const schedule = getExpectedShift(log.pharmacist_name, new Date(log.check_in).getDay(), log.shift_number || 1);
-    const { totalHours, capped } = calcCappedHours(log.check_in, now.toISOString(), schedule);
+    const { totalHours, capped, outsideSchedule } = calcCappedHours(log.check_in, now.toISOString(), schedule);
     const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
     const totalDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
     const netHours = Math.max(0, totalHours - totalDeductions);
@@ -17126,7 +17158,8 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     }).eq("id", log.id).eq("pharmacy_id", pharmacyId);
 
     if (!error) {
-      if (capped) globalToast(`✅ تم تسجيل انصراف ${log.pharmacist_name} — وقت زيادة عن الشفت متحسبش`, "warn");
+      if (outsideSchedule) globalToast(`⚠️ تم تسجيل انصراف ${log.pharmacist_name} — الحضور خارج جدول الدوام، لم تُحتسب ساعات عمل`, "warn");
+      else if (capped) globalToast(`✅ تم تسجيل انصراف ${log.pharmacist_name} — وقت زيادة عن الشفت متحسبش`, "warn");
       else globalToast(`✅ تم تسجيل انصراف ${log.pharmacist_name}`);
       loadTodayLogs();
     }
@@ -17365,9 +17398,15 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                       const liveDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0);
                       const liveTotal = log.check_out ? log.total_hours : diffMin(log.check_in, new Date().toISOString()) / 60;
                       const liveNet = Math.max(0, liveTotal - liveDeductions / 60);
+                      const outside = isOutsideSchedule(log);
                       return (
                         <tr key={log.id} style={{ borderBottom: `1px solid ${C.bg2}` }}>
-                          <td style={{ padding: "10px", fontWeight: 700, color: C.text }}>{log.pharmacist_name}</td>
+                          <td style={{ padding: "10px", fontWeight: 700, color: C.text }}>
+                            {log.pharmacist_name}
+                            {outside && (
+                              <div style={{ fontSize: 10, color: C.red, fontWeight: 600, marginTop: 2 }}>⚠️ خارج الدوام</div>
+                            )}
+                          </td>
                           <td style={{ padding: "10px", textAlign: "center", color: C.muted }}>{log.shift_number || 1}</td>
                           <td style={{ padding: "10px", textAlign: "center", color: C.green }}>{fmt(log.check_in)}</td>
                           <td style={{ padding: "10px", textAlign: "center", color: log.late_minutes > 0 ? C.orange : C.muted }}>
@@ -17472,6 +17511,9 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                     <strong style={{ fontSize: 15, color: C.text }}>{log.pharmacist_name}</strong>
                     <span style={{ fontSize: 11, color: C.muted, marginRight: 8 }}>شفت {log.shift_number || 1}</span>
                     {log.expected_start && <span style={{ fontSize: 11, color: C.muted }}>· متوقع: {log.expected_start}</span>}
+                    {isOutsideSchedule(log) && (
+                      <span style={{ fontSize: 11, color: C.red, fontWeight: 700, marginRight: 8 }}>⚠️ خارج الدوام</span>
+                    )}
                   </div>
                   <span style={{ background: COLORS.blueSoft, color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 13, fontWeight: 700 }}>
                     صافي: {fmtHours(log.net_hours)} س
@@ -17559,11 +17601,15 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                     <tbody>
                       {pharmLogs.map((log) => {
                         const dow = new Date(log.date).getDay();
+                        const outside = isOutsideSchedule(log);
                         return (
                           <tr key={log.id} style={{ borderBottom: `1px solid ${C.bg2}` }}>
                             <td style={{ padding: "7px 8px", textAlign: "center", color: C.muted }}>{log.date}</td>
                             <td style={{ padding: "7px 8px", textAlign: "center", color: dow === 5 ? C.orange : C.text }}>{DAY_NAMES[dow]}</td>
-                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.muted }}>{log.shift_number || 1}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.muted }}>
+                              {log.shift_number || 1}
+                              {outside && <div style={{ fontSize: 9, color: C.red, fontWeight: 700 }}>⚠️ خارج الدوام</div>}
+                            </td>
                             <td style={{ padding: "7px 8px", textAlign: "center", color: C.green }}>{fmt(log.check_in)}</td>
                             <td style={{ padding: "7px 8px", textAlign: "center", color: log.late_minutes > 0 ? C.orange : C.muted }}>
                               {log.late_minutes > 0 ? `${log.late_minutes} د` : "—"}
