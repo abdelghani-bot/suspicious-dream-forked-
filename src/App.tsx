@@ -1822,7 +1822,7 @@ if (isLoading) return (
     { label: "العملاء والمبيعات",color: GROUP_COLORS.sales,   ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
     { label: "المخزون والموردين",color: GROUP_COLORS.stock,   ids: ["purchase", "products", "suppliers", "purchase_returns", "inventory_count"] },
     { label: "التقارير",         color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "treasury"] },
-    { label: "الإدارة",          color: GROUP_COLORS.admin,   ids: ["pharmacy_settings", "permissions", "rasd_settings"] },
+    { label: "الإدارة",          color: GROUP_COLORS.admin,   ids: ["pharmacy_settings", "permissions", "rasd_settings", "audit_log"] },
   ];
 
   // إيجاد لون التاب الحالي
