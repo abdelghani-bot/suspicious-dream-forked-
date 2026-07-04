@@ -2339,13 +2339,35 @@ function Dashboard({
   const today = new Date().toISOString().split("T")[0];
   const monthKey = today.substring(0, 7);
 
+  // ══════════════════════════════════════════════════════════
+  // 🆕 نقطة بداية "اليوم" الفعلية لكروت المبيعات/الفرص/الأقسام:
+  // بيتساوى منتصف الليل التقويمي إلا لو حصل تقفيل يومي (daily_closing)
+  // بعد منتصف الليل ده — يعني الصيدلي قفل يوم امبارح فعليًا وقت
+  // بقت الساعة داخلة في تاريخ اليوم. في الحالة دي نعتبر "اليوم" بادئ
+  // من لحظة التقفيل نفسها، عشان الكروت تصفر فورًا وقت التقفيل مش
+  // تفضل شايلة أرقام اليوم اللي فات لحد منتصف الليل التقويمي التالي.
+  const todayMidnightTs = new Date(); todayMidnightTs.setHours(0, 0, 0, 0);
+  const lastClosingTs = (treasuryEntries || [])
+    .filter((e) => e.sub_type === "daily_closing" && e.created_at)
+    .reduce((latest, e) => {
+      const t = new Date(e.created_at).getTime();
+      return t > latest ? t : latest;
+    }, 0);
+  const todayStartTs = Math.max(todayMidnightTs.getTime(), lastClosingTs);
+  // 🆕 بيستخدم created_at لو موجود (أدق وبيحل مشكلة التقفيل بعد نص الليل)،
+  // ولو مش موجود (سجلات قديمة) بيرجع للمقارنة بالتاريخ التقويمي العادية
+  const isTodayRecord = (record) => {
+    if (!record?.created_at) return record?.date === today;
+    return new Date(record.created_at).getTime() >= todayStartTs;
+  };
+
   useEffect(() => {
     if (!pharmacyId) return;
     const fetchMissed = async () => {
       const { data: todayData } = await supabase
         .from("missed_sales")
-        .select("id, product_name, price, qty, reason, notes, cashier, date")
-        .eq("date", today)
+        .select("id, product_name, price, qty, reason, notes, cashier, date, created_at")
+        .gte("created_at", new Date(todayStartTs).toISOString())
         .eq("pharmacy_id", pharmacyId)
         .order("id", { ascending: false });
       if (todayData) {
@@ -2364,7 +2386,7 @@ function Dashboard({
       }
     };
     fetchMissed();
-  }, [today, monthKey, pharmacyId]);
+  }, [today, todayStartTs, monthKey, pharmacyId]);
 const [myTarget, setMyTarget] = useState(null);
 
   useEffect(() => {
@@ -2396,13 +2418,13 @@ const [myTarget, setMyTarget] = useState(null);
   const targetRemaining = Math.max((myTarget || 0) - myAchieved, 0);
   const requiredDaily = daysLeftInMonth > 0 ? targetRemaining / daysLeftInMonth : targetRemaining;
   // ── حسابات المبيعات ──
-  const todaySales    = sales.filter((s) => s.date === today && !s.returned);
+  const todaySales    = sales.filter((s) => isTodayRecord(s) && !s.returned);
   const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
   const todayCreditPaid = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
   // 🆕 المرتجعات هنا بتتحسب من treasury_entries (نفس مصدر تقفيل اليوم) مش من sales.returned مباشرة،
   // عشان: 1) مرتجع فاتورة آجل ميتخصمش من الخزنة (مفيش كاش خرج أصلاً)، 2) المرتجع الجزئي (مش كل الفاتورة) يتحسب صح.
   const todayReturnsForDash = (treasuryEntries || [])
-    .filter((e) => e.date === today && e.type === "expense" && e.sub_type === "sales_return")
+    .filter((e) => isTodayRecord(e) && e.type === "expense" && e.sub_type === "sales_return")
     .reduce((a, e) => a + (e.amount || 0), 0);
   const monthReturnsForDash = (treasuryEntries || [])
     .filter((e) => e.date?.startsWith(monthKey) && e.type === "expense" && e.sub_type === "sales_return")
@@ -2422,7 +2444,7 @@ const [myTarget, setMyTarget] = useState(null);
 
   // ── النثريات المسجّلة اليوم من سجل الخزنة ──
   const todayPettyExpenses = (treasuryEntries || [])
-    .filter((e) => e.date === today && e.type === "expense" && e.sub_type === "petty")
+    .filter((e) => isTodayRecord(e) && e.type === "expense" && e.sub_type === "petty")
     .reduce((a, e) => a + (e.amount || 0), 0);
 
   const monthSales    = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned);
@@ -2530,7 +2552,7 @@ const [myTarget, setMyTarget] = useState(null);
     const totalProfit = rows.reduce((a, r) => a + r.profit, 0);
     return { rows: rows.map((r) => ({ ...r, share: totalRevenue > 0 ? (r.revenue / totalRevenue) * 100 : 0 })), totalRevenue, totalProfit };
   };
-  const todayReturns = (returnsData || []).filter((r) => r.date === today);
+  const todayReturns = (returnsData || []).filter((r) => isTodayRecord(r));
   const monthReturns = (returnsData || []).filter((r) => r.date?.startsWith(monthKey));
   const deptStatsToday = computeDeptStats(todaySales, todayReturns);
   const deptStatsMonth = computeDeptStats(monthSales, monthReturns);
