@@ -18529,7 +18529,7 @@ const SYSTEM_SECTIONS = [
 const permKey = (sectionId, subId = undefined) => (subId ? `${sectionId}::${subId}` : sectionId);
 
 // ── الأدوار الافتراضية ──
-const DEFAULT_ROLES = ["pharmacist", "cashier"];
+const DEFAULT_ROLES = ["pharmacist", "cashier", "warehouse"];
 
 function PermissionsModule({
   pharmacyId,
@@ -18581,11 +18581,15 @@ function PermissionsModule({
       }
       [...foundRoles].forEach((role) => {
         if (!map[role]) map[role] = {};
+        // 🆕 دور "مخزن": يشوف ويعدّل بس في الشراء والأصناف والموردين والجرد،
+        // وميشوفش المبيعات/العملاء/الخزنة/التقارير المالية أصلاً.
+        const WAREHOUSE_SECTIONS = ["purchase", "products", "suppliers", "returns", "inventory_count", "expiry_report"];
         SYSTEM_SECTIONS.forEach((sec) => {
-          const defaultPerm = {
-            can_view: role === "cashier" ? sec.id === "pos" : true,
-            can_edit: role === "cashier" ? sec.id === "pos" : sec.id !== "pharmacy_settings" && sec.id !== "rasd_settings",
-          };
+          const defaultPerm = role === "cashier"
+            ? { can_view: sec.id === "pos", can_edit: sec.id === "pos" }
+            : role === "warehouse"
+              ? { can_view: WAREHOUSE_SECTIONS.includes(sec.id), can_edit: WAREHOUSE_SECTIONS.includes(sec.id) }
+              : { can_view: true, can_edit: sec.id !== "pharmacy_settings" && sec.id !== "rasd_settings" };
           if (!map[role][permKey(sec.id)]) map[role][permKey(sec.id)] = defaultPerm;
           (sec.subItems || []).forEach((sub) => {
             if (!map[role][permKey(sec.id, sub.id)]) map[role][permKey(sec.id, sub.id)] = { ...defaultPerm };
@@ -18756,7 +18760,7 @@ function PermissionsModule({
   };
 
   const roleLabel = (r: string) =>
-    r === "pharmacist" ? "صيدلاني" : r === "cashier" ? "كاشير" : r === "admin" ? "مدير" : r;
+    r === "pharmacist" ? "صيدلاني" : r === "cashier" ? "كاشير" : r === "warehouse" ? "مخزن" : r === "admin" ? "مدير" : r;
 
   const currentRolePerms = perms[selectedRole] || {};
   const viewCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_view).length;
@@ -18969,7 +18973,7 @@ function PermissionsModule({
                     <div style={{ fontSize: 14, fontWeight: 600, color: VAR.text }}>{u.name}</div>
                     <div style={{ fontSize: 13, color: VAR.muted }}>{u.username}</div>
                     <div>
-                      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700, background: u.role === "admin" ? COLORS.goldSoft : u.role === "pharmacist" ? COLORS.greenSoft : COLORS.blueSoft, color: u.role === "admin" ? COLORS.gold : u.role === "pharmacist" ? COLORS.green : COLORS.blue }}>
+                      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700, background: u.role === "admin" ? COLORS.goldSoft : u.role === "pharmacist" ? COLORS.greenSoft : u.role === "warehouse" ? COLORS.coralSoft : COLORS.blueSoft, color: u.role === "admin" ? COLORS.gold : u.role === "pharmacist" ? COLORS.green : u.role === "warehouse" ? COLORS.coral : COLORS.blue }}>
                         {roleLabel(u.role)}
                       </span>
                     </div>
