@@ -2071,6 +2071,8 @@ if (isLoading) return (
             currentUser={currentUser}
             setTreasuryEntries={setTreasuryEntries}
             setReturnsData={setReturnsData}
+            entries={treasuryEntries}
+            shifts={shifts}
             canViewSalesReturns={canView("returns", "sales")}
             canViewPurchaseReturns={canView("returns", "purchases")}
             canEditSalesReturns={canEdit("returns", "sales")}
@@ -7830,6 +7832,8 @@ function ReturnsModule({
   currentUser,
   setTreasuryEntries, // 🆕 لازم تتمرر من الأب (App.tsx) لنفس الـ pattern المستخدم في SuppliersModule
   setReturnsData, // 🆕 لتحديث state المرتجعات فورًا بعد الحفظ (تاب الشفتات وتقفيل اليوم بيعتمدوا عليه)
+  entries = [], // 🆕 قيود الخزنة — نستخدمها بس عشان نعرف هل تقفيل اليوم حصل فعلاً
+  shifts = [], // 🆕 عشان نعرف هل فيه شفت مفتوح دلوقتي بعد التقفيل
   canViewSalesReturns = true,
   canViewPurchaseReturns = true,
   canEditSalesReturns = true,
@@ -7845,6 +7849,23 @@ function ReturnsModule({
   const [selInvoice, setSelInvoice] = useState(null); // كائن الفاتورة كاملة
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceSearchOpen, setInvoiceSearchOpen] = useState(false);
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 مصدر فلوس الاسترجاع — بيظهر بس لو تقفيل اليوم حصل فعلاً النهارده
+  // (يعني ممكن الكاش يتاخد من فلوس التقفيل اللي لسه معاك، أو من النقد الافتتاحي لشفت جديد)
+  // ═══════════════════════════════════════════════════
+  const todayStr = new Date().toISOString().split("T")[0];
+  const dayClosedToday = (entries || []).some(
+    (e) => e.date === todayStr && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
+  );
+  const openShiftToday = (shifts || [])
+    .filter((s) => s.pharmacy_id === pharmacyId && !s.end_time && s.start_time?.startsWith(todayStr))
+    .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())[0] || null;
+  const [refundSource, setRefundSource] = useState("pending"); // "pending" | "shift"
+  useEffect(() => {
+    // لو مفيش تقفيل حصل النهارده أو مفيش شفت مفتوح، نرجّع الافتراضي (مفيش لبس أصلاً)
+    if (!dayClosedToday || !openShiftToday) setRefundSource("pending");
+  }, [dayClosedToday, openShiftToday]);
 
   // 🆕 أسباب الإرجاع الجاهزة (مبيعات ومشتريات)
   const SALES_RETURN_REASONS = [
@@ -7896,6 +7917,7 @@ function ReturnsModule({
     setSelPurchaseInvoice("");
     setAdminOverride(false);
     setLastScanResult(null);
+    setRefundSource("pending");
   }, [type]);
 
   // ── فلترة فواتير المبيعات ──
@@ -8191,12 +8213,17 @@ function ReturnsModule({
         }
       } else {
         // 🆕 فاتورة نقدي → ينزل من الخزنة كمصروف (نفس pattern سداد المورد في SuppliersModule)
+        // 🆕 لو الاسترجاع من النقد الافتتاحي لشفت جديد بعد التقفيل، نوضح ده في الملاحظة ونربطه بالشفت
+        // عشان تسوية التقفيل (closing_adjustment) ما تخصمهوش تاني من فلوس التقفيل المعلّقة أصلاً
+        const isShiftFundedRefund = dayClosedToday && openShiftToday && refundSource === "shift";
         const trPayload = {
           type: "expense",
           sub_type: "sales_return",
           method: "نقدي",
           amount: returnTotal,
-          note: `مرتجع بيع — فاتورة ${selInvoice.id}${reason ? " - " + reason : ""}`,
+          note: `مرتجع بيع — فاتورة ${selInvoice.id}${reason ? " - " + reason : ""}${
+            isShiftFundedRefund ? ` — من النقد الافتتاحي لشفت ${openShiftToday.id}` : ""
+          }`,
           date: today,
           pharmacy_id: pharmacyId,
           created_by: currentUser?.name || "",
@@ -8280,6 +8307,8 @@ function ReturnsModule({
     }
 
     // ── حفظ سجل المرتجع نفسه ──
+    const isShiftFundedRefundRow =
+      type === "sales" && (selInvoice?.payment || "نقدي") !== "آجل" && dayClosedToday && openShiftToday && refundSource === "shift";
     const { data: newReturnRows, error } = await supabase.from("returns").insert([
       {
         id: returnId,
@@ -8297,6 +8326,9 @@ function ReturnsModule({
         total: returnTotal,
         admin_override: adminOverride,
         pharmacy_id: pharmacyId,
+        // 🆕 مصدر فلوس الاسترجاع (يخص مرتجعات المبيعات النقدية بعد تقفيل اليوم فقط)
+        refund_source: type === "sales" ? refundSource : null,
+        refund_shift_id: isShiftFundedRefundRow ? openShiftToday.id : null,
       },
     ]).select();
 
@@ -8561,6 +8593,26 @@ function ReturnsModule({
                 })),
             ]}
           />
+        </div>
+      )}
+
+      {/* 🆕 مصدر فلوس الاسترجاع — بيظهر بس لو مرتجع مبيعات نقدي بعد ما تقفيل اليوم حصل وفيه شفت جديد مفتوح */}
+      {type === "sales" && (selInvoice || adminOverride) && (selInvoice?.payment || "نقدي") !== "آجل" && dayClosedToday && openShiftToday && (
+        <div style={{ marginBottom: 14 }}>
+          <Select
+            label="من فين هتدفع الكاش للعميل؟"
+            value={refundSource}
+            onChange={setRefundSource}
+            options={[
+              { v: "pending", l: "من فلوس التقفيل المعلّق تسليمها (لسه معايا)" },
+              { v: "shift", l: `من النقد الافتتاحي لشفت ${openShiftToday.id}` },
+            ]}
+          />
+          <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 4 }}>
+            {refundSource === "pending"
+              ? "هيتخصم من إجمالي التقفيل النهارده اللي لسه هيتسلم للمحاسب."
+              : "هيتحسب على شفت النقد الافتتاحي ده، ومش هيتخصم من فلوس التقفيل المقفول."}
+          </div>
         </div>
       )}
 
@@ -15296,22 +15348,30 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   // بدل ما تفضل غير محسوبة في التقفيل المحفوظ ولا في تقفيل يوم تاني
   // ═══════════════════════════════════════════════════
   const closingCreatedAt = closingRecord?.created_at ? new Date(closingRecord.created_at).getTime() : null;
-  const postClosingSales = closingCreatedAt
+  // 🆕 نقطة القياس (cursor) لازم تتحرك مع كل تسوية تتضاف، مش تفضل ثابتة عند وقت التقفيل الأصلي —
+  // وإلا نفس الفواتير اللي اتسوّت هتفضل تظهر "معلّقة" تاني وتتضاف مرتين لو ضغطنا تسوية تاني.
+  const lastAdjustmentAt = (entries || [])
+    .filter((e) => e.pharmacy_id === pharmacyId && e.date === today && e.sub_type === "closing_adjustment" && e.created_at)
+    .reduce((max, e) => Math.max(max, new Date(e.created_at).getTime()), 0);
+  const postClosingCursor = closingCreatedAt ? Math.max(closingCreatedAt, lastAdjustmentAt) : null;
+  const postClosingSales = postClosingCursor
     ? (sales || []).filter(
-        (s) => s.date === today && !s.returned && s.created_at && new Date(s.created_at).getTime() > closingCreatedAt
+        (s) => s.date === today && !s.returned && s.created_at && new Date(s.created_at).getTime() > postClosingCursor
       )
     : [];
-  const postClosingReturns = closingCreatedAt
+  const postClosingReturns = postClosingCursor
     ? (sales || []).filter(
         (s) => s.date === today && s.returned && s.returnDate === today &&
-          s.created_at && new Date(s.created_at).getTime() > closingCreatedAt
+          s.created_at && new Date(s.created_at).getTime() > postClosingCursor
       )
     : [];
   // 🆕 مرتجعات جزئية بعد التقفيل (من جدول returns — sales.returned بيفضل false في المرتجع الجزئي فمكانتش بتتلحق قبل كده)
-  const postClosingPartialReturns = closingCreatedAt
+  // 🆕 بنستثني المرتجعات اللي مصدرها "النقد الافتتاحي لشفت جديد" (refund_source === "shift") —
+  // دي بالفعل بتتحسب على الشفت نفسه، ومفيش داعي تتخصم كمان من فلوس التقفيل المعلّقة تسليمها.
+  const postClosingPartialReturns = postClosingCursor
     ? (returns || []).filter(
-        (r) => r.type === "sales" && r.date === today &&
-          r.created_at && new Date(r.created_at).getTime() > closingCreatedAt
+        (r) => r.type === "sales" && r.date === today && r.refund_source !== "shift" &&
+          r.created_at && new Date(r.created_at).getTime() > postClosingCursor
       )
     : [];
   const postClosingSalesTotal = postClosingSales
@@ -15427,6 +15487,8 @@ useEffect(() => {
   // 🆕 مرتجعات كل شفت — بنربط كل سطر في جدول returns بالفاتورة الأصلية (invoice_id) عشان نعرف شفتها
   const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
   const todayReturnsSales = (returns || []).filter((r) => r.type === "sales" && r.date === today);
+  // 🆕 إجمالي مرتجعات اليوم (كامل + جزئي) عشان يتخصم من "إجمالي اليوم" في الخزنة، بنفس منطق كل شفت
+  const todayReturnsSalesTotal = todayReturnsSales.reduce((a, r) => a + (r.total || 0), 0);
   const getShiftReturns = (shiftId) =>
     todayReturnsSales
       .filter((r) => salesById[r.invoice_id]?.shift === shiftId)
@@ -15970,7 +16032,7 @@ useEffect(() => {
                     { l: "نقدي", v: todayCash, c: COLORS.green },
                     { l: "بطاقة", v: todayCard, c: COLORS.blue },
                     { l: "تحويل", v: todayTransfer, c: COLORS.purple },
-                    { l: "الإجمالي", v: todayCash + todayCard + todayTransfer, c: COLORS.gold },
+                    { l: "الإجمالي", v: todayCash + todayCard + todayTransfer - todayReturnsSalesTotal, c: COLORS.gold },
                   ].map((x) => (
                     <div key={x.l} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
                       <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>
@@ -15978,6 +16040,11 @@ useEffect(() => {
                     </div>
                   ))}
                 </div>
+                {todayReturnsSalesTotal > 0 && (
+                  <div style={{ color: COLORS.red, fontSize: 12, marginTop: 8 }}>
+                    🔄 مرتجعات اليوم: {todayReturnsSalesTotal.toFixed(2)} ر.س (مخصومة من الإجمالي)
+                  </div>
+                )}
               </div>
 
               {/* إجمالي الشهر */}
