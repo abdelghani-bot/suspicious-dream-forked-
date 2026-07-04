@@ -2003,6 +2003,7 @@ if (isLoading) return (
             creditPayments={creditPayments}
             treasuryEntries={treasuryEntries}
             promos={posPromos}
+            returnsData={returnsData}
           />
         )}
         {tab === "pos" && (
@@ -2305,6 +2306,7 @@ function Dashboard({
   creditPayments = [],
   treasuryEntries = [],
   promos = [],
+  returnsData = [],
 }) {
   const alerts = useEssentialAlerts(products);
   const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
@@ -2468,7 +2470,22 @@ const [myTarget, setMyTarget] = useState(null);
 
   // ══════════ مبيعات الأقسام (يومي/شهري) — إيراد + ربح لكل قسم ══════════
   const DEPT_PALETTE = [COLORS.blue, COLORS.purple, COLORS.teal, COLORS.gold, COLORS.coral, COLORS.green, COLORS.red];
-  const computeDeptStats = (salesArr) => {
+  // 🆕 مرتجعات كل قسم (قيمة) — من جدول returns (النوع "sales" فقط)، بنفس منطق تصنيف القسم المستخدم في المبيعات
+  const computeDeptReturnsMap = (returnsArr) => {
+    const map = {};
+    (returnsArr || []).filter((r) => r.type === "sales").forEach((r) => {
+      (r.items || []).forEach((it) => {
+        const cat = it.category || it.main_category || it.mainCategory ||
+          products.find((p) => p.id === it.id)?.main_category ||
+          products.find((p) => p.id === it.id)?.category || "أخرى";
+        const price = it.price ?? 0;
+        const qty = it.returnQty || 0;
+        map[cat] = (map[cat] || 0) + price * qty;
+      });
+    });
+    return map;
+  };
+  const computeDeptStats = (salesArr, returnsArr = []) => {
     const map = {};
     salesArr.forEach((s) => {
       const items = getSaleItems(s).filter((it) => !it.isMissed);
@@ -2484,17 +2501,45 @@ const [myTarget, setMyTarget] = useState(null);
         map[cat].cost += cost * qty;
       });
     });
+    const returnsMap = computeDeptReturnsMap(returnsArr);
     const rows = Object.values(map).map((r) => ({
       ...r,
       profit: r.revenue - r.cost,
       profitPct: r.revenue > 0 ? ((r.revenue - r.cost) / r.revenue) * 100 : 0,
+      returnValue: returnsMap[r.category] || 0,
+      returnPct: r.revenue > 0 ? ((returnsMap[r.category] || 0) / r.revenue) * 100 : (returnsMap[r.category] ? 100 : 0),
     })).sort((a, b) => b.revenue - a.revenue);
     const totalRevenue = rows.reduce((a, r) => a + r.revenue, 0);
     const totalProfit = rows.reduce((a, r) => a + r.profit, 0);
     return { rows: rows.map((r) => ({ ...r, share: totalRevenue > 0 ? (r.revenue / totalRevenue) * 100 : 0 })), totalRevenue, totalProfit };
   };
-  const deptStatsToday = computeDeptStats(todaySales);
-  const deptStatsMonth = computeDeptStats(monthSales);
+  const todayReturns = (returnsData || []).filter((r) => r.date === today);
+  const monthReturns = (returnsData || []).filter((r) => r.date?.startsWith(monthKey));
+  const deptStatsToday = computeDeptStats(todaySales, todayReturns);
+  const deptStatsMonth = computeDeptStats(monthSales, monthReturns);
+
+  // ══════════ أكثر الأصناف مبيعًا (يومي/شهري) — عدد قابل للتحديد من الصيدلي/المدير ══════════
+  const computeTopProducts = (salesArr, limit, sortBy = "qty") => {
+    const map = {};
+    salesArr.forEach((s) => {
+      const items = getSaleItems(s).filter((it) => !it.isMissed);
+      items.forEach((it) => {
+        const prod = products.find((p) => p.id === it.id);
+        const name = it.name || prod?.name || "صنف غير معروف";
+        const price = it.price ?? 0;
+        const qty = it.qty || 0;
+        if (!map[it.id]) map[it.id] = { id: it.id, name, qty: 0, revenue: 0 };
+        map[it.id].qty += qty;
+        map[it.id].revenue += price * qty;
+      });
+    });
+    return Object.values(map).sort((a, b) => b[sortBy] - a[sortBy]).slice(0, limit);
+  };
+  const [topProductsTab, setTopProductsTab] = useState("today"); // "today" | "month"
+  const [topProductsCount, setTopProductsCount] = useState(10);
+  const [topProductsSortBy, setTopProductsSortBy] = useState("qty"); // "qty" | "revenue"
+  const topProductsToday = computeTopProducts(todaySales, topProductsCount, topProductsSortBy);
+  const topProductsMonth = computeTopProducts(monthSales, topProductsCount, topProductsSortBy);
 
   // ── تنبيهات الأصناف ──
   const lowStock      = products.filter((p) => p.stock <= (p.min_stock || p.minStock || 0));
@@ -3072,11 +3117,115 @@ const [myTarget, setMyTarget] = useState(null);
                             </span>
                           </span>
                         </div>
+                        {r.returnValue > 0 && (
+                          <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                            <span style={{ fontSize: 11, color: COLORS.red }}>↩️ مرتجعات {S(r.returnValue.toFixed(0) + " ر.س")}</span>
+                            <span style={{ fontSize: 11, color: COLORS.red, fontWeight: 700 }}>({r.returnPct.toFixed(1)}%)</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
               </>
+            );
+          })()}
+        </CollapsibleCard>
+
+        {/* 🆕 أكثر الأصناف مبيعًا — يومي/شهري مع تحديد عدد الأصناف المعروضة */}
+        <CollapsibleCard cardKey="topProducts" icon="⭐" title="أكثر الأصناف مبيعًا" badgeColor={VAR.accent2}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 6, margin: "10px 14px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", borderRadius: 6, gap: 2 }}>
+                {[{ key: "today", label: "اليوم" }, { key: "month", label: "الشهر" }].map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={(e) => { e.stopPropagation(); setTopProductsTab(t.key); }}
+                    style={{
+                      fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                      background: topProductsTab === t.key ? VAR.accent2 : "transparent",
+                      color: topProductsTab === t.key ? VAR.bg : VAR.muted,
+                      border: "none", cursor: "pointer", fontFamily: "inherit",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <select
+                value={topProductsCount}
+                onChange={(e) => { e.stopPropagation(); setTopProductsCount(Number(e.target.value)); }}
+                onClick={(e) => e.stopPropagation()}
+                style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${VAR.border}`, background: VAR.bg, color: VAR.text, fontSize: 11, fontFamily: "inherit" }}
+              >
+                {[5, 10, 15, 20, 30].map((n) => (
+                  <option key={n} value={n}>أعلى {n} صنف</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, color: VAR.muted }}>الترتيب حسب:</span>
+              <div style={{ display: "flex", borderRadius: 6, gap: 2 }}>
+                {[{ key: "qty", label: "الكمية المباعة" }, { key: "revenue", label: "قيمة المبيعات" }].map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={(e) => { e.stopPropagation(); setTopProductsSortBy(t.key); }}
+                    style={{
+                      fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                      background: topProductsSortBy === t.key ? VAR.accent2 : "transparent",
+                      color: topProductsSortBy === t.key ? VAR.bg : VAR.muted,
+                      border: "none", cursor: "pointer", fontFamily: "inherit",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {(() => {
+            const topList = topProductsTab === "today" ? topProductsToday : topProductsMonth;
+            if (topList.length === 0) {
+              return (
+                <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "24px 0" }}>
+                  لا توجد مبيعات مسجّلة {topProductsTab === "today" ? "اليوم" : "هذا الشهر"} بعد
+                </div>
+              );
+            }
+            const maxQty = Math.max(...topList.map((p) => p.qty), 1);
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px 14px" }}>
+                {topList.map((p, i) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      position: "relative", borderRadius: 10, overflow: "hidden",
+                      background: tint(COLORS.accent, 0.06),
+                      border: `1px solid ${tint(COLORS.accent, 0.22)}`,
+                      padding: "8px 12px",
+                    }}
+                  >
+                    <div style={{
+                      position: "absolute", top: 0, bottom: 0, right: 0,
+                      width: `${Math.max((p.qty / maxQty) * 100, 4)}%`,
+                      background: tint(COLORS.accent, 0.14),
+                    }} />
+                    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: VAR.muted, width: 18 }}>{i + 1}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: VAR.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                        <span style={{ fontSize: 12, color: VAR.muted }}>{S(p.revenue.toFixed(0) + " ر.س")}</span>
+                        <Badge color={COLORS.accent + "22"} text={COLORS.accent}>{p.qty} وحدة</Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             );
           })()}
         </CollapsibleCard>
