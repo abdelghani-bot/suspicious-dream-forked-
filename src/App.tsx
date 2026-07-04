@@ -526,6 +526,7 @@ const IC = ({ n, s = 18, style = {} }) => {
     img: "🖼️",
     pill: "💊",
     alert: "⚠️",
+    bell: "🔔",
     money: "💰",
     user: "👤",
     eye: "👁️",
@@ -16126,6 +16127,9 @@ function FinancialHealthModule({
   const [showForm, setShowForm] = useState(false);
   const [showThresholds, setShowThresholds] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [alertsLog, setAlertsLog] = useState([]);
+  const [showAlertsLog, setShowAlertsLog] = useState(false);
+  const unreadAlertsCount = alertsLog.filter((a) => !a.is_read).length;
 
   const currentMonthKey = new Date().toISOString().slice(0, 7);
   const [formMonth, setFormMonth] = useState(currentMonthKey);
@@ -16141,11 +16145,13 @@ function FinancialHealthModule({
     if (!pharmacyId) return;
     const load = async () => {
       setLoading(true);
-      const [{ data: snaps }, { data: settingsRow }] = await Promise.all([
+      const [{ data: snaps }, { data: settingsRow }, { data: alerts }] = await Promise.all([
         supabase.from("financial_snapshots").select("*").eq("pharmacy_id", pharmacyId).order("snapshot_date", { ascending: true }),
         supabase.from("financial_settings").select("*").eq("pharmacy_id", pharmacyId).maybeSingle(),
+        supabase.from("financial_alerts").select("*").eq("pharmacy_id", pharmacyId).order("created_at", { ascending: false }).limit(100),
       ]);
       setSnapshots(snaps || []);
+      setAlertsLog(alerts || []);
       if (settingsRow?.thresholds) {
         setThresholds({ ...DEFAULT_FIN_THRESHOLDS, ...settingsRow.thresholds });
       }
@@ -16261,26 +16267,27 @@ function FinancialHealthModule({
         return [...others, savedSnap].sort((a, b) => (a.snapshot_date > b.snapshot_date ? 1 : -1));
       });
 
-      // ── تنبيهات ذكية (Rule-based): مقارنة كل نسبة بالحدود + بالشهر السابق ──
-      const prevSnap = snapshots.filter((s) => s.snapshot_date < savedSnap.snapshot_date).slice(-1)[0];
-      const metrics = calculateFinancialHealth(savedSnap, thresholds);
-      const prevMetrics = prevSnap ? calculateFinancialHealth(prevSnap, thresholds) : [];
-      const dangerMsgs = [];
-      metrics.forEach((m) => {
-        if (m.status === "red") {
-          const prevM = prevMetrics.find((pm) => pm.key === m.key);
-          const trend = prevM ? compareFinTrend(m.value, prevM.value, m.cfg.direction) : null;
-          const trendTxt = trend === "worsened" ? " واستمرت في التراجع عن الشهر السابق" : "";
-          dangerMsgs.push(`⚠️ ${m.cfg.label}: ${m.value?.toFixed(2)} ${m.cfg.unit} — خطر${trendTxt}`);
-        }
+      // ── التنبيهات بتتحسب وتتسجل تلقائيًا في الداتابيز (trigger على financial_snapshots) ──
+      // مصدر الحقيقة الوحيد للتنبيهات بقى الـ DB مش حساب محلي، عشان تفضل متسجلة حتى لو حد تاني فتح البيانات
+      const { data: newAlerts } = await supabase
+        .from("financial_alerts")
+        .select("*")
+        .eq("snapshot_id", savedSnap.id)
+        .order("created_at", { ascending: false });
+
+      setAlertsLog((prev) => {
+        const others = prev.filter((a) => a.snapshot_id !== savedSnap.id);
+        return [...(newAlerts || []), ...others].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       });
+
+      const redAlerts = (newAlerts || []).filter((a) => a.status === "red");
       showToast(
-        dangerMsgs.length > 0
-          ? `✅ تم حفظ الموقف المالي — لكن فيه ${dangerMsgs.length} نسبة في منطقة الخطر`
+        redAlerts.length > 0
+          ? `✅ تم حفظ الموقف المالي — لكن فيه ${redAlerts.length} نسبة في منطقة الخطر`
           : "✅ تم حفظ الموقف المالي لشهر " + formMonth,
-        dangerMsgs.length > 0 ? "warn" : "success"
+        redAlerts.length > 0 ? "warn" : "success"
       );
-      dangerMsgs.forEach((msg, i) => setTimeout(() => showToast(msg, "error"), (i + 1) * 900));
+      redAlerts.forEach((a, i) => setTimeout(() => showToast(`⚠️ ${a.message}`, "error"), (i + 1) * 900));
 
       setShowForm(false);
     } finally {
@@ -16295,6 +16302,18 @@ function FinancialHealthModule({
       { onConflict: "pharmacy_id" }
     );
     showToast("✅ تم تحديث حدود التنبيه", "success");
+  };
+
+  const markAlertRead = async (alertId) => {
+    setAlertsLog((prev) => prev.map((a) => (a.id === alertId ? { ...a, is_read: true } : a)));
+    await supabase.from("financial_alerts").update({ is_read: true }).eq("id", alertId);
+  };
+
+  const markAllAlertsRead = async () => {
+    const unreadIds = alertsLog.filter((a) => !a.is_read).map((a) => a.id);
+    if (unreadIds.length === 0) return;
+    setAlertsLog((prev) => prev.map((a) => ({ ...a, is_read: true })));
+    await supabase.from("financial_alerts").update({ is_read: true }).in("id", unreadIds);
   };
 
   const latestSnap = snapshots[snapshots.length - 1];
@@ -16324,14 +16343,19 @@ function FinancialHealthModule({
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
         <h2 style={{ color: COLORS.textPrimary, margin: 0, fontSize: 20, fontWeight: 800 }}>💵 الموقف المالي</h2>
-        {canEditFinance && (
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn variant="secondary" icon="settings" size="sm" onClick={() => setShowThresholds(true)}>حدود التنبيه</Btn>
-            <Btn variant="primary" icon="plus" size="sm" onClick={() => openForm(currentMonthKey)}>
-              {snapshots.find((s) => s.snapshot_date === currentMonthKey + "-01") ? "تحديث بيانات الشهر الحالي" : "تسجيل الشهر الحالي"}
-            </Btn>
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="secondary" icon="bell" size="sm" onClick={() => setShowAlertsLog(true)}>
+            سجل التنبيهات{unreadAlertsCount > 0 ? ` (${unreadAlertsCount})` : ""}
+          </Btn>
+          {canEditFinance && (
+            <>
+              <Btn variant="secondary" icon="settings" size="sm" onClick={() => setShowThresholds(true)}>حدود التنبيه</Btn>
+              <Btn variant="primary" icon="plus" size="sm" onClick={() => openForm(currentMonthKey)}>
+                {snapshots.find((s) => s.snapshot_date === currentMonthKey + "-01") ? "تحديث بيانات الشهر الحالي" : "تسجيل الشهر الحالي"}
+              </Btn>
+            </>
+          )}
+        </div>
       </div>
 
       {snapshots.length === 0 ? (
@@ -16448,6 +16472,49 @@ function FinancialHealthModule({
       {/* ── مودال تعديل حدود التنبيه ── */}
       <Modal open={showThresholds} onClose={() => setShowThresholds(false)} title="حدود التنبيه للنسب المالية" wide>
         <FinThresholdsEditor thresholds={thresholds} onSave={saveThresholds} />
+      </Modal>
+
+      {/* ── سجل التنبيهات المالية (متولّد تلقائيًا من الداتابيز عند كل حفظ) ── */}
+      <Modal open={showAlertsLog} onClose={() => setShowAlertsLog(false)} title="🔔 سجل التنبيهات المالية" wide>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {alertsLog.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Btn variant="secondary" size="sm" onClick={markAllAlertsRead} disabled={unreadAlertsCount === 0}>
+                تحديد الكل كمقروء
+              </Btn>
+            </div>
+          )}
+          {alertsLog.length === 0 ? (
+            <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>
+              لا توجد تنبيهات — كل النسب المالية كانت في المنطقة الصحية وقت الحفظ.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 480, overflowY: "auto" }}>
+              {alertsLog.map((a) => (
+                <div
+                  key={a.id}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+                    background: a.is_read ? "transparent" : COLORS.surface,
+                    border: `1px solid ${FIN_STATUS_COLOR[a.status] || COLORS.border}55`,
+                    borderRight: `4px solid ${FIN_STATUS_COLOR[a.status] || COLORS.border}`,
+                    borderRadius: 10, padding: "10px 14px",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, color: COLORS.textPrimary, fontWeight: a.is_read ? 400 : 700 }}>{a.message}</div>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>
+                      شهر {a.snapshot_date?.slice(0, 7)} — {new Date(a.created_at).toLocaleDateString("ar-EG")}
+                    </div>
+                  </div>
+                  {!a.is_read && (
+                    <Btn variant="secondary" size="sm" onClick={() => markAlertRead(a.id)}>تم الاطلاع</Btn>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );
