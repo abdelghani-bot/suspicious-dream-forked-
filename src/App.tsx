@@ -5143,6 +5143,11 @@ function POS({
             <input
               type="text"
               inputMode="decimal"
+              title={
+                item.saleUnits > 1
+                  ? `العلبة مقسّمة لـ ${item.saleUnits} وحدة بيع — اكتب 1 لعلبة كاملة، أو كسر زي 2/${item.saleUnits} لبيع وحدتين بس`
+                  : "هذا الصنف بيع علبة كاملة بس — اكتب رقم صحيح"
+              }
               value={item.qtyDisplay ?? item.qty}
               onChange={(e) => {
                 setInv((p) => ({
@@ -5157,9 +5162,18 @@ function POS({
   
   // parse الكسور زي 1/3 أو 2 1/3
   let val;
+  const su = item.saleUnits > 1 ? item.saleUnits : null;
+  const itemLabel = item.nameAr || item.name || "الصنف";
+  const exampleN = su ? Math.min(2, su - 1) || 1 : 1;
+
   const fracMatch = raw.match(/^(\d+)\s+(\d+)\/(\d+)$|^(\d+)\/(\d+)$|^(\d*\.?\d+)$/);
   if (!fracMatch) {
-    showToast("صيغة غير صحيحة", "error");
+    showToast(
+      su
+        ? `${itemLabel}: صيغة غير مقبولة — العلبة مقسّمة لـ ${su} وحدة بيع، اكتب مثلاً ${exampleN}/${su} لبيع ${exampleN} وحدة، أو 1 لعلبة كاملة`
+        : `${itemLabel}: صيغة غير صحيحة — اكتب رقم صحيح (هذا الصنف بيع علبة كاملة بس، بدون تقسيم)`,
+      "error"
+    );
     setInv((p) => ({
       ...p,
       cart: p.cart.map((i) =>
@@ -5180,6 +5194,7 @@ function POS({
   }
 
   if (isNaN(val) || val <= 0) {
+    showToast(`${itemLabel}: الكمية لازم تكون أكبر من صفر`, "error");
     setInv((p) => ({
       ...p,
       cart: p.cart.map((i) =>
@@ -5191,7 +5206,12 @@ function POS({
 
   const isValid = Math.abs(Math.round(val / step) * step - val) < 0.0001;
   if (!isValid) {
-    showToast(`الكمية لازم مضاعف لـ 1/${item.saleUnits || 1}`, "error");
+    showToast(
+      su
+        ? `${itemLabel}: كمية غير صحيحة — العلبة مقسّمة لـ ${su} وحدة بيع بس، اكتب كسر زي ${exampleN}/${su} (يعني ${exampleN} وحدة من ${su})، لحد ${su}/${su} اللي هي علبة كاملة`
+        : `${itemLabel}: هذا الصنف بيع علبة كاملة بس (بدون تقسيم) — اكتب رقم صحيح زي 1 أو 2`,
+      "error"
+    );
     setInv((p) => ({
       ...p,
       cart: p.cart.map((i) =>
