@@ -4026,13 +4026,35 @@ function POS({
     showToast("الصنف غير موجود: " + (scan.gtin || scan.code), "error");
   };
 
+  const searchLower = (inv.search || "").toLowerCase();
   const filtered = products.filter((p) => {
+    if (!searchLower) return true;
+    const name = (p.nameAr || p.name || "").toLowerCase();
+    const nameEn = (p.nameEn || p.name_en || "").toLowerCase();
+    const barcode = (p.barcode || "").toLowerCase();
+    const id = (p.id || "").toLowerCase();
+    const ingredient = (p.active_ingredient || p.activeIngredient || "").toLowerCase();
     return (
-      (p.name || "").includes(inv.search) ||
-      (p.barcode || "").includes(inv.search) ||
-      (p.id || "").includes(inv.search)
+      name.includes(searchLower) ||
+      nameEn.includes(searchLower) ||
+      barcode.includes(searchLower) ||
+      id.includes(searchLower) ||
+      ingredient.includes(searchLower)
     );
   });
+  // لو البحث طابق المادة الفعالة (مش الاسم التجاري)، نبرز ده في النتيجة
+  // عشان المستخدم يفهم ليه ظهرت أسماء تجارية مختلفة لنفس المادة
+  const isIngredientMatch = (p) => {
+    const name = (p.nameAr || p.name || "").toLowerCase();
+    const nameEn = (p.nameEn || p.name_en || "").toLowerCase();
+    const ingredient = (p.active_ingredient || p.activeIngredient || "").toLowerCase();
+    return (
+      searchLower &&
+      ingredient.includes(searchLower) &&
+      !name.includes(searchLower) &&
+      !nameEn.includes(searchLower)
+    );
+  };
 
   const subtotal = inv.cart
     .filter((i) => !i.isMissed)
@@ -4499,7 +4521,7 @@ function POS({
                   setHighlightedIdx(-1);
                 }
               }}
-              placeholder="🔍 ابحث عن صنف بالاسم أو الباركود..."
+              placeholder="🔍 ابحث بالاسم التجاري أو العلمي أو الباركود..."
               style={{
                 flex: 1,
                 minWidth: 0,
@@ -4733,6 +4755,11 @@ function POS({
                               <span style={{ color: COLORS.gold }}>
                                 {" "}
                                 ÷{p.saleUnits}
+                              </span>
+                            )}
+                            {(p.active_ingredient || p.activeIngredient) && (
+                              <span style={{ color: isIngredientMatch(p) ? COLORS.blue : COLORS.textDim, fontWeight: isIngredientMatch(p) ? 700 : 400 }}>
+                                {" "}· {p.active_ingredient || p.activeIngredient}
                               </span>
                             )}
                           </div>
@@ -12640,7 +12667,7 @@ function CustomersModule({
               <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {c.name}
               </div>
-              <div style={{ color: COLORS.border, fontSize: 10 }}>{c.phone}</div>
+              <div style={{ color: COLORS.textDim, fontSize: 10, fontWeight: 600 }}>{c.phone}</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -12667,7 +12694,7 @@ function CustomersModule({
                 { label: "نمط الشراء", value: s?.buyerType ? (s.buyerType === "شامل" ? "🌐 شامل" : s.buyerType) : "-", color: s?.buyerType === "شامل" ? COLORS.green : COLORS.blue },
               ].map((item) => (
                 <div key={item.label} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 7, padding: "6px 7px" }}>
-                  <div style={{ color: COLORS.border, fontSize: 9 }}>{item.label}</div>
+                  <div style={{ color: COLORS.textDim, fontSize: 9, fontWeight: 600 }}>{item.label}</div>
                   <div style={{ color: item.color, fontWeight: 700, fontSize: 12, marginTop: 1 }}>{item.value}</div>
                 </div>
               ))}
@@ -12700,7 +12727,7 @@ function CustomersModule({
                 <div style={{ color: COLORS.textDim, fontSize: 10, marginBottom: 4 }}>آخر مشتريات ({s.lastItems.length} صنف):</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {s.lastItems.map((item, i) => (
-                    <span key={i} style={{ background: COLORS.surfaceAlt, color: "#5a9adf", padding: "2px 7px", borderRadius: 5, fontSize: 10 }}>
+                    <span key={i} style={{ background: COLORS.blueSoft, color: COLORS.blue, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 600 }}>
                       {item.name} × {item.qty}
                     </span>
                   ))}
