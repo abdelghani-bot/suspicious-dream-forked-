@@ -5935,6 +5935,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
           vatNumber: data.tax_number || "",
           licenseNumber: data.license_number || "",
           labelSize: data.label_size || "50x30",
+          supportsCardRefund: !!data.supports_card_refund, // 🆕 هل الصيدلية بتقدر ترجّع فلوس شبكة (reversal) فعليًا؟
         });
       });
   }, [pharmacyId]);
@@ -5968,6 +5969,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
       license_number: settings.licenseNumber,
       updated_at: new Date().toISOString(),
       label_size: settings.labelSize || "50x30",
+      supports_card_refund: !!settings.supportsCardRefund, // 🆕
     })
     .eq("pharmacy_id", pharmacyId);
 
@@ -6029,6 +6031,39 @@ function PharmacySettings({ showToast, pharmacyId }) {
                 {size.label}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* 🆕 دعم رجاعة الشبكة في المرتجعات */}
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+            رجاعة الشبكة في المرتجعات
+          </label>
+          <div
+            onClick={() => setSettings((p) => ({ ...p, supportsCardRefund: !p.supportsCardRefund }))}
+            style={{
+              display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+              padding: "10px 14px", borderRadius: 8,
+              border: `2px solid ${settings.supportsCardRefund ? COLORS.blue : COLORS.border}`,
+              background: settings.supportsCardRefund ? COLORS.blueSoft : COLORS.surfaceAlt,
+              maxWidth: 420,
+            }}
+          >
+            <div style={{
+              width: 40, height: 22, borderRadius: 12, position: "relative", flexShrink: 0,
+              background: settings.supportsCardRefund ? COLORS.blue : COLORS.border,
+              transition: "background .15s",
+            }}>
+              <div style={{
+                width: 18, height: 18, borderRadius: "50%", background: "#fff", position: "absolute", top: 2,
+                right: settings.supportsCardRefund ? 20 : 2, transition: "right .15s",
+              }} />
+            </div>
+            <span style={{ color: settings.supportsCardRefund ? COLORS.blue : COLORS.textDim, fontSize: 13, fontWeight: 600 }}>
+              {settings.supportsCardRefund
+                ? "مفعّل — سيظهر خيار (كاش/شبكة) عند تسجيل مرتجع مبيعات دفعته الأصلي شبكة"
+                : "غير مفعّل — كل مرتجع يُعتبر كاش دايمًا (الوضع الافتراضي)"}
+            </span>
           </div>
         </div>
 
@@ -7867,6 +7902,25 @@ function ReturnsModule({
     if (!dayClosedToday || !openShiftToday) setRefundSource("pending");
   }, [dayClosedToday, openShiftToday]);
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 رجاعة الشبكة — بعض الصيدليات بس بتقدر ترجّع فلوس شبكة فعليًا (reversal)،
+  // فبنجيب إعداد الصيدلية مرة واحدة، ونظهر خيار (كاش/شبكة) بس لو مفعّل.
+  // ═══════════════════════════════════════════════════
+  const [supportsCardRefund, setSupportsCardRefund] = useState(false);
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase
+      .from("pharmacy_settings")
+      .select("supports_card_refund")
+      .eq("pharmacy_id", pharmacyId)
+      .single()
+      .then(({ data }) => setSupportsCardRefund(!!data?.supports_card_refund));
+  }, [pharmacyId]);
+  const [refundMethod, setRefundMethod] = useState("نقدي"); // "نقدي" | "بطاقة"
+  useEffect(() => {
+    setRefundMethod("نقدي");
+  }, [selInvoice, type]);
+
   // 🆕 أسباب الإرجاع الجاهزة (مبيعات ومشتريات)
   const SALES_RETURN_REASONS = [
     "منتج تالف",
@@ -7918,6 +7972,7 @@ function ReturnsModule({
     setAdminOverride(false);
     setLastScanResult(null);
     setRefundSource("pending");
+    setRefundMethod("نقدي");
   }, [type]);
 
   // ── فلترة فواتير المبيعات ──
@@ -8212,18 +8267,19 @@ function ReturnsModule({
           return; // لا نكمل: مفيش تحديث لـ sales.returned طالما الجانب المالي فشل
         }
       } else {
-        // 🆕 فاتورة نقدي → ينزل من الخزنة كمصروف (نفس pattern سداد المورد في SuppliersModule)
+        // 🆕 فاتورة نقدي/شبكة → ينزل من الخزنة كمصروف (نفس pattern سداد المورد في SuppliersModule)
+        // 🆕 method بقى بيعكس طريقة الرد الفعلية (كاش أو رجاعة شبكة)، مش ثابت "نقدي" زي الأول
         // 🆕 لو الاسترجاع من النقد الافتتاحي لشفت جديد بعد التقفيل، نوضح ده في الملاحظة ونربطه بالشفت
         // عشان تسوية التقفيل (closing_adjustment) ما تخصمهوش تاني من فلوس التقفيل المعلّقة أصلاً
-        const isShiftFundedRefund = dayClosedToday && openShiftToday && refundSource === "shift";
+        const isShiftFundedRefund = dayClosedToday && openShiftToday && refundSource === "shift" && refundMethod === "نقدي";
         const trPayload = {
           type: "expense",
           sub_type: "sales_return",
-          method: "نقدي",
+          method: refundMethod,
           amount: returnTotal,
           note: `مرتجع بيع — فاتورة ${selInvoice.id}${reason ? " - " + reason : ""}${
-            isShiftFundedRefund ? ` — من النقد الافتتاحي لشفت ${openShiftToday.id}` : ""
-          }`,
+            refundMethod === "بطاقة" ? " — رجاعة شبكة" : ""
+          }${isShiftFundedRefund ? ` — من النقد الافتتاحي لشفت ${openShiftToday.id}` : ""}`,
           date: today,
           pharmacy_id: pharmacyId,
           created_by: currentUser?.name || "",
@@ -8308,7 +8364,7 @@ function ReturnsModule({
 
     // ── حفظ سجل المرتجع نفسه ──
     const isShiftFundedRefundRow =
-      type === "sales" && (selInvoice?.payment || "نقدي") !== "آجل" && dayClosedToday && openShiftToday && refundSource === "shift";
+      type === "sales" && (selInvoice?.payment || "نقدي") !== "آجل" && refundMethod === "نقدي" && dayClosedToday && openShiftToday && refundSource === "shift";
     const { data: newReturnRows, error } = await supabase.from("returns").insert([
       {
         id: returnId,
@@ -8329,6 +8385,8 @@ function ReturnsModule({
         // 🆕 مصدر فلوس الاسترجاع (يخص مرتجعات المبيعات النقدية بعد تقفيل اليوم فقط)
         refund_source: type === "sales" ? refundSource : null,
         refund_shift_id: isShiftFundedRefundRow ? openShiftToday.id : null,
+        // 🆕 طريقة رد الفلوس الفعلية للعميل — نقدي أو رجاعة شبكة (بس لو الصيدلية مفعّلة الخيار)
+        refund_method: type === "sales" && (selInvoice?.payment || "نقدي") !== "آجل" ? refundMethod : null,
       },
     ]).select();
 
@@ -8596,8 +8654,23 @@ function ReturnsModule({
         </div>
       )}
 
+      {/* 🆕 طريقة رد الفلوس — بتظهر بس لو الصيدلية مفعّلة عندها رجاعة شبكة، ولو الفاتورة الأصلية دفعت شبكة/تحويل */}
+      {type === "sales" && (selInvoice || adminOverride) && (selInvoice?.payment || "نقدي") !== "آجل" && supportsCardRefund && (selInvoice?.payment === "بطاقة" || selInvoice?.payment === "تحويل") && (
+        <div style={{ marginBottom: 14 }}>
+          <Select
+            label="رجّعت الفلوس للعميل إزاي؟"
+            value={refundMethod}
+            onChange={setRefundMethod}
+            options={[
+              { v: "نقدي", l: "كاش من الدرج" },
+              { v: "بطاقة", l: "رجاعة شبكة (reversal)" },
+            ]}
+          />
+        </div>
+      )}
+
       {/* 🆕 مصدر فلوس الاسترجاع — بيظهر بس لو مرتجع مبيعات نقدي بعد ما تقفيل اليوم حصل وفيه شفت جديد مفتوح */}
-      {type === "sales" && (selInvoice || adminOverride) && (selInvoice?.payment || "نقدي") !== "آجل" && dayClosedToday && openShiftToday && (
+      {type === "sales" && (selInvoice || adminOverride) && (selInvoice?.payment || "نقدي") !== "آجل" && refundMethod === "نقدي" && dayClosedToday && openShiftToday && (
         <div style={{ marginBottom: 14 }}>
           <Select
             label="من فين هتدفع الكاش للعميل؟"
@@ -15371,6 +15444,7 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const postClosingPartialReturns = postClosingCursor
     ? (returns || []).filter(
         (r) => r.type === "sales" && r.date === today && r.refund_source !== "shift" &&
+          (r.refund_method || "نقدي") !== "بطاقة" && // 🆕 رجاعة شبكة مفيش فيها كاش، فمالها دخل بفلوس التقفيل المعلّقة
           r.created_at && new Date(r.created_at).getTime() > postClosingCursor
       )
     : [];
@@ -17425,6 +17499,26 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     ? (returns || []).filter((r) => r.type === "sales" && salesById[r.invoice_id]?.shift === currentShift.id)
     : [];
   const shiftReturnsTotal = shiftPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
+  // ═══════════════════════════════════════════════════
+  // 🆕 "فرق النقد" لازم يتحسب من الكاش الفعلي بس (نقدي)، مش كل طرق الدفع مجمّعة —
+  // بطاقة/تحويل/آجل مفيش فيهم كاش فعلي بيدخل الدرج، فمقارنتهم بالنقد الفعلي عند الإغلاق غلط.
+  // وكل مرتجع اتدفع كاش من الدرج ده وقت الشفت ده (بغض النظر عن شفت الفاتورة الأصلية) لازم يتخصم،
+  // لأنه فلوس خرجت من هذا الدرج بالذات فعليًا.
+  // ═══════════════════════════════════════════════════
+  const shiftCashSales = shiftSalesRaw
+    .filter((s) => s.payment === "نقدي")
+    .reduce((a, s) => a + s.total, 0);
+  const shiftCashRefundsPaidNow = currentShift
+    ? (returns || []).filter(
+        (r) =>
+          r.type === "sales" &&
+          (salesById[r.invoice_id]?.payment || "نقدي") !== "آجل" && // آجل بينزل من مديونية العميل، مش كاش
+          (r.refund_method || "نقدي") !== "بطاقة" && // 🆕 رجاعة شبكة مفيش فيها كاش خارج من الدرج
+          r.created_at &&
+          new Date(r.created_at).getTime() >= new Date(currentShift.start_time).getTime()
+      ).reduce((a, r) => a + (r.total || 0), 0)
+    : 0;
+  const expectedCloseCash = (currentShift?.open_cash || 0) + shiftCashSales - shiftCashRefundsPaidNow;
   const shiftSales = shiftSalesRaw; // 🆕 تبقى للاستخدام في عدد الفواتير كما كانت
   const shiftRevenue = shiftSalesRaw.reduce((a, s) => a + s.total, 0) - shiftReturnsTotal;
 
@@ -17732,8 +17826,8 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
                 fontSize: 13,
               }}
             >
-              فرق النقد:{" "}
-              {(+closeCash - currentShift.open_cash - shiftRevenue).toFixed(2)}{" "}
+              فرق النقد (نقدي فقط):{" "}
+              {(+closeCash - expectedCloseCash).toFixed(2)}{" "}
               ر.س
             </div>
           )}
