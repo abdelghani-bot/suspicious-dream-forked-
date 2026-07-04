@@ -12804,11 +12804,19 @@ function CustomersModule({
       showToast("يرجى ملء بيانات العميل", "error");
       return;
     }
+    // ⚠️ مهم: نبعت الأعمدة الحقيقية الموجودة في جدول customers بس.
+    // form بييجي أحيانًا من نسخة "enriched" فيها حقول محسوبة في الواجهة زي
+    // stats و missedKidsCosmetics — دول مش أعمدة في القاعدة، وبعتهم بيسبب
+    // خطأ "schema cache". فبنعمل whitelist صريح بدل ما نعمل spread لكل form.
     const saved = {
-      ...form,
+      id: form.id,
+      name: form.name,
+      phone: form.phone,
+      taxId: form.taxId || "",
       totalSpent: form.totalSpent || 0,
       visits: form.visits || 0,
       lastVisit: form.lastVisit || "-",
+      category: form.category,
       payment_terms: +form.payment_terms || 30,
       children_count:
         form.category === "family_with_kids" ? form.children_count : null,
