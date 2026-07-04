@@ -1601,6 +1601,23 @@ loadData();
       const days = (new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24);
       return days <= 7;
     }).length;
+    // 🆕 عملاء متأخرين في سداد مديونية الآجل (حسب فترة السداد الخاصة بكل عميل)
+    const customerOverdueCount = (customers || []).filter((c) => {
+      const ajilSales = (sales || []).filter((s) => s.customer === c.id && s.payment === "آجل");
+      if (ajilSales.length === 0) return false;
+      const terms = c.payment_terms || 30;
+      return ajilSales.some((inv) => {
+        const totalPaid = (creditPayments || [])
+          .filter((p) => p.invoice_id === inv.id)
+          .reduce((sum, p) => sum + (p.amount || 0), 0);
+        const remaining = (inv.total || 0) - totalPaid;
+        if (remaining <= 0.01) return false;
+        const due = new Date(inv.created_at || inv.date);
+        due.setDate(due.getDate() + terms);
+        const daysLeft = Math.floor((due - new Date()) / (1000 * 60 * 60 * 24));
+        return daysLeft < 0;
+      });
+    }).length;
     const now = new Date();
     const quarterEndMonth = [2, 5, 8, 11].find((m) => m >= now.getMonth()) ?? 2;
     const qEnd = new Date(now.getFullYear(), quarterEndMonth + 1, 0);
@@ -1608,10 +1625,10 @@ loadData();
     return {
       products: lowStockCount + expiringCount + essentialAlerts.length,
       suppliers: supplierDueCount,
-      customers: disappearedCount + newCustomersCount,
+      customers: disappearedCount + newCustomersCount + customerOverdueCount,
       tax_report: taxDaysLeft <= 14 ? 1 : 0,
     };
-  }, [products, suppliers, purchases, customers, essentialAlerts]);
+  }, [products, suppliers, purchases, customers, essentialAlerts, sales, creditPayments]);
 
   // لو لسه بيتحقق من الجلسة، نعرض شاشة انتظار بسيطة
   if (!authChecked)
@@ -2590,6 +2607,27 @@ const [myTarget, setMyTarget] = useState(null);
     return days > 45 && days < 365 && (c.visits || 0) > 0;
   });
 
+  // عملاء متأخرين في سداد مديونية الآجل (حسب فترة السداد الخاصة بكل عميل)
+  const customerDues = (customers || []).map((c) => {
+    const ajilSales = (sales || []).filter((s) => s.customer === c.id && s.payment === "آجل");
+    const terms = c.payment_terms || 30;
+    let oldestDaysLeft = null, isOverdue = false, remainingTotal = 0;
+    ajilSales.forEach((inv) => {
+      const totalPaid = (creditPayments || [])
+        .filter((p) => p.invoice_id === inv.id)
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+      const remaining = (inv.total || 0) - totalPaid;
+      if (remaining <= 0.01) return;
+      remainingTotal += remaining;
+      const due = new Date(inv.created_at || inv.date);
+      due.setDate(due.getDate() + terms);
+      const daysLeft = Math.floor((due - new Date()) / (1000 * 60 * 60 * 24));
+      if (oldestDaysLeft === null || daysLeft < oldestDaysLeft) oldestDaysLeft = daysLeft;
+      if (daysLeft < 0) isOverdue = true;
+    });
+    return { customer: c, daysLeft: oldestDaysLeft, isOverdue, remainingTotal };
+  }).filter((d) => d.isOverdue);
+
   // موعد إقفال الإقرار الضريبي الربعي (نهاية الشهر التالي لنهاية الربع - نظام ضريبة القيمة المضافة السعودي)
   const taxDeadlineInfo = (() => {
     const now = new Date();
@@ -2607,6 +2645,7 @@ const [myTarget, setMyTarget] = useState(null);
     { key: "supplier",   icon: "🧾", label: "استحقاق مورد قريب/متأخر",   count: supplierDues.length,           color: COLORS.red, tab: "suppliers" },
     { key: "newcust",    icon: "🆕", label: "عملاء جدد هذا الأسبوع",     count: newCustomers.length,           color: COLORS.green, tab: "customers" },
     { key: "lostcust",   icon: "👻", label: "عملاء مختفون",              count: disappearedCustomers.length,   color: COLORS.textDim, tab: "customers" },
+    { key: "custdebt",   icon: "💳", label: "عملاء متأخرين في السداد",    count: customerDues.length,           color: COLORS.red, tab: "customers" },
     { key: "tax",        icon: "🗂️", label: "موعد الإقرار الضريبي الربعي", count: taxDeadlineInfo.daysLeft <= 14 ? 1 : 0, color: COLORS.gold, tab: "tax_report" },
     { key: "appoint",    icon: "📅", label: "مواعيد مهمة (رخصة/إيجار)",  count: 2,                              color: COLORS.green, tab: "dashboard" },
   ];
@@ -3319,6 +3358,12 @@ const [myTarget, setMyTarget] = useState(null);
                       supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :
                       supplierDues.slice(0, 8).map((d) => (
                         <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? VAR.danger : VAR.warn} VAR={VAR} />
+                      ))
+                    )}
+                    {g.key === "custdebt" && (
+                      customerDues.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء متأخرين في السداد ✅" muted={VAR.muted} /> :
+                      customerDues.slice(0, 8).map((d) => (
+                        <AlertRow key={d.customer.id} text={d.customer.name} badge={`متأخر ${Math.abs(d.daysLeft)} يوم • ${d.remainingTotal.toFixed(0)} ر.س`} color={VAR.danger} VAR={VAR} />
                       ))
                     )}
                     {g.key === "newcust" && (
@@ -12092,6 +12137,9 @@ function CreditTab({ customers, onPay, sales = [], creditPayments = [] }) {
                 <span style={{ color: COLORS.red }}>
                   متبقي: {c.totalDebt.toFixed(2)} ر.س
                 </span>
+                {c.stats?.isOverdue && (
+                  <span style={{ color: COLORS.red, fontWeight: 700 }}> • ⏰ متأخر {c.stats.daysOverdue} يوم (فترة السداد {c.stats.paymentTerms} يوم)</span>
+                )}
               </div>
             </div>
             <button
@@ -12132,6 +12180,8 @@ function CustomersModule({
   const [activeTab, setActiveTab] = useState("cards");
   const [filterVip, setFilterVip] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [showOpportunityOnly, setShowOpportunityOnly] = useState(false);
   const [expandedCard, setExpandedCard] = useState(null);
   const [creditInvoices, setCreditInvoices] = useState([]);
   const [showCredit, setShowCredit] = useState(false);
@@ -12150,6 +12200,7 @@ function CustomersModule({
     category: "individual",
     children_count: "",
     children_ages: [],
+    payment_terms: 30,
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -12268,7 +12319,8 @@ function CustomersModule({
   const thisMonthKey = now.toISOString().slice(0, 7);
   const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
 
-  const computeStats = (customerId) => {
+  const computeStats = (customer) => {
+    const customerId = customer.id;
     const cSales = sales.filter((s) => s.customer === customerId);
     if (cSales.length === 0) return null;
 
@@ -12336,6 +12388,49 @@ function CustomersModule({
         : lastSale.items
       : [];
 
+    // ===== تصنيف سلوك الشراء: هل تركيز شراءه في قسم واحد، ولا "شامل" بيشتري من كذا قسم بشكل متوازن؟ =====
+    const categorySpend = {};
+    cSales.forEach((sale) => {
+      const saleItems = sale.items
+        ? typeof sale.items === "string"
+          ? JSON.parse(sale.items)
+          : sale.items
+        : [];
+      saleItems.forEach((it) => {
+        const cat = it.category || "أخرى";
+        categorySpend[cat] =
+          (categorySpend[cat] || 0) + (it.price || 0) * (it.qty || 0);
+      });
+    });
+    const sortedCats = Object.entries(categorySpend)
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1]);
+    const topCategory = sortedCats[0]?.[0] || null;
+    const totalCatSpend = sortedCats.reduce((s, [, v]) => s + v, 0);
+    const topCategoryShare = totalCatSpend > 0 ? (sortedCats[0]?.[1] || 0) / totalCatSpend : 0;
+    const distinctCategoriesCount = sortedCats.length;
+    // عميل "شامل" = بيشتري من قسمين أو أكتر ومفيش قسم واحد مسيطر بنسبة عالية (يعني ثقة عامة في الصيدلية مش احتياج محدد)
+    const isComprehensiveBuyer = distinctCategoriesCount >= 2 && topCategoryShare < 0.65;
+    const buyerType = isComprehensiveBuyer ? "شامل" : topCategory;
+
+    // ===== مديونية الآجل وفترة السداد =====
+    const ajilSales = cSales.filter((s) => s.payment === "آجل");
+    const paymentTerms = customer.payment_terms || 30;
+    let debtRemaining = 0, oldestDaysLeft = null, isOverdue = false;
+    ajilSales.forEach((inv) => {
+      const totalPaid = (creditPayments || [])
+        .filter((p) => p.invoice_id === inv.id)
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+      const remaining = (inv.total || 0) - totalPaid;
+      if (remaining <= 0.01) return;
+      debtRemaining += remaining;
+      const due = new Date(inv.created_at || inv.date);
+      due.setDate(due.getDate() + paymentTerms);
+      const daysLeft = Math.floor((due - now) / (1000 * 60 * 60 * 24));
+      if (oldestDaysLeft === null || daysLeft < oldestDaysLeft) oldestDaysLeft = daysLeft;
+      if (daysLeft < 0) isOverdue = true;
+    });
+
     return {
       totalVisits,
       monthlyVisits,
@@ -12347,11 +12442,29 @@ function CustomersModule({
       rfmScore,
       vipLevel,
       status,
+      categorySpend,
+      topCategory,
+      buyerType,
+      isComprehensiveBuyer,
+      topCategoryShare,
+      debtRemaining,
+      isOverdue,
+      daysOverdue: isOverdue ? Math.abs(oldestDaysLeft) : 0,
+      paymentTerms,
       lastItems,
     };
   };
 
-  const enriched = customers.map((c) => ({ ...c, stats: computeStats(c.id) }));
+  // فئات "كوزمتك/مستلزمات أطفال" — لو عميل أسرة مع أطفال ومبيشتريش منها، ده فرصة عرض مستهدف
+  const KIDS_COSMETICS_CATS = ["مستلزمات أطفال", "كوزمتك عادي", "كوزمتك طبي"];
+  const enriched = customers.map((c) => {
+    const stats = computeStats(c);
+    const missedKidsCosmetics =
+      c.category === "family_with_kids" &&
+      !!stats &&
+      !KIDS_COSMETICS_CATS.some((cat) => (stats.categorySpend?.[cat] || 0) > 0);
+    return { ...c, stats, missedKidsCosmetics };
+  });
 
   // ===== واتساب =====
   const openWhatsApp = (phone, message = "") => {
@@ -12390,7 +12503,9 @@ function CustomersModule({
     return (
       ((c.name||"").includes(search) || (c.phone||"").includes(search)) &&
       (filterVip === "all" || s?.vipLevel === filterVip) &&
-      (filterStatus === "all" || s?.status === filterStatus)
+      (filterStatus === "all" || s?.status === filterStatus) &&
+      (filterCategory === "all" || s?.buyerType === filterCategory) &&
+      (!showOpportunityOnly || c.missedKidsCosmetics)
     );
   });
 
@@ -12531,6 +12646,8 @@ function CustomersModule({
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             {vip && <span style={{ background: vip.bg, color: vip.color, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>{vip.label}</span>}
             {debt > 0 && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>💳 {debt.toFixed(0)} ر.س</span>}
+            {s?.isOverdue && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>⏰ متأخر {s.daysOverdue} يوم</span>}
+            {c.missedKidsCosmetics && <span style={{ background: "#2a2000", color: COLORS.gold, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>🎁 فرصة عرض</span>}
             <span style={{ color: COLORS.textDim, fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
           </div>
         </div>
@@ -12547,6 +12664,7 @@ function CustomersModule({
                 { label: "إجمالي المشتريات", value: s ? s.totalSpent.toFixed(0) + " ر.س" : "-", color: COLORS.gold },
                 { label: "مشتريات الشهر", value: s ? s.monthlySpent.toFixed(0) + " ر.س" : "-", color: COLORS.gold },
                 { label: "آخر زيارة", value: s ? `${s.daysSinceLast} يوم` : "لم يزر", color: COLORS.textDim },
+                { label: "نمط الشراء", value: s?.buyerType ? (s.buyerType === "شامل" ? "🌐 شامل" : s.buyerType) : "-", color: s?.buyerType === "شامل" ? COLORS.green : COLORS.blue },
               ].map((item) => (
                 <div key={item.label} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 7, padding: "6px 7px" }}>
                   <div style={{ color: COLORS.border, fontSize: 9 }}>{item.label}</div>
@@ -12596,6 +12714,12 @@ function CustomersModule({
                 style={{ background: COLORS.greenSoft, border: "1px solid #1a4a1a", borderRadius: 7, padding: "5px 10px", color: COLORS.green, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                 📱 واتساب
               </button>
+              {c.missedKidsCosmetics && (
+                <button onClick={() => openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 عندنا عروض على مستلزمات الأطفال والعناية بالبشرة، تحب نبعتلك التفاصيل؟`)}
+                  style={{ background: "#2a2000", border: "1px solid #5a4000", borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                  🎁 ابعت عرض
+                </button>
+              )}
               <button onClick={() => openEdit(c)}
                 style={{ background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
                 ✏️ تعديل
@@ -12658,6 +12782,7 @@ function CustomersModule({
       totalSpent: form.totalSpent || 0,
       visits: form.visits || 0,
       lastVisit: form.lastVisit || "-",
+      payment_terms: +form.payment_terms || 30,
       children_count:
         form.category === "family_with_kids" ? form.children_count : null,
       children_ages:
@@ -12886,6 +13011,41 @@ function CustomersModule({
               <option value="at_risk">⚠️ في خطر</option>
               <option value="inactive">💤 مختفي</option>
             </select>
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              style={{
+                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                border: "1px solid #1d2d4a",
+                borderRadius: 8,
+                padding: "9px 12px",
+                color: COLORS.textPrimary,
+                fontSize: 13,
+              }}
+            >
+              <option value="all">كل أنماط الشراء</option>
+              <option value="شامل">🌐 عملاء شاملين (كذا قسم)</option>
+              {Object.keys(MAIN_CATEGORIES).map((cat) => (
+                <option key={cat} value={cat}>🛒 متخصصين في {cat}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setShowOpportunityOnly((p) => !p)}
+              title="أسر عندها أطفال ومبتشتريش مستلزمات أطفال/كوزمتك — فرصة لعرض مستهدف"
+              style={{
+                background: showOpportunityOnly ? COLORS.goldSoft || "#2a2000" : COLORS.surfaceAlt,
+                border: `1px solid ${showOpportunityOnly ? COLORS.gold : "#1d2d4a"}`,
+                borderRadius: 8,
+                padding: "9px 12px",
+                color: showOpportunityOnly ? COLORS.gold : COLORS.textDim,
+                fontSize: 13,
+                cursor: "pointer",
+                fontWeight: showOpportunityOnly ? 700 : 400,
+                whiteSpace: "nowrap",
+              }}
+            >
+              🎁 فرص عروض{showOpportunityOnly ? ` (${enriched.filter((c) => c.missedKidsCosmetics).length})` : ""}
+            </button>
           </div>
           <div
             style={{
@@ -13400,6 +13560,16 @@ function CustomersModule({
             onChange={(v) => F("taxId", v)}
             placeholder="اختياري"
           />
+          <Input
+            label="فترة السداد (بالأيام) — لبيع الآجل"
+            value={form.payment_terms}
+            onChange={(v) => F("payment_terms", v)}
+            placeholder="مثال: 30"
+            type="number"
+          />
+          <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: -6 }}>
+            لو العميل بيشتري بالآجل، هيظهر تنبيه "متأخر في السداد" لو فاتورة مفتوحة عدّت فترة السداد دي من غير تحصيل.
+          </div>
           <div>
             <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 8 }}>
               نوع العميل *
