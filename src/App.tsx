@@ -10283,8 +10283,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
   const addNewIngredient = async () => {
     if (!ingredientSearch.trim()) return;
-    const { data, error } = await supabase.from("active_ingredients").insert({ name_ar: ingredientSearch.trim() }).select().single();
-    if (error) { showToast("خطأ في إضافة المادة الفعالة", "error"); return; }
+    const { data, error } = await supabase.from("active_ingredients").insert({ name_ar: ingredientSearch.trim(), pharmacy_id: pharmacyId }).select().single();
+    if (error) { showToast("خطأ في إضافة المادة الفعالة: " + error.message, "error"); return; }
     setAllIngredients((prev) => [...prev, data]);
     addIngredient(data);
   };
