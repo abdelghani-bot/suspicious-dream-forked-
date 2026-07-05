@@ -1,5 +1,5 @@
 import { QRCodeSVG } from "qrcode.react";
-import { COLORS, tint } from "./theme";
+import { COLORS, tint, SHADOW } from "./theme";
 import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = "https://glcdvwpwxbhutfecljdj.supabase.co";
 const supabase = createClient(
@@ -4394,7 +4394,7 @@ function POS({
               style={{
                 padding: "7px 16px",
                 borderRadius: "9px 0 0 9px",
-                background: activeTab === i ? COLORS.blueSoft : "#0a0f1c",
+                background: activeTab === i ? COLORS.blueSoft : COLORS.surfaceAlt,
                 border: `1px solid ${activeTab === i ? COLORS.blue : COLORS.border}`,
                 borderLeft: "none",
                 color: activeTab === i ? COLORS.blue : COLORS.textDim,
@@ -4410,7 +4410,7 @@ function POS({
               style={{
                 padding: "7px 8px",
                 borderRadius: "0 9px 9px 0",
-                background: activeTab === i ? COLORS.blueSoft : "#0a0f1c",
+                background: activeTab === i ? COLORS.blueSoft : COLORS.surfaceAlt,
                 border: `1px solid ${activeTab === i ? COLORS.blue : COLORS.border}`,
                 color: COLORS.red,
                 cursor: "pointer",
@@ -4428,7 +4428,7 @@ function POS({
               padding: "7px 14px",
               borderRadius: 9,
               background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-              border: "1px dashed #1d3a5a",
+              border: `1px dashed ${tint(COLORS.blue,0.35)}`,
               color: COLORS.border,
               cursor: "pointer",
               fontSize: 13,
@@ -4443,14 +4443,14 @@ function POS({
       {autoSaveWarning && (
         <div
           style={{
-            background: "#2a1500",
-            border: "1px solid #f59e0b",
+            background: COLORS.goldSoft,
+            border: `1px solid ${tint(COLORS.coral,0.35)}`,
             borderRadius: 10,
             padding: "10px 16px",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            color: "#fcd34d",
+            color: COLORS.gold,
             fontSize: 13,
             flexShrink: 0,
           }}
@@ -4465,7 +4465,7 @@ function POS({
             style={{
               background: "transparent",
               border: "none",
-              color: "#fcd34d",
+              color: COLORS.gold,
               cursor: "pointer",
               fontSize: 16,
             }}
@@ -4478,7 +4478,7 @@ function POS({
       <div
         style={{
           background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-          border: "1px solid #1d2d4a",
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 16,
           display: "flex",
           flexDirection: "column",
@@ -4491,7 +4491,7 @@ function POS({
         <div
           style={{
             padding: "6px 16px",
-            borderBottom: "1px solid #1d2d4a",
+            borderBottom: `1px solid ${COLORS.border}`,
             display: "flex",
             gap: 8,
             flexShrink: 0,
@@ -4550,7 +4550,7 @@ function POS({
                 flex: 1,
                 minWidth: 0,
                 background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 8,
                 padding: "9px 14px",
                 color: COLORS.textPrimary,
@@ -4565,7 +4565,7 @@ function POS({
                 padding: "8px 12px",
                 borderRadius: 8,
                 background: COLORS.goldSoft,
-                border: "1px solid #7a4a00",
+                border: `1px solid ${tint(COLORS.gold,0.35)}`,
                 color: COLORS.gold,
                 fontSize: 12,
                 fontWeight: 700,
@@ -4585,7 +4585,7 @@ function POS({
                   left: 0,
                   zIndex: 200,
                   background: "#0d1829",
-                  border: "1px solid #7a4a00",
+                  border: `1px solid ${tint(COLORS.gold,0.35)}`,
                   borderRadius: 10,
                   padding: 14,
                   marginTop: 4,
@@ -4609,7 +4609,7 @@ function POS({
                   style={{
                     width: "100%",
                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                    border: "1px solid #1d2d4a",
+                    border: `1px solid ${COLORS.border}`,
                     borderRadius: 7,
                     padding: "7px 10px",
                     color: COLORS.textPrimary,
@@ -4629,7 +4629,7 @@ function POS({
                   style={{
                     width: "100%",
                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                    border: "1px solid #1d2d4a",
+                    border: `1px solid ${COLORS.border}`,
                     borderRadius: 7,
                     padding: "7px 10px",
                     color: COLORS.textPrimary,
@@ -4666,7 +4666,7 @@ function POS({
                       flex: 1,
                       padding: "7px 0",
                       background: COLORS.goldSoft,
-                      border: "1px solid #7a4a00",
+                      border: `1px solid ${tint(COLORS.gold,0.35)}`,
                       borderRadius: 7,
                       color: COLORS.gold,
                       fontWeight: 700,
@@ -4680,7 +4680,7 @@ function POS({
                     style={{
                       padding: "7px 14px",
                       background: "transparent",
-                      border: "1px solid #1d2d4a",
+                      border: `1px solid ${COLORS.border}`,
                       borderRadius: 7,
                       color: COLORS.textDim,
                       cursor: "pointer",
@@ -4699,7 +4699,7 @@ function POS({
                   right: 0,
                   left: 0,
                   background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                  border: "1px solid #1d2d4a",
+                  border: `1px solid ${COLORS.border}`,
                   borderRadius: 8,
                   zIndex: 100,
                   maxHeight: 240,
@@ -4712,7 +4712,7 @@ function POS({
                     padding: "5px 14px",
                     fontSize: 10,
                     color: COLORS.textDim,
-                    borderBottom: "1px solid #1a2a3a",
+                    borderBottom: `1px solid ${COLORS.border}`,
                     background: "#0a121f",
                   }}
                 >
@@ -4723,7 +4723,7 @@ function POS({
                     p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
                   const outOfStock = effectiveStock <= 0;
                   const stockColor = outOfStock
-                    ? "#dd4444"
+                    ? COLORS.red
                     : p.stock <= (p.minStock || 0)
                     ? COLORS.gold
                     : COLORS.green;
@@ -4733,7 +4733,7 @@ function POS({
                       style={{
                         padding: "7px 14px",
                         cursor: "pointer",
-                        borderBottom: "1px solid #1a2a3a",
+                        borderBottom: `1px solid ${COLORS.border}`,
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
@@ -4807,7 +4807,7 @@ function POS({
                               padding: "4px 10px",
                               borderRadius: 6,
                               background: COLORS.goldSoft,
-                              border: "1px solid #7a4a00",
+                              border: `1px solid ${tint(COLORS.gold,0.35)}`,
                               color: COLORS.gold,
                               fontSize: 11,
                               fontWeight: 700,
@@ -4829,7 +4829,7 @@ function POS({
                                 padding: "4px 10px",
                                 borderRadius: 6,
                                 background: COLORS.blueSoft,
-                                border: "1px solid #2a6aef",
+                                border: `1px solid ${tint(COLORS.blue,0.35)}`,
                                 color: COLORS.blue,
                                 fontSize: 11,
                                 fontWeight: 700,
@@ -4875,7 +4875,7 @@ function POS({
         <div
           style={{
             padding: "6px 16px",
-            borderBottom: "1px solid #1d2d4a",
+            borderBottom: `1px solid ${COLORS.border}`,
             display: "flex",
             gap: 8,
             flexShrink: 0,
@@ -4945,7 +4945,7 @@ function POS({
                 right: 0,
                 left: 0,
                 background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 8,
                 zIndex: 200,
                 maxHeight: 220,
@@ -4970,7 +4970,7 @@ function POS({
                   style={{
                     padding: "8px 12px",
                     cursor: "pointer",
-                    borderBottom: "1px solid #1a2a3a",
+                    borderBottom: `1px solid ${COLORS.border}`,
                     color: COLORS.textDim,
                     fontSize: 13,
                     display: "flex",
@@ -5017,7 +5017,7 @@ function POS({
                       style={{
                         padding: "8px 12px",
                         cursor: "pointer",
-                        borderBottom: "1px solid #1a2a3a",
+                        borderBottom: `1px solid ${COLORS.border}`,
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
@@ -5038,7 +5038,7 @@ function POS({
                       {c.credit > 0 && (
                         <span style={{
                           fontSize: 11,
-                          background: "#2a1010",
+                          background: COLORS.redSoft,
                           color: COLORS.red,
                           borderRadius: 6,
                           padding: "2px 8px",
@@ -5071,7 +5071,7 @@ function POS({
             style={{
               padding: "7px 12px",
               background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-              border: "1px dashed #1d3a5a",
+              border: `1px dashed ${tint(COLORS.blue,0.35)}`,
               borderRadius: 8,
               color: inv.prescriptionImg ? COLORS.green : COLORS.textDim,
               cursor: "pointer",
@@ -5125,7 +5125,7 @@ function POS({
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #1d2d4a" }}>
+                <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
                   {["الصنف", "الكمية", "السعر", "الإجمالي", ""].map((h, i) => (
                     <th
                       key={i}
@@ -5153,7 +5153,7 @@ function POS({
     const displayTotal = (fifoResults?.[item.lineId]?.salePrice ?? item.price) * item.qty;
 
     return (
-      <tr key={item.lineId} style={{ borderBottom: "1px solid #0a101a" }}>
+      <tr key={item.lineId} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
         <td style={{ padding: "8px 4px" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
           {item.discountPct > 0 && (
@@ -5173,7 +5173,7 @@ function POS({
               cart: p.cart.map((i) => i.lineId === item.lineId ? { ...i, dose: e.target.value } : i),
             }))}
             placeholder="الجرعة..."
-            style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.textDim, fontSize: 11, outline: "none", padding: "2px 0" }}
+            style={{ width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${tint(COLORS.blue,0.35)}`, color: COLORS.textDim, fontSize: 11, outline: "none", padding: "2px 0" }}
           />
           {!item.isMissed && !item.isJoker && (() => {
             const prodBatches = products.find((x) => x.id === item.id)?.batches || [];
@@ -5209,7 +5209,7 @@ function POS({
                     }));
                   }}
                   title="اختر التشغيلة (تاريخ الصلاحية) اللي هتبيع منها — القائمة بتعرض التشغيلات الموجودة فعلاً في المخزون بس"
-                  style={{ background: "transparent", border: "none", borderBottom: "1px solid #1a2a4a", color: COLORS.gold, fontSize: 10, outline: "none", padding: "1px 0", colorScheme: "dark" }}
+                  style={{ background: "transparent", border: "none", borderBottom: `1px solid ${tint(COLORS.blue,0.35)}`, color: COLORS.gold, fontSize: 10, outline: "none", padding: "1px 0", colorScheme: "dark" }}
                 >
                   {!expiryOptions.includes(item.expiry) && (
                     <option value="">اختر تاريخ الصلاحية...</option>
@@ -5326,7 +5326,7 @@ function POS({
     ),
   }));
 }}
-              style={{ width: 52, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, color: COLORS.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
+              style={{ width: 52, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
             />
 
             <button
@@ -5367,7 +5367,7 @@ function POS({
         <div
           style={{
             padding: "8px 14px",
-            borderTop: "1px solid #1d2d4a",
+            borderTop: `1px solid ${COLORS.border}`,
             background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
             flexShrink: 0,
           }}
@@ -5436,7 +5436,7 @@ function POS({
                         background:
                           inv.payment === m ? COLORS.blueSoft : "transparent",
                         color: isAjilLocked
-                          ? "#2a3a4a"
+                          ? COLORS.textDim
                           : inv.payment === m
                           ? COLORS.blue
                           : COLORS.textDim,
@@ -5472,7 +5472,7 @@ function POS({
                           splitPayment: { ...p.splitPayment, card: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
+                      style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                     />
                     <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
@@ -5488,7 +5488,7 @@ function POS({
                           splitPayment: { ...p.splitPayment, transfer: parseFloat(e.target.value) || 0 },
                         }))
                       }
-                      style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
+                      style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "5px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                     />
                     <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
@@ -5496,13 +5496,13 @@ function POS({
                     <span style={{ color: COLORS.green, fontSize: 12, fontWeight: 600, width: 44, textAlign: "right" }}>
                       نقدي
                     </span>
-                    <div style={{ flex: 1, background: COLORS.greenSoft, border: `1px solid ${isOverpaid ? COLORS.red : "#2a6a2a"}`, borderRadius: 7, padding: "5px 10px", color: isOverpaid ? "#dd4444" : COLORS.green, fontSize: 13, fontWeight: 700 }}>
+                    <div style={{ flex: 1, background: COLORS.greenSoft, border: `1px solid ${isOverpaid ? COLORS.red : COLORS.green}`, borderRadius: 7, padding: "5px 10px", color: isOverpaid ? COLORS.red : COLORS.green, fontSize: 13, fontWeight: 700 }}>
                       {isOverpaid ? "⚠ تجاوز الإجمالي" : `${cash.toFixed(2)}`}
                     </div>
                     <span style={{ color: COLORS.textDim, fontSize: 11, width: 30 }}>ر.س</span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 10px", borderRadius: 6, background: isOverpaid ? COLORS.redSoft : COLORS.greenSoft, border: `1px solid ${isOverpaid ? COLORS.red : "#2a6a2a"}`, marginTop: 2 }}>
-                    <span style={{ color: isOverpaid ? "#dd4444" : COLORS.green, fontSize: 12, fontWeight: 700 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 10px", borderRadius: 6, background: isOverpaid ? COLORS.redSoft : COLORS.greenSoft, border: `1px solid ${isOverpaid ? COLORS.red : COLORS.green}`, marginTop: 2 }}>
+                    <span style={{ color: isOverpaid ? COLORS.red : COLORS.green, fontSize: 12, fontWeight: 700 }}>
                       {isOverpaid ? `⚠ زيادة ${Math.abs(cash).toFixed(2)} ر.س` : "✓ الحساب مظبوط"}
                     </span>
                     <span style={{ color: COLORS.textDim, fontSize: 12 }}>
@@ -5518,7 +5518,7 @@ function POS({
           {inv.selCustomer && customerLoyalty?.points >= (loyaltySettings?.min_redeem || 10) && (
             <div style={{
               background: COLORS.greenSoft,
-              border: "1px solid #1a5a30",
+              border: `1px solid ${tint(COLORS.green,0.35)}`,
               borderRadius: 10,
               padding: "7px 12px",
               marginBottom: 6,
@@ -5548,7 +5548,7 @@ function POS({
                 style={{
                   padding: "5px 14px",
                   borderRadius: 7,
-                  border: "1px solid #1a5a30",
+                  border: `1px solid ${tint(COLORS.green,0.35)}`,
                   background: usePoints ? COLORS.green : "transparent",
                   color: usePoints ? "#000" : COLORS.green,
                   fontSize: 12,
@@ -5575,7 +5575,7 @@ function POS({
                 display: "flex",
                 borderRadius: 7,
                 overflow: "hidden",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
               }}
             >
               {[
@@ -5615,7 +5615,7 @@ function POS({
               }
               style={{
                 background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 7,
                 padding: "6px 10px",
                 color: COLORS.textPrimary,
@@ -5676,7 +5676,7 @@ function POS({
                 <span>{missedTotal.toFixed(2)} ر.س</span>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontSize: 17, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 5, marginTop: 3 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontSize: 17, fontWeight: 800, borderTop: `1px solid ${COLORS.border}`, paddingTop: 5, marginTop: 3 }}>
               <span>الإجمالي</span>
               <span>{total.toFixed(2)} ر.س</span>
             </div>
@@ -5986,7 +5986,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
         بيانات الصيدلية
       </h2>
       <div style={{
-        background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a",
+        background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`,
         borderRadius: 16, padding: 24,
         display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16,
       }}>
@@ -6000,7 +6000,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
               onChange={(e) => setSettings((p) => ({ ...p, [key]: e.target.value }))}
               style={{
                 width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a", borderRadius: 8,
+                border: `1px solid ${COLORS.border}`, borderRadius: 8,
                 padding: "8px 12px", color: COLORS.textPrimary,
                 fontSize: 13, outline: "none", boxSizing: "border-box",
               }}
@@ -6407,7 +6407,7 @@ const LABEL_SIZES = [
   const cellStyle = {
     width: "100%",
     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-    border: "1px solid #1d2d4a",
+    border: `1px solid ${COLORS.border}`,
     borderRadius: 6,
     padding: "4px 8px",
     color: COLORS.textPrimary,
@@ -6690,7 +6690,7 @@ const LABEL_SIZES = [
             style={{
               width: "100%",
               background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-              border: "1px solid #2a5a9a",
+              border: `1px solid ${tint(COLORS.blue,0.35)}`,
               borderRadius: 8,
               padding: "10px 14px",
               color: COLORS.textPrimary,
@@ -6718,7 +6718,7 @@ const LABEL_SIZES = [
               {searchResults.map((p, idx) => {
                 const outOfStock = (p.stock ?? 0) <= 0;
                 const lowStock = !outOfStock && (p.stock ?? 0) <= (p.min_stock || p.minStock || 0);
-                const stockColor = outOfStock ? "#dd4444" : lowStock ? COLORS.gold : COLORS.green;
+                const stockColor = outOfStock ? COLORS.red : lowStock ? COLORS.gold : COLORS.green;
                 const isHighlighted = idx === highlightedPurchIdx;
                 return (
                   <div
@@ -6786,7 +6786,7 @@ const LABEL_SIZES = [
             </thead>
             <tbody>
               {items.map((item, rowIndex) => (
-                <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
+                <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
                   <td
                     style={{
                       padding: "6px 8px",
@@ -6805,7 +6805,7 @@ const LABEL_SIZES = [
                         style={{
                           background: "transparent",
                           border: "none",
-                          color: "#3a6aaa",
+                          color: COLORS.blue,
                           cursor: "pointer",
                           padding: 2,
                           lineHeight: 1,
@@ -6938,7 +6938,7 @@ const LABEL_SIZES = [
                   </td>
                   <td style={{ padding: "6px 8px" }}>
                     <Badge
-                      color={item.taxable ? "#0a2a00" : "#1a1a2a"}
+                      color={item.taxable ? COLORS.greenSoft : COLORS.surfaceAlt}
                       text={item.taxable ? COLORS.green : COLORS.textDim}
                     >
                       {item.taxable ? "15%" : "معفى"}
@@ -7011,7 +7011,7 @@ const LABEL_SIZES = [
                   style={{
                     width: 110,
                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                    border: "1px solid #1d3a6a",
+                    border: `1px solid ${tint(COLORS.blue,0.35)}`,
                     borderRadius: 6,
                     padding: "4px 8px",
                     color: COLORS.textPrimary,
@@ -7046,7 +7046,7 @@ const LABEL_SIZES = [
                   style={{
                     width: 110,
                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                    border: "1px solid #1d3a6a",
+                    border: `1px solid ${tint(COLORS.blue,0.35)}`,
                     borderRadius: 6,
                     padding: "4px 8px",
                     color: COLORS.textPrimary,
@@ -7083,7 +7083,7 @@ const LABEL_SIZES = [
                 color: COLORS.textPrimary,
                 fontWeight: 800,
                 fontSize: 16,
-                borderTop: "1px solid #1d2d4a",
+                borderTop: `1px solid ${COLORS.border}`,
                 paddingTop: 8,
               }}
             >
@@ -7145,7 +7145,7 @@ const LABEL_SIZES = [
                       display: "flex",
                       justifyContent: "space-between",
                       padding: "8px 0",
-                      borderBottom: "1px solid #1a2a3a",
+                      borderBottom: `1px solid ${COLORS.border}`,
                     }}
                   >
                     <span style={{ color: COLORS.textDim, fontSize: 13 }}>
@@ -7205,7 +7205,7 @@ const LABEL_SIZES = [
                   padding: "8px 10px",
                   background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                   borderRadius: 8,
-                  border: "1px solid #1d2d4a",
+                  border: `1px solid ${COLORS.border}`,
                   opacity: item.selected === false ? 0.5 : 1,
                 }}
               >
@@ -7240,7 +7240,7 @@ const LABEL_SIZES = [
                     style={{
                       width: 60,
                       background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                      border: "1px solid #1d3a6a",
+                      border: `1px solid ${tint(COLORS.blue,0.35)}`,
                       borderRadius: 6,
                       padding: "4px 8px",
                       color: COLORS.textPrimary,
@@ -7253,7 +7253,7 @@ const LABEL_SIZES = [
                     onClick={() => setPrintItems((prev) => prev.filter((_, pi) => pi !== idx))}
                     title="حذف الصنف من القائمة"
                     style={{
-                      width: 26, height: 26, borderRadius: 6, border: "1px solid #4a1a1a",
+                      width: 26, height: 26, borderRadius: 6, border: `1px solid ${tint(COLORS.red,0.35)}`,
                       background: COLORS.redSoft, color: COLORS.red, fontSize: 14, cursor: "pointer",
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}
@@ -7371,7 +7371,7 @@ const LABEL_SIZES = [
                 {editItems.map((item, rowIndex) => (
                   <tr
                     key={item.id}
-                    style={{ borderBottom: "1px solid #0a101a" }}
+                    style={{ borderBottom: `1px solid ${COLORS.border}` }}
                   >
                     <td
                       style={{
@@ -7400,7 +7400,7 @@ const LABEL_SIZES = [
                         style={{
                           width: 55,
                           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                          border: "1px solid #1d2d4a",
+                          border: `1px solid ${COLORS.border}`,
                           borderRadius: 6,
                           padding: "4px 8px",
                           color: COLORS.textPrimary,
@@ -7435,7 +7435,7 @@ const LABEL_SIZES = [
                         style={{
                           width: 60,
                           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                          border: "1px solid #1d2d4a",
+                          border: `1px solid ${COLORS.border}`,
                           borderRadius: 6,
                           padding: "4px 8px",
                           color: COLORS.textPrimary,
@@ -7470,7 +7470,7 @@ const LABEL_SIZES = [
                         style={{
                           width: 60,
                           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                          border: "1px solid #1d2d4a",
+                          border: `1px solid ${COLORS.border}`,
                           borderRadius: 6,
                           padding: "4px 8px",
                           color: COLORS.textPrimary,
@@ -7497,7 +7497,7 @@ const LABEL_SIZES = [
                         style={{
                           width: 85,
                           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                          border: "1px solid #1d2d4a",
+                          border: `1px solid ${COLORS.border}`,
                           borderRadius: 6,
                           padding: "4px 8px",
                           color: COLORS.textPrimary,
@@ -7532,7 +7532,7 @@ const LABEL_SIZES = [
                         style={{
                           width: 85,
                           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                          border: "1px solid #1d2d4a",
+                          border: `1px solid ${COLORS.border}`,
                           borderRadius: 6,
                           padding: "4px 8px",
                           color: COLORS.textPrimary,
@@ -7558,7 +7558,7 @@ const LABEL_SIZES = [
                         style={{
                           width: 55,
                           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                          border: "1px solid #1d2d4a",
+                          border: `1px solid ${COLORS.border}`,
                           borderRadius: 6,
                           padding: "4px 8px",
                           color: COLORS.textPrimary,
@@ -7583,7 +7583,7 @@ const LABEL_SIZES = [
                         style={{
                           width: 125,
                           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                          border: "1px solid #1d2d4a",
+                          border: `1px solid ${COLORS.border}`,
                           borderRadius: 6,
                           padding: "4px 8px",
                           color: COLORS.textPrimary,
@@ -7673,7 +7673,7 @@ const LABEL_SIZES = [
                       style={{
                         width: 110,
                         background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                        border: "1px solid #1d3a6a",
+                        border: `1px solid ${tint(COLORS.blue,0.35)}`,
                         borderRadius: 6,
                         padding: "4px 8px",
                         color: COLORS.textPrimary,
@@ -7700,7 +7700,7 @@ const LABEL_SIZES = [
                       style={{
                         width: 110,
                         background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                        border: "1px solid #1d3a6a",
+                        border: `1px solid ${tint(COLORS.blue,0.35)}`,
                         borderRadius: 6,
                         padding: "4px 8px",
                         color: COLORS.textPrimary,
@@ -7716,7 +7716,7 @@ const LABEL_SIZES = [
                       color: COLORS.textPrimary,
                       fontWeight: 800,
                       fontSize: 16,
-                      borderTop: "1px solid #1d2d4a",
+                      borderTop: `1px solid ${COLORS.border}`,
                       paddingTop: 8,
                     }}
                   >
@@ -8437,7 +8437,7 @@ function ReturnsModule({
       {/* PIN Modal */}
       {showPinModal && (
         <div style={{ position: "fixed", inset: 0, background: "#0009", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #2a6aef", borderRadius: 16, padding: 28, width: 320, textAlign: "center" }}>
+          <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 16, padding: 28, width: 320, textAlign: "center" }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
             <h3 style={{ color: COLORS.textPrimary, margin: "0 0 8px" }}>صلاحية مدير مطلوبة</h3>
             <p style={{ color: COLORS.textDim, fontSize: 13, marginBottom: 16 }}>
@@ -8449,7 +8449,7 @@ function ReturnsModule({
               onChange={(e) => setAdminPin(e.target.value)}
               placeholder="PIN..."
               style={{
-                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a",
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`,
                 borderRadius: 8, padding: "10px 14px", color: COLORS.textPrimary, fontSize: 16,
                 outline: "none", textAlign: "center", boxSizing: "border-box", marginBottom: 14,
               }}
@@ -8467,13 +8467,13 @@ function ReturnsModule({
                     setAdminPin("");
                   }
                 }}
-                style={{ flex: 1, padding: "9px 0", background: COLORS.blueSoft, border: "1px solid #2a6aef", borderRadius: 8, color: COLORS.blue, fontWeight: 700, cursor: "pointer" }}
+                style={{ flex: 1, padding: "9px 0", background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, color: COLORS.blue, fontWeight: 700, cursor: "pointer" }}
               >
                 تأكيد
               </button>
               <button
                 onClick={() => { setShowPinModal(false); setAdminPin(""); }}
-                style={{ padding: "9px 16px", background: "transparent", border: "1px solid #1d2d4a", borderRadius: 8, color: COLORS.textDim, cursor: "pointer" }}
+                style={{ padding: "9px 16px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textDim, cursor: "pointer" }}
               >
                 إلغاء
               </button>
@@ -8531,7 +8531,7 @@ function ReturnsModule({
               }}
             />
             {selInvoice && (
-              <div style={{ marginTop: 6, padding: "6px 12px", background: COLORS.greenSoft, border: "1px solid #2a6a2a", borderRadius: 8, fontSize: 12, color: COLORS.green, display: "flex", justifyContent: "space-between" }}>
+              <div style={{ marginTop: 6, padding: "6px 12px", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, fontSize: 12, color: COLORS.green, display: "flex", justifyContent: "space-between" }}>
                 <span>
                   ✅ {selInvoice.id} — {selInvoice.date} — {selInvoice.customer_name}
                   {" — "}
@@ -8544,7 +8544,7 @@ function ReturnsModule({
             {invoiceSearchOpen && !selInvoice && (
               <div style={{
                 position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
-                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 8,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 8,
                 maxHeight: 220, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
               }}>
                 {filteredSaleInvoices.slice(0, 15).map((inv) => {
@@ -8553,7 +8553,7 @@ function ReturnsModule({
                   return (
                     <div key={inv.id} onMouseDown={() => handleSelectInvoice(inv)}
                       style={{
-                        padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a",
+                        padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`,
                         display: "flex", justifyContent: "space-between", alignItems: "center",
                       }}
                     >
@@ -8565,7 +8565,7 @@ function ReturnsModule({
                         </div>
                       </div>
                       {isOld && (
-                        <span style={{ fontSize: 10, background: "#2a1000", color: COLORS.gold, borderRadius: 4, padding: "2px 6px" }}>
+                        <span style={{ fontSize: 10, background: COLORS.goldSoft, color: COLORS.gold, borderRadius: 4, padding: "2px 6px" }}>
                           {daysDiff} يوم 🔐
                         </span>
                       )}
@@ -8598,11 +8598,11 @@ function ReturnsModule({
             {customerSearchOpen && (
               <div style={{
                 position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
-                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 8,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 8,
                 maxHeight: 200, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
               }}>
                 <div onMouseDown={() => { setSelCustomer(null); setCustomerSearch(""); setCustomerSearchOpen(false); }}
-                  style={{ padding: "8px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a", color: COLORS.textDim, fontSize: 13 }}>
+                  style={{ padding: "8px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, color: COLORS.textDim, fontSize: 13 }}>
                   👤 زبون عادي
                 </div>
                 {(customers || [])
@@ -8614,13 +8614,13 @@ function ReturnsModule({
                   .slice(0, 10)
                   .map((c) => (
                     <div key={c.id} onMouseDown={() => { setSelCustomer(c); setCustomerSearch(c.name); setCustomerSearchOpen(false); }}
-                      style={{ padding: "8px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a", display: "flex", justifyContent: "space-between" }}>
+                      style={{ padding: "8px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between" }}>
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{c.name}</div>
                         {c.phone && <div style={{ fontSize: 11, color: COLORS.textDim }}>{c.phone}</div>}
                       </div>
                       {c.credit > 0 && (
-                        <span style={{ fontSize: 11, background: "#2a1010", color: COLORS.red, borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
+                        <span style={{ fontSize: 11, background: COLORS.redSoft, color: COLORS.red, borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
                           آجل: {c.credit?.toFixed(2)}
                         </span>
                       )}
@@ -8799,7 +8799,7 @@ function ReturnsModule({
 
       {/* الأصناف */}
       {returnItems.length > 0 && (
-        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 12, padding: 16, marginBottom: 14 }}>
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
           <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 10 }}>
             {selInvoice ? `أصناف فاتورة ${selInvoice.id}` : "الأصناف"}
             {!adminOverride && <span style={{ marginRight: 8, color: COLORS.gold, fontSize: 11 }}>⚠️ سيتم التحقق من الباتش والصلاحية</span>}
@@ -8807,7 +8807,7 @@ function ReturnsModule({
           {returnItems.map((item, i) => {
             const maxReturnable = Math.max(0, (item.qty || 0) - (item.alreadyReturnedQty || 0));
             return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: item.batchMismatch ? `1px solid ${COLORS.red}` : "1px solid #0a101a" }}>
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: item.batchMismatch ? `1px solid ${COLORS.red}` : `1px solid ${COLORS.border}` }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
                   <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
@@ -8838,12 +8838,12 @@ function ReturnsModule({
                     onChange={(e) => setReturnItems((p) => p.map((x, j) => j === i ? {
                       ...x, returnQty: Math.min(Math.max(0, +e.target.value), maxReturnable)
                     } : x))}
-                    style={{ width: 50, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 6px", color: COLORS.textPrimary, fontSize: 13, outline: "none", textAlign: "center" }}
+                    style={{ width: 50, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 6px", color: COLORS.textPrimary, fontSize: 13, outline: "none", textAlign: "center" }}
                   />
                   <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(x.returnQty + 1, maxReturnable) } : x))}
                     style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>+</button>
                 </div>
-                {item.taxable && <Badge color="#0a2a00" text={COLORS.green}>15%</Badge>}
+                {item.taxable && <Badge color={COLORS.greenSoft} text={COLORS.green}>15%</Badge>}
               </div>
             );
           })}
@@ -8859,18 +8859,18 @@ function ReturnsModule({
           <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green, marginBottom: 5 }}>
             <span>الضريبة المستردة 15%</span><span>{returnTax.toFixed(2)} ر.س</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, fontSize: 16, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
             <span>إجمالي المرتجع</span><span>{returnTotal.toFixed(2)} ر.س</span>
           </div>
           {type === "sales" && selInvoice && (
-            <div style={{ marginTop: 8, fontSize: 11, color: "#6a9aff" }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: COLORS.blue }}>
               {selInvoice.payment === "آجل"
                 ? "↳ سيُخصم هذا المبلغ من مديونية العميل"
                 : "↳ سيُسجَّل هذا المبلغ كمصروف من الخزنة"}
             </div>
           )}
           {type === "purchases" && purchaseInvoice && (
-            <div style={{ marginTop: 8, fontSize: 11, color: "#6a9aff" }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: COLORS.blue }}>
               ↳ سيُخصم هذا المبلغ من مديونية المورد {purchaseInvoice.returned_amount > 0 ? `(مرتجع سابق على هذه الفاتورة: ${purchaseInvoice.returned_amount.toFixed(2)} ر.س)` : ""}
             </div>
           )}
@@ -8956,7 +8956,7 @@ function RasdSettings({ showToast }) {
         style={{
           width: "100%",
           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-          border: "1px solid #1d2d4a",
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 8,
           padding: "10px 14px",
           color: COLORS.textPrimary,
@@ -8987,9 +8987,9 @@ function RasdSettings({ showToast }) {
       {/* Status Card */}
       <div
         style={{
-          background: config.enabled && connected ? "#0a2010" : COLORS.redSoft,
+          background: config.enabled && connected ? COLORS.greenSoft : COLORS.redSoft,
           border: `1px solid ${
-            config.enabled && connected ? "#1a5020" : "#4a2a00"
+            config.enabled && connected ? COLORS.green : COLORS.gold
           }`,
           borderRadius: 12,
           padding: 16,
@@ -9054,7 +9054,7 @@ function RasdSettings({ showToast }) {
       <div
         style={{
           background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-          border: "1px solid #1d2d4a",
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 14,
           padding: 24,
           marginBottom: 16,
@@ -9108,7 +9108,7 @@ function RasdSettings({ showToast }) {
               style={{
                 width: "100%",
                 background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 8,
                 padding: "10px 44px 10px 14px",
                 color: COLORS.textPrimary,
@@ -9163,7 +9163,7 @@ function RasdSettings({ showToast }) {
       <div
         style={{
           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-          border: "1px solid #1d2d4a",
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 12,
           padding: 16,
           marginTop: 20,
@@ -9369,7 +9369,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
       </thead>
       <tbody>
         {items.map((p) => (
-          <tr key={p.id} style={{ borderBottom: "1px solid #0a101a" }}>
+          <tr key={p.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
             <td
               style={{
                 padding: "8px 12px",
@@ -9392,7 +9392,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
             <td style={{ padding: "8px 12px", color: COLORS.gold, fontSize: 13 }}>
               {(p.cost || 0).toFixed(2)}
             </td>
-            <td style={{ padding: "8px 12px", color: "#44cc88", fontSize: 13 }}>
+            <td style={{ padding: "8px 12px", color: COLORS.green, fontSize: 13 }}>
               {(p.price || 0).toFixed(2)}
             </td>
           </tr>
@@ -9488,7 +9488,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
               }
               style={{
                 ...card(
-                  isExpanded ? "#2a4a8a" : hasItems ? "#1d3a6a" : "#1a2030"
+                  isExpanded ? COLORS.blueSoft : hasItems ? tint(COLORS.blue,0.15) : COLORS.surfaceAlt
                 ),
                 cursor: hasItems ? "pointer" : "default",
                 opacity: hasItems ? 1 : 0.45,
@@ -9537,7 +9537,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                     قيمة البيع
                   </span>
                   <span
-                    style={{ color: "#44cc88", fontWeight: 700, fontSize: 13 }}
+                    style={{ color: COLORS.green, fontWeight: 700, fontSize: 13 }}
                   >
                     {sellTotal.toFixed(2)}
                   </span>
@@ -9567,7 +9567,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
           const { costTotal, sellTotal } = calcTotals(items);
           const monthLabel = months.find((m) => m.key === expandedMonth)?.label;
           return (
-            <div style={card("#2a4a8a")}>
+            <div style={card(COLORS.blueSoft)}>
               <div
                 style={{
                   display: "flex",
@@ -9586,7 +9586,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
                     تكلفة: {costTotal.toFixed(2)}
                   </span>
                   <span
-                    style={{ color: "#44cc88", fontSize: 12, fontWeight: 700 }}
+                    style={{ color: COLORS.green, fontSize: 12, fontWeight: 700 }}
                   >
                     بيع: {sellTotal.toFixed(2)}
                   </span>
@@ -10013,7 +10013,7 @@ function InventoryCount({
                       <tr
                         key={`${item.id}-${i}`}
                         style={{
-                          borderBottom: "1px solid #0a101a",
+                          borderBottom: `1px solid ${COLORS.border}`,
                           // ✅ الأصناف المتغيرة بخلفية مميزة
                           background: changed
                             ? item.diff < 0
@@ -10104,7 +10104,7 @@ function InventoryCount({
           style={{
             width: "100%",
             background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-            border: "1px solid #1d2d4a",
+            border: `1px solid ${COLORS.border}`,
             borderRadius: 8,
             padding: "9px 12px",
             color: COLORS.textPrimary,
@@ -10149,7 +10149,7 @@ function InventoryCount({
                 <tr
                   key={item.lineKey}
                   style={{
-                    borderBottom: "1px solid #0a101a",
+                    borderBottom: `1px solid ${COLORS.border}`,
                     background: item.isNew
                       ? "rgba(68,221,136,0.06)"
                       : i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
@@ -10182,7 +10182,7 @@ function InventoryCount({
                       }
                       style={{
                         background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                        border: "1px solid #1d2d4a",
+                        border: `1px solid ${COLORS.border}`,
                         borderRadius: 6,
                         padding: "5px 8px",
                         color: item.expiry ? COLORS.textPrimary : COLORS.textDim,
@@ -10216,7 +10216,7 @@ function InventoryCount({
                       style={{
                         width: 70,
                         background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                        border: "1px solid #1d2d4a",
+                        border: `1px solid ${COLORS.border}`,
                         borderRadius: 6,
                         padding: "5px 8px",
                         color: COLORS.textPrimary,
@@ -10247,7 +10247,7 @@ function InventoryCount({
                       style={{
                         width: 24, height: 24, borderRadius: 6,
                         background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                        border: "1px solid #1d2d4a", color: COLORS.green,
+                        border: `1px solid ${COLORS.border}`, color: COLORS.green,
                         cursor: "pointer", fontWeight: 700, fontSize: 13,
                       }}
                     >+</button>
@@ -10597,7 +10597,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     (x.name_ar || "").includes(ingredientSearch) || (x.name_en || "").toLowerCase().includes(ingredientSearch.toLowerCase())
   );
 
-  const inputStyle = { background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
+  const inputStyle = { background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
 
   const lowStockList = products
     .filter((p) => (p.stock ?? 0) <= (p.minStock || p.min_stock || 0))
@@ -10642,7 +10642,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       {/* ── Search ── */}
       <input value={search} onChange={(e) => setSearch(e.target.value)}
         placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
-        style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
+        style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
 
       {/* ── Stats ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
@@ -10716,7 +10716,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                 <div key={p.id} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "10px 12px", marginBottom: 6, borderRadius: 8,
-                  background: isEss ? "#2a1200" : "#0d1a2e",
+                  background: isEss ? COLORS.goldSoft : COLORS.surfaceAlt,
                   border: `1px solid ${isEss ? COLORS.gold : COLORS.border}`,
                 }}>
                   <div>
@@ -10748,7 +10748,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                 <div key={p.id} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "10px 12px", marginBottom: 6, borderRadius: 8,
-                  background: isEss ? "#2a1200" : COLORS.redSoft,
+                  background: isEss ? COLORS.goldSoft : COLORS.redSoft,
                   border: `1px solid ${isEss ? COLORS.gold : COLORS.goldSoft}`,
                 }}>
                   <div>
@@ -10781,7 +10781,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         ) : (
           <div style={{ maxHeight: 300, overflowY: "auto" }}>
             {manufacturers.map((m) => (
-              <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #0a101a" }}>
+              <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
                 <span style={{ color: COLORS.textPrimary, fontSize: 13 }}>{m.name}</span>
                 <Btn size="sm" variant="danger" onClick={() => deleteManufacturer(m.id)}>حذف</Btn>
               </div>
@@ -10830,7 +10830,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               placeholder="0.00"
             />
             {form.taxable && form.price && +form.price > 0 && (
-              <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4, padding: "4px 8px", background: "#0a1a0a", borderRadius: 4 }}>
+              <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4, padding: "4px 8px", background: COLORS.greenSoft, borderRadius: 4 }}>
                 قبل الضريبة: {(+form.price / 1.15).toFixed(2)} ر.س &nbsp;·&nbsp; الضريبة: {(+form.price - +form.price / 1.15).toFixed(2)} ر.س
               </div>
             )}
@@ -10864,7 +10864,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         </div>
 
         {/* صنف مثيل */}
-        <div style={{ marginTop: 16, borderTop: "1px solid #1d2d4a", paddingTop: 14 }}>
+        <div style={{ marginTop: 16, borderTop: `1px solid ${COLORS.border}`, paddingTop: 14 }}>
           <div style={{ fontWeight: 700, color: COLORS.blue, marginBottom: 8, fontSize: 14 }}>🔗 صنف مثيل (اختياري)</div>
           <div style={{ position: "relative" }}>
             <input
@@ -10872,10 +10872,10 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               onChange={(e) => { setSimilarSearch(e.target.value); setShowSimilarDropdown(true); setSimilarProductId(""); }}
               onFocus={() => setShowSimilarDropdown(true)}
               placeholder="ابحث عن الصنف الأصلي المثيل له..."
-              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #2a4a7a", borderRadius: 7, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" as const }}
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 7, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" as const }}
             />
             {showSimilarDropdown && similarSearch && (
-              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #2a4a7a", borderRadius: 7, zIndex: 200, maxHeight: 180, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 7, zIndex: 200, maxHeight: 180, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
                 {products.filter((p) => (p.name_ar || p.name || "").includes(similarSearch) && p.id !== form.id).slice(0, 8).map((p) => (
                   <div key={p.id} onClick={() => {
                     setSimilarProductId(p.id);
@@ -10918,14 +10918,14 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         </div>
 
         {/* المواد الفعالة */}
-        <div style={{ marginTop: 20, borderTop: "1px solid #1d2d4a", paddingTop: 16 }}>
+        <div style={{ marginTop: 20, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>
           <div style={{ fontWeight: 700, color: COLORS.blue, marginBottom: 10, fontSize: 14 }}>🧪 المواد الفعالة</div>
           {selectedIngredients.map((ing) => (
             <div key={ing.ingredient_id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #2a4a7a", borderRadius: 7, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, fontWeight: 600, minHeight: 36 }}>{ing.name_ar}</div>
+              <div style={{ flex: 1, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 7, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, fontWeight: 600, minHeight: 36 }}>{ing.name_ar}</div>
               <input value={ing.concentration} onChange={(e) => updateIngredientConc(ing.ingredient_id, e.target.value)}
                 placeholder="التركيز (مثال: 500mg)"
-                style={{ width: 170, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #2a4a7a", borderRadius: 7, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", minHeight: 36 }} />
+                style={{ width: 170, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 7, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", minHeight: 36 }} />
               <Btn size="sm" variant="danger" onClick={() => removeIngredient(ing.ingredient_id)}>✕</Btn>
             </div>
           ))}
@@ -10933,9 +10933,9 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
             <input value={ingredientSearch} onChange={(e) => { setIngredientSearch(e.target.value); setShowIngredientDropdown(true); }}
               onFocus={() => setShowIngredientDropdown(true)}
               placeholder="🔍 بحث عن مادة فعالة أو إضافة جديدة..."
-              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "7px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             {showIngredientDropdown && ingredientSearch && (
-              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #2a4a7a", borderRadius: 6, zIndex: 200, maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+              <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 6, zIndex: 200, maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
                 {filteredIngredients.map((ing) => (
                   <div key={ing.id} onClick={() => addIngredient(ing)}
                     style={{ padding: "9px 14px", cursor: "pointer", color: COLORS.textPrimary, fontSize: 13, borderBottom: `1px solid ${COLORS.border}` }}
@@ -10960,7 +10960,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         </div>
 
         {/* الباركودات */}
-        <div style={{ marginTop: 20, borderTop: "1px solid #1d2d4a", paddingTop: 16 }}>
+        <div style={{ marginTop: 20, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ fontWeight: 700, color: COLORS.blue, fontSize: 14 }}>📦 الباركودات</div>
             <Btn size="sm" icon="plus" onClick={addBarcode}>إضافة باركود</Btn>
@@ -10992,11 +10992,11 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
               <input value={b.base_barcode} onChange={(e) => updateBarcode(i, "base_barcode", e.target.value)} placeholder="باركود أساسي *"
                 style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${b.is_primary ? COLORS.blue : COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.batch_number} onChange={(e) => updateBarcode(i, "batch_number", e.target.value)} placeholder="رقم التشغيلة"
-                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.serial_number} onChange={(e) => updateBarcode(i, "serial_number", e.target.value)} placeholder="الرقم التسلسلي"
-                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <input value={b.expiry_date} onChange={(e) => updateBarcode(i, "expiry_date", e.target.value)} type="date"
-                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               <button onClick={() => setBarcodes((prev) => prev.map((x, idx) => ({ ...x, is_primary: idx === i })))}
                 style={{ padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: b.is_primary ? "#1a3a6a" : COLORS.border, color: b.is_primary ? COLORS.blue : COLORS.textDim }}>
                 {b.is_primary ? "⭐ رئيسي" : "رئيسي"}
@@ -11095,9 +11095,9 @@ function SuppliersModule({
   };
 
   const statusColor = {
-    green:  { bg: "#0a2010", border: "#1a5020", text: COLORS.green, label: "منتظم" },
-    orange: { bg: COLORS.goldSoft, border: "#4a3000", text: COLORS.gold, label: "تأخير بسيط" },
-    red:    { bg: COLORS.redSoft, border: "#4a1010", text: COLORS.red, label: "متأخر" },
+    green:  { bg: COLORS.greenSoft, border: COLORS.green, text: COLORS.green, label: "منتظم" },
+    orange: { bg: COLORS.goldSoft, border: COLORS.gold, text: COLORS.gold, label: "تأخير بسيط" },
+    red:    { bg: COLORS.redSoft, border: COLORS.red, text: COLORS.red, label: "متأخر" },
   };
 
   // ========== المستحقات ==========
@@ -11679,7 +11679,7 @@ function SuppliersModule({
                 <div
                   onClick={(e) => { e.stopPropagation(); openAutoReturn(s); }}
                   style={{
-                    background: COLORS.redSoft, border: "1px solid #ff7744",
+                    background: COLORS.redSoft, border: `1px solid ${tint(COLORS.coral,0.35)}`,
                     borderRadius: 8, padding: "8px 12px", marginBottom: 12,
                     cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
                   }}
@@ -11696,7 +11696,7 @@ function SuppliersModule({
                 <>
                   {/* رصيد أول المدة */}
                   {(s.opening_balance || 0) > 0 && (
-                    <div style={{ background: "#0a0e1a", border: "1px solid #2a1a00", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                    <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
                       <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>رصيد أول المدة</div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, marginBottom: 6 }}>
                         {(s.opening_balance || 0).toFixed(2)} ر.س
@@ -11773,7 +11773,7 @@ function SuppliersModule({
                     {s.taxId && (
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
-                        <Badge color="#0a2a00" text={COLORS.green}>{s.taxId}</Badge>
+                        <Badge color={COLORS.greenSoft} text={COLORS.green}>{s.taxId}</Badge>
                       </div>
                     )}
                     {(s.supply_categories || []).length > 0 && (
@@ -11800,7 +11800,7 @@ function SuppliersModule({
                 <Btn size="sm" icon="chart" onClick={() => setShowDetail(s)} variant="secondary">تفاصيل</Btn>
                 {s.whatsapp && (
                   <button onClick={() => window.open(`https://wa.me/${s.whatsapp}`, "_blank")}
-                    style={{ padding: "6px 10px", background: COLORS.greenSoft, border: "1px solid #1a5020", borderRadius: 7, color: COLORS.green, cursor: "pointer", fontSize: 14 }}>
+                    style={{ padding: "6px 10px", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 7, color: COLORS.green, cursor: "pointer", fontSize: 14 }}>
                     💬
                   </button>
                 )}
@@ -11832,7 +11832,7 @@ function SuppliersModule({
       {/* ===== Modal المرتجع التلقائي ===== */}
       {showAutoReturn && (
         <Modal open title={`🔄 مرتجع تلقائي — ${showAutoReturn.name}`} onClose={() => setShowAutoReturn(null)} wide>
-          <div style={{ marginBottom: 14, padding: "10px 14px", background: COLORS.goldSoft, border: "1px solid #ff7744", borderRadius: 8, fontSize: 12, color: "#ff9a44" }}>
+          <div style={{ marginBottom: 14, padding: "10px 14px", background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.coral,0.35)}`, borderRadius: 8, fontSize: 12, color: "#ff9a44" }}>
             الأصناف التالية تستوفي شروط الإرجاع: صلاحية أقل من 3 شهور + لا حركة شهر، أو صلاحية أقل من 6 شهور + لا حركة شهرين
           </div>
           <div style={{ overflowX: "auto" }}>
@@ -11846,7 +11846,7 @@ function SuppliersModule({
               </thead>
               <tbody>
                 {autoReturnItems.map((item, i) => (
-                  <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
+                  <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
                     <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.stock}</td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 12 }}>{item.expiry}</td>
@@ -11862,7 +11862,7 @@ function SuppliersModule({
                         onChange={(e) => setAutoReturnItems((prev) =>
                           prev.map((x, j) => j === i ? { ...x, returnQty: +e.target.value } : x)
                         )}
-                        style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
+                        style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
                       />
                     </td>
                     <td style={{ padding: "8px 10px" }}>
@@ -11900,7 +11900,7 @@ function SuppliersModule({
             <label style={{ color: COLORS.textDim, fontSize: 13 }}>تغطية لمدة:</label>
             <input type="number" min="1" value={coverageDays}
               onChange={(e) => { setCoverageDays(+e.target.value); generateOrder(showOrderForm); }}
-              style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+              style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
             <span style={{ color: COLORS.textDim, fontSize: 13 }}>يوم</span>
           </div>
 
@@ -11922,7 +11922,7 @@ function SuppliersModule({
             {manualProductSearchOpen && manualProductSearch.trim() && (
               <div style={{
                 position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
-                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 8,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 8,
                 maxHeight: 220, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
               }}>
                 {(products || [])
@@ -11949,7 +11949,7 @@ function SuppliersModule({
                         setManualProductSearch("");
                         setManualProductSearchOpen(false);
                       }}
-                      style={{ padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #1a2a3a", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                      style={{ padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}
                     >
                       <span style={{ fontSize: 13, color: COLORS.textPrimary }}>{p.name || p.nameAr}</span>
                       <span style={{ fontSize: 11, color: COLORS.textDim }}>مخزون: {p.stock || 0}</span>
@@ -11976,7 +11976,7 @@ function SuppliersModule({
               </thead>
               <tbody>
                 {orderItems.map((item, i) => (
-                  <tr key={item.id} style={{ borderBottom: "1px solid #0a101a" }}>
+                  <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
                     <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</td>
                     <td style={{ padding: "8px 10px" }}><span style={{ fontSize: 11, color: item.movement.color, fontWeight: 700 }}>{item.movement.label}</span></td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.currentStock}</td>
@@ -11984,7 +11984,7 @@ function SuppliersModule({
                     <td style={{ padding: "8px 10px" }}>
                       <input type="number" min="0" value={item.orderQty}
                         onChange={(e) => setOrderItems((prev) => prev.map((x, j) => j === i ? { ...x, orderQty: +e.target.value } : x))}
-                        style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                        style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                     </td>
                     <td style={{ padding: "8px 10px" }}>
                       <button onClick={() => setOrderItems((p) => p.filter((_, j) => j !== i))}
@@ -12023,7 +12023,7 @@ function SuppliersModule({
   <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>طريقة الدفع</div>
   <select value={payForm.method}
     onChange={(e) => setPayForm((p) => ({ ...p, method: e.target.value }))}
-    style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+    style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
     <option value="نقدي">💵 نقدي</option>
     <option value="بطاقة">💳 بطاقة / صراف</option>
     <option value="تحويل">🏦 تحويل بنكي</option>
@@ -12036,7 +12036,7 @@ function SuppliersModule({
                 const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
                 const dueDays = getDueDays(po, showPayForm);
                 return (
-                  <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, border: "1px solid #1d2d4a" }}>
+                  <div key={po.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, border: `1px solid ${COLORS.border}` }}>
                     <div>
                       <div style={{ fontSize: 12, color: COLORS.blue }}>{po.id}</div>
                       <div style={{ fontSize: 11, color: COLORS.textDim }}>{po.date}</div>
@@ -12047,7 +12047,7 @@ function SuppliersModule({
                         {dueDays < 0 ? `متأخر ${Math.abs(dueDays)} يوم` : `باقي ${dueDays} يوم`}
                       </div>
                     </div>
-                    <Badge color={po.payment_status === "مسددة جزئياً" ? COLORS.goldSoft : "#0a0a1a"} text={po.payment_status === "مسددة جزئياً" ? COLORS.gold : COLORS.textDim}>
+                    <Badge color={po.payment_status === "مسددة جزئياً" ? COLORS.goldSoft : COLORS.surfaceAlt} text={po.payment_status === "مسددة جزئياً" ? COLORS.gold : COLORS.textDim}>
                       {po.payment_status || "غير مسددة"}
                     </Badge>
                   </div>
@@ -12083,7 +12083,7 @@ function SuppliersModule({
                 {chartData.map((d, i) => (
                   <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                     <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 80 }}>
-                      <div style={{ flex: 1, background: "#3a6aff", height: `${(d.purchases / maxVal) * 80}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مشتريات: ${d.purchases.toFixed(0)}`} />
+                      <div style={{ flex: 1, background: COLORS.blue, height: `${(d.purchases / maxVal) * 80}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مشتريات: ${d.purchases.toFixed(0)}`} />
                       <div style={{ flex: 1, background: COLORS.green, height: `${(d.paid / maxVal) * 80}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مدفوعات: ${d.paid.toFixed(0)}`} />
                     </div>
                     <span style={{ fontSize: 9, color: COLORS.textDim }}>{d.label}</span>
@@ -12091,7 +12091,7 @@ function SuppliersModule({
                 ))}
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
-                <span style={{ fontSize: 11, color: "#3a6aff" }}>■ مشتريات</span>
+                <span style={{ fontSize: 11, color: COLORS.blue }}>■ مشتريات</span>
                 <span style={{ fontSize: 11, color: COLORS.green }}>■ مدفوعات</span>
               </div>
             </div>
@@ -12101,7 +12101,7 @@ function SuppliersModule({
             ) : (
               <div style={{ maxHeight: 200, overflowY: "auto", marginBottom: 14 }}>
                 {supPayments.sort((a, b) => new Date(b.date) - new Date(a.date)).map((pay) => (
-                  <div key={pay.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #0a101a" }}>
+                  <div key={pay.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
                     <div>
                       <div style={{ fontSize: 12, color: COLORS.textPrimary }}>{pay.date}</div>
                       {pay.notes && <div style={{ fontSize: 11, color: COLORS.textDim }}>{pay.notes}</div>}
@@ -12147,17 +12147,17 @@ function SuppliersModule({
             <div>
               <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>حد الكريدت (ر.س)</label>
               <input type="number" min="0" value={form.credit_limit} onChange={(e) => F("credit_limit", +e.target.value)}
-                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div>
               <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>شروط الدفع (يوم)</label>
               <input type="number" min="0" value={form.payment_terms} onChange={(e) => F("payment_terms", +e.target.value)}
-                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
           </div>
 
           {/* ── رصيد أول المدة بتفاصيل ── */}
-          <div style={{ background: "#0a0e1a", border: "1px solid #2a1a00", borderRadius: 10, padding: 14 }}>
+          <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 10, padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.gold }}>رصيد أول المدة</div>
@@ -12165,7 +12165,7 @@ function SuppliersModule({
                   المجموع: {(form.opening_balance_details || []).reduce((s, d) => s + (d.amount || 0), 0).toFixed(2)} ر.س
                 </div>
               </div>
-              <button onClick={addOpeningDetail} style={{ background: "#1a2a10", border: "1px solid #2a5020", borderRadius: 7, padding: "6px 12px", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>
+              <button onClick={addOpeningDetail} style={{ background: "#1a2a10", border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 7, padding: "6px 12px", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>
                 + إضافة فاتورة
               </button>
             </div>
@@ -12177,7 +12177,7 @@ function SuppliersModule({
                 </label>
                 <input type="number" min="0" value={form.opening_balance}
                   onChange={(e) => F("opening_balance", +e.target.value)}
-                  style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               </div>
             )}
 
@@ -12193,16 +12193,16 @@ function SuppliersModule({
                   <div key={d.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 2fr auto", gap: 6, marginBottom: 6, alignItems: "center" }}>
                     <input value={d.invoice_no} onChange={(e) => updateOpeningDetail(d.id, "invoice_no", e.target.value)}
                       placeholder="INV-001"
-                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <input type="number" min="0" value={d.amount} onChange={(e) => updateOpeningDetail(d.id, "amount", +e.target.value)}
                       placeholder="0"
-                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.gold, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: COLORS.gold, fontSize: 12, outline: "none" }} />
                     <input type="number" min="0" value={d.due_days} onChange={(e) => updateOpeningDetail(d.id, "due_days", +e.target.value)}
                       placeholder="30"
-                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${d.due_days > 90 ? "#4a1010" : d.due_days > 60 ? "#4a3000" : COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: d.due_days > 90 ? COLORS.red : d.due_days > 60 ? COLORS.gold : COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${d.due_days > 90 ? COLORS.red : d.due_days > 60 ? COLORS.gold : COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: d.due_days > 90 ? COLORS.red : d.due_days > 60 ? COLORS.gold : COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <input value={d.note} onChange={(e) => updateOpeningDetail(d.id, "note", e.target.value)}
                       placeholder="اختياري"
-                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                     <button onClick={() => removeOpeningDetail(d.id)}
                       style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", padding: 4 }}>
                       <IC n="trash" s={14} />
@@ -12214,7 +12214,7 @@ function SuppliersModule({
                 {(() => {
                   const aging = getOpeningBalanceAging(form.opening_balance_details || []);
                   return (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 10, padding: "10px 0", borderTop: "1px solid #1d2d4a" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 10, padding: "10px 0", borderTop: `1px solid ${COLORS.border}` }}>
                       {[
                         { bucket: "0-30", label: "0-30 يوم",  color: COLORS.green },
                         { bucket: "31-60", label: "31-60 يوم", color: COLORS.textPrimary },
@@ -12244,7 +12244,7 @@ function SuppliersModule({
                     const current = form.supply_categories || [];
                     F("supply_categories", selected ? current.filter((c) => c !== cat) : [...current, cat]);
                   }}
-                    style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: selected ? COLORS.blue : COLORS.border, background: selected ? "#0a2040" : "transparent", color: selected ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: "pointer", fontWeight: selected ? 700 : 400 }}>
+                    style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: selected ? COLORS.blue : COLORS.border, background: selected ? COLORS.blueSoft : "transparent", color: selected ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: "pointer", fontWeight: selected ? 700 : 400 }}>
                     {selected ? "✓ " : ""}{cat}
                   </button>
                 );
@@ -12295,7 +12295,7 @@ function CreditTab({ customers, onPay, sales = [], creditPayments = [] }) {
             key={c.id}
             style={{
               background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-              border: "1px solid #2a1010",
+              border: `1px solid ${tint(COLORS.red,0.35)}`,
               borderRadius: 12,
               padding: "12px 16px",
               display: "flex",
@@ -12320,7 +12320,7 @@ function CreditTab({ customers, onPay, sales = [], creditPayments = [] }) {
               onClick={() => onPay(c)}
               style={{
                 background: COLORS.greenSoft,
-                border: "1px solid #1a4a2a",
+                border: `1px solid ${tint(COLORS.green,0.35)}`,
                 borderRadius: 8,
                 padding: "6px 14px",
                 color: COLORS.green,
@@ -12658,7 +12658,7 @@ function CustomersModule({
 
   // ===== تصنيف VIP =====
   const vipConfig = {
-    vip: { label: "👑 VIP", color: COLORS.gold, bg: "#2a2000" },
+    vip: { label: "👑 VIP", color: COLORS.gold, bg: COLORS.goldSoft },
     excellent: { label: "⭐ ممتاز", color: COLORS.blue, bg: COLORS.blueSoft },
     good: { label: "✅ جيد", color: COLORS.green, bg: COLORS.greenSoft },
     weak: { label: "🔴 ضعيف", color: COLORS.red, bg: COLORS.redSoft },
@@ -12707,13 +12707,13 @@ function CustomersModule({
   const inactiveCount = inactiveCustomers.length;
 
   // ===== رسم بياني بسيط =====
-  const BarChart = ({ title, data }) => {
+  const BarChart = ({ title, data, unit = "" }) => {
     const max = Math.max(...data.map((d) => d.count), 1);
     return (
       <div
         style={{
           background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-          border: "1px solid #1d2d4a",
+          border: `1px solid ${COLORS.border}`,
           borderRadius: 14,
           padding: 16,
         }}
@@ -12739,7 +12739,7 @@ function CustomersModule({
             >
               <span style={{ color: COLORS.textDim, fontSize: 12 }}>{d.label}</span>
               <span style={{ color: d.color, fontWeight: 700, fontSize: 13 }}>
-                {d.count}
+                {unit ? d.count.toLocaleString("ar-SA") : d.count}{unit}
               </span>
             </div>
             <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 8 }}>
@@ -12792,7 +12792,7 @@ function CustomersModule({
       <div style={{
         background: COLORS.surface,
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-        border: `1px solid ${isExpanded ? (vip ? vip.color + "55" : "#3a6aaa") : (vip ? vip.color + "33" : COLORS.border)}`,
+        border: `1px solid ${isExpanded ? (vip ? vip.color + "55" : COLORS.blue) : (vip ? vip.color + "33" : COLORS.border)}`,
         borderRadius: 12,
         overflow: "hidden",
         transition: "border-color 0.2s",
@@ -12821,7 +12821,7 @@ function CustomersModule({
             {vip && <span style={{ background: vip.bg, color: vip.color, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>{vip.label}</span>}
             {debt > 0 && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>💳 {debt.toFixed(0)} ر.س</span>}
             {s?.isOverdue && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>⏰ متأخر {s.daysOverdue} يوم</span>}
-            {c.missedKidsCosmetics && <span style={{ background: "#2a2000", color: COLORS.gold, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>🎁 فرصة عرض</span>}
+            {c.missedKidsCosmetics && <span style={{ background: COLORS.goldSoft, color: COLORS.gold, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>🎁 فرصة عرض</span>}
             <span style={{ color: COLORS.textDim, fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
           </div>
         </div>
@@ -12849,7 +12849,7 @@ function CustomersModule({
 
             {/* نقاط الولاء */}
             {loyalty !== undefined && loyalty > 0 && (
-              <div style={{ background: "#2a2000", border: "1px solid #5a4000", borderRadius: 7, padding: "6px 10px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 7, padding: "6px 10px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ color: COLORS.gold, fontSize: 12 }}>🌟 نقاط الولاء</span>
                 <span style={{ color: COLORS.gold, fontWeight: 800, fontSize: 13 }}>{loyalty.toFixed(2)} ر.س</span>
               </div>
@@ -12885,17 +12885,17 @@ function CustomersModule({
             {/* أزرار */}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
               <button onClick={() => openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 نتمنى أن تكونوا بخير`)}
-                style={{ background: COLORS.greenSoft, border: "1px solid #1a4a1a", borderRadius: 7, padding: "5px 10px", color: COLORS.green, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.green, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                 📱 واتساب
               </button>
               {c.missedKidsCosmetics && (
                 <button onClick={() => openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 عندنا عروض على مستلزمات الأطفال والعناية بالبشرة، تحب نبعتلك التفاصيل؟`)}
-                  style={{ background: "#2a2000", border: "1px solid #5a4000", borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                  style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                   🎁 ابعت عرض
                 </button>
               )}
               <button onClick={() => openEdit(c)}
-                style={{ background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 7, padding: "5px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
+                style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "5px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
                 ✏️ تعديل
               </button>
               <button onClick={async () => {
@@ -12915,12 +12915,12 @@ function CustomersModule({
                 setCustomers((p) => p.filter((x) => x.id !== c.id));
                 showToast("تم حذف العميل");
               }}
-                style={{ background: COLORS.redSoft, border: "1px solid #3a1010", borderRadius: 7, padding: "5px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>
+                style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>
                 🗑️ حذف
               </button>
               {debt > 0 && (
                 <button onClick={() => openCreditModal && openCreditModal(c)}
-                  style={{ background: "#2a1a00", border: "1px solid #5a3000", borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                  style={{ background: "#2a1a00", border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                   💳 سداد آجل
                 </button>
               )}
@@ -13008,14 +13008,15 @@ function CustomersModule({
   };
 
   const tabBtn = (tab) => ({
-    background: activeTab === tab ? "#1a3a6a" : "transparent",
-    border: `1px solid ${activeTab === tab ? "#3a6aaa" : COLORS.border}`,
+    background: activeTab === tab ? COLORS.blueSoft : COLORS.surface,
+    border: `1px solid ${activeTab === tab ? COLORS.blue : COLORS.border}`,
     borderRadius: 8,
     padding: "8px 16px",
-    color: activeTab === tab ? COLORS.blue : COLORS.textDim,
+    color: activeTab === tab ? COLORS.blue : COLORS.textPrimary,
     cursor: "pointer",
     fontSize: 13,
-    fontWeight: activeTab === tab ? 700 : 400,
+    fontWeight: activeTab === tab ? 800 : 600,
+    boxShadow: SHADOW.card,
   });
 
   return (
@@ -13051,55 +13052,60 @@ function CustomersModule({
             label: "إجمالي العملاء",
             value: totalCustomers,
             color: COLORS.blue,
+            bg: COLORS.blueSoft,
             icon: "👥",
           },
           {
             label: "جديد هذا الشهر",
             value: newCount,
             color: COLORS.green,
+            bg: COLORS.greenSoft,
             icon: "🆕",
           },
-          { label: "عملاء VIP", value: vipCount, color: COLORS.gold, icon: "👑" },
+          { label: "عملاء VIP", value: vipCount, color: COLORS.gold, bg: COLORS.goldSoft, icon: "👑" },
           {
             label: "مختفون",
             value: inactiveCount,
             color: COLORS.red,
+            bg: COLORS.redSoft,
             icon: "💤",
           },
         ].map((item) => (
           <div
             key={item.label}
             style={{
-              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-              border: "1px solid #1d2d4a",
+              background: item.bg,
+              border: `1px solid ${tint(item.color, 0.35)}`,
               borderRadius: 12,
               padding: "14px 16px",
+              boxShadow: SHADOW.card,
             }}
           >
-            <div style={{ fontSize: 20, marginBottom: 4 }}>{item.icon}</div>
-            <div style={{ color: item.color, fontWeight: 800, fontSize: 22 }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>{item.icon}</div>
+            <div style={{ color: item.color, fontWeight: 800, fontSize: 24 }}>
               {item.value}
             </div>
-            <div style={{ color: COLORS.textDim, fontSize: 11 }}>{item.label}</div>
+            <div style={{ color: COLORS.textPrimary, fontSize: 12, fontWeight: 700 }}>{item.label}</div>
           </div>
         ))}
         {/* كارت مديونية العملاء */}
         <div
           onClick={() => setActiveTab("credit")}
           style={{
-            background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-            border: "1px solid #3a1010",
+            background: COLORS.redSoft,
+            border: `1px solid ${tint(COLORS.red, 0.35)}`,
             borderRadius: 12,
             padding: "14px 16px",
             cursor: "pointer",
             gridColumn: "span 4",
+            boxShadow: SHADOW.card,
           }}
         >
           <div style={{ fontSize: 20, marginBottom: 4 }}>💳</div>
           <div style={{ color: COLORS.red, fontWeight: 800, fontSize: 18 }}>
             مديونية العملاء
           </div>
-          <div style={{ color: COLORS.textDim, fontSize: 11 }}>
+          <div style={{ color: COLORS.textPrimary, fontSize: 12, fontWeight: 600 }}>
             اضغط لعرض التفاصيل
           </div>
         </div>
@@ -13149,7 +13155,7 @@ function CustomersModule({
                 flex: 1,
                 minWidth: 200,
                 background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 8,
                 padding: "9px 14px",
                 color: COLORS.textPrimary,
@@ -13162,7 +13168,7 @@ function CustomersModule({
               onChange={(e) => setFilterVip(e.target.value)}
               style={{
                 background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 8,
                 padding: "9px 12px",
                 color: COLORS.textPrimary,
@@ -13180,7 +13186,7 @@ function CustomersModule({
               onChange={(e) => setFilterStatus(e.target.value)}
               style={{
                 background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 8,
                 padding: "9px 12px",
                 color: COLORS.textPrimary,
@@ -13198,7 +13204,7 @@ function CustomersModule({
               onChange={(e) => setFilterCategory(e.target.value)}
               style={{
                 background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                border: "1px solid #1d2d4a",
+                border: `1px solid ${COLORS.border}`,
                 borderRadius: 8,
                 padding: "9px 12px",
                 color: COLORS.textPrimary,
@@ -13215,8 +13221,8 @@ function CustomersModule({
               onClick={() => setShowOpportunityOnly((p) => !p)}
               title="أسر عندها أطفال ومبتشتريش مستلزمات أطفال/كوزمتك — فرصة لعرض مستهدف"
               style={{
-                background: showOpportunityOnly ? COLORS.goldSoft || "#2a2000" : COLORS.surfaceAlt,
-                border: `1px solid ${showOpportunityOnly ? COLORS.gold : "#1d2d4a"}`,
+                background: showOpportunityOnly ? COLORS.goldSoft : COLORS.surfaceAlt,
+                border: `1px solid ${showOpportunityOnly ? COLORS.gold : COLORS.border}`,
                 borderRadius: 8,
                 padding: "9px 12px",
                 color: showOpportunityOnly ? COLORS.gold : COLORS.textDim,
@@ -13267,7 +13273,7 @@ function CustomersModule({
                 }
                 style={{
                   background: COLORS.greenSoft,
-                  border: "1px solid #1a4a1a",
+                  border: `1px solid ${tint(COLORS.green,0.35)}`,
                   borderRadius: 8,
                   padding: "8px 16px",
                   color: COLORS.green,
@@ -13292,7 +13298,7 @@ function CustomersModule({
                   key={c.id}
                   style={{
                     background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                    border: "1px solid #1d2d4a",
+                    border: `1px solid ${COLORS.border}`,
                     borderRadius: 12,
                     padding: "12px 16px",
                     display: "flex",
@@ -13338,7 +13344,7 @@ function CustomersModule({
                     }
                     style={{
                       background: COLORS.greenSoft,
-                      border: "1px solid #1a4a1a",
+                      border: `1px solid ${tint(COLORS.green,0.35)}`,
                       borderRadius: 8,
                       padding: "6px 14px",
                       color: COLORS.green,
@@ -13379,7 +13385,7 @@ function CustomersModule({
                 }
                 style={{
                   background: COLORS.redSoft,
-                  border: "1px solid #3a1010",
+                  border: `1px solid ${tint(COLORS.red,0.35)}`,
                   borderRadius: 8,
                   padding: "8px 16px",
                   color: "#ff6644",
@@ -13399,7 +13405,7 @@ function CustomersModule({
                 key={c.id}
                 style={{
                   background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                  border: "1px solid #2a1010",
+                  border: `1px solid ${tint(COLORS.red,0.35)}`,
                   borderRadius: 12,
                   padding: "12px 16px",
                   display: "flex",
@@ -13455,7 +13461,7 @@ function CustomersModule({
                   }
                   style={{
                     background: COLORS.greenSoft,
-                    border: "1px solid #1a4a1a",
+                    border: `1px solid ${tint(COLORS.green,0.35)}`,
                     borderRadius: 8,
                     padding: "6px 14px",
                     color: COLORS.green,
@@ -13557,6 +13563,56 @@ function CustomersModule({
               },
             ]}
           />
+          <BarChart
+            title="🛒 أنماط الشراء (عدد العملاء)"
+            data={[
+              {
+                label: "🌐 شاملين (كذا قسم)",
+                count: enriched.filter((c) => c.stats?.buyerType === "شامل").length,
+                color: COLORS.teal,
+              },
+              ...Object.keys(MAIN_CATEGORIES).map((cat, idx) => ({
+                label: `🎯 متخصص في ${cat}`,
+                count: enriched.filter((c) => c.stats?.buyerType === cat).length,
+                color: [COLORS.blue, COLORS.purple, COLORS.gold, COLORS.green, COLORS.coral][idx % 5],
+              })),
+              {
+                label: "❓ غير محدد",
+                count: enriched.filter((c) => !c.stats?.buyerType).length,
+                color: COLORS.textDim,
+              },
+            ]}
+          />
+          <BarChart
+            title="💰 أنماط الشراء (قيمة المبيعات)"
+            unit=" ر.س"
+            data={[
+              {
+                label: "🌐 شاملين (كذا قسم)",
+                count: Math.round(
+                  enriched.filter((c) => c.stats?.buyerType === "شامل")
+                    .reduce((s, c) => s + (c.stats?.totalSpent || 0), 0)
+                ),
+                color: COLORS.teal,
+              },
+              ...Object.keys(MAIN_CATEGORIES).map((cat, idx) => ({
+                label: `🎯 متخصص في ${cat}`,
+                count: Math.round(
+                  enriched.filter((c) => c.stats?.buyerType === cat)
+                    .reduce((s, c) => s + (c.stats?.totalSpent || 0), 0)
+                ),
+                color: [COLORS.blue, COLORS.purple, COLORS.gold, COLORS.green, COLORS.coral][idx % 5],
+              })),
+              {
+                label: "❓ غير محدد",
+                count: Math.round(
+                  enriched.filter((c) => !c.stats?.buyerType)
+                    .reduce((s, c) => s + (c.stats?.totalSpent || 0), 0)
+                ),
+                color: COLORS.textDim,
+              },
+            ]}
+          />
         </div>
       )}
       {activeTab === "credit" && (
@@ -13615,7 +13671,7 @@ function CustomersModule({
                     key={inv.id}
                     onClick={() => setSelectedInvoice(inv)}
                     style={{
-                      borderBottom: "1px solid #0a101a",
+                      borderBottom: `1px solid ${COLORS.border}`,
                       cursor: "pointer",
                       background:
                         selectedInvoice?.id === inv.id
@@ -13684,7 +13740,7 @@ function CustomersModule({
                     style={{
                       flex: 1,
                       background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                      border: "1px solid #1d2d4a",
+                      border: `1px solid ${COLORS.border}`,
                       borderRadius: 8,
                       padding: "8px 12px",
                       color: COLORS.textPrimary,
@@ -13698,7 +13754,7 @@ function CustomersModule({
                     }
                     style={{
                       background: COLORS.blueSoft,
-                      border: "1px solid #1d3a6a",
+                      border: `1px solid ${tint(COLORS.blue,0.35)}`,
                       borderRadius: 8,
                       padding: "8px 12px",
                       color: COLORS.blue,
@@ -14268,12 +14324,12 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
       {/* تنبيه العروض التلقائية */}
       {autoPromoProducts.length > 0 && (
-        <div style={{ background: COLORS.goldSoft, border: "1px solid #4a2800", borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <span style={{ color: COLORS.gold, fontWeight: 700 }}>⚠️ {autoPromoProducts.length} صنف يحتاج عرض تلقائي</span>
             <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>أصناف غير دوائية بصلاحية أقل من 6 شهور</div>
           </div>
-          <button onClick={() => setActiveTab("auto")} style={{ background: COLORS.goldSoft, border: "1px solid #6a4000", borderRadius: 8, padding: "6px 14px", color: COLORS.gold, fontSize: 12, cursor: "pointer" }}>
+          <button onClick={() => setActiveTab("auto")} style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.gold, fontSize: 12, cursor: "pointer" }}>
             عرض التفاصيل
           </button>
         </div>
@@ -14303,11 +14359,11 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
               <div style={{ color: COLORS.green, fontWeight: 700 }}>📋 منطق الخصم التدرجي التلقائي</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setShowAutoConfig((v) => !v)}
-                  style={{ background: "#1a0a2a", border: "1px solid #4a1a6a", borderRadius: 8, padding: "5px 14px", color: COLORS.purple, fontSize: 12, cursor: "pointer" }}>
+                  style={{ background: "#1a0a2a", border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 8, padding: "5px 14px", color: COLORS.purple, fontSize: 12, cursor: "pointer" }}>
                   ⚙️ شرط الإضافة
                 </button>
                 <button onClick={() => { setEditRules(discountRules.map(r => ({...r}))); setShowRulesEditor(true); }}
-                  style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d3a6a", borderRadius: 8, padding: "5px 14px", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
+                  style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "5px 14px", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
                   ✏️ تعديل القواعد
                 </button>
               </div>
@@ -14315,7 +14371,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
 
             {/* كارت إعدادات شرط الإضافة التلقائية */}
             {showAutoConfig && (
-              <div style={{ background: "#0a0a1a", border: "1px solid #2a1a4a", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+              <div style={{ background: COLORS.purpleSoft, border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
                 <div style={{ color: COLORS.purple, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>⚙️ شروط الإضافة للقائمة التلقائية</div>
 
                 {/* الفئات المستثناة */}
@@ -14335,7 +14391,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                           setAutoPromoConfig(updated);
                           saveAutoConfig(updated);
                         }} style={{ padding: "4px 12px", borderRadius: 20, cursor: "pointer",
-                          background: excluded ? COLORS.redSoft : "#0a1a0a",
+                          background: excluded ? COLORS.redSoft : COLORS.greenSoft,
                           border: `1px solid ${excluded ? COLORS.red : "#1a4a1a"}`,
                           color: excluded ? COLORS.coral : COLORS.green, fontSize: 12 }}>
                           {excluded ? "✕ " : "✓ "}{cat}
@@ -14354,7 +14410,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                       setAutoPromoConfig(updated);
                       saveAutoConfig(updated);
                     }}
-                    style={{ width: 60, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    style={{ width: 60, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                   <span style={{ color: COLORS.textDim, fontSize: 12 }}>%</span>
                 </div>
 
@@ -14367,7 +14423,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                     saveAutoConfig(updated);
                   }}
                     style={{ width: 36, height: 20, borderRadius: 10, cursor: "pointer",
-                      background: autoPromoConfig.requireStock ? "#2a6a2a" : COLORS.red,
+                      background: autoPromoConfig.requireStock ? COLORS.green : COLORS.red,
                       position: "relative", transition: "background 0.2s" }}>
                     <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff",
                       position: "absolute", top: 3,
@@ -14394,7 +14450,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <input
             value={promoSearch} onChange={(e) => setPromoSearch(e.target.value)}
             placeholder="🔍 بحث..."
-            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
           />
 
           {filteredAutoPromos.length === 0
@@ -14403,7 +14459,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                 const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
                 const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
                 return (
-                  <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? "#3a0000" : p.autoDiscount >= 25 ? "#3a1500" : "#2a1500")}>
+                  <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? COLORS.redSoft : p.autoDiscount >= 25 ? COLORS.coralSoft : COLORS.goldSoft)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
@@ -14467,12 +14523,12 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                             setPromoForm({ product_id: promo.product_id, discount: String(promo.discount), start_date: promo.start_date, end_date: promo.end_date, note: promo.note || "" });
                             setEditPromoId(promo.id);
                             setShowPromoForm(true);
-                          }} style={{ background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
+                          }} style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
                           <button onClick={async () => {
                             const { error: delPromoError } = await supabase.from("promotions").delete().eq("id", promo.id).eq("pharmacy_id", pharmacyId);
                             if (delPromoError) { showToast("خطأ: " + delPromoError.message, "error"); return; }
                             setPromos((p) => p.filter((x) => x.id !== promo.id));
-                          }} style={{ background: COLORS.redSoft, border: "1px solid #3a1010", borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
+                          }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
                         </div>
                       </div>
                     </div>
@@ -14518,14 +14574,14 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
                   <input type="month" value={incentiveConfig.month}
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, month: e.target.value }))}
-                    style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                    style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
                 </div>
                 <div>
                   <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
                   <input type="number" value={incentiveConfig.rate} min="1" max="20"
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
                     onBlur={(e) => saveIncentiveRate(+e.target.value)}
-                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                 </div>
                 {/* ── خانة حد الهامش التلقائي ── */}
                 <div>
@@ -14536,14 +14592,14 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                       if (val !== incentiveConfig.marginThreshold) updateMarginThreshold(val);
                     }}
                     onChange={(e) => setIncentiveConfig((p) => ({ ...p, marginThreshold: +e.target.value }))}
-                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
                 </div>
               </div>
             </div>
           </div>
 
           {/* أصناف بهامش تلقائية — العنوان يعكس القيمة الحالية */}
-          <div style={cardStyle("#1a1a2a")}>
+          <div style={cardStyle(COLORS.surfaceAlt)}>
             <div style={{ color: COLORS.purple, fontWeight: 700, marginBottom: 10 }}>
               🎯 أصناف بهامش ربح ≥ {incentiveConfig.marginThreshold}% — تلقائية ({highMarginProducts.length})
             </div>
@@ -14554,7 +14610,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   {highMarginProducts.map((p) => {
                     const margin = (((p.price - p.cost) / p.price) * 100).toFixed(0);
                     return (
-                      <div key={p.id} style={{ background: COLORS.surfaceAlt, border: "1px solid #3a2a6a", borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                      <div key={p.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
                         <span style={{ color: COLORS.textPrimary, fontWeight: 600 }}>{p.name_ar || p.name || p.nameAr}</span>
                         <span style={{ color: COLORS.purple, marginRight: 8, fontWeight: 700 }}>{margin}%</span>
                       </div>
@@ -14574,21 +14630,21 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <input
             value={incentiveSearch} onChange={(e) => setIncentiveSearch(e.target.value)}
             placeholder="🔍 بحث..."
-            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
           />
 
           {filteredIncentive.map((item) => {
             const prod = products.find((p) => p.id === item.product_id);
             return (
-              <div key={item.id} style={{ background: COLORS.surfaceAlt, border: "1px solid #1d2d4a", borderRadius: 10, padding: "10px 14px", marginBottom: 6 }}>
+              <div key={item.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 13 }}>{prod?.name_ar || prod?.name || prod?.nameAr || item.product_id}</div>
                     {item.note && <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>{item.note}</div>}
                   </div>
                   <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 2 }}>
-                    {item.rate && <span style={{ background: "#1a3a1a", color: COLORS.green, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.rate}% عمولة</span>}
-                    {item.fixed_amount && <span style={{ background: "#1a2a3a", color: COLORS.blue, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</span>}
+                    {item.rate && <span style={{ background: COLORS.greenSoft, color: COLORS.green, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.rate}% عمولة</span>}
+                    {item.fixed_amount && <span style={{ background: COLORS.blueSoft, color: COLORS.blue, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</span>}
                     <button onClick={async () => {
                       const { error: delIncError } = await supabase.from("incentive_products").delete().eq("id", item.id).eq("pharmacy_id", pharmacyId);
                       if (delIncError) { showToast("خطأ: " + delIncError.message, "error"); return; }
@@ -14676,7 +14732,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   const commission = (data.total * rate / 100);
                   const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100).toFixed(1) : "0";
                   return (
-                    <div key={name} style={{ padding: "12px 0", borderBottom: "1px solid #0a1a0a" }}>
+                    <div key={name} style={{ padding: "12px 0", borderBottom: `1px solid ${COLORS.border}` }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <div>
                           <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
@@ -14695,7 +14751,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         {Object.entries(data.items).map(([pName, amt]) => (
-                          <div key={pName} style={{ background: "#0a1a0a", border: "1px solid #1a3a1a", borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
+                          <div key={pName} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
                             <span style={{ color: COLORS.textDim }}>{pName}</span>
                             <span style={{ color: COLORS.green, marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
                           </div>
@@ -14731,16 +14787,16 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
             <input type="number" value={rule.days} min="1" max="365"
               onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, days: +e.target.value } : r))}
-              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
             <input type="number" value={rule.discount} min="1" max="100"
               onChange={(e) => setEditRules((p) => p.map((r, j) => j === i ? { ...r, discount: +e.target.value } : r))}
-              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const }} />
             <button onClick={() => setEditRules((p) => p.filter((_, j) => j !== i))}
               style={{ background: COLORS.redSoft, border: "none", borderRadius: 6, padding: "8px 12px", color: COLORS.coral, cursor: "pointer", fontSize: 16 }}>×</button>
           </div>
         ))}
         <button onClick={() => setEditRules((p) => [...p, { days: 60, discount: 10, color: COLORS.gold }])}
-          style={{ background: "#0a1a0a", border: "1px dashed #1a4a1a", borderRadius: 8, padding: "7px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, width: "100%", marginBottom: 14 }}>
+          style={{ background: COLORS.greenSoft, border: `1px dashed ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "7px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, width: "100%", marginBottom: 14 }}>
           + إضافة مرحلة
         </button>
         <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
@@ -14780,7 +14836,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
             <select value={promoForm.product_id}
               onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
-              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
               <option value="">-- اختر صنفاً --</option>
               {products.map((p) => (
                 <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
@@ -14797,7 +14853,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           if (!prod) return null;
           const newPrice = (prod.price * (1 - +promoForm.discount / 100)).toFixed(2);
           return (
-            <div style={{ background: "#0a1a0a", border: "1px solid #1a4a1a", borderRadius: 8, padding: 10, marginTop: 10 }}>
+            <div style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: 10, marginTop: 10 }}>
               <span style={{ color: COLORS.textDim, fontSize: 12 }}>السعر بعد الخصم: </span>
               <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</span>
               <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
@@ -14831,7 +14887,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   .map((p) => p.id);
                 setSelectedIncentiveProducts(ids);
               }}
-              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
               <option value="">-- اختر شركة --</option>
               {manufacturers.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -14854,9 +14910,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           const allSelected = available.length > 0 && available.every((p) => selectedIncentiveProducts.includes(p.id));
 
           return (
-            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
               {/* Header القائمة */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #1d2d4a", background: "#0a1220" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`, background: "#0a1220" }}>
                 <div style={{ color: COLORS.blue, fontWeight: 700, fontSize: 13 }}>
                   {mfProducts.length} صنف
                   {alreadyAdded.size > 0 && (
@@ -14904,7 +14960,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                         }}
                         style={{
                           display: "flex", alignItems: "center", gap: 12,
-                          padding: "10px 14px", borderBottom: "1px solid #0d1928",
+                          padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`,
                           cursor: isAdded ? "default" : "pointer",
                           background: isAdded ? "#0a0f18" : isSelected ? COLORS.surfaceAlt : "transparent",
                           opacity: isAdded ? 0.5 : 1,
@@ -14913,8 +14969,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                         {/* Checkbox */}
                         <div style={{
                           width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                          border: `2px solid ${isAdded ? "#2a3a4a" : isSelected ? COLORS.blue : "#2a3a5a"}`,
-                          background: isAdded ? "#1a2a3a" : isSelected ? COLORS.blue : "transparent",
+                          border: `2px solid ${isAdded ? COLORS.green : isSelected ? COLORS.blue : COLORS.border}`,
+                          background: isAdded ? COLORS.greenSoft : isSelected ? COLORS.blue : "transparent",
                           display: "flex", alignItems: "center", justifyContent: "center",
                         }}>
                           {(isSelected || isAdded) && (
@@ -15184,7 +15240,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                   {isAdmin && (
                     <button
                       onClick={() => { setEditing(u.name); setEditValue(c.target || ""); }}
-                      style={{ flex: 1, background: COLORS.blueSoft, border: "1px solid #1d2d4a", borderRadius: 7, padding: "6px 10px", color: COLORS.blue, fontSize: 12, cursor: "pointer", fontWeight: 700 }}
+                      style={{ flex: 1, background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "6px 10px", color: COLORS.blue, fontSize: 12, cursor: "pointer", fontWeight: 700 }}
                     >
                       ✏️ تعديل التارجت
                     </button>
@@ -15214,7 +15270,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
         const cOther = compareName ? calcForPharmacist(compareName) : null;
 
         return (
-          <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 14, overflow: "hidden", marginBottom: 12 }}>
+          <div key={u.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden", marginBottom: 12 }}>
             <div style={{ padding: 18 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: COLORS.textPrimary }}>📋 تفاصيل {u.name}</div>
@@ -15231,7 +15287,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
               )}
 
               {/* ===== التحليل الفني ===== */}
-              <div style={{ borderTop: "1px solid #161d30", paddingTop: 14 }}>
+              <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 14 }}>
                 <div style={{ color: COLORS.blue, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📊 التحليل الفني</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
                   {[
@@ -15252,7 +15308,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
               </div>
 
               {/* ===== الأداء خلال الشهر ===== */}
-              <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+              <div style={{ marginTop: 16, borderTop: `1px solid ${COLORS.border}`, paddingTop: 14 }}>
                 <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
                   📅 الأداء خلال الشهر (مبيعات يومية)
                 </div>
@@ -15275,7 +15331,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
               </div>
 
               {/* ===== مقارنة عبر آخر 6 شهور ===== */}
-              <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+              <div style={{ marginTop: 16, borderTop: `1px solid ${COLORS.border}`, paddingTop: 14 }}>
                 <div style={{ color: COLORS.purple, fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
                   📈 مقارنة الأداء عبر آخر 6 شهور
                 </div>
@@ -15290,7 +15346,7 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
                         {m.target > 0 && (
                           <div
                             title={`التارجت: ${m.target.toFixed(0)} ر.س`}
-                            style={{ flex: 1, background: "#4a3a00", height: `${(m.target / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2, border: "1px dashed #ffaa44" }}
+                            style={{ flex: 1, background: "#4a3a00", height: `${(m.target / maxYearly) * 65}px`, borderRadius: "3px 3px 0 0", minHeight: 2, border: `1px dashed ${tint(COLORS.coral,0.35)}` }}
                           />
                         )}
                       </div>
@@ -15306,13 +15362,13 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
 
               {/* ===== مقارنة مع صيدلي آخر ===== */}
               {otherPharmacists.length > 0 && (
-                <div style={{ marginTop: 16, borderTop: "1px solid #161d30", paddingTop: 14 }}>
+                <div style={{ marginTop: 16, borderTop: `1px solid ${COLORS.border}`, paddingTop: 14 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                     <div style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}>⚖️ مقارنة مع صيدلي آخر</div>
                     <select
                       value={compareName}
                       onChange={(e) => setCompareWith((p) => ({ ...p, [u.name]: e.target.value }))}
-                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
+                      style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }}
                     >
                       {otherPharmacists.map((p) => (
                         <option key={p.id} value={p.name}>{p.name}</option>
@@ -15721,10 +15777,10 @@ useEffect(() => {
     background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
   });
   const inputStyle = {
-    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d2d4a", borderRadius: 8,
+    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8,
     padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const,
   };
-  const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0a101a" };
+  const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${COLORS.border}` };
 
   return (
     <div>
@@ -15745,7 +15801,7 @@ useEffect(() => {
           { label: "🏦 تحويل", value: balanceTransfer, color: COLORS.purple },
           { label: "📦 الإجمالي", value: balanceTotal, color: COLORS.gold },
         ].map((b) => (
-          <div key={b.label} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1d2d4a", borderRadius: 12, padding: 14, textAlign: "center" }}>
+          <div key={b.label} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14, textAlign: "center" }}>
             <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>{b.label}</div>
             <div style={{ color: b.value < 0 ? COLORS.red : b.color, fontWeight: 900, fontSize: 18 }}>{b.value.toFixed(2)}</div>
             <div style={{ color: COLORS.border, fontSize: 10 }}>ر.س</div>
@@ -15758,7 +15814,7 @@ useEffect(() => {
       {canViewOverview && (dueFixed.length > 0 || upcomingLicenses.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: dueFixed.length > 0 && upcomingLicenses.length > 0 ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 14 }}>
           {dueFixed.length > 0 && (
-            <div style={{ background: COLORS.goldSoft, border: "1px solid #4a2800", borderRadius: 12, padding: 12 }}>
+            <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 12, padding: 12 }}>
               <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⏰ مصاريف ثابتة مستحقة قريباً</div>
               {dueFixed.map((f) => (
                 <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
@@ -15769,7 +15825,7 @@ useEffect(() => {
             </div>
           )}
           {upcomingLicenses.length > 0 && (
-            <div style={{ background: "#1a0a1a", border: "1px solid #4a1a4a", borderRadius: 12, padding: 12 }}>
+            <div style={{ background: "#1a0a1a", border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 12, padding: 12 }}>
               <div style={{ color: COLORS.purple, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📋 تراخيص قريبة التجديد</div>
               {upcomingLicenses.map((l) => {
                 const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
@@ -15822,7 +15878,7 @@ useEffect(() => {
           {hasPostClosingActivity && (
             <div style={{
               maxWidth: 420, margin: "0 auto 24px", textAlign: "right",
-              background: "#2a1000", border: "1px solid #8a3000", borderRadius: 10, padding: "14px 16px",
+              background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 10, padding: "14px 16px",
             }}>
               <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
                 ⚠️ فيه حركة بعد التقفيل مش داخلة في السجل المحفوظ
@@ -15855,7 +15911,7 @@ useEffect(() => {
 
           <button
             onClick={() => setActiveTab("history")}
-            style={{ background: COLORS.blueSoft, border: "1px solid #2a5aaa", borderRadius: 8, padding: "8px 20px", color: COLORS.blue, fontSize: 13, cursor: "pointer" }}
+            style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "8px 20px", color: COLORS.blue, fontSize: 13, cursor: "pointer" }}
           >
             📋 عرض سجل الأيام
           </button>
@@ -15866,7 +15922,7 @@ useEffect(() => {
         <div>
           {/* تحذير الشفتات المفتوحة */}
           {openShifts.length > 0 && (
-            <div style={{ background: "#2a1000", border: "1px solid #8a3000", borderRadius: 10, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 10, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 20 }}>⚠️</span>
               <div>
                 <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13 }}>لا يمكن تقفيل اليوم</div>
@@ -15890,13 +15946,13 @@ useEffect(() => {
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ color: COLORS.blue, fontWeight: 700 }}>{todayCard.toFixed(2)} ر.س</span>
                   <button onClick={() => setEditingCard((v) => !v)}
-                    style={{ background: "transparent", border: "1px solid #1d3a6a", borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
+                    style={{ background: "transparent", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
                     {editingCard ? "إغلاق" : "تعديل"}
                   </button>
                 </div>
               </div>
               {editingCard && (
-                <div style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid #1d3a6a", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <input type="number" value={closingForm.card_actual}
                       onChange={(e) => setClosingForm((p) => ({ ...p, card_actual: e.target.value }))}
@@ -15944,7 +16000,7 @@ useEffect(() => {
             </div>
 
             {/* دخل إضافي */}
-            <div style={{ marginTop: 8, borderTop: "1px solid #1a3a1a", paddingTop: 10 }}>
+            <div style={{ marginTop: 8, borderTop: `1px solid ${tint(COLORS.green,0.35)}`, paddingTop: 10 }}>
               <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 6 }}>دخل إضافي (اختياري)</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={closingForm.extra_income_note} onChange={(e) => setClosingForm((p) => ({ ...p, extra_income_note: e.target.value }))}
@@ -15954,7 +16010,7 @@ useEffect(() => {
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #1a3a1a" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: `1px solid ${tint(COLORS.green,0.35)}` }}>
               <span style={{ color: COLORS.textDim, fontSize: 12, marginLeft: 12 }}>إجمالي الدخل</span>
               <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{totalIncome.toFixed(2)} ر.س</span>
             </div>
@@ -15997,11 +16053,11 @@ useEffect(() => {
             ))}
 
             <button onClick={() => setClosingForm((p) => ({ ...p, variable_expenses: [...p.variable_expenses, { name: "", amount: "" }] }))}
-              style={{ background: COLORS.goldSoft, border: "1px dashed #3a1800", borderRadius: 8, padding: "7px 14px", color: COLORS.coral, cursor: "pointer", fontSize: 12, width: "100%", marginTop: 4 }}>
+              style={{ background: COLORS.goldSoft, border: `1px dashed ${tint(COLORS.gold,0.35)}`, borderRadius: 8, padding: "7px 14px", color: COLORS.coral, cursor: "pointer", fontSize: 12, width: "100%", marginTop: 4 }}>
               + إضافة مصروف متغير
             </button>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a1000" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 10, borderTop: `1px solid ${tint(COLORS.gold,0.35)}` }}>
               <span style={{ color: COLORS.textDim, fontSize: 12, marginLeft: 12 }}>إجمالي المصروفات</span>
               <span style={{ color: COLORS.coral, fontWeight: 900, fontSize: 16 }}>{totalExpenses.toFixed(2)} ر.س</span>
             </div>
@@ -16061,7 +16117,7 @@ useEffect(() => {
               {todayShifts.map((sh) => {
                 const ss = getShiftSales(sh.id);
                 return (
-                  <div key={sh.id} style={cardStyle("#1a2a3a")}>
+                  <div key={sh.id} style={cardStyle(COLORS.blueSoft)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                       <div>
                         <span style={{ color: COLORS.blue, fontWeight: 700 }}>{sh.id}</span>
@@ -16196,7 +16252,7 @@ useEffect(() => {
                   </div>
                 </div>
                 {isOpen && (
-                  <div style={{ marginTop: 10, borderTop: "1px solid #0a101a", paddingTop: 10 }}>
+                  <div style={{ marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
                     {dayEnt.map((e) => (
                       <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12 }}>
                         <div>
@@ -16268,7 +16324,7 @@ useEffect(() => {
               setEntries((p) => [...p, { type: "expense", sub_type: "fixed", method: "نقدي", amount: f.amount, note: f.name, date: today }]);
               showToast(`تم سداد ${f.name} ✓`);
             }}
-            style={{ background: COLORS.greenSoft, border: "1px solid #2a6a2a", borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+            style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
             💳 سداد
           </button>
           <button
@@ -16421,7 +16477,7 @@ function TaxReport({ sales, purchases, returns = [] }) {
         <div style={{ color: COLORS.border, fontSize: 13, marginTop: 20 }}>نسبة الضريبة: 15% (VAT)</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1a3a1a", borderRadius: 14, padding: 20 }}>
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 14, padding: 20 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: COLORS.green, display: "flex", alignItems: "center", gap: 8 }}>
             <IC n="pos" s={16} /> ضريبة المبيعات (الضريبة المحصلة)
           </h3>
@@ -16446,7 +16502,7 @@ function TaxReport({ sales, purchases, returns = [] }) {
                 <span style={{ fontWeight: 700 }}>−{salesReturnsTax.toFixed(2)} ر.س</span>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, borderTop: "1px solid #1d3a1d", paddingTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, borderTop: `1px solid ${tint(COLORS.green,0.35)}`, paddingTop: 10 }}>
               <span>صافي ضريبة المخرجات</span>
               <span>{netSalesTax.toFixed(2)} ر.س</span>
             </div>
@@ -16457,7 +16513,7 @@ function TaxReport({ sales, purchases, returns = [] }) {
             <div style={{ color: "#3a6a3a", fontSize: 12 }}>عدد الفواتير: {filtSales.length}{filtSalesReturns.length > 0 ? ` · مرتجعات: ${filtSalesReturns.length}` : ""}</div>
           </div>
         </div>
-        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid #1a2a3a", borderRadius: 14, padding: 20 }}>
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: COLORS.blue, display: "flex", alignItems: "center", gap: 8 }}>
             <IC n="purchase" s={16} /> ضريبة المشتريات (ضريبة المدخلات)
           </h3>
@@ -16482,7 +16538,7 @@ function TaxReport({ sales, purchases, returns = [] }) {
                 <span style={{ fontWeight: 700 }}>−{purchReturnsTax.toFixed(2)} ر.س</span>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, borderTop: "1px solid #1d2d4a", paddingTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
               <span>صافي ضريبة المدخلات</span>
               <span>{netPurchTax.toFixed(2)} ر.س</span>
             </div>
@@ -16494,7 +16550,7 @@ function TaxReport({ sales, purchases, returns = [] }) {
           </div>
         </div>
       </div>
-      <div style={{ background: netTax > 0 ? "#0a1a0a" : COLORS.redSoft, border: `2px solid ${netTax > 0 ? "#1a6a1a" : "#6a1a1a"}`, borderRadius: 16, padding: 24 }}>
+      <div style={{ background: netTax > 0 ? COLORS.greenSoft : COLORS.redSoft, border: `2px solid ${netTax > 0 ? COLORS.green : COLORS.red}`, borderRadius: 16, padding: 24 }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 800, color: netTax > 0 ? COLORS.green : COLORS.red }}>
           {netTax > 0 ? "✔️ ضريبة مستحقة الدفع" : "✔️ ضريبة مستردة"} — {quarter}
         </h3>
@@ -17300,7 +17356,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "product" && (
         <>
           {filterManufacturer && (
-            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
+            <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
               🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
             </div>
           )}
@@ -17340,7 +17396,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "sales_returns" && (
         <>
           {filterManufacturer && (
-            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
+            <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
               🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
             </div>
           )}
@@ -17383,7 +17439,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {type === "purchase_returns" && (
         <>
           {filterManufacturer && (
-            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
+            <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
               🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
             </div>
           )}
@@ -17426,7 +17482,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
       {showInvoiceDetail && (
         <Modal open title={`${showInvoiceDetail.isReturn ? "تفاصيل المرتجع" : "تفاصيل الفاتورة"} — ${showInvoiceDetail.id}`} onClose={() => setShowInvoiceDetail(null)} wide>
           {showInvoiceDetail.isReturn && (
-            <div style={{ background: COLORS.blueSoft, border: "1px solid #1d3a6a", borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
+            <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: COLORS.blue }}>
               🔗 مرتبط بفاتورة رقم: {showInvoiceDetail.originalInvoiceId || "—"}
               {showInvoiceDetail.reason && <span> · السبب: {showInvoiceDetail.reason}</span>}
             </div>
@@ -17449,7 +17505,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               </thead>
               <tbody>
                 {(showInvoiceDetail.items || []).map((item, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #0a101a" }}>
+                  <tr key={i} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
                     <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13, textAlign: "center" }}>{item.qty}</td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13, textAlign: "center" }}>{item.price}</td>
@@ -17466,7 +17522,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
             <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green, marginBottom: 5 }}>
               <span>الضريبة</span><span>{(showInvoiceDetail.taxAmount || showInvoiceDetail.tax_amount || 0).toFixed(2)} ر.س</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, fontSize: 16, borderTop: "1px solid #1d2d4a", paddingTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.textPrimary, fontWeight: 800, fontSize: 16, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
               <span>الإجمالي</span><span>{(showInvoiceDetail.total || 0).toFixed(2)} ر.س</span>
             </div>
           </div>
@@ -17667,7 +17723,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
         <div
           style={{
             background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-            border: "1px solid #1d2d4a",
+            border: `1px solid ${COLORS.border}`,
             borderRadius: 14,
             padding: 24,
             marginBottom: 20,
@@ -18141,7 +18197,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
               <button
                 onClick={saveWeekSchedule}
                 disabled={saving || readOnly}
-                style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "8px 20px", color: C.green, fontSize: 13, fontWeight: 700, cursor: readOnly ? "not-allowed" : "pointer", opacity: (saving || readOnly) ? 0.6 : 1 }}
+                style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "8px 20px", color: C.green, fontSize: 13, fontWeight: 700, cursor: readOnly ? "not-allowed" : "pointer", opacity: (saving || readOnly) ? 0.6 : 1 }}
               >
                 {saving ? "جاري الحفظ..." : "💾 حفظ الجدول"}
               </button>
@@ -18266,7 +18322,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             <button
               onClick={saveWeekSchedule}
               disabled={saving || readOnly}
-              style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 8, padding: "9px 24px", color: C.green, fontSize: 13, fontWeight: 700, cursor: readOnly ? "not-allowed" : "pointer", opacity: (saving || readOnly) ? 0.6 : 1 }}
+              style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "9px 24px", color: C.green, fontSize: 13, fontWeight: 700, cursor: readOnly ? "not-allowed" : "pointer", opacity: (saving || readOnly) ? 0.6 : 1 }}
             >
               {readOnly ? "🔒 عرض فقط" : (saving ? "جاري الحفظ..." : "💾 حفظ جدول الأسبوع")}
             </button>
@@ -18653,7 +18709,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🕐 الحضور والانصراف</h2>
         <div style={{ fontSize: 12, color: C.muted }}>
           {new Date().toLocaleDateString("ar-SA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-          {ramadan && <span style={{ marginRight: 8, background: "#f59e0b22", color: COLORS.gold, borderRadius: 4, padding: "2px 8px" }}>🌙 رمضان</span>}
+          {ramadan && <span style={{ marginRight: 8, background: COLORS.goldSoft, color: COLORS.gold, borderRadius: 4, padding: "2px 8px" }}>🌙 رمضان</span>}
         </div>
       </div>
 
@@ -18727,7 +18783,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                       </div>
                     )}
                     {!activeLog && !doneLog && (
-                      <button onClick={() => handleCheckIn(name)} style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 7, padding: "6px 14px", color: C.green, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
+                      <button onClick={() => handleCheckIn(name)} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 7, padding: "6px 14px", color: C.green, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
                         ✅ تسجيل حضور
                       </button>
                     )}
@@ -18735,7 +18791,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                       <div>
                         <div style={{ fontSize: 11, color: C.green, marginBottom: 6 }}>🟢 حضر {fmt(activeLog.check_in)}</div>
                         {activeLog.late_minutes > 0 && <div style={{ fontSize: 11, color: C.orange, marginBottom: 6 }}>⚠️ تأخر {activeLog.late_minutes} دقيقة</div>}
-                        <button onClick={() => handleCheckOut(activeLog)} style={{ background: COLORS.redSoft, border: "1px solid #5a1a1a", borderRadius: 7, padding: "6px 14px", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
+                        <button onClick={() => handleCheckOut(activeLog)} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 7, padding: "6px 14px", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
                           🔴 تسجيل انصراف
                         </button>
                       </div>
@@ -18806,7 +18862,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                 <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>🕌 فترات الصلاة</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {prayerBreaks.map((b) => (
-                    <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : COLORS.greenSoft, border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                    <div key={b.id} style={{ background: b.deducted_minutes > 0 ? COLORS.redSoft : COLORS.greenSoft, border: `1px solid ${b.deducted_minutes > 0 ? COLORS.red : COLORS.green}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
                       <strong style={{ color: C.text }}>{b.pharmacist_name}</strong>
                       <span style={{ color: C.muted }}> – {b.prayer_name} · {fmt(b.prayer_time)} ← {fmt(b.return_time)}</span>
                       {b.deducted_minutes > 0
@@ -18906,7 +18962,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                     <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>فترات الصلاة:</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       {log.prayer_breaks.map((b: any) => (
-                        <div key={b.id} style={{ background: b.deducted_minutes > 0 ? "#2a1000" : COLORS.greenSoft, border: `1px solid ${b.deducted_minutes > 0 ? "#5a2000" : "#1a5a30"}`, borderRadius: 6, padding: "4px 10px", fontSize: 12 }}>
+                        <div key={b.id} style={{ background: b.deducted_minutes > 0 ? COLORS.redSoft : COLORS.greenSoft, border: `1px solid ${b.deducted_minutes > 0 ? COLORS.red : COLORS.green}`, borderRadius: 6, padding: "4px 10px", fontSize: 12 }}>
                           {b.prayer_name}: {fmt(b.prayer_time)} ← {fmt(b.return_time)}
                           {b.deducted_minutes > 0 ? <span style={{ color: C.red }}> ⚠️ -{b.deducted_minutes}د</span> : <span style={{ color: C.green }}> ✅</span>}
                         </div>
@@ -19010,7 +19066,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
             <h3 style={{ margin: "0 0 4px", color: C.text, fontSize: 18 }}>وقت صلاة {activePrayerPopup.prayer}</h3>
             <p style={{ margin: "0 0 16px", color: C.muted, fontSize: 14 }}>{activePrayerPopup.log.pharmacist_name} – الوقت المسموح: {activePrayerPopup.allowed} دقيقة</p>
             <button onClick={() => handlePrayerReturn(activePrayerPopup)}
-              style={{ background: COLORS.greenSoft, border: "1px solid #1a5a30", borderRadius: 10, padding: "12px 28px", color: C.green, fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%", marginBottom: 10 }}>
+              style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 10, padding: "12px 28px", color: C.green, fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%", marginBottom: 10 }}>
               ✅ {activePrayerPopup.log.pharmacist_name} – رجع من الصلاة
             </button>
             <button onClick={() => setActivePrayerPopup(null)}
@@ -19048,7 +19104,7 @@ function PrayerSettingRow({ setting, onSave, ramadan, C, readOnly = false }: any
         <span style={{ color: C.muted }}>دقيقة</span>
       </label>
       {changed && !readOnly && (
-        <button onClick={() => onSave(local)} style={{ background: COLORS.blueSoft, border: "1px solid #1a4a8a", borderRadius: 7, padding: "6px 16px", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={() => onSave(local)} style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 7, padding: "6px 16px", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           حفظ
         </button>
       )}
@@ -19350,11 +19406,11 @@ await supabase.from("treasury_entries").insert({
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: "#2a3a5a" }}>لا يوجد عملاء</td></tr>
+                  <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: COLORS.textDim }}>لا يوجد عملاء</td></tr>
                 ) : filtered.map((c, i) => {
                   const lp = loyaltyMap[c.id] || { points: 0, total_earned: 0, total_redeemed: 0 };
                   return (
-                    <tr key={c.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
+                    <tr key={c.id} style={{ borderBottom: `1px solid ${COLORS.border}`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
                       <td style={{ padding: "11px 16px" }}>
                         <div style={{ fontWeight: 700, color: VAR.text, fontSize: 14 }}>{c.name}</div>
                         <div style={{ fontSize: 11, color: VAR.muted }}>{c.phone}</div>
@@ -19382,7 +19438,7 @@ await supabase.from("treasury_entries").insert({
                         <div style={{ display: "flex", gap: 6 }}>
                           {lp.points >= settings.min_redeem && (
                             <button onClick={() => { setRedeemModal(c); setRedeemAmount(""); }} style={{
-                              padding: "5px 12px", borderRadius: 7, border: "1px solid #1a5a30",
+                              padding: "5px 12px", borderRadius: 7, border: `1px solid ${tint(COLORS.green,0.35)}`,
                               background: COLORS.greenSoft, color: COLORS.green, fontSize: 12, fontWeight: 700, cursor: "pointer",
                             }}>
                               استبدال
@@ -19418,12 +19474,12 @@ await supabase.from("treasury_entries").insert({
             </thead>
             <tbody>
               {transactions.length === 0 ? (
-                <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: "#2a3a5a" }}>لا يوجد سجلات</td></tr>
+                <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: COLORS.textDim }}>لا يوجد سجلات</td></tr>
               ) : transactions.slice(0, 100).map((t, i) => {
                 const customer = customers.find((c) => c.id === t.customer_id);
                 const tl = typeLabel[t.type] || { label: t.type, color: VAR.muted };
                 return (
-                  <tr key={t.id} style={{ borderBottom: `1px solid #0a1020`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
+                  <tr key={t.id} style={{ borderBottom: `1px solid ${COLORS.border}`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
                     <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>
                       {t.created_at ? new Date(t.created_at).toLocaleString("ar-SA") : "-"}
                     </td>
@@ -19572,7 +19628,7 @@ await supabase.from("treasury_entries").insert({
             </div>
             <div style={{
   background: COLORS.goldSoft,
-  border: "1px solid #7a4a00",
+  border: `1px solid ${tint(COLORS.gold,0.35)}`,
   borderRadius: 8,
   padding: "8px 12px",
   fontSize: 12,
@@ -19652,21 +19708,48 @@ const SYSTEM_SECTIONS = [
       { id: "sales",     label: "مرتجع المبيعات" },
       { id: "purchases", label: "مرتجع المشتريات" },
     ] },
-  { id: "products",          label: "الأصناف والمخزون",    icon: "💊" },
-  { id: "suppliers",         label: "الموردون",             icon: "🏭" },
+  { id: "products",          label: "الأصناف والمخزون",    icon: "💊", subItems: [
+      { id: "add",    label: "إضافة صنف" },
+      { id: "edit",   label: "تعديل" },
+      { id: "delete", label: "حذف" },
+    ] },
+  { id: "suppliers",         label: "الموردون",             icon: "🏭", subItems: [
+      { id: "purchase_order", label: "طلب شراء" },
+      { id: "payment",        label: "سداد" },
+      { id: "edit",           label: "تعديل" },
+      { id: "delete",         label: "حذف" },
+      { id: "add",            label: "إضافة مورد" },
+    ] },
   { id: "customers",         label: "العملاء",              icon: "👥" },
   { id: "loyalty",           label: "نقاط الولاء",         icon: "🌟" },
-  { id: "reports",           label: "التقارير",             icon: "📈" },
+  { id: "reports",           label: "التقارير",             icon: "📈", subItems: [
+      { id: "sales_report",             label: "تقرير المبيعات" },
+      { id: "purchases_report",         label: "تقرير المشتريات" },
+      { id: "products_report",          label: "تقرير الأصناف" },
+      { id: "monthly_report",           label: "تقرير شهري" },
+      { id: "sales_returns_report",     label: "تقرير مرتجع المبيعات" },
+      { id: "purchases_returns_report", label: "تقرير مرتجع المشتريات" },
+    ] },
   { id: "tax_report",        label: "التقرير الضريبي",     icon: "🧾" },
-  { id: "financial_health",  label: "الموقف المالي",        icon: "💵" },
+  { id: "financial_health",  label: "الموقف المالي",        icon: "💵", subItems: [
+      { id: "alerts_log",   label: "سجل التنبيهات" },
+      { id: "alert_limits", label: "حدود التنبيه" },
+      { id: "update_month", label: "تحديث بيانات الشهر الحالي" },
+    ] },
   { id: "promotions",        label: "العروض والخصومات",    icon: "🏷️" },
   { id: "treasury",          label: "الخزنة",              icon: "💰", subItems: [
-      { id: "day_closing", label: "تقفيل اليوم" },
-      { id: "overview",    label: "محتويات الخزنة (الأرصدة، الشفتات، السجل، المصاريف، التراخيص)" },
+      { id: "day_closing",    label: "تقفيل اليوم" },
+      { id: "shifts",         label: "الشفتات" },
+      { id: "log",            label: "السجل" },
+      { id: "fixed_expenses", label: "مصاريف ثابتة" },
+      { id: "licenses",       label: "التراخيص" },
     ] },
   { id: "shift",             label: "الشفتات",             icon: "🕐" },
   { id: "target",            label: "تارجت المبيعات",      icon: "🎯" },
-  { id: "inventory_count",   label: "الجرد",               icon: "📋" },
+  { id: "inventory_count",   label: "الجرد",               icon: "📋", subItems: [
+      { id: "new_count", label: "بدء جرد جديد" },
+      { id: "fix_stock", label: "إصلاح تشغيلات المخزون" },
+    ] },
   { id: "expiry_report",     label: "تقرير الصلاحيات",    icon: "⚠️" },
   { id: "attendance",        label: "الحضور والانصراف",   icon: "⏱️", subItems: [
       { id: "checkin",        label: "الحضور" },
@@ -19957,7 +20040,7 @@ function PermissionsModule({
           <button key={t.id} onClick={() => setActiveTab(t.id as any)} style={{
             padding: "8px 20px", borderRadius: 9, border: "1px solid",
             borderColor: activeTab === t.id ? COLORS.blue : VAR.border,
-            background: activeTab === t.id ? "#14233a" : "transparent",
+            background: activeTab === t.id ? COLORS.blueSoft : "transparent",
             color: activeTab === t.id ? COLORS.blue : VAR.muted,
             fontSize: 13, fontWeight: 700, cursor: "pointer",
           }}>
@@ -19978,7 +20061,7 @@ function PermissionsModule({
                 {roles.map((role) => (
                   <button key={role} onClick={() => { setSelectedRole(role); setDirty(false); }} style={{
                     display: "block", width: "100%", padding: "12px 16px", textAlign: "right",
-                    background: selectedRole === role ? "#14233a" : "transparent",
+                    background: selectedRole === role ? COLORS.blueSoft : "transparent",
                     borderRight: selectedRole === role ? "3px solid #2a6aef" : "3px solid transparent",
                     border: "none", color: selectedRole === role ? COLORS.blue : VAR.muted,
                     fontSize: 13, fontWeight: selectedRole === role ? 700 : 400, cursor: "pointer",
@@ -20008,9 +20091,9 @@ function PermissionsModule({
               </div>
 
               <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                <button onClick={() => toggleAll("edit_all")} style={{ padding: "6px 14px", borderRadius: 7, border: "1px solid #1a5a30", background: COLORS.greenSoft, color: COLORS.green, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✅ تفعيل الكل</button>
-                <button onClick={() => toggleAll("view_all")} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid #1d3a6a`, background: COLORS.blueSoft, color: VAR.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>👁️ عرض بدون تعديل</button>
-                <button onClick={() => toggleAll("none")} style={{ padding: "6px 14px", borderRadius: 7, border: "1px solid #4a1010", background: COLORS.redSoft, color: COLORS.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🚫 إخفاء الكل</button>
+                <button onClick={() => toggleAll("edit_all")} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${tint(COLORS.green,0.35)}`, background: COLORS.greenSoft, color: COLORS.green, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✅ تفعيل الكل</button>
+                <button onClick={() => toggleAll("view_all")} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${tint(COLORS.blue,0.35)}`, background: COLORS.blueSoft, color: VAR.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>👁️ عرض بدون تعديل</button>
+                <button onClick={() => toggleAll("none")} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${tint(COLORS.red,0.35)}`, background: COLORS.redSoft, color: COLORS.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🚫 إخفاء الكل</button>
               </div>
 
               <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
@@ -20028,7 +20111,7 @@ function PermissionsModule({
                       <div style={{
                         display: "grid", gridTemplateColumns: "1fr 120px 120px",
                         padding: "13px 20px", alignItems: "center",
-                        borderBottom: (i < SYSTEM_SECTIONS.length - 1 || (hasSubItems && isExpanded)) ? "1px solid #0a1020" : "none",
+                        borderBottom: (i < SYSTEM_SECTIONS.length - 1 || (hasSubItems && isExpanded)) ? `1px solid ${COLORS.border}` : "none",
                         background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                         opacity: !p.can_view ? 0.55 : 1,
                       }}>
@@ -20043,27 +20126,27 @@ function PermissionsModule({
                           )}
                         </div>
                         <div style={{ display: "flex", justifyContent: "center" }}>
-                          <button onClick={() => togglePerm(permKey(sec.id), "can_view")} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_view ? "#1a5a30" : "#2a1020", cursor: "pointer", position: "relative" }}>
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_view")} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_view ? COLORS.greenSoft : COLORS.redSoft, cursor: "pointer", position: "relative" }}>
                             <div style={{ position: "absolute", top: 3, right: p.can_view ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
                           </button>
                         </div>
                         <div style={{ display: "flex", justifyContent: "center" }}>
-                          <button onClick={() => togglePerm(permKey(sec.id), "can_edit")} disabled={!p.can_view} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_edit ? "#1a3a6a" : "#1a1a2a", cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
-                            <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_edit ? COLORS.blue : "#3a3a5a", transition: "right 0.2s" }} />
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_edit")} disabled={!p.can_view} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_edit ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
+                            <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_edit ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
                           </button>
                         </div>
                       </div>
 
                       {/* ── العناصر الفرعية داخل القسم: تتحكم في ما يظهر/يُعدَّل داخل القسم نفسه ── */}
                       {hasSubItems && isExpanded && (
-                        <div style={{ background: "#080d18" }}>
+                        <div style={{ background: COLORS.surfaceAlt }}>
                           {sec.subItems.map((sub, si) => {
                             const sp = currentRolePerms[permKey(sec.id, sub.id)] || { can_view: false, can_edit: false };
                             return (
                               <div key={sub.id} style={{
                                 display: "grid", gridTemplateColumns: "1fr 120px 120px",
                                 padding: "10px 20px 10px 20px", paddingRight: 44, alignItems: "center",
-                                borderBottom: (si < sec.subItems.length - 1 || i < SYSTEM_SECTIONS.length - 1) ? "1px solid #0a1020" : "none",
+                                borderBottom: (si < sec.subItems.length - 1 || i < SYSTEM_SECTIONS.length - 1) ? `1px solid ${COLORS.border}` : "none",
                                 opacity: !sp.can_view ? 0.55 : 1,
                               }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -20071,13 +20154,13 @@ function PermissionsModule({
                                   <span style={{ fontSize: 12.5, color: sp.can_view ? VAR.text : VAR.muted }}>{sub.label}</span>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "center" }}>
-                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_view")} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_view ? "#1a5a30" : "#2a1020", cursor: "pointer", position: "relative" }}>
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_view")} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_view ? COLORS.greenSoft : COLORS.redSoft, cursor: "pointer", position: "relative" }}>
                                     <div style={{ position: "absolute", top: 2, right: sp.can_view ? 2 : 19, width: 18, height: 18, borderRadius: "50%", background: sp.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
                                   </button>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "center" }}>
-                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_edit")} disabled={!sp.can_view} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_edit ? "#1a3a6a" : "#1a1a2a", cursor: sp.can_view ? "pointer" : "not-allowed", position: "relative", opacity: sp.can_view ? 1 : 0.4 }}>
-                                    <div style={{ position: "absolute", top: 2, right: sp.can_edit ? 2 : 19, width: 18, height: 18, borderRadius: "50%", background: sp.can_edit ? COLORS.blue : "#3a3a5a", transition: "right 0.2s" }} />
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_edit")} disabled={!sp.can_view} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_edit ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: sp.can_view ? "pointer" : "not-allowed", position: "relative", opacity: sp.can_view ? 1 : 0.4 }}>
+                                    <div style={{ position: "absolute", top: 2, right: sp.can_edit ? 2 : 19, width: 18, height: 18, borderRadius: "50%", background: sp.can_edit ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
                                   </button>
                                 </div>
                               </div>
@@ -20121,7 +20204,7 @@ function PermissionsModule({
                   <div key={u.id} style={{
                     display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px",
                     padding: "14px 20px", alignItems: "center",
-                    borderBottom: i < users.length - 1 ? "1px solid #0a1020" : "none",
+                    borderBottom: i < users.length - 1 ? `1px solid ${COLORS.border}` : "none",
                     background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                   }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: VAR.text }}>{u.name}</div>
@@ -20132,8 +20215,8 @@ function PermissionsModule({
                       </span>
                     </div>
                     <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                      <button onClick={() => { setSelectedUser(u); setUserForm({ name: u.name, username: u.username, password: u.password, role: u.role }); setUserModal("edit"); }} style={{ padding: "4px 10px", borderRadius: 6, background: COLORS.blueSoft, border: "1px solid #1d3a6a", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>تعديل</button>
-                      <button onClick={() => setDeleteConfirm(u.id)} style={{ padding: "4px 10px", borderRadius: 6, background: COLORS.redSoft, border: "1px solid #4a1010", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>حذف</button>
+                      <button onClick={() => { setSelectedUser(u); setUserForm({ name: u.name, username: u.username, password: u.password, role: u.role }); setUserModal("edit"); }} style={{ padding: "4px 10px", borderRadius: 6, background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>تعديل</button>
+                      <button onClick={() => setDeleteConfirm(u.id)} style={{ padding: "4px 10px", borderRadius: 6, background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, color: COLORS.red, fontSize: 11, cursor: "pointer" }}>حذف</button>
                     </div>
                   </div>
                 ))
