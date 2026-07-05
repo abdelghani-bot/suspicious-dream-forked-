@@ -4345,7 +4345,10 @@ function POS({
         id: i.id,
         name: i.name,
         qty: +i.qty,
-        price: newFifoResults[i.lineId]?.salePrice ?? i.price,
+        // مهم: السعر المحفوظ لازم يكون سعر سطر السلة (i.price) لأنه هو اللي فيه أي عرض مطبّق
+        // (نسبة/BOGO/كمية/باقة...). سعر التشغيلة (salePrice) بيرجع سعر التشغيلة الأصلي في المخزون
+        // ومفيهوش أي خصم، فاستخدامه هنا كان بيلغي العرض عند حفظ الفاتورة.
+        price: i.price,
         cost:
           newFifoResults[i.lineId]?.soldBatches?.[0]?.cost ??
           products.find((x) => x.id === i.id)?.cost ??
@@ -5334,8 +5337,8 @@ function POS({
   {inv.cart.map((item) => {
     const step = item.saleUnits > 1 ? 1 / item.saleUnits : 1;
     const maxQty = products.find(x => x.id === item.id)?.stock || 99;
-    const displayPrice = item.unitPrice ?? (fifoResults?.[item.lineId]?.salePrice ?? item.price);
-    const displayTotal = (fifoResults?.[item.lineId]?.salePrice ?? item.price) * item.qty;
+    const displayPrice = item.unitPrice ?? item.price;
+    const displayTotal = item.price * item.qty;
 
     return (
       <tr key={item.lineId} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
@@ -14434,26 +14437,43 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     discount: number;
     endDate?: string;
     isAuto?: boolean;
+    promoLabel?: string; // نص وصفي للعرض (مهم لأنماط BOGO/الهدية اللي السعر فيها مش بيتغيّر)
   }[]) => {
-    const labelsHTML = items.map((item) => `
+    const labelsHTML = items.map((item) => {
+      const priceUnchanged = Math.abs((item.discountedPrice ?? 0) - (item.originalPrice ?? 0)) < 0.001;
+      // لو السعر متغيّر فعليًا (نسبة/قيمة ثابتة/كمية/باقة) نعرض قبل/بعد + نسبة الخصم.
+      // لو السعر مش بيتغيّر (BOGO/هدية مجانية) نعرض النص الوصفي للعرض بدل "خصم 0%" وسعر واحد بس.
+      const badgeHTML = !priceUnchanged
+        ? `<div class="discount-badge">خصم ${item.discount}%</div>`
+        : `<div class="discount-badge promo-text">${item.promoLabel || "عرض خاص"}</div>`;
+      const pricesHTML = !priceUnchanged
+        ? `<div class="prices">
+            <div class="old-price-box">
+              <div class="old-price-label">السعر قبل</div>
+              <div class="old-price">${item.originalPrice.toFixed(2)}</div>
+            </div>
+            <div class="arrow">◄</div>
+            <div class="new-price-box">
+              <div class="new-price-label">السعر بعد</div>
+              <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
+            </div>
+          </div>`
+        : `<div class="prices">
+            <div class="single-price-box">
+              <div class="old-price-label">السعر</div>
+              <div class="new-price">${item.originalPrice.toFixed(2)}</div>
+            </div>
+          </div>`;
+      return `
       <div class="label">
         <div class="pharmacy-name">PharmacyPro</div>
         <div class="product-name">${item.name}</div>
-        <div class="discount-badge">خصم ${item.discount}%</div>
-        <div class="prices">
-          <div class="old-price-box">
-            <div class="old-price-label">السعر قبل</div>
-            <div class="old-price">${item.originalPrice.toFixed(2)}</div>
-          </div>
-          <div class="arrow">◄</div>
-          <div class="new-price-box">
-            <div class="new-price-label">السعر بعد</div>
-            <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
-          </div>
-        </div>
+        ${badgeHTML}
+        ${pricesHTML}
         ${item.endDate ? `<div class="end-date">ينتهي العرض: ${item.endDate}</div>` : ""}
       </div>
-    `).join("");
+    `;
+    }).join("");
 
     const win = window.open("", "_blank");
     if (!win) return;
@@ -14489,7 +14509,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           .pharmacy-name { font-size: 11px; color: #7a6000; font-weight: 600; letter-spacing: 1px; }
           .product-name { font-size: 18px; font-weight: 900; color: #1a1a00; text-align: center; line-height: 1.3; }
           .discount-badge { background: #cc0000; color: #fff; font-size: 20px; font-weight: 900; padding: 4px 20px; border-radius: 20px; }
+          .discount-badge.promo-text { font-size: 14px; padding: 6px 14px; text-align: center; line-height: 1.3; max-width: 90%; }
           .prices { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: center; margin-top: 4px; }
+          .single-price-box { background: #1a5c00; border-radius: 10px; padding: 10px 20px; text-align: center; }
           .old-price-box { background: #cc0000; border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; }
           .old-price-label { color: #ffaaaa; font-size: 11px; margin-bottom: 2px; }
           .old-price { color: #fff; font-size: 22px; font-weight: 900; text-decoration: line-through; text-decoration-color: #ffaaaa; text-decoration-thickness: 3px; }
@@ -14623,6 +14645,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         originalPrice: prod.price,
         discountedPrice: desc.newUnitPrice,
         discount: baseRow.promo_type === "percent" ? baseRow.discount : 0,
+        promoLabel: desc.label,
         endDate: promoForm.end_date,
         isAuto: false,
       };
