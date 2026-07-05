@@ -2179,6 +2179,7 @@ if (isLoading) return (
             customers={customers}
             returns={returnsData}
             manufacturers={manufacturers}
+            pharmacyId={pharmacyId}
           />
         )}
         {tab === "tax_report" && canView("tax_report") && (
@@ -5898,7 +5899,7 @@ function POS({
       </div>
 
       {showPrint && (
-        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />
+        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} />
       )}
     </div>
   );
@@ -5935,12 +5936,30 @@ const buildZatcaQR = ({ sellerName, vatNumber, timestamp, invoiceTotal, vatTotal
 };
 
 // ==================== PRINT RECEIPT ====================
-function PrintReceipt({ invoice, onClose }) {
+function PrintReceipt({ invoice, onClose, pharmacyId }) {
   const printArea = useRef();
+  const [paperWidth, setPaperWidth] = useState("80"); // 58 / 80 / A4 — الافتراضي 80مم
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase
+      .from("pharmacy_settings")
+      .select("receipt_paper_width")
+      .eq("pharmacy_id", pharmacyId)
+      .single()
+      .then(({ data }) => {
+        if (data?.receipt_paper_width) setPaperWidth(data.receipt_paper_width);
+      });
+  }, [pharmacyId]);
+
   const doPrint = () => {
+    const isA4 = paperWidth === "A4";
+    const pageCSS = isA4
+      ? `@page{size:A4;margin:14mm}html,body{width:auto}`
+      : `@page{size:${paperWidth}mm auto;margin:0}html,body{width:${paperWidth}mm}`;
     const w = window.open("", "_blank", "width=400,height=700");
     w.document.write(
-      `<html dir="rtl"><head><style>body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:16px;font-size:13px;color:#000;background:#fff}h2{margin:4px 0;font-size:16px}table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid #ddd;font-size:12px}hr{border:1px dashed #999}.total{font-weight:700;font-size:15px}.dose{font-size:11px;color:#555;font-style:italic}.header{text-align:center;margin-bottom:12px}@media print{body{padding:0}}</style></head><body>${printArea.current.innerHTML}</body></html>`
+      `<html dir="rtl"><head><style>${pageCSS}body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:8px 10px;font-size:13px;color:#000;background:#fff}h2{margin:4px 0;font-size:16px}table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid #ddd;font-size:12px}hr{border:1px dashed #999}.total{font-weight:700;font-size:15px}.dose{font-size:11px;color:#555;font-style:italic}.header{text-align:center;margin-bottom:12px}@media print{body{padding:0 6px}}</style></head><body>${printArea.current.innerHTML}</body></html>`
     );
     w.document.close();
     w.focus();
@@ -6138,6 +6157,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
           vatNumber: data.tax_number || "",
           licenseNumber: data.license_number || "",
           labelSize: data.label_size || "50x30",
+          receiptPaperWidth: data.receipt_paper_width || "80",
           supportsCardRefund: !!data.supports_card_refund, // 🆕 هل الصيدلية بتقدر ترجّع فلوس شبكة (reversal) فعليًا؟
         });
       });
@@ -6159,6 +6179,12 @@ function PharmacySettings({ showToast, pharmacyId }) {
     { id: "60x40", label: "60×40 mm (كبير)", w: 60, h: 40 },
   ];
 
+  const RECEIPT_WIDTHS = [
+    { id: "58", label: "58 مم (طابعة فيش صغيرة)" },
+    { id: "80", label: "80 مم (طابعة فيش عادية)" },
+    { id: "A4", label: "A4 (طابعة عادية / ليزر)" },
+  ];
+
   const save = async () => {
   if (!pharmacyId) return;
   const { error } = await supabase
@@ -6172,6 +6198,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
       license_number: settings.licenseNumber,
       updated_at: new Date().toISOString(),
       label_size: settings.labelSize || "50x30",
+      receipt_paper_width: settings.receiptPaperWidth || "80",
       supports_card_refund: !!settings.supportsCardRefund, // 🆕
     })
     .eq("pharmacy_id", pharmacyId);
@@ -6232,6 +6259,30 @@ function PharmacySettings({ showToast, pharmacyId }) {
                 }}
               >
                 {size.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* حجم ورق فاتورة نقطة البيع */}
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+            نوع طابعة فواتير المبيعات
+          </label>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {RECEIPT_WIDTHS.map((w) => (
+              <button
+                key={w.id}
+                onClick={() => setSettings((p) => ({ ...p, receiptPaperWidth: w.id }))}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, cursor: "pointer",
+                  border: `2px solid ${(settings.receiptPaperWidth || "80") === w.id ? COLORS.blue : COLORS.border}`,
+                  background: (settings.receiptPaperWidth || "80") === w.id ? COLORS.blueSoft : COLORS.surfaceAlt,
+                  color: (settings.receiptPaperWidth || "80") === w.id ? COLORS.blue : COLORS.textDim,
+                  fontSize: 13, fontWeight: 600,
+                }}
+              >
+                {w.label}
               </button>
             ))}
           </div>
@@ -17755,7 +17806,7 @@ function FinThresholdsEditor({ thresholds, onSave }) {
 
 
 // ==================== REPORTS ====================
-function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [] }) {
+function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId }) {
   const [type, setType] = useState("sales");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(new Date().toISOString().split("T")[0]);
@@ -18120,7 +18171,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           </div>
         </Modal>
       )}
-      {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} />}
+      {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} />}
     </div>
   );
 }
