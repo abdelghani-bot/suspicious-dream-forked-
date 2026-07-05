@@ -11052,6 +11052,8 @@ function SuppliersModule({
   const [showStatements, setShowStatements] = useState(null);
   const [coverageDays, setCoverageDays] = useState(30);
   const [orderItems, setOrderItems] = useState([]);
+  // ── أصناف منقولة لمورد أرخص، بانتظار فتح طلب الشراء الخاص به (جلسة حالية فقط) ──
+  const [pendingBySupplier, setPendingBySupplier] = useState({});
   const [manualProductSearch, setManualProductSearch] = useState("");
   const [manualProductSearchOpen, setManualProductSearchOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState({});
@@ -11467,6 +11469,54 @@ function SuppliersModule({
     return             { class: "very_slow", label: "بطيء جداً", color: COLORS.red };
   };
 
+  // ========== تكلفة الصنف عند كل مورد (مستخرجة من واقع فواتير الشراء السابقة) ==========
+  const getProductCostBySupplier = (productId) => {
+    const bySupplier = {}; // supplierId -> { supplierId, supplierName, cost, date }
+    (purchases || []).forEach((pu) => {
+      const item = pu.items?.find((i) => i.id === productId);
+      if (!item) return;
+      const cost = item.receivedCost ?? item.cost;
+      if (cost == null || !pu.supplier) return;
+      const existing = bySupplier[pu.supplier];
+      if (!existing || new Date(pu.date) >= new Date(existing.date)) {
+        const supplierObj = suppliers.find((s) => s.id === pu.supplier);
+        bySupplier[pu.supplier] = {
+          supplierId: pu.supplier,
+          supplierName: supplierObj?.name || pu.supplier_name || pu.supplier,
+          cost: +cost,
+          date: pu.date,
+        };
+      }
+    });
+    return Object.values(bySupplier).sort((a, b) => a.cost - b.cost);
+  };
+
+  // أرخص مورد معروف لصنف معين (باستثناء مورد معين لو محتاجين نقارن بغيره)
+  const getCheapestSupplierForProduct = (productId, excludeSupplierId) => {
+    const list = getProductCostBySupplier(productId).filter((r) => r.supplierId !== excludeSupplierId);
+    return list.length ? list[0] : null;
+  };
+
+  // السعر المبدئي المقترح للصنف عند إضافته لطلب مورد معين: آخر سعر اتشرى بيه من نفس المورد،
+  // وإلا أرخص سعر معروف من أي مورد آخر، وإلا سعر التكلفة العام المسجل على الصنف
+  const getInitialCostFor = (productId, supplierId, fallbackCost) => {
+    const history = getProductCostBySupplier(productId);
+    const fromSameSupplier = history.find((r) => r.supplierId === supplierId);
+    if (fromSameSupplier) return fromSameSupplier.cost;
+    if (history.length) return history[0].cost;
+    return fallbackCost ?? 0;
+  };
+
+  // نقل صنف من الطلب الحالي لقائمة انتظار مورد أرخص (بيتضاف تلقائياً أول ما يتفتح طلب شراء لنفس المورد ده)
+  const moveItemToSupplier = (item, targetSupplierId, targetSupplierName) => {
+    setOrderItems((prev) => prev.filter((x) => x.id !== item.id));
+    setPendingBySupplier((prev) => ({
+      ...prev,
+      [targetSupplierId]: [...(prev[targetSupplierId] || []), { ...item, cost: getInitialCostFor(item.id, targetSupplierId, item.cost) }],
+    }));
+    showToast(`تم نقل "${item.name}" لقائمة انتظار طلب ${targetSupplierName} — هيتضاف تلقائياً عند فتح طلب الشراء الخاص به`, "success");
+  };
+
   // ========== توليد أوردر تلقائي ==========
   const generateOrder = (supplier) => {
     const status = getSupplierStatus(supplier);
@@ -11499,10 +11549,16 @@ function SuppliersModule({
       const dailyRate = monthlySales / 30;
       const neededQty = Math.ceil(dailyRate * coverageDays) - p.stock;
       const orderQty = Math.max(neededQty, p.min_stock || 1);
-      return { id: p.id, name: p.name, currentStock: p.stock, minStock: p.min_stock || p.minStock || 0, orderQty, cost: p.cost, movement: mv, editable: true };
+      return { id: p.id, name: p.name, currentStock: p.stock, minStock: p.min_stock || p.minStock || 0, orderQty, cost: getInitialCostFor(p.id, targetSupplier.id, p.cost), movement: mv, editable: true };
     }).filter((i) => i.orderQty > 0)
       .sort((a, b) => ["fast","regular","normal","slow","very_slow"].indexOf(a.movement.class) - ["fast","regular","normal","slow","very_slow"].indexOf(b.movement.class));
-    setOrderItems(items);
+    // ضمّ أي أصناف كانت اتنقلت لهذا المورد لأنه الأرخص، وامسحها من قائمة الانتظار
+    const pending = pendingBySupplier[targetSupplier.id] || [];
+    const merged = [...items, ...pending.filter((pi) => !items.some((i) => i.id === pi.id))];
+    if (pending.length) {
+      setPendingBySupplier((prev) => { const p = { ...prev }; delete p[targetSupplier.id]; return p; });
+    }
+    setOrderItems(merged);
     setShowOrderForm(targetSupplier);
   };
 
@@ -11510,7 +11566,8 @@ function SuppliersModule({
   const saveOrder = async () => {
     if (!showOrderForm || orderItems.length === 0) { showToast("لا توجد أصناف للطلب", "error"); return; }
     const orderId = `ORD-${Date.now()}`;
-    const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: new Date().toISOString().split("T")[0], coverage_days: coverageDays, items: orderItems, status: "مسودة", pharmacy_id: pharmacyId };
+    const totalCost = orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0);
+    const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: new Date().toISOString().split("T")[0], coverage_days: coverageDays, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
     const { error } = await supabase.from("orders").insert(order);
     if (error) { showToast("فشل حفظ الأوردر: " + error.message, "error"); return; }
     setOrders((p) => [order, ...p]);
@@ -11804,8 +11861,17 @@ function SuppliersModule({
 
               {/* أزرار — تظل ظاهرة دائماً للوصول السريع */}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: isExpanded ? 0 : 6 }} onClick={(e) => e.stopPropagation()}>
-                <Btn size="sm" icon="purchase" onClick={() => generateOrder(s)} style={{ flex: 1, justifyContent: "center" }} variant={status === "red" ? "danger" : "primary"}>
+                <Btn size="sm" icon="purchase" onClick={() => generateOrder(s)} style={{ flex: 1, justifyContent: "center", position: "relative" }} variant={status === "red" ? "danger" : "primary"}>
                   طلب شراء
+                  {(pendingBySupplier[s.id]?.length > 0) && (
+                    <span style={{
+                      position: "absolute", top: -6, left: -6, background: COLORS.gold, color: "#1a1200",
+                      borderRadius: 99, fontSize: 10, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {pendingBySupplier[s.id].length}
+                    </span>
+                  )}
                 </Btn>
                 <Btn size="sm" icon="money" onClick={() => { setShowPayForm(s); setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" }); }} variant="success">
                   سداد
@@ -11955,7 +12021,7 @@ function SuppliersModule({
                           currentStock: p.stock || 0,
                           minStock: p.min_stock || p.minStock || 0,
                           orderQty: 1,
-                          cost: p.cost,
+                          cost: getInitialCostFor(p.id, showOrderForm.id, p.cost),
                           movement: { class: "manual", label: "إضافة يدوية", color: COLORS.blue },
                           editable: true,
                         }]);
@@ -11965,7 +12031,17 @@ function SuppliersModule({
                       style={{ padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}
                     >
                       <span style={{ fontSize: 13, color: COLORS.textPrimary }}>{p.name || p.nameAr}</span>
-                      <span style={{ fontSize: 11, color: COLORS.textDim }}>مخزون: {p.stock || 0}</span>
+                      <span style={{ fontSize: 11, color: COLORS.textDim, textAlign: "left" }}>
+                        <div>مخزون: {p.stock || 0}</div>
+                        {(() => {
+                          const cheapest = getCheapestSupplierForProduct(p.id);
+                          const sameSupplierCost = getProductCostBySupplier(p.id).find((r) => r.supplierId === showOrderForm.id);
+                          if (cheapest && (!sameSupplierCost || cheapest.cost < sameSupplierCost.cost)) {
+                            return <div style={{ color: COLORS.gold }}>🏷️ أرخص عند {cheapest.supplierName}: {cheapest.cost.toFixed(2)}</div>;
+                          }
+                          return null;
+                        })()}
+                      </span>
                     </div>
                   ))}
                 {(products || []).filter((p) => {
@@ -11982,22 +12058,48 @@ function SuppliersModule({
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: COLORS.surfaceAlt }}>
-                  {["الصنف", "الحركة", "المخزون", "الحد الأدنى", "الكمية المطلوبة", ""].map((h) => (
+                  {["الصنف", "الحركة", "المخزون", "الحد الأدنى", "سعر الوحدة", "الكمية المطلوبة", "الإجمالي", ""].map((h) => (
                     <th key={h} style={{ padding: "9px 10px", textAlign: "right", color: COLORS.textDim, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {orderItems.map((item, i) => (
+                {orderItems.map((item, i) => {
+                  const cheaper = getCheapestSupplierForProduct(item.id, showOrderForm.id);
+                  const showCheaperHint = cheaper && cheaper.cost < (+item.cost || 0);
+                  return (
                   <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-                    <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>{item.name}</td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>
+                      {item.name}
+                      {showCheaperHint && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10.5, color: COLORS.gold }}>
+                            🏷️ أرخص عند {cheaper.supplierName}: {cheaper.cost.toFixed(2)} ر.س
+                          </span>
+                          <button
+                            onClick={() => moveItemToSupplier(item, cheaper.supplierId, cheaper.supplierName)}
+                            style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.gold}`, color: COLORS.gold, borderRadius: 5, padding: "1px 6px", cursor: "pointer" }}
+                          >
+                            نقل لطلب {cheaper.supplierName}
+                          </button>
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: "8px 10px" }}><span style={{ fontSize: 11, color: item.movement.color, fontWeight: 700 }}>{item.movement.label}</span></td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.currentStock}</td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.minStock}</td>
                     <td style={{ padding: "8px 10px" }}>
+                      <input type="number" min="0" step="0.01" value={item.cost ?? ""}
+                        onChange={(e) => setOrderItems((prev) => prev.map((x, j) => j === i ? { ...x, cost: +e.target.value } : x))}
+                        style={{ width: 80, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
                       <input type="number" min="0" value={item.orderQty}
                         onChange={(e) => setOrderItems((prev) => prev.map((x, j) => j === i ? { ...x, orderQty: +e.target.value } : x))}
                         style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    </td>
+                    <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {((+item.cost || 0) * (+item.orderQty || 0)).toFixed(2)} ر.س
                     </td>
                     <td style={{ padding: "8px 10px" }}>
                       <button onClick={() => setOrderItems((p) => p.filter((_, j) => j !== i))}
@@ -12006,8 +12108,21 @@ function SuppliersModule({
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
+              {orderItems.length > 0 && (
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${COLORS.border}` }}>
+                    <td colSpan={6} style={{ padding: "10px", textAlign: "left", color: COLORS.textDim, fontSize: 13, fontWeight: 700 }}>
+                      الإجمالي الكلي للطلب
+                    </td>
+                    <td colSpan={2} style={{ padding: "10px", color: COLORS.textPrimary, fontSize: 15, fontWeight: 800, whiteSpace: "nowrap" }}>
+                      {orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0).toFixed(2)} ر.س
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
           {orderItems.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>لا توجد أصناف ناقصة</div>}
