@@ -6177,6 +6177,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
     { id: "50x30", label: "50×30 mm (متوسط)", w: 50, h: 30 },
     { id: "58x40", label: "58×40 mm (كبير)", w: 58, h: 40 },
     { id: "60x40", label: "60×40 mm (كبير)", w: 60, h: 40 },
+    { id: "76x51", label: "76×51 mm (Zebra 3×2 بوصة)", w: 76.2, h: 50.8 },
   ];
 
   const RECEIPT_WIDTHS = [
@@ -6365,6 +6366,7 @@ const LABEL_SIZES = [
   { id: "50x30", label: "50×30 mm", w: 50, h: 30 },
   { id: "58x40", label: "58×40 mm", w: 58, h: 40 },
   { id: "60x40", label: "60×40 mm", w: 60, h: 40 },
+  { id: "76x51", label: "76×51 mm (Zebra 3×2 بوصة)", w: 76.2, h: 50.8 },
 ];
   useEffect(() => {
     if (!pharmacyId) return;
@@ -6410,6 +6412,7 @@ const LABEL_SIZES = [
             page-break-after: always;
             page-break-inside: avoid;
           }
+          .label:last-child { page-break-after: auto; }
           .pharmacy { font-size: 7pt; font-weight: bold; text-align: center; }
           .phone { font-size: 6pt; text-align: center; color: #444; }
           .product { font-size: 7pt; font-weight: bold; text-align: center; margin: 1mm 0; }
