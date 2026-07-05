@@ -6395,6 +6395,7 @@ const LABEL_SIZES = [
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
+          @page { size: ${size.w}mm ${size.h}mm; margin: 0; }
           body { font-family: Arial, sans-serif; }
           .page { display: flex; flex-wrap: wrap; }
           .label {
@@ -6406,6 +6407,7 @@ const LABEL_SIZES = [
             flex-direction: column;
             justify-content: space-between;
             overflow: hidden;
+            page-break-after: always;
             page-break-inside: avoid;
           }
           .pharmacy { font-size: 7pt; font-weight: bold; text-align: center; }
