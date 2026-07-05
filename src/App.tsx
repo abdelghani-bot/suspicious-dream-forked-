@@ -3782,10 +3782,141 @@ const emptyInvoice = () => ({
   openedAt: Date.now(),
 });
 
+// ==================== أنماط العروض ====================
+// كل نمط عرض بيوصف نفسه: الحقول اللي محتاجها في الفورم، وهل ممكن يتفعّل تلقائيًا حسب الصلاحية
+const PROMO_TYPES = [
+  {
+    id: "percent",
+    label: "خصم بالنسبة %",
+    icon: "🏷️",
+    autoCapable: true, // النمط اللي بيشتغل مع نظام الخصم التدرجي حسب الصلاحية
+    fields: [{ key: "discount", label: "نسبة الخصم %", type: "number", placeholder: "10" }],
+  },
+  {
+    id: "fixed_amount",
+    label: "خصم قيمة ثابتة (ر.س)",
+    icon: "💵",
+    autoCapable: false,
+    fields: [{ key: "fixed_amount", label: "قيمة الخصم (ر.س)", type: "number", placeholder: "5" }],
+  },
+  {
+    id: "bogo",
+    label: "اشتري وخد التاني ببلاش",
+    icon: "🎁",
+    autoCapable: false,
+    fields: [
+      { key: "buy_qty", label: "اشتري كمية", type: "number", placeholder: "1" },
+      { key: "get_qty", label: "يحصل مجانًا على", type: "number", placeholder: "1" },
+      { key: "get_discount_percent", label: "نسبة خصم القطعة المجانية % (100 = ببلاش)", type: "number", placeholder: "100" },
+    ],
+  },
+  {
+    id: "quantity",
+    label: "خصم عند شراء كمية",
+    icon: "📦",
+    autoCapable: false,
+    fields: [
+      { key: "buy_qty", label: "اشتري كمية (حبة)", type: "number", placeholder: "3" },
+      { key: "qty_discount_percent", label: "خصم % على الحبة عند الوصول لهذه الكمية", type: "number", placeholder: "10" },
+    ],
+  },
+  {
+    id: "bundle",
+    label: "سعر ثابت للعبوة/الباقة",
+    icon: "📦",
+    autoCapable: false,
+    fields: [
+      { key: "bundle_qty", label: "عدد القطع في الباقة", type: "number", placeholder: "2" },
+      { key: "bundle_price", label: "سعر الباقة (ر.س)", type: "number", placeholder: "30" },
+    ],
+  },
+  {
+    id: "free_gift",
+    label: "هدية مجانية عند الشراء",
+    icon: "🎀",
+    autoCapable: false,
+    fields: [
+      { key: "gift_product_id", label: "الصنف الهدية", type: "product_select", placeholder: "" },
+      { key: "gift_qty", label: "كمية الهدية", type: "number", placeholder: "1" },
+    ],
+  },
+];
+const getPromoTypeConfig = (id) => PROMO_TYPES.find((t) => t.id === id) || PROMO_TYPES[0];
+const blankPromoDetails = { discount: "", fixed_amount: "", buy_qty: "", get_qty: "", get_discount_percent: 100, qty_discount_percent: "", bundle_qty: "", bundle_price: "", gift_product_id: "", gift_qty: "" };
+
+// وصف نصي مختصر للعرض + السعر الفعّال (بيستخدم في العرض والطباعة)
+function describePromo(promo, product) {
+  const type = promo.promo_type || "percent";
+  const price = product?.price || 0;
+  switch (type) {
+    case "fixed_amount":
+      return { label: `خصم ${promo.fixed_amount} ر.س`, newUnitPrice: +Math.max(0, price - (promo.fixed_amount || 0)).toFixed(2) };
+    case "bogo":
+      return { label: `اشتري ${promo.buy_qty || 1} واحصل على ${promo.get_qty || 1} بخصم ${promo.get_discount_percent ?? 100}%`, newUnitPrice: price };
+    case "quantity":
+      return { label: `اشتري ${promo.buy_qty || 1}+ واحصل على خصم ${promo.qty_discount_percent || 0}% على كل حبة`, newUnitPrice: +(price * (1 - (promo.qty_discount_percent || 0) / 100)).toFixed(2) };
+    case "bundle":
+      return { label: `باقة ${promo.bundle_qty || 1} قطع بـ ${promo.bundle_price || 0} ر.س`, newUnitPrice: promo.bundle_qty ? +((promo.bundle_price || 0) / promo.bundle_qty).toFixed(2) : price };
+    case "free_gift":
+      return { label: `هدية مجانية: ${promo.gift_qty || 1} قطعة`, newUnitPrice: price };
+    default:
+      return { label: `خصم ${promo.discount || 0}%`, newUnitPrice: +(price * (1 - (promo.discount || 0) / 100)).toFixed(2) };
+  }
+}
+
+// حساب سعر/كمية سطر السلة حسب النمط ومراعاة الكمية الفعلية (BOGO والكمية والباقة بيتأثروا بعدد القطع)
+function calcPromoLineTotal(promo, unitPrice, qty) {
+  const type = promo?.promo_type || "percent";
+  switch (type) {
+    case "fixed_amount":
+      return Math.max(0, unitPrice - (promo.fixed_amount || 0)) * qty;
+    case "bogo": {
+      const buy = Math.max(1, +promo.buy_qty || 1);
+      const get = Math.max(1, +promo.get_qty || 1);
+      const getDisc = (promo.get_discount_percent ?? 100) / 100;
+      const cycle = buy + get;
+      const cycles = Math.floor(qty / cycle);
+      const remainder = qty % cycle;
+      const paidInCycle = buy + get * (1 - getDisc);
+      const remainderPaid = Math.min(remainder, buy) + Math.max(0, remainder - buy) * (1 - getDisc);
+      return (cycles * paidInCycle + remainderPaid) * unitPrice;
+    }
+    case "quantity": {
+      const buy = Math.max(1, +promo.buy_qty || 1);
+      const pct = (+promo.qty_discount_percent || 0) / 100;
+      if (qty >= buy) return unitPrice * (1 - pct) * qty;
+      return unitPrice * qty;
+    }
+    case "bundle": {
+      const bq = Math.max(1, +promo.bundle_qty || 1);
+      const bp = +promo.bundle_price || unitPrice * bq;
+      const cycles = Math.floor(qty / bq);
+      const remainder = qty % bq;
+      return cycles * bp + remainder * unitPrice;
+    }
+    case "free_gift":
+      // سعر الأصناف المشتراة نفسه ما بيتغيرش، الهدية بتضاف كسطر منفصل بسعر صفر
+      return unitPrice * qty;
+    default: {
+      const pct = promo?.discount || 0;
+      return unitPrice * (1 - pct / 100) * qty;
+    }
+  }
+}
+
+// إعادة حساب متوسط سعر الوحدة لسطر في السلة عند تغيير الكمية (لأنماط BOGO/الكمية/الباقة)
+function recalcCartLinePrice(item, newQty) {
+  if (!item?.promo || !["bogo", "quantity", "bundle"].includes(item.promoType) || !newQty) {
+    return item.price;
+  }
+  const base = item.originalPrice ?? item.price;
+  return +(calcPromoLineTotal(item.promo, base, newQty) / newQty).toFixed(4);
+}
+
 // ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
 function getEffectivePrice(product, promos, discountRules, productEarliestExpiry) {
   const today = new Date().toISOString().split("T")[0];
-  // 1. عروض يدوية نشطة
+  // 1. عروض يدوية نشطة (بأي نمط)
   const manualPromo = (promos || []).find(
     (p) =>
       p.product_id === product.id &&
@@ -3793,10 +3924,15 @@ function getEffectivePrice(product, promos, discountRules, productEarliestExpiry
       p.end_date >= today
   );
   if (manualPromo) {
+    const type = manualPromo.promo_type || "percent";
+    const desc = describePromo(manualPromo, product);
     return {
-      price: +(product.price * (1 - manualPromo.discount / 100)).toFixed(2),
-      discountPct: manualPromo.discount,
+      price: desc.newUnitPrice,
+      discountPct: type === "percent" ? manualPromo.discount : 0,
       source: "manual",
+      promo: manualPromo,
+      promoType: type,
+      promoLabel: desc.label,
     };
   }
   // 2. عروض تلقائية (غير دواء + صلاحية قريبة)
@@ -3977,10 +4113,13 @@ function POS({
         showToast("لا يوجد مخزون كافٍ", "error");
         return prev;
       }
+      const newQty = ex.qty + 1;
       return {
         ...prev,
         cart: prev.cart.map((i) =>
-          i.lineId === lineId ? { ...i, qty: i.qty + 1 } : i
+          i.lineId === lineId
+            ? { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty) }
+            : i
         ),
       };
     }
@@ -3993,25 +4132,58 @@ function POS({
       : getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
 
     // السعر الكامل للحساب، سعر الوحدة للعرض
-    const cartPrice = p.isPartial ? p.price : effective.price;
+    // أنماط مرتبطة بالكمية (BOGO / كمية / باقة) بيتغيّر متوسط سعر الوحدة حسب عدد القطع
+    const isQtyDependentPromo = !p.isPartial && ["bogo", "quantity", "bundle"].includes(effective.promoType);
+    const cartPrice = p.isPartial
+      ? p.price
+      : isQtyDependentPromo
+        ? +(calcPromoLineTotal(effective.promo, p.price, initQty) / initQty).toFixed(4)
+        : effective.price;
     const unitPrice = p.isPartial
       ? Math.round((p.price / p.saleUnits) * 100) / 100
       : undefined;
 
-    return {
-      ...prev,
-      cart: [...prev.cart, {
-        ...p,
-        lineId,
-        qty: initQty,
-        dose: "",
-        price: cartPrice,
-        unitPrice,
-        originalPrice: p.price,
-        discountPct: p.isPartial ? 0 : effective.discountPct,
-        discountSource: p.isPartial ? null : effective.source,
-      }],
+    const newLine = {
+      ...p,
+      lineId,
+      qty: initQty,
+      dose: "",
+      price: cartPrice,
+      unitPrice,
+      originalPrice: p.price,
+      discountPct: p.isPartial ? 0 : effective.discountPct,
+      discountSource: p.isPartial ? null : effective.source,
+      promo: p.isPartial ? null : effective.promo || null,
+      promoType: p.isPartial ? null : effective.promoType || null,
+      promoLabel: p.isPartial ? null : effective.promoLabel || null,
     };
+
+    // ── هدية مجانية: لو الصنف مرتبط بعرض هدية، ضيف سطر الهدية تلقائيًا (مرة واحدة لكل عرض) ──
+    let newCart = [...prev.cart, newLine];
+    if (!p.isPartial && effective.promoType === "free_gift" && effective.promo?.gift_product_id) {
+      const giftAlready = newCart.some((i) => i.isGift && i.giftFromPromoId === effective.promo.id);
+      if (!giftAlready) {
+        const giftProduct = products.find((x) => x.id === effective.promo.gift_product_id);
+        if (giftProduct) {
+          newCart = [...newCart, {
+            ...giftProduct,
+            lineId: `gift::${effective.promo.id}::${lineId}`,
+            qty: +effective.promo.gift_qty || 1,
+            dose: "",
+            price: 0,
+            originalPrice: giftProduct.price,
+            discountPct: 100,
+            discountSource: "manual",
+            promoType: "free_gift",
+            promoLabel: "🎀 هدية مجانية",
+            isGift: true,
+            giftFromPromoId: effective.promo.id,
+          }];
+        }
+      }
+    }
+
+    return { ...prev, cart: newCart };
   });
 };
   const scanBarcode = (scan) => {
@@ -5168,7 +5340,7 @@ function POS({
     return (
       <tr key={item.lineId} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
         <td style={{ padding: "8px 4px" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}{item.isGift && <span style={{ color: COLORS.green, fontSize: 11, marginRight: 6 }}>🎀 هدية</span>}</div>
           {item.discountPct > 0 && (
             <div style={{ fontSize: 10, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ background: item.discountSource === "auto" ? COLORS.coral : COLORS.blue, color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
@@ -5177,6 +5349,13 @@ function POS({
               {item.originalPrice && item.originalPrice !== item.price && (
                 <span style={{ textDecoration: "line-through", color: COLORS.textDim }}>{item.originalPrice?.toFixed(2)}</span>
               )}
+            </div>
+          )}
+          {!item.discountPct && item.promoType && ["bogo", "quantity", "bundle"].includes(item.promoType) && (
+            <div style={{ fontSize: 10, marginTop: 1 }}>
+              <span style={{ background: COLORS.blue, color: "#fff", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
+                🏷️ {item.promoLabel}
+              </span>
             </div>
           )}
           <input
@@ -5243,7 +5422,8 @@ function POS({
                 ...p,
                 cart: p.cart.map((i) => {
                   if (i.lineId !== item.lineId) return i;
-                  return { ...i, qty: Math.max(1, i.qty - 1) };
+                  const newQty = Math.max(1, i.qty - 1);
+                  return { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
@@ -5332,11 +5512,11 @@ function POS({
 
   setInv((p) => ({
     ...p,
-    cart: p.cart.map((i) =>
-      i.lineId === item.lineId
-        ? { ...i, qty: Math.min(val, maxQty), qtyDisplay: undefined }
-        : i
-    ),
+    cart: p.cart.map((i) => {
+      if (i.lineId !== item.lineId) return i;
+      const newQty = Math.min(val, maxQty);
+      return { ...i, qty: newQty, qtyDisplay: undefined, price: recalcCartLinePrice(i, newQty) };
+    }),
   }));
 }}
               style={{ width: 52, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none", padding: "3px 4px" }}
@@ -5348,7 +5528,8 @@ function POS({
                 cart: p.cart.map((i) => {
                   if (i.lineId !== item.lineId) return i;
                   const mx = products.find(x => x.id === i.id)?.stock || 99;
-                  return { ...i, qty: Math.min(i.qty + 1, mx) };
+                  const newQty = Math.min(i.qty + 1, mx);
+                  return { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty) };
                 }),
               }))}
               style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
@@ -5364,7 +5545,13 @@ function POS({
         </td>
         <td style={{ textAlign: "center" }}>
           <button
-            onClick={() => setInv((p) => ({ ...p, cart: p.cart.filter((i) => i.lineId !== item.lineId) }))}
+            onClick={() => setInv((p) => ({
+              ...p,
+              cart: p.cart.filter((i) =>
+                i.lineId !== item.lineId &&
+                !(i.isGift && item.promoType === "free_gift" && i.giftFromPromoId === item.promo?.id)
+              ),
+            }))}
             style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}
           >✕</button>
         </td>
@@ -14105,10 +14292,23 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     excludeCategories: ["دواء"],
     minDiscount: 0,
     requireStock: true,
+    enabledTypes: PROMO_TYPES.map((t) => t.id), // كل الأنماط مفعّلة افتراضيًا
+    autoEligibleTypes: ["percent"], // بس النسبة قادرة تشتغل في العروض التلقائية حسب الصلاحية
   });
 
-  const blankPromo = { product_id: "", discount: "", start_date: new Date().toISOString().split("T")[0], end_date: "", note: "" };
+  const blankPromo = {
+    promo_type: "percent",
+    product_id: "",
+    manufacturer_id: "",
+    ...blankPromoDetails,
+    start_date: new Date().toISOString().split("T")[0],
+    end_date: "",
+    note: "",
+  };
   const [promoForm, setPromoForm] = useState(blankPromo);
+  // وضع الإضافة: صنف واحد أو منتجات شركة كاملة
+  const [promoMode, setPromoMode] = useState("single"); // single | company
+  const [companyProductIds, setCompanyProductIds] = useState<string[]>([]); // المنتجات المحددة من الشركة
   const [incentiveForm, setIncentiveForm] = useState({ rate: "", fixed_amount: "", note: "" });
   const [selectedIncentiveProducts, setSelectedIncentiveProducts] = useState<string[]>([]); // IDs المحددة للإضافة
 
@@ -14341,14 +14541,48 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     );
   }, [autoPromoProducts, pharmacyId]);
 
-  // حفظ عرض يدوي (إضافة أو تعديل)
-  const savePromo = async () => {
-    if (!promoForm.product_id || !promoForm.discount || !promoForm.end_date) {
-      showToast("يرجى ملء جميع الحقول", "error"); return;
+  // التحقق من اكتمال الحقول المطلوبة لكل نمط عرض
+  const validatePromoForm = () => {
+    if (!promoForm.end_date) return "حدد تاريخ نهاية العرض";
+    const typeCfg = getPromoTypeConfig(promoForm.promo_type);
+    for (const f of typeCfg.fields) {
+      if (promoForm[f.key] === "" || promoForm[f.key] === null || promoForm[f.key] === undefined) {
+        return `يرجى ملء الحقل: ${f.label}`;
+      }
     }
-    const row = { ...promoForm, discount: +promoForm.discount, pharmacy_id: pharmacyId };
+    if (promoMode === "single" && !promoForm.product_id) return "اختر الصنف";
+    if (promoMode === "company" && companyProductIds.length === 0) return "اختر منتج واحد على الأقل من منتجات الشركة";
+    return null;
+  };
+
+  // بناء الحقول الرقمية الخاصة بنمط العرض المختار فقط (باقي الحقول بتتسجل null)
+  const buildPromoDetails = () => {
+    const typeCfg = getPromoTypeConfig(promoForm.promo_type);
+    const details = { ...blankPromoDetails };
+    typeCfg.fields.forEach((f) => {
+      details[f.key] = f.type === "number" ? +promoForm[f.key] || 0 : promoForm[f.key];
+    });
+    return details;
+  };
+
+  // حفظ عرض يدوي (إضافة أو تعديل) — بيدعم كل الأنماط + التطبيق على منتجات شركة كاملة
+  const savePromo = async () => {
+    const err = validatePromoForm();
+    if (err) { showToast(err, "error"); return; }
+
+    const details = buildPromoDetails();
+    const baseRow = {
+      promo_type: promoForm.promo_type,
+      ...details,
+      start_date: promoForm.start_date,
+      end_date: promoForm.end_date,
+      note: promoForm.note,
+      manufacturer_id: promoMode === "company" ? promoForm.manufacturer_id : null,
+      pharmacy_id: pharmacyId,
+    };
 
     if (editPromoId) {
+      const row = { ...baseRow, product_id: promoForm.product_id };
       const { error } = await supabase.from("promotions").update(row).eq("id", editPromoId).eq("pharmacy_id", pharmacyId);
       if (error) { showToast("خطأ: " + error.message, "error"); return; }
       setPromos((p) => p.map((x) => (x.id === editPromoId ? { ...x, ...row } : x)));
@@ -14359,23 +14593,34 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       return;
     }
 
-    const { data, error } = await supabase.from("promotions").insert([row]).select();
+    // منتج واحد أو مجموعة منتجات شركة — نبني سطر لكل منتج ونحفظهم دفعة واحدة
+    const productIds = promoMode === "company" ? companyProductIds : [promoForm.product_id];
+    const rows = productIds.map((pid) => ({ ...baseRow, product_id: pid }));
+
+    const { data, error } = await supabase.from("promotions").insert(rows).select();
     if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setPromos((p) => [...p, data[0]]);
+    setPromos((p) => [...p, ...(data || [])]);
     setPromoForm(blankPromo);
+    setPromoMode("single");
+    setCompanyProductIds([]);
     setShowPromoForm(false);
-    showToast("تم إضافة العرض ✓");
-    const prod = products.find((p) => p.id === promoForm.product_id);
-    if (prod) {
-      printShelfLabel([{
+    showToast(`تم إضافة ${rows.length > 1 ? rows.length + " عروض" : "العرض"} ✓`);
+
+    // طباعة ليبل الرف — للأنماط اللي ليها سعر وحدة واضح فقط
+    const labelItems = productIds.map((pid) => {
+      const prod = products.find((p) => p.id === pid);
+      if (!prod) return null;
+      const desc = describePromo(baseRow, prod);
+      return {
         name: prod.name || prod.nameAr || "",
         originalPrice: prod.price,
-        discountedPrice: parseFloat((prod.price * (1 - +promoForm.discount / 100)).toFixed(2)),
-        discount: +promoForm.discount,
+        discountedPrice: desc.newUnitPrice,
+        discount: baseRow.promo_type === "percent" ? baseRow.discount : 0,
         endDate: promoForm.end_date,
         isAuto: false,
-      }]);
-    }
+      };
+    }).filter(Boolean);
+    if (labelItems.length) printShelfLabel(labelItems);
   };
 
   // حفظ أصناف محفزة (متعددة)
@@ -14561,6 +14806,63 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                     {autoPromoConfig.requireStock ? "مخفية" : "ظاهرة"}
                   </span>
                 </div>
+
+                {/* تفعيل/تعطيل أنماط العروض */}
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 6 }}>أنماط العروض المفعّلة (تظهر عند إضافة عرض يدوي):</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {PROMO_TYPES.map((t) => {
+                      const enabled = autoPromoConfig.enabledTypes.includes(t.id);
+                      return (
+                        <div key={t.id} onClick={() => {
+                          const updated = {
+                            ...autoPromoConfig,
+                            enabledTypes: enabled
+                              ? autoPromoConfig.enabledTypes.filter((id) => id !== t.id)
+                              : [...autoPromoConfig.enabledTypes, t.id],
+                          };
+                          setAutoPromoConfig(updated);
+                          saveAutoConfig(updated);
+                        }} style={{ padding: "4px 12px", borderRadius: 20, cursor: "pointer",
+                          background: enabled ? COLORS.greenSoft : COLORS.redSoft,
+                          border: `1px solid ${enabled ? "#1a4a1a" : COLORS.red}`,
+                          color: enabled ? COLORS.green : COLORS.coral, fontSize: 12 }}>
+                          {enabled ? "✓ " : "✕ "}{t.icon} {t.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* أي الأنماط يُسمح بتفعيلها تلقائيًا حسب قرب الصلاحية */}
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 6 }}>الأنماط اللي تظهر في العروض التلقائية (حسب قرب الصلاحية):</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {PROMO_TYPES.filter((t) => t.autoCapable).map((t) => {
+                      const on = autoPromoConfig.autoEligibleTypes.includes(t.id);
+                      return (
+                        <div key={t.id} onClick={() => {
+                          const updated = {
+                            ...autoPromoConfig,
+                            autoEligibleTypes: on
+                              ? autoPromoConfig.autoEligibleTypes.filter((id) => id !== t.id)
+                              : [...autoPromoConfig.autoEligibleTypes, t.id],
+                          };
+                          setAutoPromoConfig(updated);
+                          saveAutoConfig(updated);
+                        }} style={{ padding: "4px 12px", borderRadius: 20, cursor: "pointer",
+                          background: on ? COLORS.blueSoft : COLORS.surfaceAlt,
+                          border: `1px solid ${on ? COLORS.blue : COLORS.border}`,
+                          color: on ? COLORS.blue : COLORS.textDim, fontSize: 12 }}>
+                          {on ? "✓ " : "✕ "}{t.icon} {t.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ color: COLORS.textDim, fontSize: 10, marginTop: 4 }}>
+                    ملاحظة: أنماط زي BOGO والباقة والهدية لازم تتحدد يدويًا دايمًا، مش قابلة للتفعيل التلقائي.
+                  </div>
+                </div>
               </div>
             )}
 
@@ -14628,15 +14930,18 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
               <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>✅ عروض نشطة ({activePromos.length})</div>
               {activePromos.map((promo) => {
                 const prod = products.find((p) => p.id === promo.product_id);
-                const newPrice = prod ? (prod.price * (1 - promo.discount / 100)).toFixed(2) : "—";
+                const typeCfg = getPromoTypeConfig(promo.promo_type || "percent");
+                const desc = prod ? describePromo(promo, prod) : null;
                 const daysLeft = Math.ceil((new Date(promo.end_date) - new Date()) / (1000 * 60 * 60 * 24));
+                const manufacturer = manufacturers.find((m) => m.id === promo.manufacturer_id);
                 return (
                   <div key={promo.id} style={cardStyle(COLORS.greenSoft)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                           <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name_ar || prod?.name || prod?.nameAr || promo.product_id}</span>
-                          <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>-{promo.discount}%</span>
+                          <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>{typeCfg.icon} {desc?.label}</span>
+                          {manufacturer && <span style={{ background: COLORS.blueSoft, color: COLORS.blue, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>🏭 {manufacturer.name}</span>}
                         </div>
                         <div style={{ color: COLORS.textDim, fontSize: 11 }}>
                           {promo.start_date} ← {promo.end_date}
@@ -14644,11 +14949,32 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                         </div>
                       </div>
                       <div style={{ textAlign: "left", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                        <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</div>
+                        {(promo.promo_type === "percent" || promo.promo_type === "fixed_amount" || !promo.promo_type) && (
+                          <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{desc?.newUnitPrice ?? "—"} ر.س</div>
+                        )}
                         <div style={{ color: daysLeft <= 3 ? COLORS.red : COLORS.textDim, fontSize: 11 }}>يتبقى {daysLeft} يوم</div>
                         <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                           <button onClick={() => {
-                            setPromoForm({ product_id: promo.product_id, discount: String(promo.discount), start_date: promo.start_date, end_date: promo.end_date, note: promo.note || "" });
+                            setPromoForm({
+                              ...blankPromoDetails,
+                              promo_type: promo.promo_type || "percent",
+                              product_id: promo.product_id,
+                              manufacturer_id: promo.manufacturer_id || "",
+                              discount: promo.discount ?? "",
+                              fixed_amount: promo.fixed_amount ?? "",
+                              buy_qty: promo.buy_qty ?? "",
+                              get_qty: promo.get_qty ?? "",
+                              get_discount_percent: promo.get_discount_percent ?? 100,
+                              qty_discount_percent: promo.qty_discount_percent ?? "",
+                              bundle_qty: promo.bundle_qty ?? "",
+                              bundle_price: promo.bundle_price ?? "",
+                              gift_product_id: promo.gift_product_id ?? "",
+                              gift_qty: promo.gift_qty ?? "",
+                              start_date: promo.start_date,
+                              end_date: promo.end_date,
+                              note: promo.note || "",
+                            });
+                            setPromoMode("single");
                             setEditPromoId(promo.id);
                             setShowPromoForm(true);
                           }} style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
@@ -14958,9 +15284,37 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       </Modal>
 
       {/* Modal إضافة/تعديل عرض يدوي */}
-      <Modal open={showPromoForm} onClose={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); }} title={editPromoId ? "✏️ تعديل عرض يدوي" : "➕ إضافة عرض يدوي"}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div style={{ gridColumn: "1/-1" }}>
+      <Modal open={showPromoForm} onClose={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); setPromoMode("single"); setCompanyProductIds([]); }} title={editPromoId ? "✏️ تعديل عرض يدوي" : "➕ إضافة عرض يدوي"}>
+
+        {/* نمط العرض */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>نمط العرض</label>
+          <select value={promoForm.promo_type}
+            onChange={(e) => setPromoForm((p) => ({ ...blankPromo, promo_type: e.target.value, product_id: p.product_id, manufacturer_id: p.manufacturer_id, start_date: p.start_date, end_date: p.end_date, note: p.note }))}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+            {PROMO_TYPES.filter((t) => autoPromoConfig.enabledTypes.includes(t.id)).map((t) => (
+              <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* اختيار: صنف واحد أو منتجات شركة كاملة */}
+        {!editPromoId && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {[{ id: "single", label: "🔹 صنف واحد" }, { id: "company", label: "🏭 منتجات شركة" }].map((m) => (
+              <button key={m.id} onClick={() => { setPromoMode(m.id); setCompanyProductIds([]); }}
+                style={{ flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700,
+                  background: promoMode === m.id ? COLORS.blueSoft : COLORS.surfaceAlt,
+                  border: `1px solid ${promoMode === m.id ? COLORS.blue : COLORS.border}`,
+                  color: promoMode === m.id ? COLORS.blue : COLORS.textDim }}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {promoMode === "single" || editPromoId ? (
+          <div style={{ marginBottom: 12 }}>
             <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
             <select value={promoForm.product_id}
               onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
@@ -14971,25 +15325,101 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
               ))}
             </select>
           </div>
-          <Input label="نسبة الخصم %" value={promoForm.discount} onChange={(v) => setPromoForm((p) => ({ ...p, discount: v }))} type="number" placeholder="10" />
+        ) : (
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الشركة المصنّعة</label>
+            <select value={promoForm.manufacturer_id}
+              onChange={(e) => { setPromoForm((p) => ({ ...p, manufacturer_id: e.target.value })); setCompanyProductIds([]); }}
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", marginBottom: 10 }}>
+              <option value="">-- اختر شركة --</option>
+              {manufacturers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+
+            {promoForm.manufacturer_id && (() => {
+              const companyProducts = products.filter((p) => p.manufacturer_id === promoForm.manufacturer_id);
+              if (companyProducts.length === 0) {
+                return <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "center", padding: 10 }}>لا توجد منتجات مسجلة لهذه الشركة</div>;
+              }
+              const allSelected = companyProductIds.length === companyProducts.length;
+              return (
+                <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, maxHeight: 220, overflowY: "auto" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ color: COLORS.textDim, fontSize: 12 }}>{companyProductIds.length} من {companyProducts.length} منتج محدد</span>
+                    <button onClick={() => setCompanyProductIds(allSelected ? [] : companyProducts.map((p) => p.id))}
+                      style={{ background: "transparent", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
+                      {allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                    </button>
+                  </div>
+                  {companyProducts.map((p) => {
+                    const checked = companyProductIds.includes(p.id);
+                    return (
+                      <div key={p.id} onClick={() => setCompanyProductIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id])}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: checked ? COLORS.blueSoft : "transparent" }}>
+                        <input type="checkbox" checked={checked} readOnly style={{ pointerEvents: "none" }} />
+                        <span style={{ fontSize: 12, color: COLORS.textPrimary, flex: 1 }}>{p.name || p.nameAr}</span>
+                        <span style={{ fontSize: 11, color: COLORS.textDim }}>{p.price} ر.س</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* حقول خاصة بنمط العرض المختار */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {getPromoTypeConfig(promoForm.promo_type).fields.map((f) => (
+            f.type === "product_select" ? (
+              <div key={f.key} style={{ gridColumn: "1/-1" }}>
+                <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>{f.label}</label>
+                <select value={promoForm[f.key]}
+                  onChange={(e) => setPromoForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+                  <option value="">-- اختر صنف الهدية --</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name || p.nameAr}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <Input key={f.key} label={f.label} value={promoForm[f.key]} onChange={(v) => setPromoForm((p) => ({ ...p, [f.key]: v }))} type={f.type} placeholder={f.placeholder} />
+            )
+          ))}
           <Input label="تاريخ البداية" value={promoForm.start_date} onChange={(v) => setPromoForm((p) => ({ ...p, start_date: v }))} type="date" />
           <Input label="تاريخ النهاية" value={promoForm.end_date} onChange={(v) => setPromoForm((p) => ({ ...p, end_date: v }))} type="date" />
-          <Input label="ملاحظة" value={promoForm.note} onChange={(v) => setPromoForm((p) => ({ ...p, note: v }))} placeholder="وصف العرض..." />
+          <div style={{ gridColumn: "1/-1" }}>
+            <Input label="ملاحظة" value={promoForm.note} onChange={(v) => setPromoForm((p) => ({ ...p, note: v }))} placeholder="وصف العرض..." />
+          </div>
         </div>
-        {promoForm.product_id && promoForm.discount && (() => {
+
+        {/* معاينة السعر — لصنف واحد فقط ولو الحقول مكتملة */}
+        {promoMode === "single" && promoForm.product_id && (() => {
           const prod = products.find((p) => p.id === promoForm.product_id);
           if (!prod) return null;
-          const newPrice = (prod.price * (1 - +promoForm.discount / 100)).toFixed(2);
+          const desc = describePromo({ ...promoForm, discount: +promoForm.discount, fixed_amount: +promoForm.fixed_amount, buy_qty: +promoForm.buy_qty, get_qty: +promoForm.get_qty, get_discount_percent: +promoForm.get_discount_percent, qty_discount_percent: +promoForm.qty_discount_percent, bundle_qty: +promoForm.bundle_qty, bundle_price: +promoForm.bundle_price }, prod);
           return (
             <div style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: 10, marginTop: 10 }}>
-              <span style={{ color: COLORS.textDim, fontSize: 12 }}>السعر بعد الخصم: </span>
-              <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{newPrice} ر.س</span>
-              <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
+              <span style={{ color: COLORS.textDim, fontSize: 12 }}>{desc.label}</span>
+              {promoForm.promo_type !== "bogo" && promoForm.promo_type !== "free_gift" && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{desc.newUnitPrice} ر.س</span>
+                  <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
+                </div>
+              )}
             </div>
           );
         })()}
+        {promoMode === "company" && companyProductIds.length > 0 && (
+          <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: 10, marginTop: 10, color: COLORS.blue, fontSize: 12 }}>
+            هيتم تطبيق العرض على {companyProductIds.length} منتج من هذه الشركة
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); }}>إلغاء</Btn>
+          <Btn variant="ghost" onClick={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); setPromoMode("single"); setCompanyProductIds([]); }}>إلغاء</Btn>
           <Btn icon="check" onClick={savePromo}>{editPromoId ? "حفظ التعديل" : "إضافة العرض"}</Btn>
         </div>
       </Modal>
