@@ -14555,12 +14555,19 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     return null;
   };
 
-  // بناء الحقول الرقمية الخاصة بنمط العرض المختار فقط (باقي الحقول بتتسجل null)
+  // بناء الحقول الرقمية الخاصة بنمط العرض المختار فقط (باقي الحقول الرقمية بتتسجل 0 وحقول النص بتتسجل null، عشان مايحصلش خطأ numeric في supabase)
   const buildPromoDetails = () => {
     const typeCfg = getPromoTypeConfig(promoForm.promo_type);
-    const details = { ...blankPromoDetails };
-    typeCfg.fields.forEach((f) => {
-      details[f.key] = f.type === "number" ? +promoForm[f.key] || 0 : promoForm[f.key];
+    const activeFields = new Map(typeCfg.fields.map((f) => [f.key, f]));
+    const details = {};
+    Object.keys(blankPromoDetails).forEach((key) => {
+      const f = activeFields.get(key);
+      if (f) {
+        details[key] = f.type === "number" ? (+promoForm[key] || 0) : (promoForm[key] || null);
+      } else {
+        // حقل غير مستخدم في هذا النمط: رقمي يبقى 0، نصي يبقى null (مايبعتش "" لعمود numeric)
+        details[key] = typeof blankPromoDetails[key] === "number" ? 0 : null;
+      }
     });
     return details;
   };
