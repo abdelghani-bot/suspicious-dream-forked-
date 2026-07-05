@@ -6417,7 +6417,7 @@ const LABEL_SIZES = [
           .phone { font-size: 6pt; text-align: center; color: #444; }
           .product { font-size: 7pt; font-weight: bold; text-align: center; margin: 1mm 0; }
           .details { display: flex; justify-content: space-between; font-size: 6pt; }
-          svg { width: 100%; height: ${size.h * 0.35}mm; }
+          img.barcode { width: 100%; height: ${size.h * 0.35}mm; display: block; }
           @media print {
             body { margin: 0; }
             .no-print { display: none; }
@@ -6435,7 +6435,7 @@ const LABEL_SIZES = [
               <div class="pharmacy">${pharmSettings.name_ar || ""}</div>
               <div class="phone">${pharmSettings.phone || ""}</div>
               <div class="product">${item.name}</div>
-              <svg id="bc${idx}"></svg>
+              <img class="barcode" id="bc${idx}" />
               <div class="details">
                 <span>سعر: ${item.newSalePrice || item.salePrice || item.price} ر.س</span>
                 <span>${item.expiry_date ? "صلاحية: " + item.expiry_date : ""}</span>
