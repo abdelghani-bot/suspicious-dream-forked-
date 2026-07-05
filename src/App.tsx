@@ -1844,13 +1844,26 @@ if (isLoading) return (
     { label: "الإدارة",          color: GROUP_COLORS.admin,   ids: ["pharmacy_settings", "permissions", "rasd_settings", "audit_log"] },
   ];
 
+  // ── ربط معرّف التاب في السايدبار بمعرّف القسم/الفرعي في نظام الصلاحيات (SYSTEM_SECTIONS) ──
+  const SIDEBAR_TAB_PERM: Record<string, [string, string?]> = {
+    sales_returns:    ["returns", "sales"],
+    purchase_returns: ["returns", "purchases"],
+  };
+  const canViewSidebarTab = (id: string) => {
+    const [section, sub] = SIDEBAR_TAB_PERM[id] || [id, undefined];
+    return canView(section, sub);
+  };
+
   // إيجاد لون التاب الحالي
   const activeGroup = groups.find(g => g.ids.includes(tab));
   const activeColor = activeGroup?.color || GROUP_COLORS.main;
 
-  // إخفاء مجموعة "الإدارة" بالكامل عن أي مستخدم غير أدمن
+  // إخفاء مجموعة "الإدارة" بالكامل عن أي مستخدم غير أدمن، وفلترة باقي التابات حسب صلاحيات role_permissions
   const isAdminUser = currentUser?.role === "admin";
-  const visibleGroups = groups.filter((g) => g.label !== "الإدارة" || isAdminUser);
+  const visibleGroups = groups
+    .filter((g) => g.label !== "الإدارة" || isAdminUser)
+    .map((g) => ({ ...g, ids: g.ids.filter((id) => canViewSidebarTab(id)) }))
+    .filter((g) => g.ids.length > 0);
 
   return visibleGroups.map((group, gi) => (
     <div key={gi}>
@@ -2023,7 +2036,7 @@ if (isLoading) return (
             returnsData={returnsData}
           />
         )}
-        {tab === "pos" && (
+        {tab === "pos" && canView("pos") && (
           <POS
             products={products}
             setProducts={setProducts}
@@ -2045,7 +2058,7 @@ if (isLoading) return (
             productEarliestExpiry={posProductEarliestExpiry}
           />
         )}
-        {tab === "purchase" && (
+        {tab === "purchase" && canView("purchase") && (
           <PurchaseModule
             products={products}
             setProducts={setProducts}
@@ -2104,8 +2117,8 @@ if (isLoading) return (
         {tab === "audit_log" && currentUser?.role === "admin" && (
           <AuditLogModule pharmacyId={pharmacyId} showToast={showToast} />
         )}
-        {tab === "expiry_report" && <ExpiryReport purchases={purchases} />}
-        {tab === "inventory_count" && (
+        {tab === "expiry_report" && canView("expiry_report") && <ExpiryReport purchases={purchases} />}
+        {tab === "inventory_count" && canView("inventory_count") && (
           <InventoryCount
             products={products}
             setProducts={setProducts}
@@ -2117,7 +2130,7 @@ if (isLoading) return (
             purchases={purchases}
           />
         )}
-        {tab === "products" && (
+        {tab === "products" && canView("products") && (
           <ProductsModule
             products={products}
             setProducts={setProducts}
@@ -2129,7 +2142,7 @@ if (isLoading) return (
             currentUser={currentUser}
           />
         )}
-        {tab === "suppliers" && (
+        {tab === "suppliers" && canView("suppliers") && (
           <SuppliersModule
   suppliers={suppliers}
   setSuppliers={setSuppliers}
@@ -2144,7 +2157,7 @@ if (isLoading) return (
   setTreasuryEntries={setTreasuryEntries}
 />
         )}
-        {tab === "customers" && (
+        {tab === "customers" && canView("customers") && (
           <CustomersModule
             customers={customers}
             setCustomers={setCustomers}
@@ -2157,7 +2170,7 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
           />
         )}
-        {tab === "reports" && (
+        {tab === "reports" && canView("reports") && (
           <Reports
             sales={sales}
             purchases={purchases}
@@ -2168,7 +2181,7 @@ if (isLoading) return (
             manufacturers={manufacturers}
           />
         )}
-        {tab === "tax_report" && (
+        {tab === "tax_report" && canView("tax_report") && (
           <TaxReport sales={sales} purchases={purchases} returns={returnsData} />
         )}
         {tab === "financial_health" && canView("financial_health") && (
@@ -2185,7 +2198,7 @@ if (isLoading) return (
             canEditFinance={canEdit("financial_health")}
           />
         )}
-        {tab === "promotions" && (
+        {tab === "promotions" && canView("promotions") && (
           <PromotionsModule
             products={products}
             setProducts={setProducts}
@@ -2197,7 +2210,7 @@ if (isLoading) return (
             showToast={showToast}
           />
         )}
-        {tab === "target" && (
+        {tab === "target" && canView("target") && (
   <TargetModule
     users={users}
     sales={sales}
@@ -2223,7 +2236,7 @@ if (isLoading) return (
             canEditSub={(sub) => canEdit("treasury", sub)}
           />
         )}
-        {tab === "shift" && (
+        {tab === "shift" && canView("shift") && (
           <ShiftModule
             shifts={shifts}
             setShifts={setShifts}
@@ -2246,7 +2259,7 @@ if (isLoading) return (
   canEditSub={(sub) => canEdit("attendance", sub)}
 />
 )}
-    {tab === "loyalty" && (
+    {tab === "loyalty" && canView("loyalty") && (
   <LoyaltyModule
     customers={customers}
     sales={sales}
