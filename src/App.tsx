@@ -6173,6 +6173,7 @@ function PharmacySettings({ showToast, pharmacyId }) {
   ];
 
   const LABEL_SIZES = [
+    { id: "25x50", label: "25×50 mm (المقاس الفعلي)", w: 25, h: 50 },
     { id: "40x25", label: "40×25 mm (صغير)", w: 40, h: 25 },
     { id: "50x30", label: "50×30 mm (متوسط)", w: 50, h: 30 },
     { id: "58x40", label: "58×40 mm (كبير)", w: 58, h: 40 },
@@ -6362,6 +6363,7 @@ function PurchaseModule({
   const [printItems, setPrintItems] = useState([]);
   const [pharmSettings, setPharmSettings] = useState({});
 const LABEL_SIZES = [
+  { id: "25x50", label: "25×50 mm (المقاس الفعلي)", w: 25, h: 50 },
   { id: "40x25", label: "40×25 mm", w: 40, h: 25 },
   { id: "50x30", label: "50×30 mm", w: 50, h: 30 },
   { id: "58x40", label: "58×40 mm", w: 58, h: 40 },
@@ -6380,7 +6382,7 @@ const LABEL_SIZES = [
   };
 
   const doPrint = () => {
-    const size = LABEL_SIZES.find((s) => s.id === (pharmSettings.label_size || "50x30")) || LABEL_SIZES[1];
+    const size = LABEL_SIZES.find((s) => s.id === (pharmSettings.label_size || "25x50")) || LABEL_SIZES[0];
     const labels = [];
     printItems.filter((item) => item.selected !== false).forEach((item) => {
       for (let c = 0; c < item.copies; c++) {
