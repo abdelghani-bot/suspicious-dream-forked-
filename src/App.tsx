@@ -6388,6 +6388,7 @@ const LABEL_SIZES = [
     };
     loadScript("browserprint-sdk", "/browserprint/BrowserPrint-3.1.250.min.js");
     loadScript("browserprint-zebra-sdk", "/browserprint/BrowserPrint-Zebra-1.1.250.min.js");
+    loadScript("jsbarcode-sdk", "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js");
   }, []);
 
   const printLabels = (invoiceItems) => {
