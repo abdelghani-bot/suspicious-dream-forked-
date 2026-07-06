@@ -3865,6 +3865,7 @@ const CART_AREA_HEIGHT = CART_HEADER_HEIGHT + CART_ROW_HEIGHT * CART_VISIBLE_ROW
 const emptyInvoice = () => ({
   cart: [],
   selCustomer: null,
+  patientName: "",
   payment: "نقدي",
   paymentMode: "single",
   splitPayment: { card: 0, transfer: 0 },
@@ -4103,6 +4104,8 @@ function POS({
   const [doseLabelItem, setDoseLabelItem] = useState(null);
   const [pharmSettingsPOS, setPharmSettingsPOS] = useState<any>({});
   const [doseTemplates, setDoseTemplates] = useState<string[]>(DEFAULT_DOSE_TEMPLATES);
+  const [showBulkDoseModal, setShowBulkDoseModal] = useState(false);
+  const [bulkLabelSize, setBulkLabelSize] = useState("80x60");
 
   useEffect(() => {
     if (!pharmacyId) return;
@@ -4146,6 +4149,7 @@ function POS({
     const dateStr = now.toLocaleDateString("ar-EG");
     const timeStr = now.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
     const size = DOSAGE_LABEL_SIZES.find((s) => s.id === (it._labelSize || "80x60")) || DOSAGE_LABEL_SIZES[2];
+    const patientName = (inv.patientName || "").trim() || inv.selCustomer?.name || "";
 
     const win = window.open("", "_blank");
     win.document.write(`
@@ -4167,6 +4171,7 @@ function POS({
             padding-bottom: 1.5mm; margin-bottom: 1.5mm;
           }
           .meta { font-size: 7pt; color: #333; }
+          .patient { font-size: 8pt; font-weight: 700; margin: 1mm 0; }
           .product { font-size: 11pt; font-weight: 800; text-align: center; margin: 1.5mm 0; }
           .dose-box {
             border: 1.5px solid #000; border-radius: 2mm; padding: 2mm;
@@ -4192,6 +4197,7 @@ function POS({
           <div class="meta">
             الصيدلي: ${currentUser?.name || ""} &nbsp;|&nbsp; تاريخ الصرف: ${dateStr} ${timeStr}
           </div>
+          ${patientName ? `<div class="patient">👤 المريض: ${patientName}</div>` : ""}
           <div class="product">${it.name || ""}</div>
           <div class="dose-box">${(it._dose || "بدون جرعة محددة").replace(/\n/g, "<br>")}</div>
           ${it._notes ? `<div class="notes">📝 ملاحظات: ${it._notes}</div>` : ""}
@@ -4205,6 +4211,86 @@ function POS({
     `);
     win.document.close();
     setDoseLabelItem(null);
+  };
+
+  // ── طباعة كل ملصقات الجرعة للسلة دفعة واحدة ──
+  const printAllDoseLabels = (sizeId) => {
+    const items = inv.cart.filter((i) => !i.isGift);
+    if (items.length === 0) return;
+    const size = DOSAGE_LABEL_SIZES.find((s) => s.id === sizeId) || DOSAGE_LABEL_SIZES[2];
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("ar-EG");
+    const timeStr = now.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+    const patientName = (inv.patientName || "").trim() || inv.selCustomer?.name || "";
+
+    const labelsHtml = items
+      .map(
+        (it) => `
+        <div class="label">
+          <div class="pharmacy-row">
+            <span>${pharmSettingsPOS.name_ar || ""}</span>
+            <span>${pharmSettingsPOS.license_number ? "رقم الصيدلية: " + pharmSettingsPOS.license_number : ""}</span>
+          </div>
+          <div class="meta">
+            الصيدلي: ${currentUser?.name || ""} &nbsp;|&nbsp; تاريخ الصرف: ${dateStr} ${timeStr}
+          </div>
+          ${patientName ? `<div class="patient">👤 المريض: ${patientName}</div>` : ""}
+          <div class="product">${it.name || ""}</div>
+          <div class="dose-box">${(it.dose || "بدون جرعة محددة").replace(/\n/g, "<br>")}</div>
+          ${it.notes ? `<div class="notes">📝 ملاحظات: ${it.notes}</div>` : ""}
+          <div class="row">
+            <span>${it.expiry_date ? "صلاحية: " + it.expiry_date : ""}</span>
+          </div>
+        </div>`
+      )
+      .join("");
+
+    const win = window.open("", "_blank");
+    win.document.write(`
+      <html dir="rtl">
+      <head>
+        <meta charset="utf-8">
+        <title>ملصقات الجرعة</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          @page { size: ${size.w}mm ${size.h}mm; margin: 0; }
+          body { font-family: Arial, sans-serif; }
+          .label {
+            width: ${size.w}mm; height: ${size.h}mm; padding: 3mm;
+            display: flex; flex-direction: column;
+            page-break-after: always;
+          }
+          .label:last-child { page-break-after: auto; }
+          .pharmacy-row {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 8pt; font-weight: 800; border-bottom: 1px solid #000;
+            padding-bottom: 1.5mm; margin-bottom: 1.5mm;
+          }
+          .meta { font-size: 7pt; color: #333; }
+          .patient { font-size: 8pt; font-weight: 700; margin: 1mm 0; }
+          .product { font-size: 11pt; font-weight: 800; text-align: center; margin: 1.5mm 0; }
+          .dose-box {
+            border: 1.5px solid #000; border-radius: 2mm; padding: 2mm;
+            text-align: center; font-size: 12pt; font-weight: 800;
+            margin: 1.5mm 0; flex-grow: 1; display: flex;
+            align-items: center; justify-content: center; line-height: 1.4;
+          }
+          .notes { font-size: 8pt; margin-top: 1mm; }
+          .row { display: flex; justify-content: space-between; font-size: 7.5pt; margin-top: 1mm; border-top: 1px dashed #999; padding-top: 1mm; }
+          @media print { .no-print { display: none; } body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="padding:10px; text-align:center;">
+          <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">🖨️ طباعة الكل (${items.length})</button>
+          <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-right:10px;">✕ إغلاق</button>
+        </div>
+        ${labelsHtml}
+      </body>
+      </html>
+    `);
+    win.document.close();
+    setShowBulkDoseModal(false);
   };
 
 
@@ -5514,6 +5600,32 @@ function POS({
           />
         </div>
 
+        {/* اسم المريض — يُفترض إنه نفس العميل إلا لو اتكتب مختلف */}
+        <div
+          style={{
+            padding: "0 16px 6px",
+            borderBottom: `1px solid ${COLORS.border}`,
+            flexShrink: 0,
+          }}
+        >
+          <input
+            value={inv.patientName || ""}
+            onChange={(e) => setInv((p) => ({ ...p, patientName: e.target.value }))}
+            placeholder={`👤 اسم المريض (اتركه فاضي لو هو نفس ${inv.selCustomer?.name || "العميل"})`}
+            style={{
+              width: "100%",
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 8,
+              padding: "6px 10px",
+              color: COLORS.textPrimary,
+              fontSize: 12,
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+
         {/* السلة */}
         <div
           style={{
@@ -5810,6 +5922,20 @@ function POS({
             </table>
           )}
         </div>
+
+        {inv.cart.filter((i) => !i.isGift).length > 0 && (
+          <div style={{ padding: "4px 16px 0", flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={() => setShowBulkDoseModal(true)}
+              style={{
+                background: "transparent", border: "none", color: COLORS.blue, cursor: "pointer",
+                fontSize: 12, display: "flex", alignItems: "center", gap: 4, padding: "2px 0",
+              }}
+            >
+              🖨️ طباعة كل ملصقات الجرعة ({inv.cart.filter((i) => !i.isGift).length})
+            </button>
+          </div>
+        )}
 
         {/* الإجمالي والدفع */}
         <div
@@ -6288,6 +6414,48 @@ function POS({
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal open={showBulkDoseModal} onClose={() => setShowBulkDoseModal(false)} title="🖨️ طباعة كل ملصقات الجرعة">
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 13 }}>
+            هيتم طباعة ملصق جرعة منفصل لكل صنف في السلة، بالجرعة والملاحظات المكتوبة جنب كل صنف.
+            {(() => {
+              const patientName = (inv.patientName || "").trim() || inv.selCustomer?.name || "";
+              return patientName ? ` المريض: ${patientName}` : "";
+            })()}
+          </div>
+          <div>
+            <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+              حجم الملصق (نفس الحجم لكل الأصناف)
+            </label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {DOSAGE_LABEL_SIZES.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setBulkLabelSize(s.id)}
+                  style={{
+                    padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                    border: `2px solid ${bulkLabelSize === s.id ? COLORS.blue : COLORS.border}`,
+                    background: bulkLabelSize === s.id ? COLORS.blueSoft : COLORS.surfaceAlt,
+                    color: bulkLabelSize === s.id ? COLORS.blue : COLORS.textDim,
+                    fontSize: 12, fontWeight: 600,
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+            <Btn onClick={() => printAllDoseLabels(bulkLabelSize)} icon="print" style={{ flex: 1, justifyContent: "center" }}>
+              طباعة الكل
+            </Btn>
+            <Btn variant="ghost" onClick={() => setShowBulkDoseModal(false)} style={{ flex: 1, justifyContent: "center" }}>
+              إلغاء
+            </Btn>
+          </div>
+        </div>
       </Modal>
     </div>
   );
