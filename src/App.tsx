@@ -4316,6 +4316,13 @@ function POS({
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [loyaltySettings, setLoyaltySettings] = useState<any>(null);
 
+  // ✅ لو تغيّر إجمالي الفاتورة (إضافة/حذف صنف) والمبلغ المُستبدل بقى أكبر من الحد المسموح، نصغّره تلقائياً
+  useEffect(() => {
+    if (!usePoints) return;
+    const maxRedeemable = Math.max(0, Math.min(customerLoyalty?.points || 0, subtotal + taxAmount - discountAmt));
+    setPointsToRedeem((prev) => (prev > maxRedeemable ? maxRedeemable : prev));
+  }, [usePoints, subtotal, taxAmount, discountAmt, customerLoyalty]);
+
   const inv = invoices[activeTab] || emptyInvoice();
   const setInv = (updater) => {
     setInvoices((prev) =>
@@ -4600,6 +4607,12 @@ function POS({
     .filter((i) => !i.isMissed)
     .reduce((s, i) => s + i.price * i.qty, 0);
 
+  // ── سطور مؤهلة لكسب نقاط الولاء: بنستبعد أي صنف عليه خصم أو عرض (نسبة/BOGO/كمية/باقة) أو هدية ──
+  const isPromoLine = (i) => !!(i.discountPct > 0 || i.promoType || i.isGift);
+  const pointsEligibleSubtotal = inv.cart
+    .filter((i) => !i.isMissed && !isPromoLine(i))
+    .reduce((s, i) => s + i.price * i.qty, 0);
+
   const taxAmount = inv.cart
     .filter((i) => !i.isMissed)
     .reduce((s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s), 0);
@@ -4696,8 +4709,10 @@ function POS({
           newFifoResults[i.lineId]?.soldBatches?.[0]?.expiry_date ||
           null,
         category: i.main_category || i.mainCategory || i.category || "أخرى",
+        excluded_from_points: isPromoLine(i),
       })),
       subtotal,
+      points_eligible_subtotal: pointsEligibleSubtotal,
       tax_amount: taxAmount,
       discount_amt: discountAmt,
       discount_type: inv.discountType,
@@ -4805,13 +4820,15 @@ function POS({
 
       if (ls) {
         let points = 0;
+        // ✅ الأصناف اللي عليها خصم أو عرض (أو هدية) مستبعدة من احتساب النقاط
+        const eligibleItems = invoice.items.filter((it) => !it.excluded_from_points);
         if (ls.mode === "profit") {
-          const profit = invoice.items.reduce((sum, it) => {
+          const profit = eligibleItems.reduce((sum, it) => {
             return sum + (it.price - (it.cost || 0)) * (it.qty || 0);
           }, 0) - (invoice.discount_amt || 0);
           points = Math.max(0, profit * (ls.profit_rate / 100));
         } else {
-          points = Math.floor(invoice.subtotal / ls.sales_per) * ls.sales_rate;
+          points = Math.floor((invoice.points_eligible_subtotal ?? invoice.subtotal) / ls.sales_per) * ls.sales_rate;
         }
 
         if (points > 0) {
@@ -5718,6 +5735,11 @@ function POS({
               </span>
             </div>
           )}
+          {(item.discountPct > 0 || item.promoType || item.isGift) && (
+            <div style={{ fontSize: 9.5, marginTop: 1, color: COLORS.textDim }}>
+              🚫 مستبعد من نقاط الولاء
+            </div>
+          )}
           <input
             value={item.dose}
             onChange={(e) => setInv((p) => ({
@@ -6112,42 +6134,88 @@ function POS({
               borderRadius: 10,
               padding: "7px 12px",
               marginBottom: 6,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
             }}>
-              <div>
-                <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700 }}>
-                  🌟 نقاط متاحة: {customerLoyalty.points.toFixed(2)} ر.س
-                </div>
-                {usePoints && (
-                  <div style={{ color: COLORS.green, fontSize: 11, marginTop: 3 }}>
-                    سيتم خصم {pointsToRedeem.toFixed(2)} ر.س من الفاتورة
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700 }}>
+                    🌟 نقاط متاحة: {customerLoyalty.points.toFixed(2)} ر.س
                   </div>
-                )}
+                  {usePoints && (
+                    <div style={{ color: COLORS.green, fontSize: 11, marginTop: 3 }}>
+                      سيتم خصم {pointsToRedeem.toFixed(2)} ر.س من الفاتورة
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    const newUse = !usePoints;
+                    setUsePoints(newUse);
+                    setPointsToRedeem(newUse
+                      ? Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt)
+                      : 0
+                    );
+                  }}
+                  style={{
+                    padding: "5px 14px",
+                    borderRadius: 7,
+                    border: `1px solid ${tint(COLORS.green,0.35)}`,
+                    background: usePoints ? COLORS.green : "transparent",
+                    color: usePoints ? "#000" : COLORS.green,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {usePoints ? "✓ مفعّل" : "استخدام النقاط"}
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  const newUse = !usePoints;
-                  setUsePoints(newUse);
-                  setPointsToRedeem(newUse
-                    ? Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt)
-                    : 0
-                  );
-                }}
-                style={{
-                  padding: "5px 14px",
-                  borderRadius: 7,
-                  border: `1px solid ${tint(COLORS.green,0.35)}`,
-                  background: usePoints ? COLORS.green : "transparent",
-                  color: usePoints ? "#000" : COLORS.green,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                {usePoints ? "✓ مفعّل" : "استخدام النقاط"}
-              </button>
+
+              {usePoints && (() => {
+                const maxRedeemable = Math.max(0, Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt));
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <input
+                      type="number"
+                      min={0}
+                      max={maxRedeemable}
+                      step="0.5"
+                      value={pointsToRedeem}
+                      onChange={(e) => {
+                        const v = Math.max(0, Math.min(+e.target.value || 0, maxRedeemable));
+                        setPointsToRedeem(v);
+                      }}
+                      style={{
+                        width: 90,
+                        background: COLORS.surfaceAlt,
+                        border: `1px solid ${tint(COLORS.green,0.35)}`,
+                        borderRadius: 7,
+                        padding: "5px 8px",
+                        color: COLORS.textPrimary,
+                        fontSize: 12,
+                        outline: "none",
+                      }}
+                    />
+                    <span style={{ fontSize: 11, color: COLORS.green }}>
+                      ر.س (بحد أقصى {maxRedeemable.toFixed(2)})
+                    </span>
+                    <button
+                      onClick={() => setPointsToRedeem(maxRedeemable)}
+                      style={{
+                        marginRight: "auto",
+                        background: "transparent",
+                        border: "none",
+                        color: COLORS.green,
+                        cursor: "pointer",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textDecoration: "underline",
+                      }}
+                    >
+                      استخدام الكل
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
