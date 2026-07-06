@@ -6360,6 +6360,7 @@ function PurchaseModule({
   
   // ===== طباعة الباركود =====
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printMethod, setPrintMethod] = useState("browser"); // "browser" | "zpl"
   const [printItems, setPrintItems] = useState([]);
   const [pharmSettings, setPharmSettings] = useState({});
 const LABEL_SIZES = [
@@ -6375,6 +6376,19 @@ const LABEL_SIZES = [
     supabase.from("pharmacy_settings").select("*").eq("pharmacy_id", pharmacyId).single()
       .then(({ data }) => { if (data) setPharmSettings(data); });
   }, [pharmacyId]);
+
+  useEffect(() => {
+    const loadScript = (id, src) => {
+      if (document.getElementById(id)) return;
+      const s = document.createElement("script");
+      s.id = id;
+      s.src = src;
+      s.async = false;
+      document.body.appendChild(s);
+    };
+    loadScript("browserprint-sdk", "/browserprint/BrowserPrint-3.1.250.min.js");
+    loadScript("browserprint-zebra-sdk", "/browserprint/BrowserPrint-Zebra-1.1.250.min.js");
+  }, []);
 
   const printLabels = (invoiceItems) => {
     setPrintItems(invoiceItems.map((i) => ({ ...i, copies: i.qty + (i.bonusQty || 0), selected: true })));
@@ -6463,6 +6477,126 @@ const LABEL_SIZES = [
     win.document.close();
     setShowPrintModal(false);
   };
+
+  // ===== طباعة ZPL مباشرة (Zebra Browser Print) =====
+  const DOTS_PER_MM = 8; // دقة 203 dpi (المعيار في GK420t)
+
+  const renderLabelCanvas = (item, size) => {
+    return new Promise((resolve) => {
+      const w = Math.round(size.w * DOTS_PER_MM);
+      const h = Math.round(size.h * DOTS_PER_MM);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "center";
+      ctx.direction = "rtl";
+
+      let y = 16;
+      ctx.font = "bold 15px Arial";
+      ctx.fillText(pharmSettings.name_ar || "", w / 2, y, w - 8);
+      y += 15;
+      ctx.font = "12px Arial";
+      ctx.fillText(pharmSettings.phone || "", w / 2, y, w - 8);
+      y += 18;
+      ctx.font = "bold 15px Arial";
+      ctx.fillText(item.name || "", w / 2, y, w - 8);
+      y += 10;
+
+      const bcCanvas = document.createElement("canvas");
+      try {
+        window.JsBarcode(bcCanvas, item.barcode || item.id, {
+          format: "CODE128",
+          displayValue: true,
+          fontSize: 14,
+          margin: 0,
+          width: 2,
+          height: Math.round(h * 0.28),
+        });
+      } catch (e) {}
+      const bcW = Math.min(bcCanvas.width || 0, w - 10);
+      if (bcCanvas.width) {
+        ctx.drawImage(bcCanvas, (w - bcW) / 2, y, bcW, bcCanvas.height);
+        y += bcCanvas.height + 14;
+      }
+
+      ctx.direction = "ltr";
+      ctx.font = "12px Arial";
+      ctx.fillText(
+        `سعر: ${item.newSalePrice || item.salePrice || item.price} ر.س`,
+        w / 2,
+        y,
+        w - 8
+      );
+
+      resolve(canvas);
+    });
+  };
+
+  // تحويل صورة Canvas لأوامر رسم ZPL (^GFA) بصيغة Hex أبيض/أسود
+  const canvasToZPLGraphic = (canvas) => {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width;
+    const h = canvas.height;
+    const imgData = ctx.getImageData(0, 0, w, h).data;
+    const bytesPerRow = Math.ceil(w / 8);
+    const totalBytes = bytesPerRow * h;
+    let hex = "";
+    for (let y = 0; y < h; y++) {
+      for (let byteIdx = 0; byteIdx < bytesPerRow; byteIdx++) {
+        let byte = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const x = byteIdx * 8 + bit;
+          let on = 0;
+          if (x < w) {
+            const idx = (y * w + x) * 4;
+            const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
+            const brightness = (r + g + b) / 3;
+            on = a > 10 && brightness < 128 ? 1 : 0;
+          }
+          byte = (byte << 1) | on;
+        }
+        hex += byte.toString(16).padStart(2, "0");
+      }
+    }
+    return { totalBytes, bytesPerRow, hex: hex.toUpperCase() };
+  };
+
+  const doPrintZPL = async () => {
+    const size = LABEL_SIZES.find((s) => s.id === (pharmSettings.label_size || "25x50")) || LABEL_SIZES[0];
+    const labels = [];
+    printItems.filter((item) => item.selected !== false).forEach((item) => {
+      for (let c = 0; c < item.copies; c++) labels.push(item);
+    });
+
+    if (!window.BrowserPrint) {
+      alert("تطبيق Zebra Browser Print غير شغال. تأكد إنه مثبت وشغال في الخلفية على هذا الجهاز، ثم حاول تاني.");
+      return;
+    }
+
+    let fullZPL = "";
+    for (const item of labels) {
+      const canvas = await renderLabelCanvas(item, size);
+      const { totalBytes, bytesPerRow, hex } = canvasToZPLGraphic(canvas);
+      fullZPL += `^XA^PW${canvas.width}^LL${canvas.height}^FO0,0^GFA,${totalBytes},${totalBytes},${bytesPerRow},${hex}^XZ`;
+    }
+
+    window.BrowserPrint.getDefaultDevice(
+      "printer",
+      (device) => {
+        device.send(
+          fullZPL,
+          () => setShowPrintModal(false),
+          (err) => alert("فشلت الطباعة عبر ZPL: " + err)
+        );
+      },
+      (err) => alert("لم يتم العثور على طابعة متصلة عبر Browser Print: " + err)
+    );
+  };
+  // ===== نهاية طباعة ZPL =====
   // ===== نهاية طباعة الباركود =====
 
   const lastKeyTimePurch = useRef<number>(0);
@@ -7455,6 +7589,33 @@ const LABEL_SIZES = [
             </span>
           </div>
 
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button
+              onClick={() => setPrintMethod("browser")}
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                border: `2px solid ${printMethod === "browser" ? COLORS.blue : COLORS.border}`,
+                background: printMethod === "browser" ? COLORS.blueSoft : COLORS.surfaceAlt,
+                color: printMethod === "browser" ? COLORS.blue : COLORS.textDim,
+                fontSize: 12, fontWeight: 600,
+              }}
+            >
+              🖨️ طباعة عادية (متصفح)
+            </button>
+            <button
+              onClick={() => setPrintMethod("zpl")}
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                border: `2px solid ${printMethod === "zpl" ? COLORS.blue : COLORS.border}`,
+                background: printMethod === "zpl" ? COLORS.blueSoft : COLORS.surfaceAlt,
+                color: printMethod === "zpl" ? COLORS.blue : COLORS.textDim,
+                fontSize: 12, fontWeight: 600,
+              }}
+            >
+              ⚡ ZPL مباشر (Zebra)
+            </button>
+          </div>
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
             {printItems.map((item, idx) => (
               <div
@@ -7544,7 +7705,7 @@ const LABEL_SIZES = [
             </Btn>
             <Btn
               icon="printer"
-              onClick={doPrint}
+              onClick={printMethod === "zpl" ? doPrintZPL : doPrint}
               disabled={printItems.filter((i) => i.selected !== false).length === 0}
             >
               طباعة ({printItems.filter((i) => i.selected !== false).length})
