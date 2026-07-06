@@ -6507,20 +6507,46 @@ const LABEL_SIZES = [
       ctx.fillText(item.name || "", w / 2, y, w - 8);
       y += 10;
 
-      const bcCanvas = document.createElement("canvas");
+      const bcCode = item.barcode || item.id;
+      const bcMaxW = w - 10; // المساحة المتاحة بالبيكسل داخل الملصق
+      const bcHeight = Math.round(h * 0.28);
+
+      // الخطوة 1: نرسم بعرض module = 1 بيكسل عشان نعرف "عدد الوحدات" الحقيقي للكود
+      // ده مش هيتحط في الملصق، بس بيدينا مقياس دقيق لطول الكود المُرمّز فعليًا
+      let moduleUnitWidth = 0;
+      const probeCanvas = document.createElement("canvas");
       try {
-        window.JsBarcode(bcCanvas, item.barcode || item.id, {
+        window.JsBarcode(probeCanvas, bcCode, {
           format: "CODE128",
-          displayValue: true,
-          fontSize: 14,
+          displayValue: false,
           margin: 0,
-          width: 2,
-          height: Math.round(h * 0.28),
+          width: 1,
+          height: bcHeight,
         });
+        moduleUnitWidth = probeCanvas.width || 0;
       } catch (e) {}
-      const bcW = Math.min(bcCanvas.width || 0, w - 10);
+
+      // الخطوة 2: نحسب أكبر عرض صحيح (integer) للـ module يخلي الباركود يملى المساحة
+      // من غير ما يعدّيها - عشان كل خط يترسم بعدد بيكسلات صحيح، ومفيش كسور تبوّظ الطباعة الحرارية
+      const bcCanvas = document.createElement("canvas");
+      if (moduleUnitWidth > 0) {
+        const scale = Math.max(1, Math.floor(bcMaxW / moduleUnitWidth));
+        try {
+          window.JsBarcode(bcCanvas, bcCode, {
+            format: "CODE128",
+            displayValue: true,
+            fontSize: 14,
+            margin: 0,
+            width: scale,
+            height: bcHeight,
+          });
+        } catch (e) {}
+      }
+
       if (bcCanvas.width) {
-        ctx.drawImage(bcCanvas, (w - bcW) / 2, y, bcW, bcCanvas.height);
+        // مفيش تصغير أو تكبير هنا - الباركود بيترسم بمقاسه الطبيعي بالظبط زي ما JsBarcode ولّده
+        const bcX = Math.max(0, Math.round((w - bcCanvas.width) / 2));
+        ctx.drawImage(bcCanvas, bcX, y);
         y += bcCanvas.height + 14;
       }
 
