@@ -1306,6 +1306,43 @@ function parseGS1Barcode(raw) {
 
   return result;
 }
+
+// ==================== بناء باركود GS1-128 (يشمل الصلاحية ورقم التشغيلة) ====================
+// بيرجع { ok, data, hri } - data هو السترينج اللي يتحط في JsBarcode مع ean128:true
+// hri هو النص المقروء البديل (Human Readable Interpretation) اللي بيتحط تحت الباركود
+// ملاحظة مهمة: عشان الباركود يتقرأ صح، السكانر لازم يدعم قراءة GS1-128 (FNC1)
+// وأي نظام هيقرأه لازم يستخدم parseGS1Barcode (الموجودة فوق) لفك التشفير مرة تانية
+function buildGS1Barcode(item) {
+  const rawGtin = String(item.barcode || item.id || "").replace(/\D/g, "");
+  if (!rawGtin) return { ok: false };
+
+  // لازم GTIN يبقى 14 رقم بالظبط - نكمل أصفار على الشمال لو الباركود 12 أو 13 رقم
+  let gtin14 = rawGtin;
+  if (rawGtin.length < 14) gtin14 = rawGtin.padStart(14, "0");
+  else if (rawGtin.length > 14) gtin14 = rawGtin.slice(-14);
+
+  const expiryDate = item.expiry_date || item.expiry;
+  if (!expiryDate) return { ok: false }; // من غير صلاحية مفيش داعي لـ GS1، الباركود العادي أبسط وأثبت
+
+  const d = new Date(expiryDate);
+  if (isNaN(d.getTime())) return { ok: false };
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yymmdd = `${yy}${mm}${dd}`;
+
+  const batch = (item.batch_number || item.batch || "").toString().trim();
+
+  // (10) رقم التشغيلة لازم يبقى آخر حقل لأنه طول متغير - عشان منحتاجش FNC1 فاصلة بعده
+  let data = `01${gtin14}17${yymmdd}`;
+  let hri = `(01)${gtin14}(17)${yymmdd}`;
+  if (batch) {
+    data += `10${batch}`;
+    hri += `(10)${batch}`;
+  }
+
+  return { ok: true, data, hri };
+}
 // ==================== PHARMACY SHELF BACKGROUND ====================
 // خلفية موحّدة (رفوف + علب أدوية + بلور) — تُستخدم مرة واحدة في الـ wrapper
 // الرئيسي عشان تظهر تلقائيًا خلف كل التابات بدون أي تكرار في كل صفحة.
@@ -6462,14 +6499,20 @@ const LABEL_SIZES = [
         </div>
         <script>
           window.onload = function() {
-            ${labels.map((item, idx) => `
+            ${labels.map((item, idx) => {
+              const gs1 = buildGS1Barcode(item);
+              const bcCode = gs1.ok ? gs1.data : (item.barcode || item.id);
+              const bcEan128 = gs1.ok ? "true" : "false";
+              const bcShowValue = gs1.ok ? "false" : "true";
+              return `
               try {
-                JsBarcode("#bc${idx}", "${item.barcode || item.id}", {
-                  format: "CODE128", width: 1.5, height: ${size.h * 3},
-                  displayValue: true, fontSize: 8, margin: 0
+                JsBarcode("#bc${idx}", "${bcCode}", {
+                  format: "CODE128", ean128: ${bcEan128}, width: 1.5, height: ${size.h * 3},
+                  displayValue: ${bcShowValue}, fontSize: 8, margin: 0
                 });
               } catch(e) {}
-            `).join("")}
+            `;
+            }).join("")}
           };
         </script>
       </body>
@@ -6507,9 +6550,22 @@ const LABEL_SIZES = [
       ctx.fillText(item.name || "", w / 2, y, w - 8);
       y += 10;
 
-      const bcCode = item.barcode || item.id;
+      // نحجز مكان تحت لسطرين (سعر + صلاحية) قبل ما نحسب ارتفاع الباركود
+      // عشان الباركود ميوكلش المساحة كلها ويسيب الكلام اللي تحته من غير مكان
+      const footerLineHeight = 14;
+      const hasExpiry = !!item.expiry_date;
+      const footerHeight = footerLineHeight * (hasExpiry ? 2 : 1) + 6;
+      const bcGapAfter = 10;
+      const availableForBarcode = h - y - footerHeight - bcGapAfter;
+      const bcHeight = Math.max(20, Math.min(Math.round(h * 0.28), availableForBarcode));
+
+      const gs1 = buildGS1Barcode(item);
+      const bcCode = gs1.ok ? gs1.data : (item.barcode || item.id);
+      const bcOptions = gs1.ok ? { ean128: true } : {};
+      // لو الـ GS1 اشتغل، بنعرض النص بتاعنا احنا (سعر/صلاحية) تحت بدل ما JsBarcode يعرض
+      // أرقام الـ AI الخام اللي مش مقروءة بسهولة للعين المجردة
+      const bcShowValue = !gs1.ok;
       const bcMaxW = w - 10; // المساحة المتاحة بالبيكسل داخل الملصق
-      const bcHeight = Math.round(h * 0.28);
 
       // الخطوة 1: نرسم بعرض module = 1 بيكسل عشان نعرف "عدد الوحدات" الحقيقي للكود
       // ده مش هيتحط في الملصق، بس بيدينا مقياس دقيق لطول الكود المُرمّز فعليًا
@@ -6517,6 +6573,7 @@ const LABEL_SIZES = [
       const probeCanvas = document.createElement("canvas");
       try {
         window.JsBarcode(probeCanvas, bcCode, {
+          ...bcOptions,
           format: "CODE128",
           displayValue: false,
           margin: 0,
@@ -6533,8 +6590,9 @@ const LABEL_SIZES = [
         const scale = Math.max(1, Math.floor(bcMaxW / moduleUnitWidth));
         try {
           window.JsBarcode(bcCanvas, bcCode, {
+            ...bcOptions,
             format: "CODE128",
-            displayValue: true,
+            displayValue: bcShowValue,
             fontSize: 14,
             margin: 0,
             width: scale,
@@ -6547,7 +6605,7 @@ const LABEL_SIZES = [
         // مفيش تصغير أو تكبير هنا - الباركود بيترسم بمقاسه الطبيعي بالظبط زي ما JsBarcode ولّده
         const bcX = Math.max(0, Math.round((w - bcCanvas.width) / 2));
         ctx.drawImage(bcCanvas, bcX, y);
-        y += bcCanvas.height + 14;
+        y += bcCanvas.height + bcGapAfter;
       }
 
       ctx.direction = "ltr";
@@ -6558,6 +6616,10 @@ const LABEL_SIZES = [
         y,
         w - 8
       );
+      if (hasExpiry) {
+        y += footerLineHeight;
+        ctx.fillText(`صلاحية: ${item.expiry_date}`, w / 2, y, w - 8);
+      }
 
       resolve(canvas);
     });
