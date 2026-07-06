@@ -1343,6 +1343,13 @@ function buildGS1Barcode(item) {
 
   return { ok: true, data, hri };
 }
+
+// بيشيل الأصفار الزيادة على الشمال قبل المقارنة - عشان GTIN-14 المبطّن بالأصفار
+// (زي اللي بيطلع من GS1) يتطابق مع الباركود الأصلي المسجل في قاعدة البيانات
+// (زي EAN-13 من غير الصفر) من غير ما نحتاج نعدّل بيانات الأصناف نفسها.
+function normGtin(v) {
+  return String(v || "").trim().replace(/^0+(?=\d)/, "");
+}
 // ==================== PHARMACY SHELF BACKGROUND ====================
 // خلفية موحّدة (رفوف + علب أدوية + بلور) — تُستخدم مرة واحدة في الـ wrapper
 // الرئيسي عشان تظهر تلقائيًا خلف كل التابات بدون أي تكرار في كل صفحة.
@@ -4228,7 +4235,7 @@ function POS({
     let product = null;
     if (scan.type === "gs1") {
       product = products.find(
-        (x) => x.barcode === scan.gtin || x.gtin === scan.gtin
+        (x) => normGtin(x.barcode) === normGtin(scan.gtin) || normGtin(x.gtin) === normGtin(scan.gtin)
       );
       if (product) {
         // تشغيلات المخزون متسجلة بدقة الشهر/السنة بس (حقل التاريخ في فاتورة الشراء
@@ -7148,7 +7155,11 @@ const LABEL_SIZES = [
               const code = scan.type === "gs1" ? scan.gtin : scan.code;
               const expiry = scan.type === "gs1" ? (scan.expiry ? scan.expiry.slice(0, 7) : "") : "";
               const batch = scan.type === "gs1" ? (scan.batch || "") : "";
-              const found = products.find((x) => x.barcode === code || x.id === code);
+              const found = products.find((x) =>
+                scan.type === "gs1"
+                  ? normGtin(x.barcode) === normGtin(code) || normGtin(x.gtin) === normGtin(code)
+                  : x.barcode === code || x.id === code
+              );
               if (!found) { showToast("الصنف غير موجود: " + code, "error"); return; }
               // إذا كان نفس الصنف موجود بتاريخ مختلف → أضف كصف جديد
               const existSameDate = items.find((i) => i.id === found.id && (i.expiry_date || "") === expiry);
@@ -8571,7 +8582,11 @@ function ReturnsModule({
     const code = scan.type === "gs1" ? scan.gtin : scan.code;
     const scannedExpiry = scan.type === "gs1" && scan.expiry ? scan.expiry.slice(0, 7) : "";
     const scannedBatch = scan.type === "gs1" ? scan.batch || "" : "";
-    const prod = products.find((x) => x.barcode === code || x.id === code);
+    const prod = products.find((x) =>
+      scan.type === "gs1"
+        ? normGtin(x.barcode) === normGtin(code) || normGtin(x.gtin) === normGtin(code)
+        : x.barcode === code || x.id === code
+    );
 
     if (!prod) {
       setLastScanResult({ status: "not_found", code });
