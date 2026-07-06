@@ -964,7 +964,14 @@ const BarcodeScanner = forwardRef(({
       const parsed = parseGS1Barcode(trimmed);
       onScan({ type: "gs1", ...parsed });
     } else {
-      onScan({ type: "simple", code: trimmed, raw: trimmed });
+      // نجرب الشكل البديل بتاعنا (CODE*YYMMDD أو CODE*YYMMDD*BATCH) قبل ما نعتبره
+      // باركود بسيط عادي - ده بيغطي الأصناف اللي كودها مش GTIN رقمي (زي P006)
+      const custom = parseCustomExpiryBarcode(trimmed);
+      if (custom) {
+        onScan({ type: "custom", code: custom.code, expiry: custom.expiry, batch: custom.batch, raw: trimmed });
+      } else {
+        onScan({ type: "simple", code: trimmed, raw: trimmed });
+      }
     }
     setVal("");
     keyCount.current = 0;
@@ -1313,13 +1320,14 @@ function parseGS1Barcode(raw) {
 // ملاحظة مهمة: عشان الباركود يتقرأ صح، السكانر لازم يدعم قراءة GS1-128 (FNC1)
 // وأي نظام هيقرأه لازم يستخدم parseGS1Barcode (الموجودة فوق) لفك التشفير مرة تانية
 function buildGS1Barcode(item) {
-  const rawGtin = String(item.barcode || item.id || "").replace(/\D/g, "");
-  if (!rawGtin) return { ok: false };
+  // لازم الباركود يكون أرقام بس عشان يبقى GTIN صالح - لو فيه حروف (زي "P006" أو
+  // كود صنف داخلي) يبقى مش GTIN حقيقي، ومينفعش نشيل الحروف ونحط أصفار مكانها
+  // (ده اللي كان بيحصل قبل كده وبيولد باركود أغلبه أصفار وغير صحيح).
+  // كمان ملاحظة: item.id هو معرّف داخلي في النظام مش باركود، فمينفعش نستخدمه كـ GTIN.
+  const barcodeRaw = String(item.barcode || "").trim();
+  if (!/^\d{8,14}$/.test(barcodeRaw)) return { ok: false };
 
-  // لازم GTIN يبقى 14 رقم بالظبط - نكمل أصفار على الشمال لو الباركود 12 أو 13 رقم
-  let gtin14 = rawGtin;
-  if (rawGtin.length < 14) gtin14 = rawGtin.padStart(14, "0");
-  else if (rawGtin.length > 14) gtin14 = rawGtin.slice(-14);
+  const gtin14 = barcodeRaw.padStart(14, "0");
 
   const expiryDate = item.expiry_date || item.expiry;
   if (!expiryDate) return { ok: false }; // من غير صلاحية مفيش داعي لـ GS1، الباركود العادي أبسط وأثبت
@@ -1342,6 +1350,50 @@ function buildGS1Barcode(item) {
   }
 
   return { ok: true, data, hri };
+}
+
+// ==================== باركود بديل لما الصنف كوده مش GTIN رقمي (زي أكواد تبدأ بحرف P) ====================
+// ده مش معيار GS1 رسمي (GS1 محتاج GTIN أرقام بس)، لكنه شكل بسيط بيحافظ على كود الصنف
+// زي ما هو (P006 مثلاً) وبيضيفله الصلاحية والتشغيلة، وبيتقرأ بأي سكانر عادي من غير
+// أي إعداد خاص، وبرنامجنا هو اللي بيفك تشفيره تاني عن طريق parseCustomExpiryBarcode
+function buildCustomExpiryBarcode(item) {
+  const code = String(item.barcode || item.id || "").trim();
+  if (!code) return { ok: false };
+
+  const expiryDate = item.expiry_date || item.expiry;
+  if (!expiryDate) return { ok: false };
+  const d = new Date(expiryDate);
+  if (isNaN(d.getTime())) return { ok: false };
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yymmdd = `${yy}${mm}${dd}`;
+
+  const batch = (item.batch_number || item.batch || "").toString().trim();
+
+  let data = `${code}*${yymmdd}`;
+  if (batch) data += `*${batch}`;
+
+  return { ok: true, data, hri: data };
+}
+
+// بيفك تشفير الشكل البديل: CODE*YYMMDD أو CODE*YYMMDD*BATCH
+function parseCustomExpiryBarcode(raw) {
+  const m = /^(.+?)\*(\d{6})(?:\*(.+))?$/.exec(String(raw || "").trim());
+  if (!m) return null;
+  const [, code, yymmdd, batch] = m;
+  const expiry = `20${yymmdd.slice(0, 2)}-${yymmdd.slice(2, 4)}-${yymmdd.slice(4, 6)}`;
+  return { code, expiry, batch: batch || null };
+}
+
+// نقطة دخول موحّدة للطباعة: يجرب GS1 الرسمي الأول (لو الباركود GTIN أرقام حقيقي)،
+// وبعدين الشكل البديل (لأي كود تاني زي P006)، وبعدين يرجع للباركود العادي من غير صلاحية
+function buildLabelBarcode(item) {
+  const gs1 = buildGS1Barcode(item);
+  if (gs1.ok) return { ...gs1, mode: "gs1" };
+  const custom = buildCustomExpiryBarcode(item);
+  if (custom.ok) return { ...custom, mode: "custom" };
+  return { ok: false, mode: "plain" };
 }
 
 // بيشيل الأصفار الزيادة على الشمال قبل المقارنة - عشان GTIN-14 المبطّن بالأصفار
@@ -4233,10 +4285,13 @@ function POS({
 };
   const scanBarcode = (scan) => {
     let product = null;
-    if (scan.type === "gs1") {
-      product = products.find(
-        (x) => normGtin(x.barcode) === normGtin(scan.gtin) || normGtin(x.gtin) === normGtin(scan.gtin)
-      );
+    if (scan.type === "gs1" || scan.type === "custom") {
+      product =
+        scan.type === "gs1"
+          ? products.find(
+              (x) => normGtin(x.barcode) === normGtin(scan.gtin) || normGtin(x.gtin) === normGtin(scan.gtin)
+            )
+          : products.find((x) => x.barcode === scan.code || x.id === scan.code);
       if (product) {
         // تشغيلات المخزون متسجلة بدقة الشهر/السنة بس (حقل التاريخ في فاتورة الشراء
         // من نوع شهر)، والباركود بيقرا تاريخ كامل بالليوم — فبنقارن بدقة الشهر
@@ -6507,10 +6562,10 @@ const LABEL_SIZES = [
         <script>
           window.onload = function() {
             ${labels.map((item, idx) => {
-              const gs1 = buildGS1Barcode(item);
-              const bcCode = gs1.ok ? gs1.data : (item.barcode || item.id);
-              const bcEan128 = gs1.ok ? "true" : "false";
-              const bcShowValue = gs1.ok ? "false" : "true";
+              const barcodeResult = buildLabelBarcode(item);
+              const bcCode = barcodeResult.ok ? barcodeResult.data : (item.barcode || item.id);
+              const bcEan128 = barcodeResult.mode === "gs1" ? "true" : "false";
+              const bcShowValue = barcodeResult.mode === "gs1" ? "false" : "true";
               return `
               try {
                 JsBarcode("#bc${idx}", "${bcCode}", {
@@ -6566,12 +6621,12 @@ const LABEL_SIZES = [
       const availableForBarcode = h - y - footerHeight - bcGapAfter;
       const bcHeight = Math.max(20, Math.min(Math.round(h * 0.28), availableForBarcode));
 
-      const gs1 = buildGS1Barcode(item);
-      const bcCode = gs1.ok ? gs1.data : (item.barcode || item.id);
-      const bcOptions = gs1.ok ? { ean128: true } : {};
-      // لو الـ GS1 اشتغل، بنعرض النص بتاعنا احنا (سعر/صلاحية) تحت بدل ما JsBarcode يعرض
-      // أرقام الـ AI الخام اللي مش مقروءة بسهولة للعين المجردة
-      const bcShowValue = !gs1.ok;
+      const barcodeResult = buildLabelBarcode(item);
+      const bcCode = barcodeResult.ok ? barcodeResult.data : (item.barcode || item.id);
+      const bcOptions = barcodeResult.mode === "gs1" ? { ean128: true } : {};
+      // في وضع GS1 منعرضش نص الباركود الخام (أرقام AI مش مفيدة للعين)، والسعر/الصلاحية
+      // بنعرضهم احنا بخطنا تحت. في وضع custom أو plain نعرض الكود زي ما هو مفيد للقراءة اليدوية.
+      const bcShowValue = barcodeResult.mode !== "gs1";
       const bcMaxW = w - 10; // المساحة المتاحة بالبيكسل داخل الملصق
 
       // الخطوة 1: نرسم بعرض module = 1 بيكسل عشان نعرف "عدد الوحدات" الحقيقي للكود
@@ -7153,8 +7208,8 @@ const LABEL_SIZES = [
           <BarcodeScanner
             onScan={(scan) => {
               const code = scan.type === "gs1" ? scan.gtin : scan.code;
-              const expiry = scan.type === "gs1" ? (scan.expiry ? scan.expiry.slice(0, 7) : "") : "";
-              const batch = scan.type === "gs1" ? (scan.batch || "") : "";
+              const expiry = scan.type === "gs1" || scan.type === "custom" ? (scan.expiry ? scan.expiry.slice(0, 7) : "") : "";
+              const batch = scan.type === "gs1" || scan.type === "custom" ? (scan.batch || "") : "";
               const found = products.find((x) =>
                 scan.type === "gs1"
                   ? normGtin(x.barcode) === normGtin(code) || normGtin(x.gtin) === normGtin(code)
@@ -8580,8 +8635,8 @@ function ReturnsModule({
       return;
     }
     const code = scan.type === "gs1" ? scan.gtin : scan.code;
-    const scannedExpiry = scan.type === "gs1" && scan.expiry ? scan.expiry.slice(0, 7) : "";
-    const scannedBatch = scan.type === "gs1" ? scan.batch || "" : "";
+    const scannedExpiry = (scan.type === "gs1" || scan.type === "custom") && scan.expiry ? scan.expiry.slice(0, 7) : "";
+    const scannedBatch = scan.type === "gs1" || scan.type === "custom" ? scan.batch || "" : "";
     const prod = products.find((x) =>
       scan.type === "gs1"
         ? normGtin(x.barcode) === normGtin(code) || normGtin(x.gtin) === normGtin(code)
