@@ -4415,16 +4415,20 @@ function POS({
     }
   }
 
-  // لو الصنف اتضاف من غير تحديد تاريخ صلاحية، نحدده تلقائيًا بأقرب تشغيلة فعليًا موجودة بالمخزون
-  // (بنفس منطق FIFO القديم)، والكاشير بعدين يقدر يغيّره من قائمة التشغيلات المتاحة في السلة.
+  // لو الصنف اتضاف من غير تحديد تاريخ صلاحية وعنده تشغيلة واحدة بس متاحة، نحددها تلقائيًا.
+  // لكن لو عنده أكتر من تاريخ صلاحية، نسيب الحقل فاضي عشان الكاشير يجبر يختار يدويًا
+  // (بدل ما يتحدد تلقائيًا وميتحققش منه وقت حفظ الفاتورة).
   let effectiveExpiry = p.expiry;
   if (!effectiveExpiry && !p.isMissed && !p.isJoker) {
     const prodBatches = products.find((x) => x.id === p.id)?.batches || [];
-    const validExpiries = prodBatches
-      .filter((b) => b.qty > 0 && b.expiry_date)
-      .map((b) => b.expiry_date)
-      .sort();
-    if (validExpiries.length) effectiveExpiry = validExpiries[0];
+    const validExpiries = Array.from(
+      new Set(
+        prodBatches
+          .filter((b) => b.qty > 0 && b.expiry_date)
+          .map((b) => b.expiry_date)
+      )
+    ).sort();
+    if (validExpiries.length === 1) effectiveExpiry = validExpiries[0];
   }
   p = { ...p, expiry: effectiveExpiry };
 
