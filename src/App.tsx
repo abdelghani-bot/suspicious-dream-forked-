@@ -4316,13 +4316,6 @@ function POS({
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [loyaltySettings, setLoyaltySettings] = useState<any>(null);
 
-  // ✅ لو تغيّر إجمالي الفاتورة (إضافة/حذف صنف) والمبلغ المُستبدل بقى أكبر من الحد المسموح، نصغّره تلقائياً
-  useEffect(() => {
-    if (!usePoints) return;
-    const maxRedeemable = Math.max(0, Math.min(customerLoyalty?.points || 0, subtotal + taxAmount - discountAmt));
-    setPointsToRedeem((prev) => (prev > maxRedeemable ? maxRedeemable : prev));
-  }, [usePoints, subtotal, taxAmount, discountAmt, customerLoyalty]);
-
   const inv = invoices[activeTab] || emptyInvoice();
   const setInv = (updater) => {
     setInvoices((prev) =>
@@ -4625,6 +4618,13 @@ function POS({
     inv.discountType === "value"
       ? Math.min(Math.max(inv.discount || 0, 0), subtotal + taxAmount)
       : Math.round((((subtotal + taxAmount) * (inv.discount || 0)) / 100) * 100) / 100;
+
+  // ✅ لو تغيّر إجمالي الفاتورة (إضافة/حذف صنف) والمبلغ المُستبدل بقى أكبر من الحد المسموح، نصغّره تلقائياً
+  useEffect(() => {
+    if (!usePoints) return;
+    const maxRedeemable = Math.max(0, Math.min(customerLoyalty?.points || 0, subtotal + taxAmount - discountAmt));
+    setPointsToRedeem((prev) => (prev > maxRedeemable ? maxRedeemable : prev));
+  }, [usePoints, subtotal, taxAmount, discountAmt, customerLoyalty]);
 
   // ── الإجمالي بعد خصم نقاط الولاء ──
   const pointsDiscount = usePoints ? pointsToRedeem : 0;
