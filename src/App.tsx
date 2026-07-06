@@ -4712,7 +4712,6 @@ function POS({
         excluded_from_points: isPromoLine(i),
       })),
       subtotal,
-      points_eligible_subtotal: pointsEligibleSubtotal,
       tax_amount: taxAmount,
       discount_amt: discountAmt,
       discount_type: inv.discountType,
@@ -4828,7 +4827,7 @@ function POS({
           }, 0) - (invoice.discount_amt || 0);
           points = Math.max(0, profit * (ls.profit_rate / 100));
         } else {
-          points = Math.floor((invoice.points_eligible_subtotal ?? invoice.subtotal) / ls.sales_per) * ls.sales_rate;
+          points = Math.floor(pointsEligibleSubtotal / ls.sales_per) * ls.sales_rate;
         }
 
         if (points > 0) {
