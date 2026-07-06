@@ -4142,6 +4142,22 @@ function POS({
     }
   };
 
+  // ✅ أي تعديل في نافذة ملصق الجرعة (قالب/كتابة جرعة/ملاحظات) يترحّل فوراً لصنف السلة
+  // عشان الجرعة تفضل محفوظة حتى لو المستخدم قفل النافذة من غير ما يطبع، ويقدر يستخدمها في "طباعة الكل" بعدين
+  const updateDoseLabel = (updater) => {
+    setDoseLabelItem((prev) => {
+      if (!prev) return prev;
+      const next = typeof updater === "function" ? updater(prev) : { ...prev, ...updater };
+      setInv((p) => ({
+        ...p,
+        cart: p.cart.map((i) =>
+          i.lineId === next.lineId ? { ...i, dose: next._dose || "", notes: next._notes || "" } : i
+        ),
+      }));
+      return next;
+    });
+  };
+
   const printDoseLabel = () => {
     const it = doseLabelItem;
     if (!it) return;
@@ -6284,7 +6300,7 @@ function POS({
                 {doseTemplates.map((t) => (
                   <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                     <button
-                      onClick={() => setDoseLabelItem((p) => ({ ...p, _dose: t }))}
+                      onClick={() => updateDoseLabel((p) => ({ ...p, _dose: t }))}
                       style={{
                         padding: "6px 10px", borderRadius: 8, cursor: "pointer",
                         border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt,
@@ -6310,7 +6326,7 @@ function POS({
               </label>
               <textarea
                 value={doseLabelItem._dose}
-                onChange={(e) => setDoseLabelItem((p) => ({ ...p, _dose: e.target.value }))}
+                onChange={(e) => updateDoseLabel((p) => ({ ...p, _dose: e.target.value }))}
                 rows={3}
                 style={{
                   width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
@@ -6333,7 +6349,7 @@ function POS({
               </label>
               <textarea
                 value={doseLabelItem._notes}
-                onChange={(e) => setDoseLabelItem((p) => ({ ...p, _notes: e.target.value }))}
+                onChange={(e) => updateDoseLabel((p) => ({ ...p, _notes: e.target.value }))}
                 rows={2}
                 style={{
                   width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
