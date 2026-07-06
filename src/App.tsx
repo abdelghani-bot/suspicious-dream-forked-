@@ -4049,6 +4049,26 @@ function getEffectivePrice(product, promos, discountRules, productEarliestExpiry
   return { price: product.price, discountPct: 0, source: null };
 }
 
+// ==================== ملصق الجرعة (Dosage Label) ====================
+const DEFAULT_DOSE_TEMPLATES = [
+  "قرص واحد 3 مرات يومياً بعد الأكل",
+  "قرص واحد يومياً صباحاً",
+  "قرص واحد كل 12 ساعة",
+  "قرص واحد كل 8 ساعات",
+  "نصف قرص يومياً",
+  "قطرة قطرة 3 مرات يومياً في العين المصابة",
+  "ملعقة صغيرة 3 مرات يومياً",
+  "حقنة واحدة يومياً",
+  "يستخدم عند اللزوم فقط",
+];
+
+const DOSAGE_LABEL_SIZES = [
+  { id: "60x40", label: "60×40 مم", w: 60, h: 40 },
+  { id: "76x51", label: "76×51 مم", w: 76.2, h: 50.8 },
+  { id: "80x60", label: "80×60 مم", w: 80, h: 60 },
+  { id: "100x70", label: "100×70 مم", w: 100, h: 70 },
+];
+
 function POS({
   products,
   setProducts,
@@ -4078,6 +4098,115 @@ function POS({
   const [autoSaveCountdown, setAutoSaveCountdown] = useState(180);
   const autoSaveTimerRef = useRef(null);
   const autoSaveCountdownRef = useRef(null);
+
+  // ── ملصق الجرعة ──
+  const [doseLabelItem, setDoseLabelItem] = useState(null);
+  const [pharmSettingsPOS, setPharmSettingsPOS] = useState<any>({});
+  const [doseTemplates, setDoseTemplates] = useState<string[]>(DEFAULT_DOSE_TEMPLATES);
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase.from("pharmacy_settings").select("*").eq("pharmacy_id", pharmacyId).single()
+      .then(({ data }) => {
+        if (data) {
+          setPharmSettingsPOS(data);
+          setDoseTemplates(
+            Array.isArray(data.dosage_templates) && data.dosage_templates.length > 0
+              ? data.dosage_templates
+              : DEFAULT_DOSE_TEMPLATES
+          );
+        }
+      });
+  }, [pharmacyId]);
+
+  const saveDoseTemplate = async (text) => {
+    const t = (text || "").trim();
+    if (!t) return;
+    if (doseTemplates.includes(t)) { showToast("القالب موجود بالفعل بين القوالب المحفوظة"); return; }
+    const updated = [...doseTemplates, t];
+    setDoseTemplates(updated);
+    if (pharmacyId) {
+      await supabase.from("pharmacy_settings").update({ dosage_templates: updated }).eq("pharmacy_id", pharmacyId);
+    }
+    showToast("تم حفظ القالب ✓");
+  };
+
+  const removeDoseTemplate = async (text) => {
+    const updated = doseTemplates.filter((t) => t !== text);
+    setDoseTemplates(updated);
+    if (pharmacyId) {
+      await supabase.from("pharmacy_settings").update({ dosage_templates: updated }).eq("pharmacy_id", pharmacyId);
+    }
+  };
+
+  const printDoseLabel = () => {
+    const it = doseLabelItem;
+    if (!it) return;
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("ar-EG");
+    const timeStr = now.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+    const size = DOSAGE_LABEL_SIZES.find((s) => s.id === (it._labelSize || "80x60")) || DOSAGE_LABEL_SIZES[2];
+
+    const win = window.open("", "_blank");
+    win.document.write(`
+      <html dir="rtl">
+      <head>
+        <meta charset="utf-8">
+        <title>ملصق الجرعة</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          @page { size: ${size.w}mm ${size.h}mm; margin: 0; }
+          body { font-family: Arial, sans-serif; }
+          .label {
+            width: ${size.w}mm; height: ${size.h}mm; padding: 3mm;
+            display: flex; flex-direction: column;
+          }
+          .pharmacy-row {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 8pt; font-weight: 800; border-bottom: 1px solid #000;
+            padding-bottom: 1.5mm; margin-bottom: 1.5mm;
+          }
+          .meta { font-size: 7pt; color: #333; }
+          .product { font-size: 11pt; font-weight: 800; text-align: center; margin: 1.5mm 0; }
+          .dose-box {
+            border: 1.5px solid #000; border-radius: 2mm; padding: 2mm;
+            text-align: center; font-size: 12pt; font-weight: 800;
+            margin: 1.5mm 0; flex-grow: 1; display: flex;
+            align-items: center; justify-content: center; line-height: 1.4;
+          }
+          .notes { font-size: 8pt; margin-top: 1mm; }
+          .row { display: flex; justify-content: space-between; font-size: 7.5pt; margin-top: 1mm; border-top: 1px dashed #999; padding-top: 1mm; }
+          @media print { .no-print { display: none; } body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="padding:10px; text-align:center;">
+          <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">🖨️ طباعة</button>
+          <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-right:10px;">✕ إغلاق</button>
+        </div>
+        <div class="label">
+          <div class="pharmacy-row">
+            <span>${pharmSettingsPOS.name_ar || ""}</span>
+            <span>${pharmSettingsPOS.license_number ? "رقم الصيدلية: " + pharmSettingsPOS.license_number : ""}</span>
+          </div>
+          <div class="meta">
+            الصيدلي: ${currentUser?.name || ""} &nbsp;|&nbsp; تاريخ الصرف: ${dateStr} ${timeStr}
+          </div>
+          <div class="product">${it.name || ""}</div>
+          <div class="dose-box">${(it._dose || "بدون جرعة محددة").replace(/\n/g, "<br>")}</div>
+          ${it._notes ? `<div class="notes">📝 ملاحظات: ${it._notes}</div>` : ""}
+          <div class="row">
+            <span>${it.expiry_date ? "صلاحية: " + it.expiry_date : ""}</span>
+            <span>${it._afterOpening ? "بعد الفتح: " + it._afterOpening : ""}</span>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+    win.document.close();
+    setDoseLabelItem(null);
+  };
+
 
   // ── نقاط الولاء ──
   const [customerLoyalty, setCustomerLoyalty] = useState<any>(null);
@@ -5470,6 +5599,22 @@ function POS({
             placeholder="الجرعة..."
             style={{ width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${tint(COLORS.blue,0.35)}`, color: COLORS.textDim, fontSize: 11, outline: "none", padding: "2px 0" }}
           />
+          <button
+            onClick={() => setDoseLabelItem({
+              ...item,
+              _dose: item.dose || "",
+              _notes: item.notes || "",
+              _afterOpening: "",
+              _labelSize: "80x60",
+            })}
+            title="طباعة ملصق جرعة أكبر يشمل بيانات الصيدلية والصلاحية"
+            style={{
+              background: "transparent", border: "none", color: COLORS.blue, cursor: "pointer",
+              fontSize: 11, marginTop: 2, padding: 0, display: "flex", alignItems: "center", gap: 3,
+            }}
+          >
+            🏷️ ملصق جرعة
+          </button>
           {!item.isMissed && !item.isJoker && (() => {
             const prodBatches = products.find((x) => x.id === item.id)?.batches || [];
             const expiryOptions = Array.from(
@@ -6000,6 +6145,150 @@ function POS({
       {showPrint && (
         <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} />
       )}
+
+      <Modal open={!!doseLabelItem} onClose={() => setDoseLabelItem(null)} title={`🏷️ ملصق جرعة — ${doseLabelItem?.name || ""}`}>
+        {doseLabelItem && (
+          <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
+            {/* قوالب الجرعة الجاهزة */}
+            <div>
+              <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                قوالب جاهزة (اضغط لاستخدام القالب)
+              </label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {doseTemplates.map((t) => (
+                  <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <button
+                      onClick={() => setDoseLabelItem((p) => ({ ...p, _dose: t }))}
+                      style={{
+                        padding: "6px 10px", borderRadius: 8, cursor: "pointer",
+                        border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt,
+                        color: COLORS.textPrimary, fontSize: 12,
+                      }}
+                    >
+                      {t}
+                    </button>
+                    <button
+                      onClick={() => removeDoseTemplate(t)}
+                      title="حذف القالب"
+                      style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", fontSize: 11 }}
+                    >✕</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* نص الجرعة */}
+            <div>
+              <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                الجرعة (تقدر تكتبها بنفسك أو تختار قالب فوق)
+              </label>
+              <textarea
+                value={doseLabelItem._dose}
+                onChange={(e) => setDoseLabelItem((p) => ({ ...p, _dose: e.target.value }))}
+                rows={3}
+                style={{
+                  width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                  borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13,
+                  outline: "none", boxSizing: "border-box", resize: "vertical",
+                }}
+              />
+              <button
+                onClick={() => saveDoseTemplate(doseLabelItem._dose)}
+                style={{ marginTop: 6, background: "transparent", border: "none", color: COLORS.blue, cursor: "pointer", fontSize: 12 }}
+              >
+                + حفظ النص ده كقالب جديد
+              </button>
+            </div>
+
+            {/* ملاحظات */}
+            <div>
+              <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                ملاحظات
+              </label>
+              <textarea
+                value={doseLabelItem._notes}
+                onChange={(e) => setDoseLabelItem((p) => ({ ...p, _notes: e.target.value }))}
+                rows={2}
+                style={{
+                  width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                  borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13,
+                  outline: "none", boxSizing: "border-box", resize: "vertical",
+                }}
+              />
+            </div>
+
+            {/* الصلاحية بعد الفتح */}
+            <div>
+              <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                الصلاحية بعد الفتح
+              </label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                {[7, 14, 30, 90].map((days) => (
+                  <button
+                    key={days}
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + days);
+                      const label = `${days} يوم من الفتح (حتى ${d.toISOString().slice(0, 10)})`;
+                      setDoseLabelItem((p) => ({ ...p, _afterOpening: label }));
+                    }}
+                    style={{
+                      padding: "6px 10px", borderRadius: 8, cursor: "pointer",
+                      border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt,
+                      color: COLORS.textPrimary, fontSize: 12,
+                    }}
+                  >
+                    {days} يوم
+                  </button>
+                ))}
+              </div>
+              <input
+                value={doseLabelItem._afterOpening}
+                onChange={(e) => setDoseLabelItem((p) => ({ ...p, _afterOpening: e.target.value }))}
+                placeholder="مثال: يستخدم خلال شهر من الفتح..."
+                style={{
+                  width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                  borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13,
+                  outline: "none", boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            {/* حجم الملصق */}
+            <div>
+              <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                حجم الملصق
+              </label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {DOSAGE_LABEL_SIZES.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setDoseLabelItem((p) => ({ ...p, _labelSize: s.id }))}
+                    style={{
+                      padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                      border: `2px solid ${(doseLabelItem._labelSize || "80x60") === s.id ? COLORS.blue : COLORS.border}`,
+                      background: (doseLabelItem._labelSize || "80x60") === s.id ? COLORS.blueSoft : COLORS.surfaceAlt,
+                      color: (doseLabelItem._labelSize || "80x60") === s.id ? COLORS.blue : COLORS.textDim,
+                      fontSize: 12, fontWeight: 600,
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+              <Btn onClick={printDoseLabel} icon="print" style={{ flex: 1, justifyContent: "center" }}>
+                طباعة الملصق
+              </Btn>
+              <Btn variant="ghost" onClick={() => setDoseLabelItem(null)} style={{ flex: 1, justifyContent: "center" }}>
+                إلغاء
+              </Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 } 
