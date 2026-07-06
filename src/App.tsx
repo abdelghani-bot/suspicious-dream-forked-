@@ -6256,6 +6256,8 @@ function PharmacySettings({ showToast, pharmacyId }) {
           vatNumber: data.tax_number || "",
           licenseNumber: data.license_number || "",
           labelSize: data.label_size || "50x30",
+          labelDpi: data.label_dpi || "203",
+          barcodeMarginMm: data.barcode_margin_mm ?? 2.5,
           receiptPaperWidth: data.receipt_paper_width || "80",
           supportsCardRefund: !!data.supports_card_refund, // 🆕 هل الصيدلية بتقدر ترجّع فلوس شبكة (reversal) فعليًا؟
         });
@@ -6280,6 +6282,11 @@ function PharmacySettings({ showToast, pharmacyId }) {
     { id: "76x51", label: "76×51 mm (Zebra 3×2 بوصة)", w: 76.2, h: 50.8 },
   ];
 
+  const PRINTER_DPIS = [
+    { id: "203", label: "203 dpi (الأكثر شيوعًا - Zebra GK420t وغيرها)" },
+    { id: "300", label: "300 dpi (طابعات دقة أعلى)" },
+  ];
+
   const RECEIPT_WIDTHS = [
     { id: "58", label: "58 مم (طابعة فيش صغيرة)" },
     { id: "80", label: "80 مم (طابعة فيش عادية)" },
@@ -6299,6 +6306,8 @@ function PharmacySettings({ showToast, pharmacyId }) {
       license_number: settings.licenseNumber,
       updated_at: new Date().toISOString(),
       label_size: settings.labelSize || "50x30",
+      label_dpi: settings.labelDpi || "203",
+      barcode_margin_mm: settings.barcodeMarginMm != null ? Number(settings.barcodeMarginMm) : 2.5,
       receipt_paper_width: settings.receiptPaperWidth || "80",
       supports_card_refund: !!settings.supportsCardRefund, // 🆕
     })
@@ -6363,6 +6372,50 @@ function PharmacySettings({ showToast, pharmacyId }) {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* دقة الطابعة الحرارية (DPI) - مهم لو الطابعة نوع تاني غير الافتراضي */}
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+            دقة طابعة الباركود (DPI)
+          </label>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {PRINTER_DPIS.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setSettings((p) => ({ ...p, labelDpi: d.id }))}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, cursor: "pointer",
+                  border: `2px solid ${(settings.labelDpi || "203") === d.id ? COLORS.blue : COLORS.border}`,
+                  background: (settings.labelDpi || "203") === d.id ? COLORS.blueSoft : COLORS.surfaceAlt,
+                  color: (settings.labelDpi || "203") === d.id ? COLORS.blue : COLORS.textDim,
+                  fontSize: 13, fontWeight: 600,
+                }}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* هامش الباركود الجانبي - لو الباركود بيلزق في حواف الملصق زوّد الرقم ده */}
+        <div>
+          <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+            هامش الباركود الجانبي (مم)
+          </label>
+          <input
+            type="number"
+            step="0.5"
+            min="0"
+            value={settings.barcodeMarginMm ?? 2.5}
+            onChange={(e) => setSettings((p) => ({ ...p, barcodeMarginMm: e.target.value }))}
+            style={{
+              width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              border: `1px solid ${COLORS.border}`, borderRadius: 8,
+              padding: "8px 12px", color: COLORS.textPrimary,
+              fontSize: 13, outline: "none", boxSizing: "border-box",
+            }}
+          />
         </div>
 
         {/* حجم ورق فاتورة نقطة البيع */}
@@ -6533,7 +6586,7 @@ const LABEL_SIZES = [
           .phone { font-size: 6pt; text-align: center; color: #444; }
           .product { font-size: 7pt; font-weight: bold; text-align: center; margin: 1mm 0; }
           .details { display: flex; justify-content: space-between; font-size: 6pt; }
-          img.barcode { width: 100%; height: ${size.h * 0.35}mm; display: block; }
+          img.barcode { width: calc(100% - ${(Number(pharmSettings.barcode_margin_mm) || 2.5) * 2}mm); margin: 0 auto; height: ${size.h * 0.35}mm; display: block; }
           @media print {
             body { margin: 0; }
             .no-print { display: none; }
@@ -6585,7 +6638,9 @@ const LABEL_SIZES = [
   };
 
   // ===== طباعة ZPL مباشرة (Zebra Browser Print) =====
-  const DOTS_PER_MM = 8; // دقة 203 dpi (المعيار في GK420t)
+  // دقة الطابعة قابلة للتغيير من "بيانات الصيدلية" (203dpi للطابعات العادية زي GK420t، 300dpi لبعض الطابعات الأدق)
+  const PRINTER_DPI = Number(pharmSettings.label_dpi) || 203;
+  const DOTS_PER_MM = PRINTER_DPI / 25.4;
 
   const renderLabelCanvas = (item, size) => {
     return new Promise((resolve) => {
@@ -6627,7 +6682,11 @@ const LABEL_SIZES = [
       // في وضع GS1 منعرضش نص الباركود الخام (أرقام AI مش مفيدة للعين)، والسعر/الصلاحية
       // بنعرضهم احنا بخطنا تحت. في وضع custom أو plain نعرض الكود زي ما هو مفيد للقراءة اليدوية.
       const bcShowValue = barcodeResult.mode !== "gs1";
-      const bcMaxW = w - 10; // المساحة المتاحة بالبيكسل داخل الملصق
+      // هامش جانبي حقيقي يمين وشمال (قابل للتعديل من "بيانات الصيدلية") عشان الباركود ميلزقش
+      // في حواف الملصق ويسيب مساحة كافية لباقي المعلومات تتطبع بوضوح
+      const BC_SIDE_MARGIN_MM = Number(pharmSettings.barcode_margin_mm) || 2.5;
+      const bcSideMarginPx = Math.round(BC_SIDE_MARGIN_MM * DOTS_PER_MM);
+      const bcMaxW = Math.max(20, w - bcSideMarginPx * 2); // المساحة المتاحة بالبيكسل داخل الملصق
 
       // الخطوة 1: نرسم بعرض module = 1 بيكسل عشان نعرف "عدد الوحدات" الحقيقي للكود
       // ده مش هيتحط في الملصق، بس بيدينا مقياس دقيق لطول الكود المُرمّز فعليًا
