@@ -4393,6 +4393,8 @@ function POS({
     setActiveTab(Math.min(activeTab, next.length - 1));
   };
 
+  const [expiryPickerLine, setExpiryPickerLine] = useState<any>(null);
+
   const addToCart = (p) => {
   if (!p.isMissed && !p.isJoker) {
     const effectiveStock =
@@ -4415,10 +4417,13 @@ function POS({
     }
   }
 
-  // لو الصنف اتضاف من غير تحديد تاريخ صلاحية وعنده تشغيلة واحدة بس متاحة، نحددها تلقائيًا.
-  // لكن لو عنده أكتر من تاريخ صلاحية، نسيب الحقل فاضي عشان الكاشير يجبر يختار يدويًا
-  // (بدل ما يتحدد تلقائيًا وميتحققش منه وقت حفظ الفاتورة).
-  let effectiveExpiry = p.expiry;
+  // ملحوظة مهمة: صف المنتج نفسه (p) بيحمل حقل "expiry" قديم بيمثل أقرب تاريخ صلاحية
+  // (بيتحسب في productEarliestExpiry) وده مجرد حقل عرض/تنبيه، مش اختيار فعلي للتشغيلة.
+  // لازم نتجاهله هنا ونحسب تاريخ الصلاحية الفعلي للسطر من batches نفسها، إلا لو الصنف
+  // جاي من مسح باركود واختار تشغيلة بالفعل (وقتها p.batch بيبقى موجود).
+  const cameFromBarcodeScan = !!p.batch || !!p.serial;
+  let effectiveExpiry = cameFromBarcodeScan ? p.expiry : undefined;
+  let needsExpiryChoice = false;
   if (!effectiveExpiry && !p.isMissed && !p.isJoker) {
     const prodBatches = products.find((x) => x.id === p.id)?.batches || [];
     const validExpiries = Array.from(
@@ -4428,7 +4433,13 @@ function POS({
           .map((b) => b.expiry_date)
       )
     ).sort();
-    if (validExpiries.length === 1) effectiveExpiry = validExpiries[0];
+    if (validExpiries.length === 1) {
+      effectiveExpiry = validExpiries[0];
+    } else if (validExpiries.length > 1) {
+      // فيه أكتر من تشغيلة/تاريخ صلاحية: منسيبش الاختيار عشوائي أو تلقائي،
+      // هنسيب الحقل فاضي ونجبر الكاشير يختار من نافذة تظهر فورًا بعد الإضافة.
+      needsExpiryChoice = true;
+    }
   }
   p = { ...p, expiry: effectiveExpiry };
 
@@ -4517,6 +4528,24 @@ function POS({
 
     return { ...prev, cart: newCart };
   });
+
+  // ── لو الصنف محتاج اختيار تاريخ صلاحية (أكتر من تشغيلة متاحة)، نفتح نافذة الاختيار فورًا ──
+  if (needsExpiryChoice) {
+    const prodBatches = products.find((x) => x.id === p.id)?.batches || [];
+    const validExpiries = Array.from(
+      new Set(
+        prodBatches
+          .filter((b) => b.qty > 0 && b.expiry_date)
+          .map((b) => b.expiry_date)
+      )
+    ).sort();
+    setExpiryPickerLine({
+      lineId,
+      productId: p.id,
+      productName: p.nameAr || p.name,
+      options: validExpiries,
+    });
+  }
 };
   const scanBarcode = (scan) => {
     let product = null;
@@ -6375,6 +6404,48 @@ function POS({
       {showPrint && (
         <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} />
       )}
+
+      <Modal
+        open={!!expiryPickerLine}
+        onClose={() => {
+          // مينفعش يقفل من غير اختيار — الصنف ده لازم يتحدد له تاريخ صلاحية قبل ما يكمل
+          showToast("لازم تختار تاريخ الصلاحية للصنف ده", "error");
+        }}
+        title={`⏰ اختر تاريخ الصلاحية — ${expiryPickerLine?.productName || ""}`}
+      >
+        {expiryPickerLine && (
+          <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ color: COLORS.textDim, fontSize: 12.5 }}>
+              الصنف ده متسجل بأكتر من تشغيلة/تاريخ صلاحية في المخزون. اختر التشغيلة اللي هتبيع منها:
+            </div>
+            {expiryPickerLine.options.map((exp) => (
+              <button
+                key={exp}
+                onClick={() => {
+                  const newExpiry = exp;
+                  const newLineId = `${expiryPickerLine.productId}::${newExpiry}::`;
+                  setInv((prev) => ({
+                    ...prev,
+                    cart: prev.cart.map((i) =>
+                      i.lineId === expiryPickerLine.lineId
+                        ? { ...i, expiry: newExpiry, lineId: newLineId }
+                        : i
+                    ),
+                  }));
+                  setExpiryPickerLine(null);
+                }}
+                style={{
+                  padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                  border: `1px solid ${tint(COLORS.gold, 0.35)}`, background: COLORS.surfaceAlt,
+                  color: COLORS.gold, fontSize: 14, fontWeight: 700,
+                }}
+              >
+                {exp}
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       <Modal open={!!doseLabelItem} onClose={() => setDoseLabelItem(null)} title={`🏷️ ملصق جرعة — ${doseLabelItem?.name || ""}`}>
         {doseLabelItem && (
