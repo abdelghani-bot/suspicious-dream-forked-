@@ -4640,6 +4640,23 @@ function POS({
       return;
     }
 
+    // ✅ لو الصنف له أكتر من تاريخ صلاحية في المخزون، لازم يتحدد تاريخ الصلاحية قبل حفظ الفاتورة
+    for (const ci of inv.cart) {
+      if (ci.isMissed || ci.isJoker) continue;
+      const prod = products.find((x) => x.id === ci.id);
+      const expiryOptions = Array.from(
+        new Set(
+          (prod?.batches || [])
+            .filter((b) => b.qty > 0 && b.expiry_date)
+            .map((b) => b.expiry_date)
+        )
+      );
+      if (expiryOptions.length > 1 && !ci.expiry) {
+        showToast(`اختر تاريخ الصلاحية للصنف "${ci.name}" قبل حفظ الفاتورة`, "error");
+        return;
+      }
+    }
+
     if (inv.paymentMode === "single" && inv.payment === "آجل" && !inv.selCustomer) {
       showToast("لا يمكن تسجيل بيع آجل لزبون عادي — اختر عميلاً أولاً", "error");
       return;
