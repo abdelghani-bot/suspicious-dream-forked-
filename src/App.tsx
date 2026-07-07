@@ -13919,6 +13919,7 @@ function CustomersModule({
   const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
   const [payAmount, setPayAmount] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [trendGroupView, setTrendGroupView] = useState(null); // "up" | "down" | "stable" | null
 
   const blank = {
     id: "",
@@ -14162,6 +14163,41 @@ function CustomersModule({
       if (daysLeft < 0) isOverdue = true;
     });
 
+    // ===== اتجاه الشراء الشهري (آخر 6 شهور) — لتحديد هل العميل صاعد ولا نازل ولا ثابت =====
+    const monthlyTrendMap = {};
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = d.toISOString().slice(0, 7);
+      monthlyTrendMap[key] = 0;
+    }
+    cSales.forEach((sale) => {
+      const key = (sale.created_at || sale.date || "").slice(0, 7);
+      if (key in monthlyTrendMap) {
+        monthlyTrendMap[key] += sale.subtotal || 0;
+      }
+    });
+    const monthlyTrend = Object.entries(monthlyTrendMap).map(([key, amount]) => ({
+      month: key,
+      label: new Date(key + "-01").toLocaleDateString("ar-SA", { month: "short" }),
+      amount: Math.round(amount),
+    }));
+    const activeMonthsCount = monthlyTrend.filter((m) => m.amount > 0).length;
+    const firstHalfAvg =
+      monthlyTrend.slice(0, 3).reduce((s, m) => s + m.amount, 0) / 3;
+    const secondHalfAvg =
+      monthlyTrend.slice(3).reduce((s, m) => s + m.amount, 0) / 3;
+    let trendDirection = "stable";
+    if (activeMonthsCount >= 2) {
+      if (firstHalfAvg <= 0 && secondHalfAvg > 0) {
+        trendDirection = "up";
+      } else if (secondHalfAvg <= 0 && firstHalfAvg > 0) {
+        trendDirection = "down";
+      } else if (firstHalfAvg > 0) {
+        const change = (secondHalfAvg - firstHalfAvg) / firstHalfAvg;
+        trendDirection = change >= 0.15 ? "up" : change <= -0.15 ? "down" : "stable";
+      }
+    }
+
     return {
       totalVisits,
       monthlyVisits,
@@ -14183,6 +14219,9 @@ function CustomersModule({
       daysOverdue: isOverdue ? Math.abs(oldestDaysLeft) : 0,
       paymentTerms,
       lastItems,
+      monthlyTrend,
+      trendDirection,
+      activeMonthsCount,
     };
   };
 
@@ -14226,6 +14265,13 @@ function CustomersModule({
     regular: { label: "✅ منتظم", color: COLORS.blue },
     at_risk: { label: "⚠️ في خطر", color: COLORS.gold },
     inactive: { label: "💤 مختفي", color: COLORS.red },
+  };
+
+  // ===== تصنيف اتجاه الشراء =====
+  const trendConfig = {
+    up: { label: "📈 صعودي", icon: "📈", color: COLORS.green, bg: COLORS.greenSoft },
+    down: { label: "📉 نزولي", icon: "📉", color: COLORS.red, bg: COLORS.redSoft },
+    stable: { label: "➖ ثابت", icon: "➖", color: COLORS.textDim, bg: COLORS.surfaceAlt },
   };
 
   // ===== فلترة =====
@@ -14316,6 +14362,34 @@ function CustomersModule({
     );
   };
 
+  // ===== خط بياني مصغّر لاتجاه الشراء الشهري =====
+  const MiniTrend = ({ data, color, height = 40 }) => {
+    if (!data || data.length === 0) return null;
+    const values = data.map((d) => d.amount);
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const w = 100;
+    const toX = (i) => (values.length > 1 ? (i / (values.length - 1)) * w : w / 2);
+    const toY = (v) => height - ((v - min) / range) * (height - 8) - 4;
+    const points = values.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
+    return (
+      <div>
+        <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block" }}>
+          <polyline points={points} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+          {values.map((v, i) => (
+            <circle key={i} cx={toX(i)} cy={toY(v)} r={1.8} fill={color} />
+          ))}
+        </svg>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+          {data.map((d, i) => (
+            <span key={i} style={{ fontSize: 9, color: COLORS.textDim }}>{d.label}</span>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // ===== كارت العميل =====
   const [loyaltyMapC, setLoyaltyMapC] = useState<Record<string, number>>({});
 
@@ -14376,6 +14450,11 @@ function CustomersModule({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             {vip && <span style={{ background: vip.bg, color: vip.color, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>{vip.label}</span>}
+            {s?.trendDirection && s.activeMonthsCount >= 2 && (
+              <span title={trendConfig[s.trendDirection].label} style={{ background: trendConfig[s.trendDirection].bg, color: trendConfig[s.trendDirection].color, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>
+                {trendConfig[s.trendDirection].icon}
+              </span>
+            )}
             {debt > 0 && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>💳 {debt.toFixed(0)} ر.س</span>}
             {s?.isOverdue && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>⏰ متأخر {s.daysOverdue} يوم</span>}
             {c.missedKidsCosmetics && <span style={{ background: COLORS.goldSoft, color: COLORS.gold, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>🎁 فرصة عرض</span>}
@@ -14422,6 +14501,19 @@ function CustomersModule({
                 <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 4 }}>
                   <div style={{ background: vip?.color || COLORS.textDim, height: "100%", borderRadius: 4, width: `${s.rfmScore}%`, transition: "width 0.5s" }} />
                 </div>
+              </div>
+            )}
+
+            {/* اتجاه الشراء الشهري */}
+            {s?.monthlyTrend && (
+              <div style={{ background: COLORS.surfaceAlt, borderRadius: 7, padding: "8px 10px", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ color: COLORS.textDim, fontSize: 10 }}>اتجاه الشراء (آخر 6 شهور)</span>
+                  <span style={{ color: trendConfig[s.trendDirection].color, fontSize: 10, fontWeight: 700 }}>
+                    {trendConfig[s.trendDirection].label}
+                  </span>
+                </div>
+                <MiniTrend data={s.monthlyTrend} color={trendConfig[s.trendDirection].color} />
               </div>
             )}
 
@@ -15170,11 +15262,106 @@ function CustomersModule({
               },
             ]}
           />
+          <div
+            style={{
+              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 14,
+              padding: 16,
+            }}
+          >
+            <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 14, marginBottom: 14 }}>
+              📊 اتجاه شراء العملاء (آخر 6 شهور)
+            </div>
+            {["up", "down", "stable"].map((key) => {
+              const cfg = trendConfig[key];
+              const list = enriched.filter((c) => c.stats?.trendDirection === key);
+              return (
+                <div
+                  key={key}
+                  onClick={() => list.length > 0 && setTrendGroupView(key)}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "10px 12px", marginBottom: 8, borderRadius: 8,
+                    background: cfg.bg, border: `1px solid ${cfg.color}33`,
+                    cursor: list.length > 0 ? "pointer" : "default",
+                  }}
+                >
+                  <span style={{ color: cfg.color, fontSize: 13, fontWeight: 700 }}>{cfg.label}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: COLORS.textPrimary, fontWeight: 800, fontSize: 15 }}>{list.length}</span>
+                    {list.length > 0 && (
+                      <span style={{ color: COLORS.textDim, fontSize: 11 }}>عرض العملاء ◀</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
       {activeTab === "credit" && (
         <CreditTab customers={enriched} onPay={openCreditModal} sales={sales} creditPayments={creditPayments} />
       )}
+      <Modal
+        open={!!trendGroupView}
+        onClose={() => setTrendGroupView(null)}
+        title={trendGroupView ? `${trendConfig[trendGroupView].label} — العملاء` : ""}
+        wide
+      >
+        {(() => {
+          if (!trendGroupView) return null;
+          const list = enriched
+            .filter((c) => c.stats?.trendDirection === trendGroupView)
+            .sort((a, b) => (b.stats?.totalSpent || 0) - (a.stats?.totalSpent || 0));
+          if (list.length === 0) {
+            return (
+              <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>
+                لا يوجد عملاء في هذه المجموعة
+              </div>
+            );
+          }
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {list.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "10px 12px", borderRadius: 8,
+                    background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13 }}>{c.name}</div>
+                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>{c.phone}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 12 }}>
+                        {(c.stats?.totalSpent || 0).toFixed(0)} ر.س
+                      </div>
+                      <div style={{ color: COLORS.textDim, fontSize: 10 }}>
+                        هذا الشهر: {(c.stats?.monthlySpent || 0).toFixed(0)} ر.س
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => openWhatsApp(c.phone, `مرحباً ${c.name}! 😊`)}
+                      style={{
+                        background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`,
+                        borderRadius: 7, padding: "5px 9px", color: COLORS.green, fontSize: 11,
+                        cursor: "pointer", fontWeight: 700,
+                      }}
+                    >
+                      📱
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </Modal>
       <Modal
         open={showCredit}
         onClose={() => {
