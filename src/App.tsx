@@ -538,6 +538,8 @@ const IC = ({ n, s = 18, style = {} }) => {
     whatsapp: "💬",
     star: "🌟",
     target: "🎯",
+    upload: "📤",
+    loading: "⏳",
   };
   return (
     <span
@@ -1156,80 +1158,450 @@ const Login = ({ users, onLogin }) => {
 };
 // ==================== RASSD SERVICE ====================
 
+// نظام رصد (DTTS) شغال SOAP 1.2 مش REST ومش SOAP 1.1 — كل عملية عندها Service منفصلة
+// (مؤكد من "Integration Guide for Drug Track & Trace System" الرسمي — قسم 6: DTTS Web Services use SOAP Version 1.2)
+// الفرق مش شكلي: الـ envelope namespace مختلف (soap12 مش soap11)، والـ Content-Type بيبقى
+// application/soap+xml مش text/xml، وSOAPAction بيتبعت جوه الـ Content-Type مش كـ header منفصل
+//
+// أسماء الـ Request/Response elements تحت دي متأخوذة حرفيًا من ملفات الـ ISD الرسمية (DTTS-ISD_*.docx)
+// اللي SFDA وزّعتها لكل عملية — مش تخمين. لاحظ إن الأسماء مش موحّدة زي ما كنا متوقعين:
+//   - Accept  → عنصره "AcceptRequest" (مش AcceptServiceRequest) ومفيهوش Cancel أصلاً (استخدم Return بدلها)
+//   - Return  → عنصره فعلاً "ReturnServiceRequest" (الاستثناء الوحيد اللي فيه "Service" في اسم الـ request)
+//   - Deactivate → اسم العملية في الـ ISD نفسه "Deactivation" مش "Deactivate"، وعندها حقل DR (كود سبب من قائمة قيم ثابتة) + EXPLANATION
+//   - Transfer/Return → حقل رقم الإشعار في الرد اسمه "NOTIFICATION_ID" بـ underscore، بعكس باقي الخدمات اللي بتستخدم "NOTIFICATIONID"
+// الـ baseUrl الحقيقي + مسارات كل Service الفعلية لازم تتأكد من ملف الـ WSDL (ANNEX-A) اللي بييجي مع كل ISD بعد التسجيل
 const RasdService = {
-  baseUrl: "https://rsd.sfda.gov.sa/api", // غير للـ URL الصح من رصد
-  token: null,
+  baseUrl: "", // مثال متوقع: https://rsd.sfda.gov.sa/ws — يتحدد من الإعدادات
+  username: "",
+  password: "",
 
-  // تسجيل الدخول والحصول على token
-  async login(username, password) {
+  // قائمة قيم DR (سبب الإخراج من النظام) زي ما جات حرفيًا في DTTS-DEF (قسم 4.2)
+  DR_REASONS: {
+    "10": "سحب بسبب Recall",
+    "20": "سحب بسبب انتهاء الصلاحية",
+    "30": "منتج تالف",
+    "40": "عيب في الجودة",
+    "50": "تخزين غير مناسب",
+    "60": "مرتجع من عميل",
+    "70": "أخرى",
+  },
+
+  configure(cfg) {
+    this.baseUrl = (cfg.apiUrl || "").replace(/\/$/, "");
+    this.username = cfg.username || "";
+    this.password = cfg.password || "";
+  },
+
+  _serviceUrl(serviceName) {
+    return `${this.baseUrl}/${serviceName}/${serviceName}`;
+  },
+
+  // WS-Security UsernameToken — الطريقة الأشهر لخدمات SOAP الحكومية
+  // (الـ WSDL بيستورد wsu namespace؛ لو SFDA قالوا طريقة auth تانية غيّر هنا بس)
+  _wsSecurityHeader() {
+    const created = new Date().toISOString();
+    return `<wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" soapenv:mustUnderstand="1">
+      <wsse:UsernameToken>
+        <wsse:Username>${this.username}</wsse:Username>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-username-token-profile-1.0#PasswordText">${this.password}</wsse:Password>
+        <wsu:Created xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">${created}</wsu:Created>
+      </wsse:UsernameToken>
+    </wsse:Security>`;
+  },
+
+  // PRODUCT فيها GTIN/SN/BN/XD بس — RC بيرجع في الرد بس (مش بيتبعت في الطلب) حسب DTTS-DEF
+  _productListXml(items) {
+    return `<PRODUCTLIST>${items
+      .map(
+        (i) => `
+      <PRODUCT>
+        <GTIN>${i.gtin}</GTIN>
+        <SN>${i.serial}</SN>
+        ${i.batch ? `<BN>${i.batch}</BN>` : ""}
+        ${i.expiry ? `<XD>${i.expiry}</XD>` : ""}
+      </PRODUCT>`
+      )
+      .join("")}</PRODUCTLIST>`;
+  },
+
+  async _call(serviceName, requestElementName, innerXml) {
+    if (!this.baseUrl) return { success: false, error: "لم يتم ضبط رابط رصد (apiUrl) بعد" };
+    const url = this._serviceUrl(serviceName);
+    const soapAction = `http://dtts.sfda.gov.sa/${serviceName}/${requestElementName}`;
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://www.w3.org/2003/05/soap-envelope" xmlns:tns="http://dtts.sfda.gov.sa/${serviceName}">
+  <soapenv:Header>${this._wsSecurityHeader()}</soapenv:Header>
+  <soapenv:Body>
+    <tns:${requestElementName}>${innerXml}</tns:${requestElementName}>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
     try {
-      const res = await fetch(`${this.baseUrl}/auth/login`, {
+      const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        // SOAP 1.2: مفيش SOAPAction header منفصل زي 1.1 — الـ action بيتحط جوه الـ Content-Type نفسه
+        headers: {
+          "Content-Type": `application/soap+xml; charset=utf-8; action="${soapAction}"`,
+        },
+        body: envelope,
       });
-      const data = await res.json();
-      this.token = data.token;
-      return { success: true };
+      const text = await res.text();
+      const parsed = this._parseResponse(text);
+      if (!res.ok || parsed.error) {
+        return { success: false, error: parsed.error || `HTTP ${res.status}`, raw: text };
+      }
+      return { success: true, data: parsed };
     } catch (e) {
       return { success: false, error: e.message };
     }
   },
 
-  // إرسال حركة لرصد
-  async sendTransaction(type, items, glnFrom, glnTo) {
-    // type: "receipt" | "dispense" | "return"
-    try {
-      if (!this.token) {
-        const cfg = JSON.parse(localStorage.getItem("rasd_config") || "{}");
-        this.token = cfg.token;
-      }
-      const payload = {
-        transactionType: type,
-        fromGLN: glnFrom,
-        toGLN: glnTo,
-        date: new Date().toISOString(),
-        items: items.map((i) => ({
-          gtin: i.gtin,
-          serial: i.serial,
-          batch: i.batch,
-          expiry: i.expiry,
-          qty: i.qty,
-        })),
-      };
+  _parseResponse(xmlText) {
+    const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+    const parserErr = doc.getElementsByTagName("parsererror")[0];
+    if (parserErr) return { error: "استجابة غير صالحة من رصد" };
+    const faultString = doc.getElementsByTagName("faultstring")[0];
+    if (faultString) return { error: faultString.textContent };
+    const fc = doc.getElementsByTagName("FC")[0];
+    if (fc) return { error: "كود خطأ رصد: " + fc.textContent };
 
-      const res = await fetch(`${this.baseUrl}/transactions`, {
+    // Return/Transfer/TransferCancel بيرجعوا NOTIFICATION_ID بـ underscore، الباقي NOTIFICATIONID من غيره
+    const notifId =
+      doc.getElementsByTagName("NOTIFICATIONID")[0]?.textContent ||
+      doc.getElementsByTagName("NOTIFICATION_ID")[0]?.textContent ||
+      null;
+    const products = Array.from(doc.getElementsByTagName("PRODUCT")).map((p) => ({
+      gtin: p.getElementsByTagName("GTIN")[0]?.textContent,
+      sn: p.getElementsByTagName("SN")[0]?.textContent,
+      bn: p.getElementsByTagName("BN")[0]?.textContent,
+      xd: p.getElementsByTagName("XD")[0]?.textContent,
+      rc: p.getElementsByTagName("RC")[0]?.textContent, // كود نتيجة كل منتج
+    }));
+    // بترجع بس في رد CheckStatus (GLN1/GLN2 = المالك الحالي/السابق)
+    const gln1 = doc.getElementsByTagName("GLN1")[0]?.textContent || null;
+    const gln2 = doc.getElementsByTagName("GLN2")[0]?.textContent || null;
+    // بترجعوا بس في رد Dispatch Detail
+    const fromGln = doc.getElementsByTagName("FROMGLN")[0]?.textContent || null;
+    const notificationDate = doc.getElementsByTagName("NOTIFICATIONDATE")[0]?.textContent || null;
+    return { notificationId: notifId, products, gln1, gln2, fromGln, notificationDate };
+  },
+
+  // ---- عمليات الصيدلية ----
+
+  // بيع (مباشر للمريض أو عن طريق جهة تسديد) — عنصر الطلب: PharmacySaleRequest
+  async notifyPharmacySale({ toGln, prescriptionId, prescriptionDate, doctorId, patientNationalId, items }) {
+    const body = `
+      <TOGLN>${toGln || "0000000000000"}</TOGLN>
+      ${doctorId ? `<DOCTORID>${doctorId}</DOCTORID>` : ""}
+      ${patientNationalId ? `<PATIENTNATIONALID>${patientNationalId}</PATIENTNATIONALID>` : ""}
+      <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
+      <PRESCRIPTIONDATE>${prescriptionDate}</PRESCRIPTIONDATE>
+      ${this._productListXml(items)}`;
+    return this._call("PharmacySale", "PharmacySaleRequest", body);
+  },
+
+  // عنصر الطلب: PharmacySaleCancelRequest
+  async notifyPharmacySaleCancel({ toGln, prescriptionId, items }) {
+    const body = `
+      <TOGLN>${toGln || "0000000000000"}</TOGLN>
+      <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
+      ${this._productListXml(items)}`;
+    return this._call("PharmacySaleCancel", "PharmacySaleCancelRequest", body);
+  },
+
+  // إرجاع (مرتجعات المشتريات للمورد أو مرتجعات المبيعات حسب toGln)
+  // ملحوظة من الدليل: الصيدلية تقدر ترجّع بس للجهة اللي استلمت المنتج منها أصلًا
+  // عنصر الطلب استثنائيًا اسمه "ReturnServiceRequest" (فيه كلمة Service على عكس باقي العمليات)
+  // ومفيهوش Return Cancel — لإلغاء إرجاع غلط لازم تستخدم Accept Notification بدلها
+  async notifyReturn({ toGln, items }) {
+    const body = `
+      <TOGLN>${toGln}</TOGLN>
+      ${this._productListXml(items)}`;
+    return this._call("Return", "ReturnServiceRequest", body);
+  },
+
+  // استلام بضاعة (تسجيلها في مخزون الصيدلية داخل رصد) — عنصر الطلب: AcceptRequest
+  // مفيهوش Accept Cancel — لإلغاء استلام غلط لازم تستخدم Return Notification بدلها
+  async notifyAccept({ items }) {
+    const body = this._productListXml(items);
+    return this._call("Accept", "AcceptRequest", body);
+  },
+
+  // استلام كل وحدات إشعار Dispatch واحد دفعة واحدة (بديل عن قبول كل GTIN/SN لوحده)
+  // بيتاخد dispatchNotificationId اللي جه في رد/إشعار الـ Dispatch الأصلي (حقل DISPATCHNOTIFICATIONID مش NOTIFICATIONID)
+  async notifyAcceptDispatch({ dispatchNotificationId }) {
+    const body = `<DISPATCHNOTIFICATIONID>${dispatchNotificationId}</DISPATCHNOTIFICATIONID>`;
+    return this._call("AcceptDispatch", "AcceptDispatchRequest", body);
+  },
+
+  // تفاصيل إشعار Dispatch معيّن (بيرجع FROMGLN/TOGLN/PRODUCTLIST/NOTIFICATIONDATE)
+  async getDispatchDetail({ dispatchNotificationId }) {
+    const body = `<DISPATCHNOTIFICATIONID>${dispatchNotificationId}</DISPATCHNOTIFICATIONID>`;
+    return this._call("AcceptDispatch", "DispatchDetailRequest", body);
+  },
+
+  // إخراج منتج من النظام (تالف / منتهي الصلاحية / مسحوب من السوق)
+  // dr: كود من RasdService.DR_REASONS (زي "30" لمنتج تالف)، explanation: نص حر توضيحي
+  // اسم العملية في الـ ISD نفسه "Deactivation" مش "Deactivate"
+  async notifyDeactivate({ dr, explanation, items }) {
+    const body = `
+      <DR>${dr}</DR>
+      ${explanation ? `<EXPLANATION>${explanation}</EXPLANATION>` : ""}
+      ${this._productListXml(items)}`;
+    return this._call("Deactivation", "DeactivationRequest", body);
+  },
+
+  async notifyDeactivateCancel({ items }) {
+    const body = this._productListXml(items);
+    return this._call("DeactivationCancel", "DeactivationCancelRequest", body);
+  },
+
+  // نقل منتج بين نفس نوع الجهة (صيدلية لصيدلية أخرى فقط، حسب الدليل)
+  // عنصر الطلب: TransferRequest — والرد بيرجع الحقل باسم NOTIFICATION_ID (بـ underscore)
+  async notifyTransfer({ toGln, items }) {
+    const body = `
+      <TOGLN>${toGln}</TOGLN>
+      ${this._productListXml(items)}`;
+    return this._call("Transfer", "TransferRequest", body);
+  },
+
+  // إلغاء نقل — بيتاخد PRODUCTLIST بس من غير TOGLN (يشتغل بس لو المستلم لسه ما عملش Accept)
+  async notifyTransferCancel({ items }) {
+    const body = this._productListXml(items);
+    return this._call("TransferCancel", "TransferCancelRequest", body);
+  },
+
+  // استعلام عن حالة منتج (خدمة مساعدة، مفيدة كاختبار اتصال حقيقي)
+  // الرد بيرجع كمان GLN1 (المالك الحالي) و GLN2 (المالك السابق) لكل منتج
+  async checkStatus({ items }) {
+    const body = this._productListXml(items);
+    return this._call("CheckStatus", "CheckStatusRequest", body);
+  },
+
+  // ---- PTS (Package Transfer Service) — نقل ملفات zip مجمّعة بدل إرسال كل GTIN/SN لوحده ----
+  // PTS مختلفة تمامًا عن باقي عمليات رصد: مفيهوش PRODUCTLIST خالص، وبتتعامل مع ملف zip واحد
+  // مبعوت كـ Base64 Stream. رصد نفسه "ناقل ملفات" بس — مش بيتحقق من محتوى الملف، فالتحقق الفعلي
+  // من المنتجات جوّه الملف (ومطابقتها بإشعارات Supply/Import الأصلية) مسؤولية الطرفين برضه.
+  // (مؤكد من DTTS-ISD_PACKAGETRANSFER + الـ WSDL الفعلي المستخرج من نفس ملف الـ ISD — مش تخمين)
+  //
+  // لاحظ الفرق عن باقي خدمات رصد فوق:
+  //  - كل خدمة من التلاتة ليها اسم Service منفصل بالكامل (PackageUploadService/PackageDownloadService/PackageQueryService)
+  //  - اسم الـ operation في الـ WSDL نفسه مختلف عن اسم عنصر الطلب (uploadFile/downloadFile/packageQuery
+  //    مقابل PackageUploadServiceRequest/PackageDownloadServiceRequest/PackageQueryServiceRequest كعناصر body)
+  //  - الـ soapAction بيكرر اسم الـ service مرتين فعلاً: .../PackageUploadService/PackageUploadService/uploadFileRequest
+  PTS_OPERATIONS: {
+    upload: { service: "PackageUploadService", operation: "uploadFile", requestElement: "PackageUploadServiceRequest" },
+    download: { service: "PackageDownloadService", operation: "downloadFile", requestElement: "PackageDownloadServiceRequest" },
+    query: { service: "PackageQueryService", operation: "packageQuery", requestElement: "PackageQueryServiceRequest" },
+  },
+
+  async _callPts(kind, innerXml) {
+    const op = this.PTS_OPERATIONS[kind];
+    if (!this.baseUrl) return { success: false, error: "لم يتم ضبط رابط رصد (apiUrl) بعد" };
+    const url = `${this.baseUrl}/${op.service}/${op.service}`;
+    const soapAction = `http://dtts.sfda.gov.sa/${op.service}/${op.service}/${op.operation}Request`;
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://www.w3.org/2003/05/soap-envelope" xmlns:tns="http://dtts.sfda.gov.sa/${op.service}">
+  <soapenv:Header>${this._wsSecurityHeader()}</soapenv:Header>
+  <soapenv:Body>
+    <tns:${op.requestElement}>${innerXml}</tns:${op.requestElement}>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    try {
+      const res = await fetch(url, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.token}`,
+          "Content-Type": `application/soap+xml; charset=utf-8; action="${soapAction}"`,
         },
-        body: JSON.stringify(payload),
+        body: envelope,
       });
-
-      const data = await res.json();
-      return { success: res.ok, data };
+      const text = await res.text();
+      const parsed = this._parsePtsResponse(kind, text);
+      if (!res.ok || parsed.error) {
+        return { success: false, error: parsed.error || `HTTP ${res.status}`, raw: text };
+      }
+      return { success: true, data: parsed };
     } catch (e) {
       return { success: false, error: e.message };
     }
   },
 
-  // التحقق من صلاحية الدواء
-  async verifyProduct(gtin, serial) {
+  _parsePtsResponse(kind, xmlText) {
+    const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+    const parserErr = doc.getElementsByTagName("parsererror")[0];
+    if (parserErr) return { error: "استجابة غير صالحة من رصد (PTS)" };
+    const faultString = doc.getElementsByTagName("faultstring")[0];
+    if (faultString) return { error: faultString.textContent };
+
+    if (kind === "upload") {
+      return {
+        transferId: doc.getElementsByTagName("TRANSFERID")[0]?.textContent || null,
+        md5Checksum: doc.getElementsByTagName("MD5CHECKSUM")[0]?.textContent || null,
+      };
+    }
+    if (kind === "download") {
+      return {
+        fileBase64: doc.getElementsByTagName("FILE")[0]?.textContent || null,
+        md5Checksum: doc.getElementsByTagName("MD5CHECKSUM")[0]?.textContent || null,
+      };
+    }
+    // query: TRANSFERDETAILLIST جوّاها مصفوفة TRANSFERDETAIL — كل عنصر بيمثل ملف واحد مرسل ليك
+    const transfers = Array.from(doc.getElementsByTagName("TRANSFERDETAIL")).map((t) => ({
+      transferId: t.getElementsByTagName("TRANSFERID")[0]?.textContent,
+      sender: t.getElementsByTagName("SENDER")[0]?.textContent, // GLN المرسل (13 خانة)
+      receiver: t.getElementsByTagName("RECEIVER")[0]?.textContent, // GLN المستقبل (13 خانة)
+      sendDate: t.getElementsByTagName("SENDDATE")[0]?.textContent,
+      md5Checksum: t.getElementsByTagName("MD5CHECKSUM")[0]?.textContent,
+    }));
+    return { transfers };
+  },
+
+  // رفع ملف zip (Base64، من غير data: prefix) فيه دفعة كبيرة من بيانات المنتجات (GTIN-SN-BN-XD)
+  async ptsUpload({ toGln, fileBase64 }) {
+    const body = `
+      <TOGLN>${toGln}</TOGLN>
+      <FILE>${fileBase64}</FILE>`;
+    return this._callPts("upload", body);
+  },
+
+  // تنزيل ملف اتبعت لك — بياخد transferId من نتيجة ptsQuery
+  // مينفعش تنزل ملف مش متبعت ليك أصلاً (حسب الدليل)
+  async ptsDownload({ transferId }) {
+    const body = `<TRANSFERID>${transferId}</TRANSFERID>`;
+    return this._callPts("download", body);
+  },
+
+  // استعلام عن الملفات المرسلة لك ولسه ما اتنزلتش (أو كل الملفات لو getAll=true، شاملة اللي اتنزلت قبل كده)
+  // fromGln/toGln اختياريين كفلتر إضافي، startDate/endDate لفلترة بالتاريخ
+  async ptsQuery({ fromGln, toGln, getAll = false, startDate, endDate } = {}) {
+    const body = `
+      ${fromGln ? `<FROMGLN>${fromGln}</FROMGLN>` : ""}
+      ${toGln ? `<TOGLN>${toGln}</TOGLN>` : ""}
+      <GETALL>${getAll ? "true" : "false"}</GETALL>
+      ${startDate ? `<STARTDATE>${startDate}</STARTDATE>` : ""}
+      ${endDate ? `<ENDDATE>${endDate}</ENDDATE>` : ""}`;
+    return this._callPts("query", body);
+  },
+};
+
+// ==================== RASSD QUEUE (رفع دوري بدل الإرسال الفوري) ====================
+// بدل ما نبعت كل عملية لرصد فورًا ونستنى الرد (وممكن يفشل البيع لو النت بطيء أو رصد واقع)
+// بنسجل العملية في طابور محلي، وبنرفع كل اللي اتراكم كل فترة (زي أنظمة رصد الحقيقية اللي بترفع كل 10 دقايق)
+const RasdQueue = {
+  STORAGE_KEY: "rasd_queue",
+  MAX_ATTEMPTS: 30, // بعدها نعتبرها "فشل نهائي" ونسيبها للمراجعة اليدوية بدل ما نحاول للأبد
+  timer: null,
+
+  _load() {
     try {
-      const res = await fetch(
-        `${this.baseUrl}/products/verify?gtin=${gtin}&serial=${serial}`,
-        {
-          headers: { Authorization: `Bearer ${this.token}` },
-        }
-      );
-      const data = await res.json();
-      return { success: res.ok, data };
-    } catch (e) {
-      return { success: false, error: e.message };
+      return JSON.parse(localStorage.getItem(this.STORAGE_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  },
+
+  _save(queue) {
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(queue));
+  },
+
+  // type: "sale" | "saleCancel" | "return" | "accept" | "acceptDispatch"
+  enqueue(type, payload) {
+    const queue = this._load();
+    queue.push({
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type,
+      payload,
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+      lastError: null,
+    });
+    this._save(queue);
+  },
+
+  pendingCount() {
+    return this._load().filter((i) => i.attempts < this.MAX_ATTEMPTS).length;
+  },
+
+  failedCount() {
+    return this._load().filter((i) => i.attempts >= this.MAX_ATTEMPTS).length;
+  },
+
+  clearFailed() {
+    const queue = this._load().filter((i) => i.attempts < this.MAX_ATTEMPTS);
+    this._save(queue);
+  },
+
+  async _sendOne(item) {
+    switch (item.type) {
+      case "sale":
+        return RasdService.notifyPharmacySale(item.payload);
+      case "saleCancel":
+        return RasdService.notifyPharmacySaleCancel(item.payload);
+      case "return":
+        return RasdService.notifyReturn(item.payload);
+      case "accept":
+        return RasdService.notifyAccept(item.payload);
+      case "acceptDispatch":
+        return RasdService.notifyAcceptDispatch(item.payload);
+      default:
+        return { success: false, error: "نوع عملية غير معروف: " + item.type };
+    }
+  },
+
+  async flush(showToast) {
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    if (!rasdConfig.enabled || !rasdConfig.apiUrl) return;
+    RasdService.configure(rasdConfig);
+
+    const queue = this._load();
+    if (queue.length === 0) return;
+
+    const stillPending = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const item of queue) {
+      if (item.attempts >= this.MAX_ATTEMPTS) {
+        stillPending.push(item); // سايبينها كـ "فشل نهائي" بدل حذفها، للمراجعة اليدوية
+        continue;
+      }
+      const result = await this._sendOne(item);
+      if (result.success) {
+        successCount++;
+      } else {
+        failCount++;
+        item.attempts += 1;
+        item.lastError = result.error;
+        stillPending.push(item);
+      }
+    }
+
+    this._save(stillPending);
+
+    if (showToast) {
+      if (successCount > 0) showToast(`تم رفع ${successCount} عملية لرصد ✓`);
+      if (failCount > 0)
+        showToast(`تعذر رفع ${failCount} عملية لرصد — هيتم إعادة المحاولة تلقائيًا`, "error");
+    }
+  },
+
+  start(showToast) {
+    if (this.timer) return; // منع تشغيل أكتر من مؤقت واحد لو الـ effect اتنفذ أكتر من مرة
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    const intervalMin = Number(rasdConfig.uploadIntervalMinutes) || 10;
+    this.flush(showToast); // أول تشغيل فورًا عشان ماينتظرش أول فترة كاملة
+    this.timer = setInterval(() => this.flush(showToast), intervalMin * 60 * 1000);
+  },
+
+  stop() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
     }
   },
 };
+
 // ==================== RASSD BARCODE PARSER ====================
 
 function parseGS1Barcode(raw) {
@@ -1598,6 +1970,13 @@ export default function PharmacyPro() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // تشغيل الرفع التلقائي الدوري لعمليات رصد المتراكمة (Queue)
+  useEffect(() => {
+    RasdQueue.start(showToast);
+    return () => RasdQueue.stop();
+  }, [showToast]);
+
   const currentShift = shifts.find(
     (s) => !s.end_time && s.user === currentUser?.name
   );
@@ -2175,6 +2554,7 @@ if (isLoading) return (
             purchases={purchases}
             setPurchases={setPurchases}
             customers={customers}
+            suppliers={suppliers}
             showToast={showToast}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
@@ -2198,6 +2578,7 @@ if (isLoading) return (
             purchases={purchases}
             setPurchases={setPurchases}
             customers={customers}
+            suppliers={suppliers}
             showToast={showToast}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
@@ -4836,22 +5217,18 @@ function POS({
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = inv.cart.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
-      const rasdResult = await RasdService.sendTransaction(
-        "dispense",
-        gs1Items.map((i) => ({
+      // بنسجلها في الطابور بدل ما نستنى رد رصد فورًا — كده البيع ميتأخرش لو رصد بطيء أو واقع
+      RasdQueue.enqueue("sale", {
+        toGln: "0000000000000", // بيع مباشر للمريض (مش عن طريق جهة تسديد)
+        prescriptionId: String(invoice.id ?? invoice.invoiceNumber ?? Date.now()),
+        prescriptionDate: new Date().toISOString().slice(0, 10),
+        items: gs1Items.map((i) => ({
           gtin: i.gtin || i.barcode,
           serial: i.serial,
           batch: i.batch,
           expiry: i.expiry,
-          qty: i.qty,
         })),
-        rasdConfig.gln || PHARMACY_GLN,
-        null
-      );
-      if (!rasdResult.success) {
-        showToast("تحذير: فشل إرسال البيانات لرصد", "error");
-        console.error("Rasd error:", rasdResult.error);
-      }
+      });
     }
 
     setSales((p) => [...p, invoice]);
@@ -7184,6 +7561,13 @@ function PurchaseModule({
   const [editSupplier, setEditSupplier] = useState("");
   const [editManualSubtotal, setEditManualSubtotal] = useState("");
   const [editManualTax, setEditManualTax] = useState("");
+
+  // ===== رصد: قبول شحنة Dispatch كاملة دفعة واحدة =====
+  const [showAcceptDispatch, setShowAcceptDispatch] = useState(false);
+  const [dispatchIdInput, setDispatchIdInput] = useState("");
+  const [dispatchDetail, setDispatchDetail] = useState(null); // { fromGln, notificationDate, products }
+  const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [dispatchAccepting, setDispatchAccepting] = useState(false);
   
   // ===== طباعة الباركود =====
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -7822,22 +8206,60 @@ const LABEL_SIZES = [
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = itemsForPrint.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
-      RasdService.sendTransaction(
-        "receipt",
-        gs1Items.map((i) => ({
+      RasdQueue.enqueue("accept", {
+        items: gs1Items.map((i) => ({
           gtin: i.gtin || i.barcode,
           serial: i.serial,
           batch: i.batch,
           expiry: i.expiry,
-          qty: i.qty,
         })),
-        rasdConfig.gln,
-        null
-      ).then((result) => {
-        if (!result.success)
-          showToast("تحذير: فشل إرسال بيانات الشراء لرصد", "error");
       });
     }
+  };
+
+  // ===== رصد: قبول شحنة Dispatch كاملة =====
+  const fetchDispatchDetail = async () => {
+    if (!dispatchIdInput.trim()) {
+      showToast("يرجى إدخال رقم إشعار الشحنة (Dispatch Notification ID)", "error");
+      return;
+    }
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    if (!rasdConfig.enabled || !rasdConfig.apiUrl) {
+      showToast("نظام رصد غير مفعّل — اضبط الإعدادات أولاً من (إعدادات رصد)", "error");
+      return;
+    }
+    RasdService.configure(rasdConfig);
+    setDispatchLoading(true);
+    setDispatchDetail(null);
+    const result = await RasdService.getDispatchDetail({ dispatchNotificationId: dispatchIdInput.trim() });
+    setDispatchLoading(false);
+    if (!result.success) {
+      showToast("تعذر جلب تفاصيل الشحنة: " + result.error, "error");
+      return;
+    }
+    if (!result.data.products || result.data.products.length === 0) {
+      showToast("لم يتم العثور على أصناف لهذا الإشعار — تأكد من الرقم", "error");
+      return;
+    }
+    setDispatchDetail(result.data);
+  };
+
+  const confirmAcceptDispatch = async () => {
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    RasdService.configure(rasdConfig);
+    setDispatchAccepting(true);
+    const result = await RasdService.notifyAcceptDispatch({ dispatchNotificationId: dispatchIdInput.trim() });
+    setDispatchAccepting(false);
+    if (result.success) {
+      showToast(`تم قبول الشحنة في رصد ✓ (${dispatchDetail?.products?.length || 0} صنف) — لا تنس تسجيلها في المخزون بفاتورة شراء`);
+    } else {
+      // فشل الاتصال الفوري — بنسجلها في الطابور المحلي عشان تتحاول تلقائيًا تاني بدل ما تتنسى
+      RasdQueue.enqueue("acceptDispatch", { dispatchNotificationId: dispatchIdInput.trim() });
+      showToast("تعذر القبول الفوري في رصد — تم حفظها للمحاولة تلقائيًا لاحقًا: " + result.error, "error");
+    }
+    setShowAcceptDispatch(false);
+    setDispatchIdInput("");
+    setDispatchDetail(null);
   };
 
   return (
@@ -7853,9 +8275,14 @@ const LABEL_SIZES = [
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
           فواتير الشراء
         </h2>
-        <Btn icon="plus" onClick={() => setShowNew(true)}>
-          فاتورة شراء جديدة
-        </Btn>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn icon="check" variant="secondary" onClick={() => setShowAcceptDispatch(true)}>
+            قبول شحنة رصد كاملة
+          </Btn>
+          <Btn icon="plus" onClick={() => setShowNew(true)}>
+            فاتورة شراء جديدة
+          </Btn>
+        </div>
       </div>
 
       <Table
@@ -9162,6 +9589,70 @@ const LABEL_SIZES = [
           </div>
         </Modal>
       )}
+
+      {/* ===== رصد: قبول شحنة Dispatch كاملة ===== */}
+      {showAcceptDispatch && (
+        <Modal
+          open
+          wide
+          onClose={() => { setShowAcceptDispatch(false); setDispatchIdInput(""); setDispatchDetail(null); }}
+          title="قبول شحنة رصد كاملة"
+        >
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 12 }}>
+            بديل عن قبول كل GTIN/SN لوحده — بتاخد رقم إشعار الشحنة (Dispatch Notification ID) اللي
+            بيوصلك من المورد/المخزن، وبتقبل كل الوحدات اللي فيها دفعة واحدة في رصد.
+            <br />
+            ⚠️ ده بيقبل الشحنة في رصد فقط — لازم بعدها تسجّلها بفاتورة شراء عادية عشان تدخل مخزون الصيدلية.
+          </div>
+          <Input
+            label="رقم إشعار الشحنة (Dispatch Notification ID)"
+            value={dispatchIdInput}
+            onChange={setDispatchIdInput}
+            placeholder="مثال: DN-2026-000123"
+          />
+          <div style={{ marginTop: 10 }}>
+            <Btn onClick={fetchDispatchDetail} disabled={dispatchLoading} variant="secondary">
+              {dispatchLoading ? "جاري البحث..." : "بحث عن تفاصيل الشحنة"}
+            </Btn>
+          </div>
+
+          {dispatchDetail && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", gap: 16, marginBottom: 10, fontSize: 12, color: COLORS.textDim }}>
+                {dispatchDetail.fromGln && <span>المرسل (GLN): {dispatchDetail.fromGln}</span>}
+                {dispatchDetail.notificationDate && <span>التاريخ: {dispatchDetail.notificationDate}</span>}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                الأصناف ({dispatchDetail.products.length})
+              </div>
+              <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                {dispatchDetail.products.map((p, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "8px 12px",
+                      borderBottom: i < dispatchDetail.products.length - 1 ? `1px solid ${COLORS.border}` : "none",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: COLORS.textPrimary }}>GTIN: {p.gtin} — SN: {p.sn}</span>
+                    <span style={{ color: COLORS.textDim }}>{p.bn ? `دفعة: ${p.bn}` : ""} {p.xd ? `صلاحية: ${p.xd}` : ""}</span>
+                  </div>
+                ))}
+              </div>
+              <Btn
+                onClick={confirmAcceptDispatch}
+                disabled={dispatchAccepting}
+                style={{ marginTop: 14, width: "100%", justifyContent: "center" }}
+              >
+                {dispatchAccepting ? "جاري القبول..." : `تأكيد قبول الشحنة بالكامل في رصد (${dispatchDetail.products.length} صنف)`}
+              </Btn>
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
@@ -9173,6 +9664,7 @@ function ReturnsModule({
   purchases,
   setPurchases,
   customers,
+  suppliers = [], // 🆕 عشان نجيب GLN المورد الصح لمرتجع المشتريات بدل GLN الصيدلية نفسها
   showToast,
   pharmacyId,
   currentUser,
@@ -9716,23 +10208,38 @@ function ReturnsModule({
     }
 
     // رصد
+    // 🆕 مرتجع مبيعات (عميل بيرجّع دواء اشتراه) ≠ مرتجع مشتريات (بيرجع للمورد) في نظام رصد:
+    // مرتجع المشتريات فعلاً "إرجاع لجهة" فبيستخدم خدمة Return الرسمية.
+    // مرتجع المبيعات مفيهوش جهة مستلمة (المريض مش Stakeholder في رصد) — الصح هو
+    // "إلغاء" عملية البيع نفسها عن طريق Pharmacy Sale Cancel (بنفس PRESCRIPTIONID
+    // اللي اتبعت وقت البيع الأصلي = رقم الفاتورة) — مؤكد من DTTS-ISD_PHARMACY_SALE.
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     const gs1Items = itemsToReturn.filter((i) => i.serial);
     if (rasdConfig.enabled && gs1Items.length > 0) {
-      RasdService.sendTransaction(
-        "return",
-        gs1Items.map((i) => ({
-          gtin: i.gtin || i.barcode,
-          serial: i.serial,
-          batch: i.batch,
-          expiry: i.expiry,
-          qty: i.returnQty,
-        })),
-        rasdConfig.gln,
-        null
-      ).then((result) => {
-        if (!result.success) showToast("تحذير: فشل إرسال بيانات المرتجع لرصد", "error");
-      });
+      const rasdItems = gs1Items.map((i) => ({
+        gtin: i.gtin || i.barcode,
+        serial: i.serial,
+        batch: i.batch,
+        expiry: i.expiry,
+      }));
+      if (type === "sales" && selInvoice) {
+        RasdQueue.enqueue("saleCancel", {
+          toGln: "0000000000000", // نفس TOGLN اللي اتبعت وقت البيع الأصلي (بيع مباشر للمريض)
+          prescriptionId: String(selInvoice.id),
+          items: rasdItems,
+        });
+      } else if (type === "purchases") {
+        // 🆕 TOGLN لازم يكون GLN المورد اللي بنرجّع له، مش GLN الصيدلية نفسها
+        const supplierObj = suppliers.find((s) => s.id === supplierIdForReturn);
+        if (supplierObj?.gln) {
+          RasdQueue.enqueue("return", {
+            toGln: supplierObj.gln,
+            items: rasdItems,
+          });
+        } else {
+          showToast("⚠️ لم يتم إرسال المرتجع لرصد: رقم GLN الخاص بالمورد غير مسجّل في بيانات المورد", "error");
+        }
+      }
     }
 
     setReturnItems([]);
@@ -10213,37 +10720,56 @@ function RasdSettings({ showToast }) {
           gln: "",
           username: "",
           password: "",
-          apiUrl: "https://rsd.sfda.gov.sa/api",
+          apiUrl: "", // مثال متوقع: https://rsd.sfda.gov.sa/ws — يحدده SFDA
+          uploadIntervalMinutes: 10,
         };
   });
   const [testing, setTesting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [queueStatus, setQueueStatus] = useState({ pending: 0, failed: 0 });
+  const [flushing, setFlushing] = useState(false);
+
+  // تحديث عداد الطابور كل شوية عشان يبان تحديث لحظي
+  useEffect(() => {
+    const update = () =>
+      setQueueStatus({ pending: RasdQueue.pendingCount(), failed: RasdQueue.failedCount() });
+    update();
+    const t = setInterval(update, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  const uploadNow = async () => {
+    setFlushing(true);
+    RasdService.configure(config);
+    await RasdQueue.flush(showToast);
+    setQueueStatus({ pending: RasdQueue.pendingCount(), failed: RasdQueue.failedCount() });
+    setFlushing(false);
+  };
 
   const save = () => {
-    // احفظ التوكن الحالي مع الإعدادات
-    const configToSave = {
-      ...config,
-      token: RasdService.token || null,
-    };
-    localStorage.setItem("rasd_config", JSON.stringify(configToSave));
+    localStorage.setItem("rasd_config", JSON.stringify(config));
+    RasdQueue.stop();
+    RasdQueue.start(showToast); // إعادة تشغيل المؤقت بالمدة الجديدة لو اتغيرت
     showToast("تم حفظ إعدادات رصد ✓");
   };
 
   const testConnection = async () => {
-    if (!config.username || !config.password) {
-      showToast("يرجى إدخال اسم المستخدم وكلمة المرور", "error");
+    if (!config.username || !config.password || !config.apiUrl) {
+      showToast("يرجى إدخال اسم المستخدم وكلمة المرور ورابط الـ API", "error");
       return;
     }
     setTesting(true);
-    RasdService.baseUrl = config.apiUrl;
-    const result = await RasdService.login(config.username, config.password);
+    RasdService.configure(config);
+    // رصد SOAP مفيهوش endpoint دخول منفصل، فبنستخدم CheckStatus كاختبار اتصال حقيقي
+    const result = await RasdService.checkStatus({
+      items: [{ gtin: "00000000000000", serial: "TEST" }],
+    });
     setTesting(false);
-    if (result.success) {
+    // أي رد فعلي من السيرفر (حتى لو خطأ منطقي زي "منتج غير موجود") معناه الاتصال شغال
+    if (result.success || (result.error && !result.error.includes("Failed to fetch"))) {
       setConnected(true);
-      // احفظ التوكن في config
-      setConfig((p) => ({ ...p, token: RasdService.token }));
-      showToast("تم الاتصال برصد بنجاح ✓");
+      showToast("الاتصال بسيرفر رصد شغال ✓");
     } else {
       setConnected(false);
       showToast("فشل الاتصال: " + result.error, "error");
@@ -10452,11 +10978,52 @@ function RasdSettings({ showToast }) {
         </div>
 
         <Field
-          label="رابط الـ API"
+          label="رابط رصد (Base URL بتاع SOAP Web Services — من SFDA)"
           value={config.apiUrl}
           onChange={(v) => setConfig((p) => ({ ...p, apiUrl: v }))}
-          placeholder="https://rsd.sfda.gov.sa/api"
+          placeholder="مثال: https://rsd.sfda.gov.sa/ws"
         />
+
+        <Field
+          label="مدة الرفع التلقائي (بالدقايق)"
+          value={String(config.uploadIntervalMinutes ?? 10)}
+          onChange={(v) => setConfig((p) => ({ ...p, uploadIntervalMinutes: Number(v) || 10 }))}
+          type="number"
+          placeholder="10"
+        />
+      </div>
+
+      {/* حالة الطابور */}
+      <div
+        style={{
+          background: COLORS.surfaceAlt,
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+          border: `1px solid ${COLORS.border}`,
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 10,
+        }}
+      >
+        <div style={{ fontSize: 13, color: COLORS.textDim }}>
+          <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{queueStatus.pending}</span>{" "}
+          عملية بانتظار الرفع
+          {queueStatus.failed > 0 && (
+            <>
+              {" "}
+              — <span style={{ fontWeight: 700, color: COLORS.gold }}>{queueStatus.failed}</span>{" "}
+              فشلت نهائيًا (راجعها يدويًا)
+            </>
+          )}
+        </div>
+        <Btn onClick={uploadNow} variant="ghost" icon={flushing ? "loading" : "upload"}>
+          {flushing ? "جارٍ الرفع..." : "ارفع الآن"}
+        </Btn>
       </div>
 
       {/* Buttons */}
@@ -12437,6 +13004,7 @@ function SuppliersModule({
     opening_balance: 0,
     opening_balance_details: [], // [{id, invoice_no, amount, due_days, note}]
     supply_categories: [],
+    gln: "", // 🆕 رقم GLN الخاص بالمورد في نظام رصد — لازم عشان إشعارات مرتجع المشتريات (TOGLN)
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -13025,6 +13593,7 @@ function SuppliersModule({
       opening_balance: s.opening_balance || 0,
       opening_balance_details: s.opening_balance_details || [],
       supply_categories: s.supply_categories || [],
+      gln: s.gln || "",
     });
     setShowForm(true);
   };
@@ -13044,6 +13613,7 @@ function SuppliersModule({
       supply_categories: form.supply_categories,
       opening_balance: openingBal,
       opening_balance_details: form.opening_balance_details || [],
+      gln: form.gln || null,
     };
     if (editing) {
       const { error } = await supabase.from("suppliers").update(payload).eq("id", editing).eq("pharmacy_id", pharmacyId);
@@ -13249,6 +13819,19 @@ function SuppliersModule({
                         <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>الرقم الضريبي:</span>
                         <Badge color={COLORS.greenSoft} text={COLORS.green}>{s.taxId}</Badge>
                       </div>
+                    )}
+                    {s.gln ? (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>GLN (رصد):</span>
+                        <Badge color={COLORS.goldSoft} text={COLORS.gold}>{s.gln}</Badge>
+                      </div>
+                    ) : (
+                      JSON.parse(localStorage.getItem("rasd_config") || "{}").enabled && (
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <span style={{ color: COLORS.border, fontSize: 11, width: 90, flexShrink: 0 }}>GLN (رصد):</span>
+                          <span style={{ fontSize: 11, color: COLORS.red }}>⚠ غير مسجّل — مرتجعات المشتريات لن تُرسل لرصد</span>
+                        </div>
+                      )
                     )}
                     {(s.supply_categories || []).length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -13700,6 +14283,7 @@ function SuppliersModule({
           <Input label="البريد الإلكتروني" value={form.email} onChange={(v) => F("email", v)} placeholder="info@company.com" />
           <Input label="العنوان" value={form.address} onChange={(v) => F("address", v)} />
           <Input label="مسؤول التواصل" value={form.contact} onChange={(v) => F("contact", v)} />
+          <Input label="رقم GLN (لنظام رصد)" value={form.gln} onChange={(v) => F("gln", v)} placeholder="6xxxxxxx000010000" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>حد الكريدت (ر.س)</label>
