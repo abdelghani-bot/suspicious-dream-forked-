@@ -2391,6 +2391,25 @@ function AlertRow({ text, badge, color, VAR }) {
 function EmptyAlertRow({ text, muted }) {
   return <div style={{ textAlign: "center", color: muted, fontSize: 11, padding: "10px 0" }}>{text}</div>;
 }
+// ========== توقع نفاد المخزون (مشتركة بين قسم الأصناف وقسم الموردين) ==========
+// بتحسب معدل البيع اليومي الفعلي خلال آخر windowDays يوم، وتتوقع كام يوم متبقي قبل ما الصنف ينفد.
+// بترجع null لو مفيش حركة بيع كفاية عشان نتوقع بثقة.
+function computeStockoutForecast(sales, productId, currentStock, windowDays = 30) {
+  const windowStart = new Date();
+  windowStart.setDate(windowStart.getDate() - windowDays);
+  let totalQtySold = 0;
+  (sales || []).forEach((s) => {
+    const saleDate = new Date(s.date);
+    if (saleDate < windowStart || s.returned) return;
+    (s.items || []).forEach((i) => {
+      if (i.id === productId && !i.isMissed && !i.isJoker) totalQtySold += +i.qty || 0;
+    });
+  });
+  const avgDailyQty = totalQtySold / windowDays;
+  if (avgDailyQty <= 0) return null;
+  const daysLeft = currentStock / avgDailyQty;
+  return { avgDailyQty, daysLeft: Math.floor(daysLeft) };
+}
 function useEssentialAlerts(products) {
   const [alerts, setAlerts] = useState([]);
 
@@ -11929,22 +11948,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   // معدل البيع اليومي الفعلي في آخر 30 يوم ونتوقع كام يوم متبقي قبل ما الصنف ينفد ==========
   const STOCKOUT_WINDOW_DAYS = 30;
   const STOCKOUT_WARNING_DAYS = 14; // نطلع تنبيه لو متبقي 14 يوم أو أقل قبل النفاد
-  const getStockoutForecast = (productId, currentStock) => {
-    const windowStart = new Date();
-    windowStart.setDate(windowStart.getDate() - STOCKOUT_WINDOW_DAYS);
-    let totalQtySold = 0;
-    (sales || []).forEach((s) => {
-      const saleDate = new Date(s.date);
-      if (saleDate < windowStart || s.returned) return;
-      (s.items || []).forEach((i) => {
-        if (i.id === productId && !i.isMissed && !i.isJoker) totalQtySold += +i.qty || 0;
-      });
-    });
-    const avgDailyQty = totalQtySold / STOCKOUT_WINDOW_DAYS;
-    if (avgDailyQty <= 0) return null; // مفيش حركة بيع كفاية عشان نتوقع بثقة
-    const daysLeft = currentStock / avgDailyQty;
-    return { avgDailyQty, daysLeft: Math.floor(daysLeft) };
-  };
+  const getStockoutForecast = (productId, currentStock) =>
+    computeStockoutForecast(sales, productId, currentStock, STOCKOUT_WINDOW_DAYS);
 
   const stockoutForecastList = (products || [])
     .filter((p) => (p.stock ?? 0) > 0)
@@ -12404,6 +12409,8 @@ function SuppliersModule({
   const [showStatements, setShowStatements] = useState(null);
   const [coverageDays, setCoverageDays] = useState(30);
   const [orderItems, setOrderItems] = useState([]);
+  // ── الميزانية المتاحة لطلب الشراء الحالي (اختياري) ──
+  const [orderBudget, setOrderBudget] = useState("");
   // ── أصناف منقولة لمورد أرخص، بانتظار فتح طلب الشراء الخاص به (جلسة حالية فقط) ──
   const [pendingBySupplier, setPendingBySupplier] = useState({});
   const [manualProductSearch, setManualProductSearch] = useState("");
@@ -12911,7 +12918,52 @@ function SuppliersModule({
       setPendingBySupplier((prev) => { const p = { ...prev }; delete p[targetSupplier.id]; return p; });
     }
     setOrderItems(merged);
+    setOrderBudget("");
     setShowOrderForm(targetSupplier);
+  };
+
+  // ========== توزيع الأصناف حسب الميزانية المتاحة ==========
+  // بترتب الأصناف حسب أولوية التوقيت (الأقرب لنفاذ المخزون الأول، وبعدين الأسرع حركة عند التعادل)،
+  // وبعدين بتوزع الميزانية بالتتابع: كل صنف ياخد كميته الكاملة لحد ما الميزانية تخلص،
+  // وآخر صنف تكفيه الميزانية جزئياً بياخد أقصى كمية ممكنة، والباقي كميته بتتصفر (بدون ما يتشال من القائمة).
+  const allocateByBudget = () => {
+    const budget = +orderBudget;
+    if (!budget || budget <= 0) { showToast("اكتب قيمة ميزانية صحيحة", "error"); return; }
+    const movementRank = { fast: 0, regular: 1, normal: 2, slow: 3, very_slow: 4 };
+    const withUrgency = orderItems.map((item) => {
+      const forecast = computeStockoutForecast(sales, item.id, item.currentStock ?? 0);
+      // مفيش حركة بيع كفاية نتوقع بيها = نعتبره أقل إلحاحاً (نضيفه في الآخر)
+      const daysLeft = item.currentStock <= 0 ? -1 : (forecast ? forecast.daysLeft : Infinity);
+      return { ...item, _daysLeft: daysLeft };
+    });
+    const sorted = [...withUrgency].sort((a, b) => {
+      if (a._daysLeft !== b._daysLeft) return a._daysLeft - b._daysLeft;
+      const mvA = movementRank[a.movement?.class] ?? 5;
+      const mvB = movementRank[b.movement?.class] ?? 5;
+      return mvA - mvB;
+    });
+    let remaining = budget;
+    let cutCount = 0;
+    const allocated = sorted.map((item) => {
+      const unitCost = +item.cost || 0;
+      const fullQty = +item.orderQty || 0;
+      if (remaining <= 0) { cutCount++; return { ...item, orderQty: 0 }; }
+      if (unitCost <= 0) return item; // مفيش تكلفة معروفة، سيبه زي ما هو من غير خصم من الميزانية
+      const fullCost = unitCost * fullQty;
+      if (fullCost <= remaining) {
+        remaining -= fullCost;
+        return item;
+      }
+      const partialQty = Math.floor(remaining / unitCost);
+      remaining = 0;
+      cutCount++;
+      return { ...item, orderQty: partialQty };
+    });
+    // رجّع الترتيب الأصلي بتاع orderItems عشان الجدول ميتقلبش
+    const byId = Object.fromEntries(allocated.map((i) => [i.id, i]));
+    setOrderItems(orderItems.map((i) => byId[i.id] || i));
+    const used = budget - remaining;
+    showToast(`تم التوزيع حسب الميزانية — استخدام ${used.toFixed(2)} من ${budget.toFixed(2)} ر.س${cutCount ? ` — ${cutCount} صنف اتأجل` : ""}`, "success");
   };
 
   // ========== حفظ الأوردر ==========
@@ -12919,7 +12971,7 @@ function SuppliersModule({
     if (!showOrderForm || orderItems.length === 0) { showToast("لا توجد أصناف للطلب", "error"); return; }
     const orderId = `ORD-${Date.now()}`;
     const totalCost = orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0);
-    const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: new Date().toISOString().split("T")[0], coverage_days: coverageDays, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
+    const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: new Date().toISOString().split("T")[0], coverage_days: coverageDays, budget: orderBudget ? +orderBudget : null, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
     const { error } = await supabase.from("orders").insert(order);
     if (error) { showToast("فشل حفظ الأوردر: " + error.message, "error"); return; }
     setOrders((p) => [order, ...p]);
@@ -13335,6 +13387,27 @@ function SuppliersModule({
             <span style={{ color: COLORS.textDim, fontSize: 13 }}>يوم</span>
           </div>
 
+          {/* 💰 الميزانية المتاحة للطلب */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <label style={{ color: COLORS.textDim, fontSize: 13 }}>الميزانية المتاحة:</label>
+            <input type="number" min="0" value={orderBudget}
+              onChange={(e) => setOrderBudget(e.target.value)}
+              placeholder="اختياري"
+              style={{ width: 120, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+            <span style={{ color: COLORS.textDim, fontSize: 13 }}>ر.س</span>
+            <Btn icon="check" variant="secondary" onClick={allocateByBudget}>توزيع حسب الميزانية</Btn>
+            {orderBudget && +orderBudget > 0 && (() => {
+              const total = orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0);
+              const zeroedCount = orderItems.filter((i) => (+i.orderQty || 0) === 0).length;
+              return (
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>
+                  الميزانية: {total.toFixed(2)} من {(+orderBudget).toFixed(2)} ر.س
+                  {zeroedCount ? ` — ${zeroedCount} صنف اتأجل` : ""}
+                </span>
+              );
+            })()}
+          </div>
+
           {/* ➕ إضافة صنف يدوياً */}
           <div style={{ position: "relative", marginBottom: 16 }}>
             <label style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4, display: "block" }}>➕ إضافة صنف يدوياً للطلب</label>
@@ -13419,10 +13492,14 @@ function SuppliersModule({
                 {orderItems.map((item, i) => {
                   const cheaper = getCheapestSupplierForProduct(item.id, showOrderForm.id);
                   const showCheaperHint = cheaper && cheaper.cost < (+item.cost || 0);
+                  const deferredByBudget = orderBudget && +orderBudget > 0 && (+item.orderQty || 0) === 0;
                   return (
-                  <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                  <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}`, background: deferredByBudget ? `${COLORS.gold}14` : "transparent" }}>
                     <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>
                       {item.name}
+                      {deferredByBudget && (
+                        <span style={{ fontSize: 10, color: COLORS.gold, fontWeight: 700, marginRight: 6 }}>⏸️ مؤجل لحد ميزانية تانية</span>
+                      )}
                       {showCheaperHint && (
                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 10.5, color: COLORS.gold }}>
