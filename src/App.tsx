@@ -4420,8 +4420,10 @@ function POS({
   // ملحوظة مهمة: صف المنتج نفسه (p) بيحمل حقل "expiry" قديم بيمثل أقرب تاريخ صلاحية
   // (بيتحسب في productEarliestExpiry) وده مجرد حقل عرض/تنبيه، مش اختيار فعلي للتشغيلة.
   // لازم نتجاهله هنا ونحسب تاريخ الصلاحية الفعلي للسطر من batches نفسها، إلا لو الصنف
-  // جاي من مسح باركود واختار تشغيلة بالفعل (وقتها p.batch بيبقى موجود).
-  const cameFromBarcodeScan = !!p.batch || !!p.serial;
+  // جاي فعلاً من مسح باركود قرا/أكد تاريخ صلاحية بنفسه (علامة _expiryConfirmed اللي
+  // بتتحدد صراحةً في scanBarcode). الاعتماد على وجود batch/serial مش كافي لأن باركود الـ
+  // GS1 ممكن يشيل تاريخ الصلاحية بس من غير رقم تشغيلة أو سيريال.
+  const cameFromBarcodeScan = !!p._expiryConfirmed;
   let effectiveExpiry = cameFromBarcodeScan ? p.expiry : undefined;
   let needsExpiryChoice = false;
   if (!effectiveExpiry && !p.isMissed && !p.isJoker) {
@@ -4441,7 +4443,7 @@ function POS({
       needsExpiryChoice = true;
     }
   }
-  p = { ...p, expiry: effectiveExpiry };
+  p = { ...p, expiry: effectiveExpiry, _expiryConfirmed: undefined };
 
   // كل سطر في السلة بيتحدد بالصنف + تاريخ الصلاحية + رقم التشغيلة معًا،
   // عشان لو نفس الصنف موجود ع الرف بأكتر من تاريخ صلاحية يقدر الكاشير يبيعهم كسطرين منفصلين
@@ -4584,6 +4586,9 @@ function POS({
           // بنخزن بدقة الشهر زي ما هي متسجلة في التشغيلة، عشان تتطابق مع قائمة
           // اختيار التشغيلة في السلة (الأصل الكامل باليوم بيفضل موجود في scan.expiry لو احتجناه)
           expiry: scannedExpiry || scan.expiry,
+          // ✅ الباركود نفسه قرا/أكد تاريخ الصلاحية (واتقارن مع التشغيلات المسجلة فوق)،
+          // فمفيش داعي نجبر الكاشير يختار تاني من نافذة الاختيار — بس لو فعلاً في تاريخ مقروء.
+          _expiryConfirmed: !!(scannedExpiry || scan.expiry),
         });
         return;
       }
