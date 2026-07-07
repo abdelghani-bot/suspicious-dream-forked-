@@ -4953,7 +4953,7 @@ function POS({
 
     setInv({ ...emptyInvoice(), success: true });
     setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
-    setShowPrint(invoice);
+    setShowPrint({ ...invoice, customer_phone: inv.selCustomer?.phone || null });
     showToast("تمت عملية البيع ✓");
   };
 
@@ -6407,7 +6407,7 @@ function POS({
       </div>
 
       {showPrint && (
-        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} />
+        <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} customerPhone={showPrint.customer_phone} />
       )}
 
       <Modal
@@ -6672,7 +6672,7 @@ const buildZatcaQR = ({ sellerName, vatNumber, timestamp, invoiceTotal, vatTotal
 };
 
 // ==================== PRINT RECEIPT ====================
-function PrintReceipt({ invoice, onClose, pharmacyId }) {
+function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
   const printArea = useRef();
   const [paperWidth, setPaperWidth] = useState("80"); // 58 / 80 / A4 — الافتراضي 80مم
 
@@ -6701,6 +6701,20 @@ function PrintReceipt({ invoice, onClose, pharmacyId }) {
     w.focus();
     w.print();
     w.close();
+  };
+  const shareOnWhatsapp = () => {
+    const phone = String(customerPhone || "").replace(/\D/g, "");
+    if (!phone) return;
+    const lines = invoice.items
+      .filter((item) => !item.isMissed && !item.isJoker)
+      .map((item) => `• ${item.name} × ${item.qty} = ${(item.price * item.qty).toFixed(2)} ر.س`);
+    const msg =
+      `🧾 فاتورة مبيعات رقم: ${invoice.id}\n` +
+      `التاريخ: ${invoice.date}\n\n` +
+      lines.join("\n") +
+      `\n\nالإجمالي: ${invoice.total.toFixed(2)} ر.س\n\n` +
+      `شكراً لزيارتكم 🌿`;
+    window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(msg), "_blank");
   };
   return (
     <Modal open title="معاينة الفاتورة / وصفة الجرعات" onClose={onClose}>
@@ -6853,6 +6867,11 @@ function PrintReceipt({ invoice, onClose, pharmacyId }) {
         <Btn variant="ghost" onClick={onClose}>
           إغلاق
         </Btn>
+        {customerPhone && (
+          <Btn icon="whatsapp" onClick={shareOnWhatsapp}>
+            مشاركة واتساب
+          </Btn>
+        )}
         <Btn icon="print" onClick={doPrint}>
           طباعة
         </Btn>
@@ -18976,7 +18995,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           <Table
             headers={["رقم الفاتورة", "التاريخ", "العميل", "المجموع", "الضريبة", "الإجمالي شامل الضريبة", "الدفع", "حالة"]}
             rows={filteredSales.map((s) => [
-              <span onClick={() => setShowInvoiceDetail(s)} style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{s.id}</span>,
+              <span onClick={() => setShowInvoiceDetail({ ...s, customer_phone: customers.find((c) => c.id === s.customer)?.phone || null })} style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{s.id}</span>,
               s.date,
               s.customer_name || "زبون عادي",
               (s.subtotal || 0).toFixed(2) + " ر.س",
@@ -19194,7 +19213,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           </div>
         </Modal>
       )}
-      {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} />}
+      {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} customerPhone={showPrint.customer_phone} />}
     </div>
   );
 }
