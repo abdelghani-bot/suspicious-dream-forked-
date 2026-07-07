@@ -11631,6 +11631,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   const [editing, setEditing] = useState(null);
   const [showLowStock, setShowLowStock] = useState(false);
   const [showSlowProducts, setShowSlowProducts] = useState(false);
+  const [showStockoutForecast, setShowStockoutForecast] = useState(false);
 
   // ── الشركات المنتجة ──
   const [manufacturers, setManufacturers] = useState([]);
@@ -11924,6 +11925,33 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     .filter((p) => { const mv = getMovementClass(p.id); return (mv.class === "slow" || mv.class === "very_slow") && p.stock > 0; })
     .sort((a, b) => (b.cost || 0) - (a.cost || 0));
 
+  // ========== توقع نفاد المخزون: بدل ما ننتظر المخزون يوصل للحد الأدنى، نحسب
+  // معدل البيع اليومي الفعلي في آخر 30 يوم ونتوقع كام يوم متبقي قبل ما الصنف ينفد ==========
+  const STOCKOUT_WINDOW_DAYS = 30;
+  const STOCKOUT_WARNING_DAYS = 14; // نطلع تنبيه لو متبقي 14 يوم أو أقل قبل النفاد
+  const getStockoutForecast = (productId, currentStock) => {
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - STOCKOUT_WINDOW_DAYS);
+    let totalQtySold = 0;
+    (sales || []).forEach((s) => {
+      const saleDate = new Date(s.date);
+      if (saleDate < windowStart || s.returned) return;
+      (s.items || []).forEach((i) => {
+        if (i.id === productId && !i.isMissed && !i.isJoker) totalQtySold += +i.qty || 0;
+      });
+    });
+    const avgDailyQty = totalQtySold / STOCKOUT_WINDOW_DAYS;
+    if (avgDailyQty <= 0) return null; // مفيش حركة بيع كفاية عشان نتوقع بثقة
+    const daysLeft = currentStock / avgDailyQty;
+    return { avgDailyQty, daysLeft: Math.floor(daysLeft) };
+  };
+
+  const stockoutForecastList = (products || [])
+    .filter((p) => (p.stock ?? 0) > 0)
+    .map((p) => ({ product: p, forecast: getStockoutForecast(p.id, p.stock ?? 0) }))
+    .filter((x) => x.forecast && x.forecast.daysLeft <= STOCKOUT_WARNING_DAYS)
+    .sort((a, b) => a.forecast.daysLeft - b.forecast.daysLeft);
+
   return (
     <div>
       {/* ── Header ── */}
@@ -11941,13 +11969,16 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
 
       {/* ── Stats ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 12, marginBottom: 16 }}>
         <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color={COLORS.blue} />
         <div onClick={() => setShowLowStock(true)} style={{ cursor: "pointer" }}>
           <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color={COLORS.gold} />
         </div>
         <div onClick={() => setShowSlowProducts(true)} style={{ cursor: "pointer" }}>
           <StatCard label="أصناف بطيئة" value={slowProducts.length} icon="alert" color={COLORS.red} />
+        </div>
+        <div onClick={() => setShowStockoutForecast(true)} style={{ cursor: "pointer" }}>
+          <StatCard label="⏳ توقع قرب النفاد" value={stockoutForecastList.length} icon="alert" color={COLORS.coral} />
         </div>
         <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color={COLORS.gold} />
         <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color={COLORS.purple} />
@@ -12056,6 +12087,44 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                     </div>
                   </div>
                   <Badge color="#0a0800" text={mv.color}>{mv.label}</Badge>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Modal توقع نفاد المخزون ── */}
+      <Modal open={showStockoutForecast} onClose={() => setShowStockoutForecast(false)} title="⏳ توقع نفاد المخزون">
+        {stockoutForecastList.length === 0 ? (
+          <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>لا توجد أصناف متوقع نفادها قريبًا 👍</div>
+        ) : (
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            <div style={{ fontSize: 11.5, color: COLORS.textDim, marginBottom: 10 }}>
+              بناءً على معدل البيع الفعلي في آخر {STOCKOUT_WINDOW_DAYS} يوم — مش مجرد وصول لحد أدنى، ده توقع استباقي قبل ما المخزون ينفد فعليًا.
+            </div>
+            {stockoutForecastList.map(({ product: p, forecast }) => {
+              const isEss = p.is_essential || p.isEssential;
+              const urgent = forecast.daysLeft <= 3;
+              return (
+                <div key={p.id} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "10px 12px", marginBottom: 6, borderRadius: 8,
+                  background: urgent ? COLORS.redSoft : COLORS.goldSoft,
+                  border: `1px solid ${urgent ? COLORS.red : COLORS.gold}`,
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13 }}>
+                      {isEss && "⭐ "}{p.nameAr || p.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
+                      المتاح: {p.stock ?? 0} · معدل البيع: {forecast.avgDailyQty.toFixed(1)} / يوم
+                    </div>
+                    <div style={{ fontSize: 11.5, color: urgent ? COLORS.red : COLORS.gold, marginTop: 3, fontWeight: 600 }}>
+                      "بناءً على معدل البيع الحالي، سينفد هذا الصنف بعد {forecast.daysLeft <= 0 ? "أقل من يوم" : `${forecast.daysLeft} ${forecast.daysLeft === 1 ? "يوم" : "أيام"}`}"
+                    </div>
+                  </div>
+                  <Btn size="sm" icon="edit" variant="secondary" onClick={() => { setShowStockoutForecast(false); openEdit(p); }}>تعديل</Btn>
                 </div>
               );
             })}
