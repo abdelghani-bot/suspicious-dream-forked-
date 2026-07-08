@@ -1447,7 +1447,9 @@ const RasdService = {
 
   // ---- عمليات الصيدلية ----
 
-  // بيع (مباشر للمريض أو عن طريق جهة تسديد) — عنصر الطلب: PharmacySaleRequest
+  // بيع (مباشر للمريض أو عن طريق جهة تسديد)
+  // ✅ اسم الـ Service الصح "PharmacySaleService" وعنصر الطلب "PharmacySaleServiceRequest"
+  // مؤكد من WSDL الرسمي (DTTS-ISD_PHARMACY_SALE-1_0_1): soap:address .../PharmacySaleService/PharmacySaleService
   async notifyPharmacySale({ toGln, prescriptionId, prescriptionDate, doctorId, patientNationalId, items }) {
     const body = `
       <TOGLN>${toGln || "0000000000000"}</TOGLN>
@@ -1456,21 +1458,22 @@ const RasdService = {
       <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
       <PRESCRIPTIONDATE>${prescriptionDate}</PRESCRIPTIONDATE>
       ${this._productListXml(items)}`;
-    return this._call("PharmacySale", "PharmacySaleRequest", body);
+    return this._call("PharmacySaleService", "PharmacySaleServiceRequest", body);
   },
 
-  // عنصر الطلب: PharmacySaleCancelRequest
+  // ✅ اسم الـ Service الصح "PharmacySaleCancelService" وعنصر الطلب "PharmacySaleCancelServiceRequest"
   async notifyPharmacySaleCancel({ toGln, prescriptionId, items }) {
     const body = `
       <TOGLN>${toGln || "0000000000000"}</TOGLN>
       <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
       ${this._productListXml(items)}`;
-    return this._call("PharmacySaleCancel", "PharmacySaleCancelRequest", body);
+    return this._call("PharmacySaleCancelService", "PharmacySaleCancelServiceRequest", body);
   },
 
   // إرجاع (مرتجعات المشتريات للمورد أو مرتجعات المبيعات حسب toGln)
   // ملحوظة من الدليل: الصيدلية تقدر ترجّع بس للجهة اللي استلمت المنتج منها أصلًا
-  // عنصر الطلب استثنائيًا اسمه "ReturnServiceRequest" (فيه كلمة Service على عكس باقي العمليات)
+  // ✅ اسم الـ Service الصح "ReturnService" وعنصر الطلب "ReturnServiceRequest"
+  // مؤكد من WSDL الرسمي (DTTS-ISD_RETURN-1_0_1): soap:address .../ReturnService/ReturnService
   // ومفيهوش Return Cancel — لإلغاء إرجاع غلط لازم تستخدم Accept Notification بدلها
   // ✅ items ممكن تيجي بشكلين: عنصر فيه serial (إرجاع وحدة واحدة بالسيريال الحقيقي)،
   // أو عنصر فيه quantity بدل serial (إرجاع دفعة كاملة بالـ GTIN+BN+XD+QTY من غير سيريال —
@@ -1480,23 +1483,25 @@ const RasdService = {
     const body = `
       <TOGLN>${toGln}</TOGLN>
       ${this._productListXml(items)}`;
-    return this._call("Return", "ReturnServiceRequest", body);
+    return this._call("ReturnService", "ReturnServiceRequest", body);
   },
 
   // إخراج منتج من النظام (تالف / منتهي الصلاحية / مسحوب من السوق)
   // dr: كود من RasdService.DR_REASONS (زي "30" لمنتج تالف)، explanation: نص حر توضيحي
-  // اسم العملية في الـ ISD نفسه "Deactivation" مش "Deactivate"
+  // ✅ اسم الـ Service الصح "DeactivationService" وعنصر الطلب "DeactivationServiceRequest"
+  // مؤكد من WSDL الرسمي (DTTS-ISD_DEACTIVATE-1_0_2): soap:address .../DeactivationService/DeactivationService
   async notifyDeactivate({ dr, explanation, items }) {
     const body = `
       <DR>${dr}</DR>
       ${explanation ? `<EXPLANATION>${explanation}</EXPLANATION>` : ""}
       ${this._productListXml(items)}`;
-    return this._call("Deactivation", "DeactivationRequest", body);
+    return this._call("DeactivationService", "DeactivationServiceRequest", body);
   },
 
+  // ✅ اسم الـ Service الصح "DeactivationCancelService" وعنصر الطلب "DeactivationCancelServiceRequest"
   async notifyDeactivateCancel({ items }) {
     const body = this._productListXml(items);
-    return this._call("DeactivationCancel", "DeactivationCancelRequest", body);
+    return this._call("DeactivationCancelService", "DeactivationCancelServiceRequest", body);
   },
 
   // ملحوظة: عمليات النقل (Transfer/TransferCancel) بتتعمل يدوي من موقع رصد نفسه مش من
@@ -1504,9 +1509,12 @@ const RasdService = {
 
   // استعلام عن حالة منتج (خدمة مساعدة، مفيدة كاختبار اتصال حقيقي)
   // الرد بيرجع كمان GLN1 (المالك الحالي) و GLN2 (المالك السابق) لكل منتج
+  // ✅ اسم الـ Service الصح "CheckStatusService" مش "CheckStatus" — مؤكد من الـ WSDL الرسمي
+  // (DTTS-ISD_CHECKSTATUS-1_0_1): soap:address location=".../CheckStatusService/CheckStatusService"
+  // وعنصر الطلب اسمه "CheckStatusServiceRequest" مش "CheckStatusRequest"
   async checkStatus({ items }) {
     const body = this._productListXml(items);
-    return this._call("CheckStatus", "CheckStatusRequest", body);
+    return this._call("CheckStatusService", "CheckStatusServiceRequest", body);
   },
 
   // ---- PTS (Package Transfer Service) — نقل ملفات zip مجمّعة بدل إرسال كل GTIN/SN لوحده ----
