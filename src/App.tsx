@@ -792,164 +792,6 @@ const Select = ({ label, value, onChange, options, style = {} }) => (
   </div>
 );
 
-// محرر صغير لقائمة منتجات رصد (GTIN/SN/BN/XD) — بيتستخدم في مودالات Deactivate/Transfer
-const RasdItemsEditor = ({ items, onChange }) => {
-  const addRow = () => onChange([...items, { gtin: "", serial: "", batch: "", expiry: "" }]);
-  const updateRow = (i, field, value) =>
-    onChange(items.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
-  const removeRow = (i) => onChange(items.filter((_, idx) => idx !== i));
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim }}>الأصناف ({items.length})</span>
-        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة صنف</Btn>
-      </div>
-      {items.length === 0 && (
-        <div style={{ fontSize: 12, color: COLORS.textDim, padding: "10px 0" }}>لا يوجد أصناف — اضغط "إضافة صنف"</div>
-      )}
-      <div style={{ maxHeight: 260, overflowY: "auto" }}>
-        {items.map((row, i) => (
-          <div
-            key={i}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.4fr 1fr 0.9fr 0.9fr auto",
-              gap: 6,
-              marginBottom: 8,
-              alignItems: "center",
-            }}
-          >
-            <input
-              value={row.gtin}
-              onChange={(e) => updateRow(i, "gtin", e.target.value)}
-              placeholder="GTIN"
-              style={rasdCellStyle}
-            />
-            <input
-              value={row.serial}
-              onChange={(e) => updateRow(i, "serial", e.target.value)}
-              placeholder="SN (الرقم التسلسلي)"
-              style={rasdCellStyle}
-            />
-            <input
-              value={row.batch}
-              onChange={(e) => updateRow(i, "batch", e.target.value)}
-              placeholder="دفعة (BN)"
-              style={rasdCellStyle}
-            />
-            <input
-              value={row.expiry}
-              onChange={(e) => updateRow(i, "expiry", e.target.value)}
-              placeholder="صلاحية (XD)"
-              style={rasdCellStyle}
-            />
-            <button
-              onClick={() => removeRow(i)}
-              style={{
-                background: COLORS.redSoft,
-                border: "none",
-                borderRadius: 6,
-                color: COLORS.red,
-                cursor: "pointer",
-                padding: "6px 8px",
-              }}
-            >
-              <IC n="x" s={12} />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const rasdCellStyle = {
-  background: COLORS.surfaceAlt,
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 6,
-  padding: "7px 9px",
-  color: COLORS.textPrimary,
-  fontSize: 12,
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
-};
-
-// محرر أصناف عمليات "برقم التشغيلة" — GTIN + الكمية (QTY) + BN + XD، من غير رقم تسلسلي (SN)
-// ✅ مبني على شاشات رصد الفعلية (القبول/الإرجاع/النقل برقم التشغيلة)
-const RasdItemsEditorBatch = ({ items, onChange }) => {
-  const addRow = () => onChange([...items, { gtin: "", quantity: "", batch: "", expiry: "" }]);
-  const updateRow = (i, field, value) =>
-    onChange(items.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
-  const removeRow = (i) => onChange(items.filter((_, idx) => idx !== i));
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim }}>الدفعات ({items.length})</span>
-        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة دفعة</Btn>
-      </div>
-      {items.length === 0 && (
-        <div style={{ fontSize: 12, color: COLORS.textDim, padding: "10px 0" }}>لا يوجد دفعات — اضغط "إضافة دفعة"</div>
-      )}
-      <div style={{ maxHeight: 260, overflowY: "auto" }}>
-        {items.map((row, i) => (
-          <div
-            key={i}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.4fr 0.8fr 0.9fr 0.9fr auto",
-              gap: 6,
-              marginBottom: 8,
-              alignItems: "center",
-            }}
-          >
-            <input
-              value={row.gtin}
-              onChange={(e) => updateRow(i, "gtin", e.target.value)}
-              placeholder="GTIN"
-              style={rasdCellStyle}
-            />
-            <input
-              value={row.quantity}
-              onChange={(e) => updateRow(i, "quantity", e.target.value)}
-              placeholder="الكمية"
-              type="number"
-              style={rasdCellStyle}
-            />
-            <input
-              value={row.batch}
-              onChange={(e) => updateRow(i, "batch", e.target.value)}
-              placeholder="دفعة (BN)"
-              style={rasdCellStyle}
-            />
-            <input
-              value={row.expiry}
-              onChange={(e) => updateRow(i, "expiry", e.target.value)}
-              placeholder="صلاحية (XD)"
-              style={rasdCellStyle}
-            />
-            <button
-              onClick={() => removeRow(i)}
-              style={{
-                background: COLORS.redSoft,
-                border: "none",
-                borderRadius: 6,
-                color: COLORS.red,
-                cursor: "pointer",
-                padding: "6px 8px",
-              }}
-            >
-              <IC n="x" s={12} />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 const Badge = ({ children, color = COLORS.blueSoft, text = COLORS.blue }) => (
   <span
     style={{
@@ -1374,8 +1216,7 @@ const RasdService = {
         (i) => `
       <PRODUCT>
         <GTIN>${i.gtin}</GTIN>
-        ${i.serial ? `<SN>${i.serial}</SN>` : ""}
-        ${i.quantity ? `<QTY>${i.quantity}</QTY>` : ""}
+        <SN>${i.serial}</SN>
         ${i.batch ? `<BN>${i.batch}</BN>` : ""}
         ${i.expiry ? `<XD>${i.expiry}</XD>` : ""}
       </PRODUCT>`
@@ -1447,9 +1288,7 @@ const RasdService = {
 
   // ---- عمليات الصيدلية ----
 
-  // بيع (مباشر للمريض أو عن طريق جهة تسديد)
-  // ✅ اسم الـ Service الصح "PharmacySaleService" وعنصر الطلب "PharmacySaleServiceRequest"
-  // مؤكد من WSDL الرسمي (DTTS-ISD_PHARMACY_SALE-1_0_1): soap:address .../PharmacySaleService/PharmacySaleService
+  // بيع (مباشر للمريض أو عن طريق جهة تسديد) — عنصر الطلب: PharmacySaleRequest
   async notifyPharmacySale({ toGln, prescriptionId, prescriptionDate, doctorId, patientNationalId, items }) {
     const body = `
       <TOGLN>${toGln || "0000000000000"}</TOGLN>
@@ -1458,63 +1297,85 @@ const RasdService = {
       <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
       <PRESCRIPTIONDATE>${prescriptionDate}</PRESCRIPTIONDATE>
       ${this._productListXml(items)}`;
-    return this._call("PharmacySaleService", "PharmacySaleServiceRequest", body);
+    return this._call("PharmacySale", "PharmacySaleRequest", body);
   },
 
-  // ✅ اسم الـ Service الصح "PharmacySaleCancelService" وعنصر الطلب "PharmacySaleCancelServiceRequest"
+  // عنصر الطلب: PharmacySaleCancelRequest
   async notifyPharmacySaleCancel({ toGln, prescriptionId, items }) {
     const body = `
       <TOGLN>${toGln || "0000000000000"}</TOGLN>
       <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
       ${this._productListXml(items)}`;
-    return this._call("PharmacySaleCancelService", "PharmacySaleCancelServiceRequest", body);
+    return this._call("PharmacySaleCancel", "PharmacySaleCancelRequest", body);
   },
 
   // إرجاع (مرتجعات المشتريات للمورد أو مرتجعات المبيعات حسب toGln)
   // ملحوظة من الدليل: الصيدلية تقدر ترجّع بس للجهة اللي استلمت المنتج منها أصلًا
-  // ✅ اسم الـ Service الصح "ReturnService" وعنصر الطلب "ReturnServiceRequest"
-  // مؤكد من WSDL الرسمي (DTTS-ISD_RETURN-1_0_1): soap:address .../ReturnService/ReturnService
+  // عنصر الطلب استثنائيًا اسمه "ReturnServiceRequest" (فيه كلمة Service على عكس باقي العمليات)
   // ومفيهوش Return Cancel — لإلغاء إرجاع غلط لازم تستخدم Accept Notification بدلها
-  // ✅ items ممكن تيجي بشكلين: عنصر فيه serial (إرجاع وحدة واحدة بالسيريال الحقيقي)،
-  // أو عنصر فيه quantity بدل serial (إرجاع دفعة كاملة بالـ GTIN+BN+XD+QTY من غير سيريال —
-  // مؤكد من لقطات شاشة رصد الفعلية إن العملية بتقبل الشكل ده، والـ PRODUCT object نفسه
-  // بنفس البنية الثابتة في كل خدمات رصد حسب DTTS-DEF).
   async notifyReturn({ toGln, items }) {
     const body = `
       <TOGLN>${toGln}</TOGLN>
       ${this._productListXml(items)}`;
-    return this._call("ReturnService", "ReturnServiceRequest", body);
+    return this._call("Return", "ReturnServiceRequest", body);
+  },
+
+  // استلام بضاعة (تسجيلها في مخزون الصيدلية داخل رصد) — عنصر الطلب: AcceptRequest
+  // مفيهوش Accept Cancel — لإلغاء استلام غلط لازم تستخدم Return Notification بدلها
+  async notifyAccept({ items }) {
+    const body = this._productListXml(items);
+    return this._call("Accept", "AcceptRequest", body);
+  },
+
+  // استلام كل وحدات إشعار Dispatch واحد دفعة واحدة (بديل عن قبول كل GTIN/SN لوحده)
+  // بيتاخد dispatchNotificationId اللي جه في رد/إشعار الـ Dispatch الأصلي (حقل DISPATCHNOTIFICATIONID مش NOTIFICATIONID)
+  async notifyAcceptDispatch({ dispatchNotificationId }) {
+    const body = `<DISPATCHNOTIFICATIONID>${dispatchNotificationId}</DISPATCHNOTIFICATIONID>`;
+    return this._call("AcceptDispatch", "AcceptDispatchRequest", body);
+  },
+
+  // تفاصيل إشعار Dispatch معيّن (بيرجع FROMGLN/TOGLN/PRODUCTLIST/NOTIFICATIONDATE)
+  async getDispatchDetail({ dispatchNotificationId }) {
+    const body = `<DISPATCHNOTIFICATIONID>${dispatchNotificationId}</DISPATCHNOTIFICATIONID>`;
+    return this._call("AcceptDispatch", "DispatchDetailRequest", body);
   },
 
   // إخراج منتج من النظام (تالف / منتهي الصلاحية / مسحوب من السوق)
   // dr: كود من RasdService.DR_REASONS (زي "30" لمنتج تالف)، explanation: نص حر توضيحي
-  // ✅ اسم الـ Service الصح "DeactivationService" وعنصر الطلب "DeactivationServiceRequest"
-  // مؤكد من WSDL الرسمي (DTTS-ISD_DEACTIVATE-1_0_2): soap:address .../DeactivationService/DeactivationService
+  // اسم العملية في الـ ISD نفسه "Deactivation" مش "Deactivate"
   async notifyDeactivate({ dr, explanation, items }) {
     const body = `
       <DR>${dr}</DR>
       ${explanation ? `<EXPLANATION>${explanation}</EXPLANATION>` : ""}
       ${this._productListXml(items)}`;
-    return this._call("DeactivationService", "DeactivationServiceRequest", body);
+    return this._call("Deactivation", "DeactivationRequest", body);
   },
 
-  // ✅ اسم الـ Service الصح "DeactivationCancelService" وعنصر الطلب "DeactivationCancelServiceRequest"
   async notifyDeactivateCancel({ items }) {
     const body = this._productListXml(items);
-    return this._call("DeactivationCancelService", "DeactivationCancelServiceRequest", body);
+    return this._call("DeactivationCancel", "DeactivationCancelRequest", body);
   },
 
-  // ملحوظة: عمليات النقل (Transfer/TransferCancel) بتتعمل يدوي من موقع رصد نفسه مش من
-  // البرنامج، فمفيش داعي نبني/نبعت SOAP request ليها هنا.
+  // نقل منتج بين نفس نوع الجهة (صيدلية لصيدلية أخرى فقط، حسب الدليل)
+  // عنصر الطلب: TransferRequest — والرد بيرجع الحقل باسم NOTIFICATION_ID (بـ underscore)
+  async notifyTransfer({ toGln, items }) {
+    const body = `
+      <TOGLN>${toGln}</TOGLN>
+      ${this._productListXml(items)}`;
+    return this._call("Transfer", "TransferRequest", body);
+  },
+
+  // إلغاء نقل — بيتاخد PRODUCTLIST بس من غير TOGLN (يشتغل بس لو المستلم لسه ما عملش Accept)
+  async notifyTransferCancel({ items }) {
+    const body = this._productListXml(items);
+    return this._call("TransferCancel", "TransferCancelRequest", body);
+  },
 
   // استعلام عن حالة منتج (خدمة مساعدة، مفيدة كاختبار اتصال حقيقي)
   // الرد بيرجع كمان GLN1 (المالك الحالي) و GLN2 (المالك السابق) لكل منتج
-  // ✅ اسم الـ Service الصح "CheckStatusService" مش "CheckStatus" — مؤكد من الـ WSDL الرسمي
-  // (DTTS-ISD_CHECKSTATUS-1_0_1): soap:address location=".../CheckStatusService/CheckStatusService"
-  // وعنصر الطلب اسمه "CheckStatusServiceRequest" مش "CheckStatusRequest"
   async checkStatus({ items }) {
     const body = this._productListXml(items);
-    return this._call("CheckStatusService", "CheckStatusServiceRequest", body);
+    return this._call("CheckStatus", "CheckStatusRequest", body);
   },
 
   // ---- PTS (Package Transfer Service) — نقل ملفات zip مجمّعة بدل إرسال كل GTIN/SN لوحده ----
@@ -1644,7 +1505,7 @@ const RasdQueue = {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(queue));
   },
 
-  // type: "sale" | "saleCancel" | "return" | "accept" | "acceptByBatch" | "returnByBatch" | "transferByBatch" | "transferCancelByBatch"
+  // type: "sale" | "saleCancel" | "return" | "accept" | "acceptDispatch"
   enqueue(type, payload) {
     const queue = this._load();
     queue.push({
@@ -1679,6 +1540,10 @@ const RasdQueue = {
         return RasdService.notifyPharmacySaleCancel(item.payload);
       case "return":
         return RasdService.notifyReturn(item.payload);
+      case "accept":
+        return RasdService.notifyAccept(item.payload);
+      case "acceptDispatch":
+        return RasdService.notifyAcceptDispatch(item.payload);
       default:
         return { success: false, error: "نوع عملية غير معروف: " + item.type };
     }
@@ -2725,7 +2590,7 @@ if (isLoading) return (
             canEditPurchaseReturns={canEdit("returns", "purchases")}
           />
         )}
-        {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} products={products} />}
+        {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} />}
         {tab === "audit_log" && currentUser?.role === "admin" && (
           <AuditLogModule pharmacyId={pharmacyId} showToast={showToast} />
         )}
@@ -4327,7 +4192,7 @@ const [myTarget, setMyTarget] = useState(null);
 //   ==================== FIFO Helper ====================
 // preferredExpiry: لو الكاشير حدد تاريخ صلاحية معين للسطر (يدوي أو من باركود GS1)،
 // بنخصم من التشغيلة اللي تاريخها مطابق أولاً، بدل ما نجبره على أقرب تاريخ صلاحية دايمًا.
-function sellFromBatches(product, qtyToSell, preferredExpiry, preferredBatch) {
+function sellFromBatches(product, qtyToSell, preferredExpiry) {
   let batches = product.batches?.length
     ? [...product.batches]
     : product.stock > 0
@@ -4341,27 +4206,18 @@ function sellFromBatches(product, qtyToSell, preferredExpiry, preferredBatch) {
       ]
     : [];
 
-  if (preferredExpiry || preferredBatch) {
+  if (preferredExpiry) {
     // تشغيلات المخزون متسجلة بدقة الشهر/السنة بس (زي "2030-05")، فبنقارن بنفس الدقة
     // عشان تاريخ يوم دقيق (من باركود مثلاً) يتطابق صح مع التشغيلة المسجلة.
     const norm = (v) => (v ? String(v).slice(0, 7) : "");
     const target = norm(preferredExpiry);
-    // ✅ لو معانا رقم تشغيلة (BN) من الباركود المقروء، نطابق بيه مع تاريخ الصلاحية مع بعض
-    // أولاً (أدق تطابق)، وبعدين نرجع للتطابق بالتاريخ بس كخطة بديلة، وبعدين FIFO عادي.
-    const exact = [];
-    const expiryOnly = [];
+    const matched = [];
     const rest = [];
     batches.forEach((b) => {
       const bExp = norm(b.expiry_date || b.expiry || b.date);
-      const bBatch = (b.batch_number || "").toString().trim();
-      const expMatch = target && bExp === target;
-      const batchMatch = preferredBatch && bBatch && bBatch === String(preferredBatch).trim();
-      if (expMatch && (!preferredBatch || batchMatch)) exact.push(b);
-      else if (expMatch) expiryOnly.push(b);
-      else rest.push(b);
+      (bExp === target ? matched : rest).push(b);
     });
-    if (exact.length) batches = [...exact, ...expiryOnly, ...rest];
-    else if (expiryOnly.length) batches = [...expiryOnly, ...rest];
+    if (matched.length) batches = [...matched, ...rest];
   }
 
   let remaining = qtyToSell;
@@ -5271,7 +5127,7 @@ function POS({
         const baseProd = runningBatches[ci.id]
           ? { ...prod, batches: runningBatches[ci.id] }
           : prod;
-        const result = sellFromBatches(baseProd, +ci.qty, ci.expiry || null, ci.batch || null);
+        const result = sellFromBatches(baseProd, +ci.qty, ci.expiry || ci.batch || null);
         newFifoResults[ci.lineId] = result;
         runningBatches[ci.id] = result.updatedBatches;
       }
@@ -7707,7 +7563,11 @@ function PurchaseModule({
   const [editManualTax, setEditManualTax] = useState("");
 
   // ===== رصد: قبول شحنة Dispatch كاملة دفعة واحدة =====
-  // (تم نقل ميزة "القبول برقم التشغيلة" الصحيحة إلى شاشة إعدادات رصد — راجع RasdSettings)
+  const [showAcceptDispatch, setShowAcceptDispatch] = useState(false);
+  const [dispatchIdInput, setDispatchIdInput] = useState("");
+  const [dispatchDetail, setDispatchDetail] = useState(null); // { fromGln, notificationDate, products }
+  const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [dispatchAccepting, setDispatchAccepting] = useState(false);
   
   // ===== طباعة الباركود =====
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -8190,7 +8050,6 @@ const LABEL_SIZES = [
     "newSalePrice",
     "bonusQty",
     "expiry_date",
-    "batch_number",
   ];
 
   const handleCellKeyDown = (e, rowIndex, colName) => {
@@ -8198,7 +8057,7 @@ const LABEL_SIZES = [
     e.preventDefault();
     const currentCol = cols.indexOf(colName);
     const nextCol = currentCol + 1;
-    // آخر خانة (batch_number) → بار الباركود
+    // آخر خانة (expiry_date) → بار الباركود
     if (nextCol >= cols.length) {
       // البحث عن input بار الباركود
       const barcodeInput = document.querySelector('input[placeholder="امسح باركود الصنف..."]') as HTMLInputElement;
@@ -8251,7 +8110,6 @@ const LABEL_SIZES = [
         salePrice: i.newSalePrice,
         taxable: i.taxable,
         expiry_date: i.expiry_date || null,
-        batch_number: i.batch_number || null,
       })),
       subtotal,
       taxAmount: taxAmt,
@@ -8290,13 +8148,12 @@ const LABEL_SIZES = [
         cost: ci.receivedCost,
         salePrice: ci.newSalePrice,
         expiry_date: ci.expiry_date || null,
-        batch_number: ci.batch_number || null,
         date: new Date().toISOString().split("T")[0],
       };
       const existingBatches = product.batches?.length
         ? product.batches
         : product.stock > 0
-        ? [{ qty: product.stock, cost: product.cost, salePrice: product.price, batch_number: null, date: "قديم" }]
+        ? [{ qty: product.stock, cost: product.cost, salePrice: product.price, date: "قديم" }]
         : [];
       newBatchesByProduct[ci.id] = [...existingBatches, newBatch];
 
@@ -8360,6 +8217,51 @@ const LABEL_SIZES = [
     }
   };
 
+  // ===== رصد: قبول شحنة Dispatch كاملة =====
+  const fetchDispatchDetail = async () => {
+    if (!dispatchIdInput.trim()) {
+      showToast("يرجى إدخال رقم إشعار الشحنة (Dispatch Notification ID)", "error");
+      return;
+    }
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    if (!rasdConfig.enabled || !rasdConfig.apiUrl) {
+      showToast("نظام رصد غير مفعّل — اضبط الإعدادات أولاً من (إعدادات رصد)", "error");
+      return;
+    }
+    RasdService.configure(rasdConfig);
+    setDispatchLoading(true);
+    setDispatchDetail(null);
+    const result = await RasdService.getDispatchDetail({ dispatchNotificationId: dispatchIdInput.trim() });
+    setDispatchLoading(false);
+    if (!result.success) {
+      showToast("تعذر جلب تفاصيل الشحنة: " + result.error, "error");
+      return;
+    }
+    if (!result.data.products || result.data.products.length === 0) {
+      showToast("لم يتم العثور على أصناف لهذا الإشعار — تأكد من الرقم", "error");
+      return;
+    }
+    setDispatchDetail(result.data);
+  };
+
+  const confirmAcceptDispatch = async () => {
+    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    RasdService.configure(rasdConfig);
+    setDispatchAccepting(true);
+    const result = await RasdService.notifyAcceptDispatch({ dispatchNotificationId: dispatchIdInput.trim() });
+    setDispatchAccepting(false);
+    if (result.success) {
+      showToast(`تم قبول الشحنة في رصد ✓ (${dispatchDetail?.products?.length || 0} صنف) — لا تنس تسجيلها في المخزون بفاتورة شراء`);
+    } else {
+      // فشل الاتصال الفوري — بنسجلها في الطابور المحلي عشان تتحاول تلقائيًا تاني بدل ما تتنسى
+      RasdQueue.enqueue("acceptDispatch", { dispatchNotificationId: dispatchIdInput.trim() });
+      showToast("تعذر القبول الفوري في رصد — تم حفظها للمحاولة تلقائيًا لاحقًا: " + result.error, "error");
+    }
+    setShowAcceptDispatch(false);
+    setDispatchIdInput("");
+    setDispatchDetail(null);
+  };
+
   return (
     <div>
       <div
@@ -8374,6 +8276,9 @@ const LABEL_SIZES = [
           فواتير الشراء
         </h2>
         <div style={{ display: "flex", gap: 8 }}>
+          <Btn icon="check" variant="secondary" onClick={() => setShowAcceptDispatch(true)}>
+            قبول شحنة رصد كاملة
+          </Btn>
           <Btn icon="plus" onClick={() => setShowNew(true)}>
             فاتورة شراء جديدة
           </Btn>
@@ -8571,7 +8476,6 @@ const LABEL_SIZES = [
                   "سعر البيع",
                   "بونص",
                   "الصلاحية",
-                  "رقم التشغيلة",
                   "ضريبة",
                   "الإجمالي",
                   "",
@@ -8741,19 +8645,6 @@ const LABEL_SIZES = [
                         handleCellKeyDown(e, rowIndex, "expiry_date");
                       }}
                       style={{ ...cellStyle, width: 125 }}
-                    />
-                  </td>
-                  <td style={{ padding: "4px" }}>
-                    <input
-                      id={`cell-${rowIndex}-batch_number`}
-                      type="text"
-                      value={item.batch_number || ""}
-                      placeholder="تلقائي من السكان"
-                      onChange={(e) =>
-                        updateItem(item.id, "batch_number", e.target.value)
-                      }
-                      onKeyDown={(e) => handleCellKeyDown(e, rowIndex, "batch_number")}
-                      style={{ ...cellStyle, width: 110 }}
                     />
                   </td>
                   <td style={{ padding: "6px 8px" }}>
@@ -9696,6 +9587,70 @@ const LABEL_SIZES = [
               حفظ التعديل
             </Btn>
           </div>
+        </Modal>
+      )}
+
+      {/* ===== رصد: قبول شحنة Dispatch كاملة ===== */}
+      {showAcceptDispatch && (
+        <Modal
+          open
+          wide
+          onClose={() => { setShowAcceptDispatch(false); setDispatchIdInput(""); setDispatchDetail(null); }}
+          title="قبول شحنة رصد كاملة"
+        >
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 12 }}>
+            بديل عن قبول كل GTIN/SN لوحده — بتاخد رقم إشعار الشحنة (Dispatch Notification ID) اللي
+            بيوصلك من المورد/المخزن، وبتقبل كل الوحدات اللي فيها دفعة واحدة في رصد.
+            <br />
+            ⚠️ ده بيقبل الشحنة في رصد فقط — لازم بعدها تسجّلها بفاتورة شراء عادية عشان تدخل مخزون الصيدلية.
+          </div>
+          <Input
+            label="رقم إشعار الشحنة (Dispatch Notification ID)"
+            value={dispatchIdInput}
+            onChange={setDispatchIdInput}
+            placeholder="مثال: DN-2026-000123"
+          />
+          <div style={{ marginTop: 10 }}>
+            <Btn onClick={fetchDispatchDetail} disabled={dispatchLoading} variant="secondary">
+              {dispatchLoading ? "جاري البحث..." : "بحث عن تفاصيل الشحنة"}
+            </Btn>
+          </div>
+
+          {dispatchDetail && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", gap: 16, marginBottom: 10, fontSize: 12, color: COLORS.textDim }}>
+                {dispatchDetail.fromGln && <span>المرسل (GLN): {dispatchDetail.fromGln}</span>}
+                {dispatchDetail.notificationDate && <span>التاريخ: {dispatchDetail.notificationDate}</span>}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                الأصناف ({dispatchDetail.products.length})
+              </div>
+              <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                {dispatchDetail.products.map((p, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "8px 12px",
+                      borderBottom: i < dispatchDetail.products.length - 1 ? `1px solid ${COLORS.border}` : "none",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: COLORS.textPrimary }}>GTIN: {p.gtin} — SN: {p.sn}</span>
+                    <span style={{ color: COLORS.textDim }}>{p.bn ? `دفعة: ${p.bn}` : ""} {p.xd ? `صلاحية: ${p.xd}` : ""}</span>
+                  </div>
+                ))}
+              </div>
+              <Btn
+                onClick={confirmAcceptDispatch}
+                disabled={dispatchAccepting}
+                style={{ marginTop: 14, width: "100%", justifyContent: "center" }}
+              >
+                {dispatchAccepting ? "جاري القبول..." : `تأكيد قبول الشحنة بالكامل في رصد (${dispatchDetail.products.length} صنف)`}
+              </Btn>
+            </div>
+          )}
         </Modal>
       )}
     </div>
@@ -10755,7 +10710,7 @@ function ReturnsModule({
   );
 }
 // ==================== RASSD SETTINGS ====================
-function RasdSettings({ showToast, products }) {
+function RasdSettings({ showToast }) {
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem("rasd_config");
     return saved
@@ -10774,214 +10729,6 @@ function RasdSettings({ showToast, products }) {
   const [showPassword, setShowPassword] = useState(false);
   const [queueStatus, setQueueStatus] = useState({ pending: 0, failed: 0 });
   const [flushing, setFlushing] = useState(false);
-
-  // ===== أدوات رصد إضافية: Deactivate / Transfer / PTS =====
-  const [showDeactivate, setShowDeactivate] = useState(false);
-  const [deactivateMode, setDeactivateMode] = useState("out"); // "out" | "cancel"
-  const [deactivateItems, setDeactivateItems] = useState([]);
-  const [deactivateDr, setDeactivateDr] = useState("30");
-  const [deactivateExplanation, setDeactivateExplanation] = useState("");
-  const [deactivateBusy, setDeactivateBusy] = useState(false);
-
-
-  const [showPts, setShowPts] = useState(false);
-  const [ptsTab, setPtsTab] = useState("upload"); // "upload" | "download" | "query"
-  const [ptsToGln, setPtsToGln] = useState("");
-  const [ptsFile, setPtsFile] = useState(null); // { name, base64 }
-  const [ptsUploadResult, setPtsUploadResult] = useState(null);
-  const [ptsTransferId, setPtsTransferId] = useState("");
-  const [ptsDownloadResult, setPtsDownloadResult] = useState(null);
-  const [ptsFromGln, setPtsFromGln] = useState("");
-  const [ptsQueryToGln, setPtsQueryToGln] = useState("");
-  const [ptsGetAll, setPtsGetAll] = useState(false);
-  const [ptsTransfers, setPtsTransfers] = useState(null);
-  const [ptsBusy, setPtsBusy] = useState(false);
-
-  // ===== عمليات "برقم التشغيلة" (By Batch): قبول / إرجاع / نقل / إلغاء نقل =====
-  const [showReturnBatch, setShowReturnBatch] = useState(false);
-  const [returnBatchToGln, setReturnBatchToGln] = useState("");
-  const [returnBatchItems, setReturnBatchItems] = useState([]);
-  const [returnBatchBusy, setReturnBatchBusy] = useState(false);
-  const [recallQuery, setRecallQuery] = useState("");
-  const [recallResults, setRecallResults] = useState(null);
-
-  // 🔍 بحث عن رقم تشغيلة معين (Recall) في مخزون كل الأصناف — بيرجع كل الأصناف اللي
-  // عندها تشغيلة برقم مطابق (تطابق جزئي كمان) عشان تقدر تجمعها بسرعة وترجعها للشركة.
-  const searchRecallBatch = () => {
-    const q = recallQuery.trim().toLowerCase();
-    if (!q) {
-      showToast("اكتب رقم التشغيلة اللي عايز تدور عليه", "error");
-      return;
-    }
-    const found = [];
-    (products || []).forEach((p) => {
-      (p.batches || []).forEach((b) => {
-        if (b.qty > 0 && (b.batch_number || "").toLowerCase().includes(q)) {
-          found.push({
-            productId: p.id,
-            name: p.name_ar || p.name,
-            gtin: p.gtin || p.barcode,
-            batch_number: b.batch_number,
-            expiry_date: b.expiry_date || null,
-            qty: b.qty,
-          });
-        }
-      });
-    });
-    setRecallResults(found);
-    if (found.length === 0) showToast("مفيش أي صنف عنده تشغيلة بالرقم ده في المخزون الحالي", "warn");
-  };
-
-  // إضافة نتيجة بحث الـ Recall كسطر جاهز في نموذج الإرجاع برقم التشغيلة
-  const addRecallResultToReturn = (r) => {
-    setReturnBatchItems((prev) => [
-      ...prev,
-      { gtin: r.gtin || "", quantity: r.qty, batch: r.batch_number || "", expiry: r.expiry_date || "" },
-    ]);
-    showToast(`أُضيف "${r.name}" (${r.qty}) لنموذج الإرجاع`);
-  };
-
-  const ensureRasdReady = () => {
-    if (!config.apiUrl) {
-      showToast("يرجى ضبط رابط رصد (apiUrl) أولاً واحفظ الإعدادات", "error");
-      return false;
-    }
-    RasdService.configure(config);
-    return true;
-  };
-
-  const submitReturnBatch = async () => {
-    if (returnBatchItems.length === 0) {
-      showToast("أضف دفعة واحدة على الأقل", "error");
-      return;
-    }
-    if (!returnBatchToGln.trim()) {
-      showToast("أدخل GLN الجهة المرتجع لها", "error");
-      return;
-    }
-    if (!ensureRasdReady()) return;
-    setReturnBatchBusy(true);
-    // بنستخدم عملية Return الحقيقية (ReturnServiceRequest) نفسها، بس العناصر هنا بشكل
-    // "دفعة كاملة" (quantity بدل serial) — العملية دي بتقبل الشكلين لأن الـ PRODUCT
-    // object نفسه بنفس البنية الثابتة في كل خدمات رصد حسب DTTS-DEF.
-    const result = await RasdService.notifyReturn({ toGln: returnBatchToGln.trim(), items: returnBatchItems });
-    setReturnBatchBusy(false);
-    if (result.success) {
-      showToast("تم الإرجاع برقم التشغيلة في رصد ✓");
-      setShowReturnBatch(false);
-      setReturnBatchItems([]);
-      setReturnBatchToGln("");
-    } else {
-      RasdQueue.enqueue("return", { toGln: returnBatchToGln.trim(), items: returnBatchItems });
-      showToast("تعذر الإرجاع الفوري — تم حفظها للمحاولة تلقائيًا لاحقًا: " + result.error, "error");
-      setShowReturnBatch(false);
-      setReturnBatchItems([]);
-      setReturnBatchToGln("");
-    }
-  };
-
-  const submitDeactivate = async () => {
-    if (deactivateItems.length === 0) {
-      showToast("أضف صنف واحد على الأقل", "error");
-      return;
-    }
-    if (!ensureRasdReady()) return;
-    setDeactivateBusy(true);
-    const result =
-      deactivateMode === "out"
-        ? await RasdService.notifyDeactivate({ dr: deactivateDr, explanation: deactivateExplanation, items: deactivateItems })
-        : await RasdService.notifyDeactivateCancel({ items: deactivateItems });
-    setDeactivateBusy(false);
-    if (result.success) {
-      showToast(deactivateMode === "out" ? "تم إخراج الأصناف من رصد ✓" : "تم إلغاء الإخراج ✓");
-      setShowDeactivate(false);
-      setDeactivateItems([]);
-      setDeactivateExplanation("");
-    } else {
-      showToast("فشلت العملية: " + result.error, "error");
-    }
-  };
-
-  // ملحوظة: عمليات القبول والنقل/إلغاء النقل (Accept/Transfer/TransferCancel) بتتعمل يدوي
-  // من موقع رصد نفسه مش من البرنامج، فمفيش داعي لشاشات/دوال إرسال ليها هنا.
-
-  const handlePtsFilePick = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = String(reader.result).split(",")[1] || "";
-      setPtsFile({ name: file.name, base64 });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const submitPtsUpload = async () => {
-    if (!ptsToGln.trim() || !ptsFile) {
-      showToast("أدخل GLN المستلم واختر الملف (zip)", "error");
-      return;
-    }
-    if (!ensureRasdReady()) return;
-    setPtsBusy(true);
-    const result = await RasdService.ptsUpload({ toGln: ptsToGln.trim(), fileBase64: ptsFile.base64 });
-    setPtsBusy(false);
-    if (result.success) {
-      setPtsUploadResult(result.data);
-      showToast("تم رفع الملف ✓");
-    } else {
-      showToast("فشل الرفع: " + result.error, "error");
-    }
-  };
-
-  const submitPtsDownload = async () => {
-    if (!ptsTransferId.trim()) {
-      showToast("أدخل Transfer ID", "error");
-      return;
-    }
-    if (!ensureRasdReady()) return;
-    setPtsBusy(true);
-    const result = await RasdService.ptsDownload({ transferId: ptsTransferId.trim() });
-    setPtsBusy(false);
-    if (result.success) {
-      setPtsDownloadResult(result.data);
-      showToast("تم تنزيل بيانات الملف ✓");
-    } else {
-      showToast("فشل التنزيل: " + result.error, "error");
-    }
-  };
-
-  const saveBase64AsFile = (base64, filename) => {
-    try {
-      const bytes = atob(base64);
-      const arr = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      const blob = new Blob([arr], { type: "application/zip" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      showToast("تعذر حفظ الملف محليًا", "error");
-    }
-  };
-
-  const submitPtsQuery = async () => {
-    if (!ensureRasdReady()) return;
-    setPtsBusy(true);
-    const result = await RasdService.ptsQuery({
-      fromGln: ptsFromGln.trim() || undefined,
-      toGln: ptsQueryToGln.trim() || undefined,
-      getAll: ptsGetAll,
-    });
-    setPtsBusy(false);
-    if (result.success) {
-      setPtsTransfers(result.data.transfers || []);
-    } else {
-      showToast("فشل الاستعلام: " + result.error, "error");
-    }
-  };
 
   // تحديث عداد الطابور كل شوية عشان يبان تحديث لحظي
   useEffect(() => {
@@ -11279,37 +11026,6 @@ function RasdSettings({ showToast, products }) {
         </Btn>
       </div>
 
-      {/* أدوات رصد إضافية */}
-      <div
-        style={{
-          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-          border: `1px solid ${COLORS.border}`,
-          borderRadius: 14,
-          padding: 24,
-          marginBottom: 16,
-        }}
-      >
-        <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: COLORS.blue }}>
-          أدوات رصد إضافية
-        </h3>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Btn variant="secondary" icon="x" onClick={() => setShowDeactivate(true)}>
-            إخراج / إلغاء إخراج
-          </Btn>
-          <Btn variant="secondary" icon="upload" onClick={() => setShowPts(true)}>
-            PTS رفع/تنزيل/استعلام
-          </Btn>
-        </div>
-        <div style={{ fontSize: 11, color: COLORS.textDim, margin: "16px 0 8px" }}>
-          الإرجاع بكمية من دفعة كاملة بدل كل رقم تسلسلي لوحده (القبول والنقل بيتعملوا يدوي من موقع رصد)
-        </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Btn variant="secondary" icon="check" onClick={() => setShowReturnBatch(true)}>
-            الإرجاع برقم التشغيلة
-          </Btn>
-        </div>
-      </div>
-
       {/* Buttons */}
       <div style={{ display: "flex", gap: 10 }}>
         <Btn
@@ -11367,304 +11083,6 @@ function RasdSettings({ showToast, products }) {
           </div>
         ))}
       </div>
-
-      {/* ===== مودال: إخراج / إلغاء إخراج ===== */}
-      {showDeactivate && (
-        <Modal
-          open
-          wide
-          onClose={() => setShowDeactivate(false)}
-          title="إخراج منتج من رصد (Deactivation)"
-        >
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <Btn
-              size="sm"
-              variant={deactivateMode === "out" ? "primary" : "ghost"}
-              onClick={() => setDeactivateMode("out")}
-            >
-              إخراج جديد
-            </Btn>
-            <Btn
-              size="sm"
-              variant={deactivateMode === "cancel" ? "primary" : "ghost"}
-              onClick={() => setDeactivateMode("cancel")}
-            >
-              إلغاء إخراج سابق
-            </Btn>
-          </div>
-
-          {deactivateMode === "out" && (
-            <>
-              <Select
-                label="سبب الإخراج (DR)"
-                value={deactivateDr}
-                onChange={setDeactivateDr}
-                options={Object.entries(RasdService.DR_REASONS).map(([v, l]) => ({ v, l: `${v} — ${l}` }))}
-                style={{ marginBottom: 14 }}
-              />
-              <Input
-                label="توضيح إضافي (اختياري)"
-                value={deactivateExplanation}
-                onChange={setDeactivateExplanation}
-                placeholder="مثال: تلف نتيجة سوء تخزين"
-                style={{ marginBottom: 14 }}
-              />
-            </>
-          )}
-
-          <RasdItemsEditor items={deactivateItems} onChange={setDeactivateItems} />
-
-          <Btn
-            onClick={submitDeactivate}
-            disabled={deactivateBusy}
-            style={{ marginTop: 16, width: "100%", justifyContent: "center" }}
-          >
-            {deactivateBusy
-              ? "جارٍ التنفيذ..."
-              : deactivateMode === "out"
-              ? "تنفيذ الإخراج في رصد"
-              : "تنفيذ إلغاء الإخراج"}
-          </Btn>
-        </Modal>
-      )}
-
-      {/* ===== مودال: الإرجاع برقم التشغيلة ===== */}
-      {showReturnBatch && (
-        <Modal open wide onClose={() => setShowReturnBatch(false)} title="الإرجاع برقم التشغيلة">
-          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 14 }}>
-            إرجاع كمية من دفعة كاملة للمورد/الجهة دفعة واحدة بدل كل رقم تسلسلي على حدة.
-          </div>
-
-          <div
-            style={{
-              background: COLORS.surfaceAlt,
-              border: `1px solid ${COLORS.border}`,
-              borderRadius: 10,
-              padding: 12,
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim, marginBottom: 8 }}>
-              🔍 بحث عن رقم تشغيلة (Recall) في كل المخزون
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={recallQuery}
-                onChange={(e) => setRecallQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && searchRecallBatch()}
-                placeholder="رقم التشغيلة المطلوب سحبها/إرجاعها"
-                style={{ ...rasdCellStyle, flex: 1 }}
-              />
-              <Btn size="sm" onClick={searchRecallBatch}>بحث</Btn>
-            </div>
-            {recallResults && (
-              <div style={{ marginTop: 10 }}>
-                {recallResults.length === 0 ? (
-                  <div style={{ fontSize: 12, color: COLORS.textDim }}>مفيش نتائج</div>
-                ) : (
-                  recallResults.map((r, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "6px 4px",
-                        borderBottom: `1px solid ${COLORS.border}`,
-                        fontSize: 12,
-                      }}
-                    >
-                      <span>
-                        {r.name} — دفعة {r.batch_number} — الكمية بالمخزون: {r.qty}
-                        {r.expiry_date ? ` — صلاحية ${r.expiry_date}` : ""}
-                      </span>
-                      <Btn size="sm" variant="secondary" onClick={() => addRecallResultToReturn(r)}>
-                        إضافة للإرجاع
-                      </Btn>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-
-          <Input
-            label="GLN الجهة المرتجع لها"
-            value={returnBatchToGln}
-            onChange={setReturnBatchToGln}
-            placeholder="مثال: 6281234567890"
-            style={{ marginBottom: 14 }}
-          />
-          <RasdItemsEditorBatch items={returnBatchItems} onChange={setReturnBatchItems} />
-          <Btn
-            onClick={submitReturnBatch}
-            disabled={returnBatchBusy}
-            style={{ marginTop: 16, width: "100%", justifyContent: "center" }}
-          >
-            {returnBatchBusy ? "جارٍ التنفيذ..." : "تنفيذ الإرجاع برقم التشغيلة"}
-          </Btn>
-        </Modal>
-      )}
-
-      {/* ===== مودال: PTS رفع/تنزيل/استعلام ===== */}
-      {showPts && (
-        <Modal
-          open
-          wide
-          onClose={() => setShowPts(false)}
-          title="PTS — نقل ملفات مجمّعة (Package Transfer Service)"
-        >
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <Btn size="sm" variant={ptsTab === "upload" ? "primary" : "ghost"} onClick={() => setPtsTab("upload")}>
-              رفع ملف
-            </Btn>
-            <Btn size="sm" variant={ptsTab === "download" ? "primary" : "ghost"} onClick={() => setPtsTab("download")}>
-              تنزيل ملف
-            </Btn>
-            <Btn size="sm" variant={ptsTab === "query" ? "primary" : "ghost"} onClick={() => setPtsTab("query")}>
-              استعلام
-            </Btn>
-          </div>
-
-          {ptsTab === "upload" && (
-            <div>
-              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 14 }}>
-                ارفع ملف zip فيه دفعة بيانات منتجات (GTIN-SN-BN-XD) بدل إرسال كل صنف لوحده — رصد
-                هنا ناقل ملفات بس، والتحقق من محتوى الملف مسؤولية الطرفين.
-              </div>
-              <Input
-                label="GLN الجهة المستلمة"
-                value={ptsToGln}
-                onChange={setPtsToGln}
-                placeholder="مثال: 6281234567890"
-                style={{ marginBottom: 14 }}
-              />
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, color: COLORS.textDim, marginBottom: 6, fontWeight: 600 }}>
-                  ملف ZIP
-                </label>
-                <input type="file" accept=".zip" onChange={handlePtsFilePick} />
-                {ptsFile && (
-                  <div style={{ fontSize: 12, color: COLORS.green, marginTop: 6 }}>تم اختيار: {ptsFile.name}</div>
-                )}
-              </div>
-              <Btn
-                onClick={submitPtsUpload}
-                disabled={ptsBusy}
-                style={{ width: "100%", justifyContent: "center" }}
-              >
-                {ptsBusy ? "جارٍ الرفع..." : "رفع الملف"}
-              </Btn>
-              {ptsUploadResult && (
-                <div
-                  style={{
-                    marginTop: 14,
-                    background: COLORS.greenSoft,
-                    border: `1px solid ${COLORS.green}`,
-                    borderRadius: 8,
-                    padding: 12,
-                    fontSize: 12,
-                    color: COLORS.green,
-                  }}
-                >
-                  Transfer ID: {ptsUploadResult.transferId} — MD5: {ptsUploadResult.md5Checksum}
-                </div>
-              )}
-            </div>
-          )}
-
-          {ptsTab === "download" && (
-            <div>
-              <Input
-                label="Transfer ID"
-                value={ptsTransferId}
-                onChange={setPtsTransferId}
-                placeholder="مثال: TR-2026-000123"
-                style={{ marginBottom: 14 }}
-              />
-              <Btn
-                onClick={submitPtsDownload}
-                disabled={ptsBusy}
-                style={{ width: "100%", justifyContent: "center" }}
-              >
-                {ptsBusy ? "جارٍ التنزيل..." : "جلب الملف"}
-              </Btn>
-              {ptsDownloadResult && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 8 }}>
-                    MD5: {ptsDownloadResult.md5Checksum}
-                  </div>
-                  <Btn
-                    variant="secondary"
-                    onClick={() =>
-                      saveBase64AsFile(ptsDownloadResult.fileBase64, `rasd_${ptsTransferId.trim()}.zip`)
-                    }
-                  >
-                    حفظ الملف على الجهاز
-                  </Btn>
-                </div>
-              )}
-            </div>
-          )}
-
-          {ptsTab === "query" && (
-            <div>
-              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                <Input label="من GLN (اختياري)" value={ptsFromGln} onChange={setPtsFromGln} style={{ flex: 1 }} />
-                <Input label="إلى GLN (اختياري)" value={ptsQueryToGln} onChange={setPtsQueryToGln} style={{ flex: 1 }} />
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
-                <input type="checkbox" checked={ptsGetAll} onChange={(e) => setPtsGetAll(e.target.checked)} />
-                عرض كل الملفات (شاملة اللي اتنزلت قبل كده)
-              </label>
-              <Btn
-                onClick={submitPtsQuery}
-                disabled={ptsBusy}
-                style={{ width: "100%", justifyContent: "center", marginBottom: 14 }}
-              >
-                {ptsBusy ? "جارٍ الاستعلام..." : "بحث"}
-              </Btn>
-              {ptsTransfers && (
-                <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
-                  {ptsTransfers.length === 0 && (
-                    <div style={{ padding: 12, fontSize: 12, color: COLORS.textDim }}>لا يوجد ملفات مطابقة</div>
-                  )}
-                  {ptsTransfers.map((t, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "10px 12px",
-                        borderBottom: i < ptsTransfers.length - 1 ? `1px solid ${COLORS.border}` : "none",
-                        fontSize: 12,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>{t.transferId}</div>
-                        <div style={{ color: COLORS.textDim }}>
-                          من {t.sender} إلى {t.receiver} — {t.sendDate}
-                        </div>
-                      </div>
-                      <Btn
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setPtsTransferId(t.transferId);
-                          setPtsTab("download");
-                        }}
-                      >
-                        تنزيل
-                      </Btn>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </Modal>
-      )}
     </div>
   );
 }
@@ -12174,7 +11592,6 @@ function InventoryCount({
               cost: it.cost ?? it.receivedCost ?? 0,
               salePrice: it.salePrice ?? it.newSalePrice ?? 0,
               expiry_date: it.expiry_date || null,
-              batch_number: it.batch_number || null,
               date: po.date || null,
             });
           });
@@ -12212,7 +11629,6 @@ function InventoryCount({
             cost: p.cost || 0,
             salePrice: p.price || 0,
             expiry_date: null,
-            batch_number: null,
             date: "قديم",
           });
         }
