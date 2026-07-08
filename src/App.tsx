@@ -16979,6 +16979,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     start_date: new Date().toISOString().split("T")[0],
     end_date: "",
     note: "",
+    offer_name: "", // ← اسم/مناسبة العرض (عروض العيد، اليوم الوطني، رمضان...) يظهر في الطباعة
   };
   const [promoForm, setPromoForm] = useState(blankPromo);
   // وضع الإضافة: صنف واحد أو منتجات شركة كاملة
@@ -16986,6 +16987,11 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const [companyProductIds, setCompanyProductIds] = useState<string[]>([]); // المنتجات المحددة من الشركة
   const [incentiveForm, setIncentiveForm] = useState({ rate: "", fixed_amount: "", note: "" });
   const [selectedIncentiveProducts, setSelectedIncentiveProducts] = useState<string[]>([]); // IDs المحددة للإضافة
+
+  // ── سجل الطباعة — عشان تقدر تعيد طباعة أي عرض (تلقائي أو يدوي) لاحقًا ──
+  const [printHistory, setPrintHistory] = useState<any[]>([]);
+  const [autoOfferName, setAutoOfferName] = useState(""); // اسم/مناسبة العرض التلقائي قبل الطباعة
+  const [selectedAutoIds, setSelectedAutoIds] = useState<string[]>([]); // الأصناف المختارة من التلقائي للطباعة
 
   const today = new Date().toISOString().split("T")[0];
   const monthKey = incentiveConfig.month;
@@ -17041,7 +17047,13 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         .select("threshold, effective_from")
         .eq("pharmacy_id", pharmacyId)
         .order("effective_from", { ascending: true }),
-    ]).then(([p, i, c, m, ps, th]) => {
+      // ── سجل طباعة العروض (لإعادة الطباعة لاحقًا) ──
+      supabase.from("promo_print_log")
+        .select("*")
+        .eq("pharmacy_id", pharmacyId)
+        .order("created_at", { ascending: false })
+        .limit(100),
+    ]).then(([p, i, c, m, ps, th, pl]) => {
       if (p.data) setPromos(p.data);
       if (i.data) setIncentiveList(i.data);
       if (c.data) setIncentiveConfig((prev) => ({ ...prev, rate: c.data.rate || 5 }));
@@ -17056,6 +17068,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         const latest = th.data[th.data.length - 1];
         setIncentiveConfig((prev) => ({ ...prev, marginThreshold: latest.threshold }));
       }
+      // ── تحميل سجل الطباعة ──
+      if (pl.data) setPrintHistory(pl.data);
     });
   }, [pharmacyId]);
 
@@ -17121,6 +17135,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   });
 
   // ── دالة طباعة Shelf Label ──
+  // offerName: اسم/مناسبة العرض (عروض العيد، اليوم الوطني، رمضان...) بيظهر في مكان اسم الصيدلية القديم
   const printShelfLabel = (items: {
     name: string;
     originalPrice: number;
@@ -17129,7 +17144,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     endDate?: string;
     isAuto?: boolean;
     promoLabel?: string; // نص وصفي للعرض (مهم لأنماط BOGO/الهدية اللي السعر فيها مش بيتغيّر)
-  }[]) => {
+  }[], offerName?: string) => {
     const labelsHTML = items.map((item) => {
       const priceUnchanged = Math.abs((item.discountedPrice ?? 0) - (item.originalPrice ?? 0)) < 0.001;
       // لو السعر متغيّر فعليًا (نسبة/قيمة ثابتة/كمية/باقة) نعرض قبل/بعد + نسبة الخصم.
@@ -17157,7 +17172,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           </div>`;
       return `
       <div class="label">
-        <div class="pharmacy-name">PharmacyPro</div>
+        ${offerName ? `<div class="offer-name">${offerName}</div>` : ""}
         <div class="product-name">${item.name}</div>
         ${badgeHTML}
         ${pricesHTML}
@@ -17197,7 +17212,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             min-height: 120mm;
             justify-content: center;
           }
-          .pharmacy-name { font-size: 11px; color: #7a6000; font-weight: 600; letter-spacing: 1px; }
+          .offer-name { font-size: 15px; color: #7a6000; font-weight: 900; letter-spacing: 0.5px; background: #fff8dc; border: 1px dashed #cc9900; border-radius: 8px; padding: 3px 12px; text-align: center; }
           .product-name { font-size: 18px; font-weight: 900; color: #1a1a00; text-align: center; line-height: 1.3; }
           .discount-badge { background: #cc0000; color: #fff; font-size: 20px; font-weight: 900; padding: 4px 20px; border-radius: 20px; }
           .discount-badge.promo-text { font-size: 14px; padding: 6px 14px; text-align: center; line-height: 1.3; max-width: 90%; }
@@ -17228,31 +17243,34 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     win.document.close();
   };
 
-  // ── طباعة تلقائية عند دخول صنف جديد للعروض التلقائية ──
-  useEffect(() => {
-    if (!pharmacyId || autoPromoProducts.length === 0) return;
-    const storageKey = `printed_auto_promos_${pharmacyId}`;
-    const stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
-    const newItems: typeof autoPromoProducts = [];
-    autoPromoProducts.forEach((p) => {
-      const prevDiscount = stored[p.id];
-      if (prevDiscount === undefined || prevDiscount !== p.autoDiscount) {
-        newItems.push(p);
-        stored[p.id] = p.autoDiscount;
-      }
-    });
-    if (newItems.length === 0) return;
-    localStorage.setItem(storageKey, JSON.stringify(stored));
-    printShelfLabel(
-      newItems.map((p) => ({
-        name: p.name || p.nameAr || "",
-        originalPrice: p.price,
-        discountedPrice: parseFloat((p.price * (1 - p.autoDiscount / 100)).toFixed(2)),
-        discount: p.autoDiscount,
-        isAuto: true,
-      }))
-    );
-  }, [autoPromoProducts, pharmacyId]);
+  // ── تسجيل عملية طباعة في السجل (عشان تقدر تعيد الطباعة لاحقًا سواء كان العرض تلقائي أو يدوي) ──
+  const logPrintHistory = async (offerName: string, isAuto: boolean, items: any[]) => {
+    const row = {
+      pharmacy_id: pharmacyId,
+      offer_name: offerName || (isAuto ? "عرض تلقائي" : "عرض يدوي"),
+      is_auto: isAuto,
+      items,
+      created_by: currentUser?.name || currentUser?.email || "",
+      created_at: new Date().toISOString(),
+    };
+    const { data, error } = await supabase.from("promo_print_log").insert(row).select().single();
+    if (!error && data) setPrintHistory((prev) => [data, ...prev]);
+  };
+
+  // ── طباعة يدوية لأصناف العروض التلقائية (بعد ما كانت بتتطبع أوتوماتيك) ──
+  // بتاخد الأصناف المحددة (أو كل الأصناف لو معدش تحديد) + اسم/مناسبة العرض المكتوبة، وتسجلهم في سجل الطباعة
+  const printAutoPromoItems = (items: typeof autoPromoProducts, offerName: string) => {
+    if (items.length === 0) return;
+    const labelItems = items.map((p) => ({
+      name: p.name || p.nameAr || "",
+      originalPrice: p.price,
+      discountedPrice: parseFloat((p.price * (1 - p.autoDiscount / 100)).toFixed(2)),
+      discount: p.autoDiscount,
+      isAuto: true,
+    }));
+    printShelfLabel(labelItems, offerName);
+    logPrintHistory(offerName, true, labelItems);
+  };
 
   // التحقق من اكتمال الحقول المطلوبة لكل نمط عرض
   const validatePromoForm = () => {
@@ -17297,6 +17315,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       start_date: promoForm.start_date,
       end_date: promoForm.end_date,
       note: promoForm.note,
+      offer_name: promoForm.offer_name || null, // ← اسم/مناسبة العرض تظهر في الطباعة
       manufacturer_id: promoMode === "company" ? promoForm.manufacturer_id : null,
       pharmacy_id: pharmacyId,
     };
@@ -17341,7 +17360,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         isAuto: false,
       };
     }).filter(Boolean);
-    if (labelItems.length) printShelfLabel(labelItems);
+    if (labelItems.length) {
+      printShelfLabel(labelItems, promoForm.offer_name);
+      logPrintHistory(promoForm.offer_name, false, labelItems);
+    }
   };
 
   // حفظ أصناف محفزة (متعددة)
@@ -17437,6 +17459,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           { k: "auto", l: `⏰ تلقائي (${autoPromoProducts.length})` },
           { k: "manual", l: `✋ يدوي (${activePromos.length})` },
           { k: "incentive", l: "⭐ أصناف محفزة" },
+          { k: "prints", l: `🖨️ سجل الطباعة (${printHistory.length})` },
         ].map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
             flex: 1, padding: "9px 8px", borderRadius: 8, border: "none",
@@ -17663,45 +17686,84 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
             style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
           />
 
+          {/* ── طباعة يدوية للعروض التلقائية (بديل الطباعة الأوتوماتيكية) ── */}
+          {filteredAutoPromos.length > 0 && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+              <input
+                value={autoOfferName} onChange={(e) => setAutoOfferName(e.target.value)}
+                placeholder="اسم/مناسبة العرض (مثلاً: عروض العيد)..."
+                style={{ flex: 1, minWidth: 200, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}
+              />
+              <button onClick={() => setSelectedAutoIds(
+                selectedAutoIds.length === filteredAutoPromos.length ? [] : filteredAutoPromos.map((p) => p.id)
+              )} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.textDim, fontSize: 12, cursor: "pointer" }}>
+                {selectedAutoIds.length === filteredAutoPromos.length ? "إلغاء التحديد" : "تحديد الكل"}
+              </button>
+              <button
+                disabled={selectedAutoIds.length === 0}
+                onClick={() => {
+                  printAutoPromoItems(filteredAutoPromos.filter((p) => selectedAutoIds.includes(p.id)), autoOfferName);
+                  setSelectedAutoIds([]);
+                }}
+                style={{ background: selectedAutoIds.length ? COLORS.blueSoft : COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 14px", color: selectedAutoIds.length ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: selectedAutoIds.length ? "pointer" : "not-allowed" }}>
+                🖨️ طباعة المحدد ({selectedAutoIds.length})
+              </button>
+              <button onClick={() => printAutoPromoItems(filteredAutoPromos, autoOfferName)}
+                style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 8, padding: "8px 14px", color: COLORS.gold, fontSize: 12, cursor: "pointer" }}>
+                🖨️ طباعة الكل ({filteredAutoPromos.length})
+              </button>
+            </div>
+          )}
+
           {filteredAutoPromos.length === 0
             ? <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>✅ لا توجد أصناف تحتاج عروض تلقائية</div>
             : filteredAutoPromos.map((p) => {
                 const days = p.expiry ? Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24)) : null;
                 const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
+                const checked = selectedAutoIds.includes(p.id);
                 return (
                   <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? COLORS.redSoft : p.autoDiscount >= 25 ? COLORS.coralSoft : COLORS.goldSoft)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
-                          <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
-                          <span style={{
-                            background: discountColor(p.autoDiscount), color: "#fff",
-                            borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
-                          }}>-{p.autoDiscount}%</span>
-                          {p.reasonExpiry && (
-                            <span style={{ background: COLORS.goldSoft, color: COLORS.gold, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>⏰ قرب انتهاء</span>
-                          )}
-                          {p.reasonStagnant && (
-                            <span style={{ background: COLORS.purpleSoft, color: COLORS.purple, border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>📦 راكد</span>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: 20, fontSize: 12, flexWrap: "wrap" }}>
-                          <span style={{ color: COLORS.textDim }}>الفئة: <span style={{ color: COLORS.textDim }}>{p.main_category || p.category}</span></span>
-                          <span style={{ color: COLORS.textDim }}>المخزون: <span style={{ color: COLORS.textPrimary }}>{p.stock}</span></span>
-                          {days !== null && (
-                            <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
-                          )}
-                          {p.reasonStagnant && (
-                            <span style={{ color: COLORS.textDim }}>
-                              آخر بيع: <span style={{ color: COLORS.purple }}>{p.daysSinceLastSale === null ? "لا يوجد" : `منذ ${p.daysSinceLastSale} يوم`}</span>
-                            </span>
-                          )}
+                      <div style={{ display: "flex", alignItems: "flex-start", flex: 1, gap: 10 }}>
+                        <input type="checkbox" checked={checked} onChange={() => {
+                          setSelectedAutoIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id]);
+                        }} style={{ marginTop: 4, cursor: "pointer" }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                            <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
+                            <span style={{
+                              background: discountColor(p.autoDiscount), color: "#fff",
+                              borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
+                            }}>-{p.autoDiscount}%</span>
+                            {p.reasonExpiry && (
+                              <span style={{ background: COLORS.goldSoft, color: COLORS.gold, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>⏰ قرب انتهاء</span>
+                            )}
+                            {p.reasonStagnant && (
+                              <span style={{ background: COLORS.purpleSoft, color: COLORS.purple, border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>📦 راكد</span>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", gap: 20, fontSize: 12, flexWrap: "wrap" }}>
+                            <span style={{ color: COLORS.textDim }}>الفئة: <span style={{ color: COLORS.textDim }}>{p.main_category || p.category}</span></span>
+                            <span style={{ color: COLORS.textDim }}>المخزون: <span style={{ color: COLORS.textPrimary }}>{p.stock}</span></span>
+                            {days !== null && (
+                              <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
+                            )}
+                            {p.reasonStagnant && (
+                              <span style={{ color: COLORS.textDim }}>
+                                آخر بيع: <span style={{ color: COLORS.purple }}>{p.daysSinceLastSale === null ? "لا يوجد" : `منذ ${p.daysSinceLastSale} يوم`}</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div style={{ textAlign: "left", minWidth: 110 }}>
+                      <div style={{ textAlign: "left", minWidth: 110, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
                         <div style={{ color: COLORS.textDim, fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
                         <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
                         {p.expiry && <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>}
+                        <button onClick={() => printAutoPromoItems([p], autoOfferName)}
+                          style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>
+                          🖨️ طباعة
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -17735,6 +17797,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                           <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name_ar || prod?.name || prod?.nameAr || promo.product_id}</span>
                           <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>{typeCfg.icon} {desc?.label}</span>
                           {manufacturer && <span style={{ background: COLORS.blueSoft, color: COLORS.blue, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>🏭 {manufacturer.name}</span>}
+                          {promo.offer_name && <span style={{ background: COLORS.goldSoft, color: COLORS.gold, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>🎉 {promo.offer_name}</span>}
                         </div>
                         <div style={{ color: COLORS.textDim, fontSize: 11 }}>
                           {promo.start_date} ← {promo.end_date}
@@ -17747,6 +17810,21 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                         )}
                         <div style={{ color: daysLeft <= 3 ? COLORS.red : COLORS.textDim, fontSize: 11 }}>يتبقى {daysLeft} يوم</div>
                         <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                          {prod && (
+                            <button onClick={() => {
+                              const labelItem = {
+                                name: prod.name || prod.nameAr || "",
+                                originalPrice: prod.price,
+                                discountedPrice: desc?.newUnitPrice ?? prod.price,
+                                discount: promo.promo_type === "percent" ? promo.discount : 0,
+                                promoLabel: desc?.label,
+                                endDate: promo.end_date,
+                                isAuto: false,
+                              };
+                              printShelfLabel([labelItem], promo.offer_name);
+                              logPrintHistory(promo.offer_name, false, [labelItem]);
+                            }} style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>🖨️ طباعة</button>
+                          )}
                           <button onClick={() => {
                             setPromoForm({
                               ...blankPromoDetails,
@@ -17766,6 +17844,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                               start_date: promo.start_date,
                               end_date: promo.end_date,
                               note: promo.note || "",
+                              offer_name: promo.offer_name || "",
                             });
                             setPromoMode("single");
                             setEditPromoId(promo.id);
@@ -17825,6 +17904,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                             start_date: promo.start_date,
                             end_date: promo.end_date,
                             note: promo.note || "",
+                              offer_name: promo.offer_name || "",
                           });
                           setPromoMode("single");
                           setEditPromoId(promo.id);
@@ -18081,6 +18161,42 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         </div>
       )}
 
+      {/* ── سجل الطباعة — إعادة طباعة أي عرض سابق (تلقائي أو يدوي) ── */}
+      {activeTab === "prints" && (
+        <div>
+          {printHistory.length === 0 ? (
+            <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>لا يوجد عروض متطبوعة بعد</div>
+          ) : (
+            printHistory.map((h) => (
+              <div key={h.id} style={cardStyle(h.is_auto ? COLORS.goldSoft : COLORS.greenSoft)}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                      <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{h.offer_name || (h.is_auto ? "عرض تلقائي" : "عرض يدوي")}</span>
+                      <span style={{
+                        background: h.is_auto ? COLORS.goldSoft : COLORS.blueSoft,
+                        color: h.is_auto ? COLORS.gold : COLORS.blue,
+                        border: `1px solid ${tint(h.is_auto ? COLORS.gold : COLORS.blue, 0.35)}`,
+                        borderRadius: 20, padding: "2px 10px", fontSize: 11,
+                      }}>{h.is_auto ? "⏰ تلقائي" : "✋ يدوي"}</span>
+                      <span style={{ color: COLORS.textDim, fontSize: 11 }}>{(h.items || []).length} صنف</span>
+                    </div>
+                    <div style={{ color: COLORS.textDim, fontSize: 11 }}>
+                      {h.created_at ? new Date(h.created_at).toLocaleString("ar-SA") : ""}
+                      {h.created_by && <span style={{ marginRight: 10 }}>• بواسطة {h.created_by}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => printShelfLabel(h.items || [], h.offer_name)}
+                    style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "5px 14px", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
+                    🖨️ إعادة طباعة
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
       {/* Modal تعديل قواعد الخصم */}
       <Modal open={showRulesEditor} onClose={() => setShowRulesEditor(false)} title="✏️ تعديل قواعد الخصم التدرجي">
         <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 14 }}>
@@ -18244,6 +18360,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           ))}
           <Input label="تاريخ البداية" value={promoForm.start_date} onChange={(v) => setPromoForm((p) => ({ ...p, start_date: v }))} type="date" />
           <Input label="تاريخ النهاية" value={promoForm.end_date} onChange={(v) => setPromoForm((p) => ({ ...p, end_date: v }))} type="date" />
+          <div style={{ gridColumn: "1/-1" }}>
+            <Input label="اسم/مناسبة العرض (تظهر في الطباعة)" value={promoForm.offer_name} onChange={(v) => setPromoForm((p) => ({ ...p, offer_name: v }))} placeholder="مثلاً: عروض العيد، اليوم الوطني، عرض رمضان..." />
+          </div>
           <div style={{ gridColumn: "1/-1" }}>
             <Input label="ملاحظة" value={promoForm.note} onChange={(v) => setPromoForm((p) => ({ ...p, note: v }))} placeholder="وصف العرض..." />
           </div>
