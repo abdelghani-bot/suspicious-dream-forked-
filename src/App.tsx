@@ -792,6 +792,164 @@ const Select = ({ label, value, onChange, options, style = {} }) => (
   </div>
 );
 
+// محرر صغير لقائمة منتجات رصد (GTIN/SN/BN/XD) — بيتستخدم في مودالات Deactivate/Transfer
+const RasdItemsEditor = ({ items, onChange }) => {
+  const addRow = () => onChange([...items, { gtin: "", serial: "", batch: "", expiry: "" }]);
+  const updateRow = (i, field, value) =>
+    onChange(items.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
+  const removeRow = (i) => onChange(items.filter((_, idx) => idx !== i));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim }}>الأصناف ({items.length})</span>
+        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة صنف</Btn>
+      </div>
+      {items.length === 0 && (
+        <div style={{ fontSize: 12, color: COLORS.textDim, padding: "10px 0" }}>لا يوجد أصناف — اضغط "إضافة صنف"</div>
+      )}
+      <div style={{ maxHeight: 260, overflowY: "auto" }}>
+        {items.map((row, i) => (
+          <div
+            key={i}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1.4fr 1fr 0.9fr 0.9fr auto",
+              gap: 6,
+              marginBottom: 8,
+              alignItems: "center",
+            }}
+          >
+            <input
+              value={row.gtin}
+              onChange={(e) => updateRow(i, "gtin", e.target.value)}
+              placeholder="GTIN"
+              style={rasdCellStyle}
+            />
+            <input
+              value={row.serial}
+              onChange={(e) => updateRow(i, "serial", e.target.value)}
+              placeholder="SN (الرقم التسلسلي)"
+              style={rasdCellStyle}
+            />
+            <input
+              value={row.batch}
+              onChange={(e) => updateRow(i, "batch", e.target.value)}
+              placeholder="دفعة (BN)"
+              style={rasdCellStyle}
+            />
+            <input
+              value={row.expiry}
+              onChange={(e) => updateRow(i, "expiry", e.target.value)}
+              placeholder="صلاحية (XD)"
+              style={rasdCellStyle}
+            />
+            <button
+              onClick={() => removeRow(i)}
+              style={{
+                background: COLORS.redSoft,
+                border: "none",
+                borderRadius: 6,
+                color: COLORS.red,
+                cursor: "pointer",
+                padding: "6px 8px",
+              }}
+            >
+              <IC n="x" s={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const rasdCellStyle = {
+  background: COLORS.surfaceAlt,
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 6,
+  padding: "7px 9px",
+  color: COLORS.textPrimary,
+  fontSize: 12,
+  outline: "none",
+  width: "100%",
+  boxSizing: "border-box",
+};
+
+// محرر أصناف عمليات "برقم التشغيلة" — GTIN + الكمية (QTY) + BN + XD، من غير رقم تسلسلي (SN)
+// ✅ مبني على شاشات رصد الفعلية (القبول/الإرجاع/النقل برقم التشغيلة)
+const RasdItemsEditorBatch = ({ items, onChange }) => {
+  const addRow = () => onChange([...items, { gtin: "", quantity: "", batch: "", expiry: "" }]);
+  const updateRow = (i, field, value) =>
+    onChange(items.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
+  const removeRow = (i) => onChange(items.filter((_, idx) => idx !== i));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim }}>الدفعات ({items.length})</span>
+        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة دفعة</Btn>
+      </div>
+      {items.length === 0 && (
+        <div style={{ fontSize: 12, color: COLORS.textDim, padding: "10px 0" }}>لا يوجد دفعات — اضغط "إضافة دفعة"</div>
+      )}
+      <div style={{ maxHeight: 260, overflowY: "auto" }}>
+        {items.map((row, i) => (
+          <div
+            key={i}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1.4fr 0.8fr 0.9fr 0.9fr auto",
+              gap: 6,
+              marginBottom: 8,
+              alignItems: "center",
+            }}
+          >
+            <input
+              value={row.gtin}
+              onChange={(e) => updateRow(i, "gtin", e.target.value)}
+              placeholder="GTIN"
+              style={rasdCellStyle}
+            />
+            <input
+              value={row.quantity}
+              onChange={(e) => updateRow(i, "quantity", e.target.value)}
+              placeholder="الكمية"
+              type="number"
+              style={rasdCellStyle}
+            />
+            <input
+              value={row.batch}
+              onChange={(e) => updateRow(i, "batch", e.target.value)}
+              placeholder="دفعة (BN)"
+              style={rasdCellStyle}
+            />
+            <input
+              value={row.expiry}
+              onChange={(e) => updateRow(i, "expiry", e.target.value)}
+              placeholder="صلاحية (XD)"
+              style={rasdCellStyle}
+            />
+            <button
+              onClick={() => removeRow(i)}
+              style={{
+                background: COLORS.redSoft,
+                border: "none",
+                borderRadius: 6,
+                color: COLORS.red,
+                cursor: "pointer",
+                padding: "6px 8px",
+              }}
+            >
+              <IC n="x" s={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const Badge = ({ children, color = COLORS.blueSoft, text = COLORS.blue }) => (
   <span
     style={{
@@ -1216,7 +1374,8 @@ const RasdService = {
         (i) => `
       <PRODUCT>
         <GTIN>${i.gtin}</GTIN>
-        <SN>${i.serial}</SN>
+        ${i.serial ? `<SN>${i.serial}</SN>` : ""}
+        ${i.quantity ? `<QTY>${i.quantity}</QTY>` : ""}
         ${i.batch ? `<BN>${i.batch}</BN>` : ""}
         ${i.expiry ? `<XD>${i.expiry}</XD>` : ""}
       </PRODUCT>`
@@ -1288,7 +1447,9 @@ const RasdService = {
 
   // ---- عمليات الصيدلية ----
 
-  // بيع (مباشر للمريض أو عن طريق جهة تسديد) — عنصر الطلب: PharmacySaleRequest
+  // بيع (مباشر للمريض أو عن طريق جهة تسديد)
+  // ✅ اسم الـ Service الصح "PharmacySaleService" وعنصر الطلب "PharmacySaleServiceRequest"
+  // مؤكد من WSDL الرسمي (DTTS-ISD_PHARMACY_SALE-1_0_1): soap:address .../PharmacySaleService/PharmacySaleService
   async notifyPharmacySale({ toGln, prescriptionId, prescriptionDate, doctorId, patientNationalId, items }) {
     const body = `
       <TOGLN>${toGln || "0000000000000"}</TOGLN>
@@ -1297,85 +1458,63 @@ const RasdService = {
       <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
       <PRESCRIPTIONDATE>${prescriptionDate}</PRESCRIPTIONDATE>
       ${this._productListXml(items)}`;
-    return this._call("PharmacySale", "PharmacySaleRequest", body);
+    return this._call("PharmacySaleService", "PharmacySaleServiceRequest", body);
   },
 
-  // عنصر الطلب: PharmacySaleCancelRequest
+  // ✅ اسم الـ Service الصح "PharmacySaleCancelService" وعنصر الطلب "PharmacySaleCancelServiceRequest"
   async notifyPharmacySaleCancel({ toGln, prescriptionId, items }) {
     const body = `
       <TOGLN>${toGln || "0000000000000"}</TOGLN>
       <PRESCRIPTIONID>${prescriptionId}</PRESCRIPTIONID>
       ${this._productListXml(items)}`;
-    return this._call("PharmacySaleCancel", "PharmacySaleCancelRequest", body);
+    return this._call("PharmacySaleCancelService", "PharmacySaleCancelServiceRequest", body);
   },
 
   // إرجاع (مرتجعات المشتريات للمورد أو مرتجعات المبيعات حسب toGln)
   // ملحوظة من الدليل: الصيدلية تقدر ترجّع بس للجهة اللي استلمت المنتج منها أصلًا
-  // عنصر الطلب استثنائيًا اسمه "ReturnServiceRequest" (فيه كلمة Service على عكس باقي العمليات)
+  // ✅ اسم الـ Service الصح "ReturnService" وعنصر الطلب "ReturnServiceRequest"
+  // مؤكد من WSDL الرسمي (DTTS-ISD_RETURN-1_0_1): soap:address .../ReturnService/ReturnService
   // ومفيهوش Return Cancel — لإلغاء إرجاع غلط لازم تستخدم Accept Notification بدلها
+  // ✅ items ممكن تيجي بشكلين: عنصر فيه serial (إرجاع وحدة واحدة بالسيريال الحقيقي)،
+  // أو عنصر فيه quantity بدل serial (إرجاع دفعة كاملة بالـ GTIN+BN+XD+QTY من غير سيريال —
+  // مؤكد من لقطات شاشة رصد الفعلية إن العملية بتقبل الشكل ده، والـ PRODUCT object نفسه
+  // بنفس البنية الثابتة في كل خدمات رصد حسب DTTS-DEF).
   async notifyReturn({ toGln, items }) {
     const body = `
       <TOGLN>${toGln}</TOGLN>
       ${this._productListXml(items)}`;
-    return this._call("Return", "ReturnServiceRequest", body);
-  },
-
-  // استلام بضاعة (تسجيلها في مخزون الصيدلية داخل رصد) — عنصر الطلب: AcceptRequest
-  // مفيهوش Accept Cancel — لإلغاء استلام غلط لازم تستخدم Return Notification بدلها
-  async notifyAccept({ items }) {
-    const body = this._productListXml(items);
-    return this._call("Accept", "AcceptRequest", body);
-  },
-
-  // استلام كل وحدات إشعار Dispatch واحد دفعة واحدة (بديل عن قبول كل GTIN/SN لوحده)
-  // بيتاخد dispatchNotificationId اللي جه في رد/إشعار الـ Dispatch الأصلي (حقل DISPATCHNOTIFICATIONID مش NOTIFICATIONID)
-  async notifyAcceptDispatch({ dispatchNotificationId }) {
-    const body = `<DISPATCHNOTIFICATIONID>${dispatchNotificationId}</DISPATCHNOTIFICATIONID>`;
-    return this._call("AcceptDispatch", "AcceptDispatchRequest", body);
-  },
-
-  // تفاصيل إشعار Dispatch معيّن (بيرجع FROMGLN/TOGLN/PRODUCTLIST/NOTIFICATIONDATE)
-  async getDispatchDetail({ dispatchNotificationId }) {
-    const body = `<DISPATCHNOTIFICATIONID>${dispatchNotificationId}</DISPATCHNOTIFICATIONID>`;
-    return this._call("AcceptDispatch", "DispatchDetailRequest", body);
+    return this._call("ReturnService", "ReturnServiceRequest", body);
   },
 
   // إخراج منتج من النظام (تالف / منتهي الصلاحية / مسحوب من السوق)
   // dr: كود من RasdService.DR_REASONS (زي "30" لمنتج تالف)، explanation: نص حر توضيحي
-  // اسم العملية في الـ ISD نفسه "Deactivation" مش "Deactivate"
+  // ✅ اسم الـ Service الصح "DeactivationService" وعنصر الطلب "DeactivationServiceRequest"
+  // مؤكد من WSDL الرسمي (DTTS-ISD_DEACTIVATE-1_0_2): soap:address .../DeactivationService/DeactivationService
   async notifyDeactivate({ dr, explanation, items }) {
     const body = `
       <DR>${dr}</DR>
       ${explanation ? `<EXPLANATION>${explanation}</EXPLANATION>` : ""}
       ${this._productListXml(items)}`;
-    return this._call("Deactivation", "DeactivationRequest", body);
+    return this._call("DeactivationService", "DeactivationServiceRequest", body);
   },
 
+  // ✅ اسم الـ Service الصح "DeactivationCancelService" وعنصر الطلب "DeactivationCancelServiceRequest"
   async notifyDeactivateCancel({ items }) {
     const body = this._productListXml(items);
-    return this._call("DeactivationCancel", "DeactivationCancelRequest", body);
+    return this._call("DeactivationCancelService", "DeactivationCancelServiceRequest", body);
   },
 
-  // نقل منتج بين نفس نوع الجهة (صيدلية لصيدلية أخرى فقط، حسب الدليل)
-  // عنصر الطلب: TransferRequest — والرد بيرجع الحقل باسم NOTIFICATION_ID (بـ underscore)
-  async notifyTransfer({ toGln, items }) {
-    const body = `
-      <TOGLN>${toGln}</TOGLN>
-      ${this._productListXml(items)}`;
-    return this._call("Transfer", "TransferRequest", body);
-  },
-
-  // إلغاء نقل — بيتاخد PRODUCTLIST بس من غير TOGLN (يشتغل بس لو المستلم لسه ما عملش Accept)
-  async notifyTransferCancel({ items }) {
-    const body = this._productListXml(items);
-    return this._call("TransferCancel", "TransferCancelRequest", body);
-  },
+  // ملحوظة: عمليات النقل (Transfer/TransferCancel) بتتعمل يدوي من موقع رصد نفسه مش من
+  // البرنامج، فمفيش داعي نبني/نبعت SOAP request ليها هنا.
 
   // استعلام عن حالة منتج (خدمة مساعدة، مفيدة كاختبار اتصال حقيقي)
   // الرد بيرجع كمان GLN1 (المالك الحالي) و GLN2 (المالك السابق) لكل منتج
+  // ✅ اسم الـ Service الصح "CheckStatusService" مش "CheckStatus" — مؤكد من الـ WSDL الرسمي
+  // (DTTS-ISD_CHECKSTATUS-1_0_1): soap:address location=".../CheckStatusService/CheckStatusService"
+  // وعنصر الطلب اسمه "CheckStatusServiceRequest" مش "CheckStatusRequest"
   async checkStatus({ items }) {
     const body = this._productListXml(items);
-    return this._call("CheckStatus", "CheckStatusRequest", body);
+    return this._call("CheckStatusService", "CheckStatusServiceRequest", body);
   },
 
   // ---- PTS (Package Transfer Service) — نقل ملفات zip مجمّعة بدل إرسال كل GTIN/SN لوحده ----
@@ -1505,7 +1644,7 @@ const RasdQueue = {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(queue));
   },
 
-  // type: "sale" | "saleCancel" | "return" | "accept" | "acceptDispatch"
+  // type: "sale" | "saleCancel" | "return" | "accept" | "acceptByBatch" | "returnByBatch" | "transferByBatch" | "transferCancelByBatch"
   enqueue(type, payload) {
     const queue = this._load();
     queue.push({
@@ -1540,10 +1679,6 @@ const RasdQueue = {
         return RasdService.notifyPharmacySaleCancel(item.payload);
       case "return":
         return RasdService.notifyReturn(item.payload);
-      case "accept":
-        return RasdService.notifyAccept(item.payload);
-      case "acceptDispatch":
-        return RasdService.notifyAcceptDispatch(item.payload);
       default:
         return { success: false, error: "نوع عملية غير معروف: " + item.type };
     }
@@ -2590,7 +2725,7 @@ if (isLoading) return (
             canEditPurchaseReturns={canEdit("returns", "purchases")}
           />
         )}
-        {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} />}
+        {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} products={products} />}
         {tab === "audit_log" && currentUser?.role === "admin" && (
           <AuditLogModule pharmacyId={pharmacyId} showToast={showToast} />
         )}
@@ -3374,11 +3509,13 @@ const [myTarget, setMyTarget] = useState(null);
   // ══════════ كارت العروض المتوفرة ══════════
   const activePromos = (promos || []).filter((p) => {
     if (!p.end_date) return false;
-    return p.end_date >= today;
+    if (p.start_date && p.start_date > today) return false; // لسه ماجاش وقتها
+    if (p.end_date < today) return false;
+    return isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products);
   });
   const autoPromoProducts = products.filter((p) => {
-    if (!p.expiry_date) return false;
-    const daysLeft = Math.ceil((new Date(p.expiry_date).getTime() - Date.now()) / 86400000);
+    if (!p.expiry) return false;
+    const daysLeft = Math.ceil((new Date(p.expiry).getTime() - Date.now()) / 86400000);
     return daysLeft > 0 && daysLeft <= 90 && (p.stock ?? 0) > 0;
   });
 
@@ -3995,6 +4132,7 @@ const [myTarget, setMyTarget] = useState(null);
             {/* العروض اليدوية */}
             {activePromos.map((p) => {
               const prod = products.find((pr) => pr.id === p.product_id);
+              const desc = describePromo(p, prod);
               return (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
                   <div>
@@ -4002,14 +4140,14 @@ const [myTarget, setMyTarget] = useState(null);
                     <div style={{ fontSize: 10, color: VAR.muted }}>حتى {p.end_date}</div>
                   </div>
                   <span style={{ background: COLORS.tealSoft || "rgba(0,200,150,0.12)", color: VAR.accent, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
-                    خصم {p.discount_percent}%
+                    {desc.label}
                   </span>
                 </div>
               );
             })}
             {/* العروض التلقائية (قرب الصلاحية) */}
             {autoPromoProducts.map((p) => {
-              const daysLeft = Math.ceil((new Date(p.expiry_date).getTime() - Date.now()) / 86400000);
+              const daysLeft = Math.ceil((new Date(p.expiry).getTime() - Date.now()) / 86400000);
               return (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
                   <div>
@@ -4192,7 +4330,7 @@ const [myTarget, setMyTarget] = useState(null);
 //   ==================== FIFO Helper ====================
 // preferredExpiry: لو الكاشير حدد تاريخ صلاحية معين للسطر (يدوي أو من باركود GS1)،
 // بنخصم من التشغيلة اللي تاريخها مطابق أولاً، بدل ما نجبره على أقرب تاريخ صلاحية دايمًا.
-function sellFromBatches(product, qtyToSell, preferredExpiry) {
+function sellFromBatches(product, qtyToSell, preferredExpiry, preferredBatch) {
   let batches = product.batches?.length
     ? [...product.batches]
     : product.stock > 0
@@ -4206,18 +4344,27 @@ function sellFromBatches(product, qtyToSell, preferredExpiry) {
       ]
     : [];
 
-  if (preferredExpiry) {
+  if (preferredExpiry || preferredBatch) {
     // تشغيلات المخزون متسجلة بدقة الشهر/السنة بس (زي "2030-05")، فبنقارن بنفس الدقة
     // عشان تاريخ يوم دقيق (من باركود مثلاً) يتطابق صح مع التشغيلة المسجلة.
     const norm = (v) => (v ? String(v).slice(0, 7) : "");
     const target = norm(preferredExpiry);
-    const matched = [];
+    // ✅ لو معانا رقم تشغيلة (BN) من الباركود المقروء، نطابق بيه مع تاريخ الصلاحية مع بعض
+    // أولاً (أدق تطابق)، وبعدين نرجع للتطابق بالتاريخ بس كخطة بديلة، وبعدين FIFO عادي.
+    const exact = [];
+    const expiryOnly = [];
     const rest = [];
     batches.forEach((b) => {
       const bExp = norm(b.expiry_date || b.expiry || b.date);
-      (bExp === target ? matched : rest).push(b);
+      const bBatch = (b.batch_number || "").toString().trim();
+      const expMatch = target && bExp === target;
+      const batchMatch = preferredBatch && bBatch && bBatch === String(preferredBatch).trim();
+      if (expMatch && (!preferredBatch || batchMatch)) exact.push(b);
+      else if (expMatch) expiryOnly.push(b);
+      else rest.push(b);
     });
-    if (matched.length) batches = [...matched, ...rest];
+    if (exact.length) batches = [...exact, ...expiryOnly, ...rest];
+    else if (expiryOnly.length) batches = [...expiryOnly, ...rest];
   }
 
   let remaining = qtyToSell;
@@ -4362,6 +4509,34 @@ function describePromo(promo, product) {
   }
 }
 
+// ══════════ فحص جاهزية العرض للتطبيق فعليًا حسب المخزون المتاح ══════════
+// كل نمط عرض له حد أدنى من الكمية لازم يتوفر عشان العرض يفضل "قابل للتطبيق":
+//  - BOGO: لازم buy_qty + get_qty مع بعض (اشتري 1 واحصل على 1 = محتاج 2 قطعة، مش قطعة واحدة بس)
+//  - كمية (خصم عند الوصول لعدد معين): لازم buy_qty على الأقل
+//  - باقة: لازم bundle_qty على الأقل
+//  - نسبة/قيمة ثابتة/هدية: يكفي وجود قطعة واحدة من الصنف نفسه
+function getPromoMinRequiredQty(promo) {
+  const type = promo?.promo_type || "percent";
+  switch (type) {
+    case "bogo": return (promo.buy_qty || 1) + (promo.get_qty || 1);
+    case "quantity": return promo.buy_qty || 1;
+    case "bundle": return promo.bundle_qty || 1;
+    default: return 1;
+  }
+}
+
+function isPromoFulfillable(promo, product, products) {
+  if (!product) return false;
+  const stock = product.stock || 0;
+  if (stock < getPromoMinRequiredQty(promo)) return false;
+  // الهدية المجانية محتاجة كمان مخزون كافي من صنف الهدية نفسه (لو متاح فحصه)
+  if (promo.promo_type === "free_gift" && promo.gift_product_id && products) {
+    const giftProd = products.find((p) => p.id === promo.gift_product_id);
+    if (!giftProd || (giftProd.stock || 0) < (promo.gift_qty || 1)) return false;
+  }
+  return true;
+}
+
 // حساب سعر/كمية سطر السلة حسب النمط ومراعاة الكمية الفعلية (BOGO والكمية والباقة بيتأثروا بعدد القطع)
 function calcPromoLineTotal(promo, unitPrice, qty) {
   const type = promo?.promo_type || "percent";
@@ -4412,14 +4587,15 @@ function recalcCartLinePrice(item, newQty) {
 }
 
 // ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
-function getEffectivePrice(product, promos, discountRules, productEarliestExpiry) {
+function getEffectivePrice(product, promos, discountRules, productEarliestExpiry, products) {
   const today = new Date().toISOString().split("T")[0];
-  // 1. عروض يدوية نشطة (بأي نمط)
+  // 1. عروض يدوية نشطة (بأي نمط) وقابلة للتطبيق فعليًا حسب المخزون المتبقي
   const manualPromo = (promos || []).find(
     (p) =>
       p.product_id === product.id &&
       p.start_date <= today &&
-      p.end_date >= today
+      p.end_date >= today &&
+      isPromoFulfillable(p, product, products)
   );
   if (manualPromo) {
     const type = manualPromo.promo_type || "percent";
@@ -4874,7 +5050,7 @@ function POS({
   : 1;
     const effective = p.isMissed || p.isJoker
       ? { price: p.price, discountPct: 0, source: null }
-      : getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
+      : getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products);
 
     // السعر الكامل للحساب، سعر الوحدة للعرض
     // أنماط مرتبطة بالكمية (BOGO / كمية / باقة) بيتغيّر متوسط سعر الوحدة حسب عدد القطع
@@ -5127,7 +5303,7 @@ function POS({
         const baseProd = runningBatches[ci.id]
           ? { ...prod, batches: runningBatches[ci.id] }
           : prod;
-        const result = sellFromBatches(baseProd, +ci.qty, ci.expiry || ci.batch || null);
+        const result = sellFromBatches(baseProd, +ci.qty, ci.expiry || null, ci.batch || null);
         newFifoResults[ci.lineId] = result;
         runningBatches[ci.id] = result.updatedBatches;
       }
@@ -5824,7 +6000,7 @@ function POS({
                               }}
                             >
                               {(() => {
-                                const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry);
+                                const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products);
                                 return eff.discountPct > 0 ? (
                                   <span>
                                     <span style={{ textDecoration: "line-through", color: COLORS.textDim, fontSize: 10, marginLeft: 4 }}>{p.price?.toFixed(2)}</span>
@@ -7563,11 +7739,7 @@ function PurchaseModule({
   const [editManualTax, setEditManualTax] = useState("");
 
   // ===== رصد: قبول شحنة Dispatch كاملة دفعة واحدة =====
-  const [showAcceptDispatch, setShowAcceptDispatch] = useState(false);
-  const [dispatchIdInput, setDispatchIdInput] = useState("");
-  const [dispatchDetail, setDispatchDetail] = useState(null); // { fromGln, notificationDate, products }
-  const [dispatchLoading, setDispatchLoading] = useState(false);
-  const [dispatchAccepting, setDispatchAccepting] = useState(false);
+  // (تم نقل ميزة "القبول برقم التشغيلة" الصحيحة إلى شاشة إعدادات رصد — راجع RasdSettings)
   
   // ===== طباعة الباركود =====
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -8050,6 +8222,7 @@ const LABEL_SIZES = [
     "newSalePrice",
     "bonusQty",
     "expiry_date",
+    "batch_number",
   ];
 
   const handleCellKeyDown = (e, rowIndex, colName) => {
@@ -8057,7 +8230,7 @@ const LABEL_SIZES = [
     e.preventDefault();
     const currentCol = cols.indexOf(colName);
     const nextCol = currentCol + 1;
-    // آخر خانة (expiry_date) → بار الباركود
+    // آخر خانة (batch_number) → بار الباركود
     if (nextCol >= cols.length) {
       // البحث عن input بار الباركود
       const barcodeInput = document.querySelector('input[placeholder="امسح باركود الصنف..."]') as HTMLInputElement;
@@ -8110,6 +8283,7 @@ const LABEL_SIZES = [
         salePrice: i.newSalePrice,
         taxable: i.taxable,
         expiry_date: i.expiry_date || null,
+        batch_number: i.batch_number || null,
       })),
       subtotal,
       taxAmount: taxAmt,
@@ -8148,12 +8322,13 @@ const LABEL_SIZES = [
         cost: ci.receivedCost,
         salePrice: ci.newSalePrice,
         expiry_date: ci.expiry_date || null,
+        batch_number: ci.batch_number || null,
         date: new Date().toISOString().split("T")[0],
       };
       const existingBatches = product.batches?.length
         ? product.batches
         : product.stock > 0
-        ? [{ qty: product.stock, cost: product.cost, salePrice: product.price, date: "قديم" }]
+        ? [{ qty: product.stock, cost: product.cost, salePrice: product.price, batch_number: null, date: "قديم" }]
         : [];
       newBatchesByProduct[ci.id] = [...existingBatches, newBatch];
 
@@ -8217,51 +8392,6 @@ const LABEL_SIZES = [
     }
   };
 
-  // ===== رصد: قبول شحنة Dispatch كاملة =====
-  const fetchDispatchDetail = async () => {
-    if (!dispatchIdInput.trim()) {
-      showToast("يرجى إدخال رقم إشعار الشحنة (Dispatch Notification ID)", "error");
-      return;
-    }
-    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
-    if (!rasdConfig.enabled || !rasdConfig.apiUrl) {
-      showToast("نظام رصد غير مفعّل — اضبط الإعدادات أولاً من (إعدادات رصد)", "error");
-      return;
-    }
-    RasdService.configure(rasdConfig);
-    setDispatchLoading(true);
-    setDispatchDetail(null);
-    const result = await RasdService.getDispatchDetail({ dispatchNotificationId: dispatchIdInput.trim() });
-    setDispatchLoading(false);
-    if (!result.success) {
-      showToast("تعذر جلب تفاصيل الشحنة: " + result.error, "error");
-      return;
-    }
-    if (!result.data.products || result.data.products.length === 0) {
-      showToast("لم يتم العثور على أصناف لهذا الإشعار — تأكد من الرقم", "error");
-      return;
-    }
-    setDispatchDetail(result.data);
-  };
-
-  const confirmAcceptDispatch = async () => {
-    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
-    RasdService.configure(rasdConfig);
-    setDispatchAccepting(true);
-    const result = await RasdService.notifyAcceptDispatch({ dispatchNotificationId: dispatchIdInput.trim() });
-    setDispatchAccepting(false);
-    if (result.success) {
-      showToast(`تم قبول الشحنة في رصد ✓ (${dispatchDetail?.products?.length || 0} صنف) — لا تنس تسجيلها في المخزون بفاتورة شراء`);
-    } else {
-      // فشل الاتصال الفوري — بنسجلها في الطابور المحلي عشان تتحاول تلقائيًا تاني بدل ما تتنسى
-      RasdQueue.enqueue("acceptDispatch", { dispatchNotificationId: dispatchIdInput.trim() });
-      showToast("تعذر القبول الفوري في رصد — تم حفظها للمحاولة تلقائيًا لاحقًا: " + result.error, "error");
-    }
-    setShowAcceptDispatch(false);
-    setDispatchIdInput("");
-    setDispatchDetail(null);
-  };
-
   return (
     <div>
       <div
@@ -8276,9 +8406,6 @@ const LABEL_SIZES = [
           فواتير الشراء
         </h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn icon="check" variant="secondary" onClick={() => setShowAcceptDispatch(true)}>
-            قبول شحنة رصد كاملة
-          </Btn>
           <Btn icon="plus" onClick={() => setShowNew(true)}>
             فاتورة شراء جديدة
           </Btn>
@@ -8476,6 +8603,7 @@ const LABEL_SIZES = [
                   "سعر البيع",
                   "بونص",
                   "الصلاحية",
+                  "رقم التشغيلة",
                   "ضريبة",
                   "الإجمالي",
                   "",
@@ -8645,6 +8773,19 @@ const LABEL_SIZES = [
                         handleCellKeyDown(e, rowIndex, "expiry_date");
                       }}
                       style={{ ...cellStyle, width: 125 }}
+                    />
+                  </td>
+                  <td style={{ padding: "4px" }}>
+                    <input
+                      id={`cell-${rowIndex}-batch_number`}
+                      type="text"
+                      value={item.batch_number || ""}
+                      placeholder="تلقائي من السكان"
+                      onChange={(e) =>
+                        updateItem(item.id, "batch_number", e.target.value)
+                      }
+                      onKeyDown={(e) => handleCellKeyDown(e, rowIndex, "batch_number")}
+                      style={{ ...cellStyle, width: 110 }}
                     />
                   </td>
                   <td style={{ padding: "6px 8px" }}>
@@ -9587,70 +9728,6 @@ const LABEL_SIZES = [
               حفظ التعديل
             </Btn>
           </div>
-        </Modal>
-      )}
-
-      {/* ===== رصد: قبول شحنة Dispatch كاملة ===== */}
-      {showAcceptDispatch && (
-        <Modal
-          open
-          wide
-          onClose={() => { setShowAcceptDispatch(false); setDispatchIdInput(""); setDispatchDetail(null); }}
-          title="قبول شحنة رصد كاملة"
-        >
-          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 12 }}>
-            بديل عن قبول كل GTIN/SN لوحده — بتاخد رقم إشعار الشحنة (Dispatch Notification ID) اللي
-            بيوصلك من المورد/المخزن، وبتقبل كل الوحدات اللي فيها دفعة واحدة في رصد.
-            <br />
-            ⚠️ ده بيقبل الشحنة في رصد فقط — لازم بعدها تسجّلها بفاتورة شراء عادية عشان تدخل مخزون الصيدلية.
-          </div>
-          <Input
-            label="رقم إشعار الشحنة (Dispatch Notification ID)"
-            value={dispatchIdInput}
-            onChange={setDispatchIdInput}
-            placeholder="مثال: DN-2026-000123"
-          />
-          <div style={{ marginTop: 10 }}>
-            <Btn onClick={fetchDispatchDetail} disabled={dispatchLoading} variant="secondary">
-              {dispatchLoading ? "جاري البحث..." : "بحث عن تفاصيل الشحنة"}
-            </Btn>
-          </div>
-
-          {dispatchDetail && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ display: "flex", gap: 16, marginBottom: 10, fontSize: 12, color: COLORS.textDim }}>
-                {dispatchDetail.fromGln && <span>المرسل (GLN): {dispatchDetail.fromGln}</span>}
-                {dispatchDetail.notificationDate && <span>التاريخ: {dispatchDetail.notificationDate}</span>}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
-                الأصناف ({dispatchDetail.products.length})
-              </div>
-              <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
-                {dispatchDetail.products.map((p, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      padding: "8px 12px",
-                      borderBottom: i < dispatchDetail.products.length - 1 ? `1px solid ${COLORS.border}` : "none",
-                      fontSize: 12,
-                    }}
-                  >
-                    <span style={{ color: COLORS.textPrimary }}>GTIN: {p.gtin} — SN: {p.sn}</span>
-                    <span style={{ color: COLORS.textDim }}>{p.bn ? `دفعة: ${p.bn}` : ""} {p.xd ? `صلاحية: ${p.xd}` : ""}</span>
-                  </div>
-                ))}
-              </div>
-              <Btn
-                onClick={confirmAcceptDispatch}
-                disabled={dispatchAccepting}
-                style={{ marginTop: 14, width: "100%", justifyContent: "center" }}
-              >
-                {dispatchAccepting ? "جاري القبول..." : `تأكيد قبول الشحنة بالكامل في رصد (${dispatchDetail.products.length} صنف)`}
-              </Btn>
-            </div>
-          )}
         </Modal>
       )}
     </div>
@@ -10710,7 +10787,7 @@ function ReturnsModule({
   );
 }
 // ==================== RASSD SETTINGS ====================
-function RasdSettings({ showToast }) {
+function RasdSettings({ showToast, products }) {
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem("rasd_config");
     return saved
@@ -10729,6 +10806,214 @@ function RasdSettings({ showToast }) {
   const [showPassword, setShowPassword] = useState(false);
   const [queueStatus, setQueueStatus] = useState({ pending: 0, failed: 0 });
   const [flushing, setFlushing] = useState(false);
+
+  // ===== أدوات رصد إضافية: Deactivate / Transfer / PTS =====
+  const [showDeactivate, setShowDeactivate] = useState(false);
+  const [deactivateMode, setDeactivateMode] = useState("out"); // "out" | "cancel"
+  const [deactivateItems, setDeactivateItems] = useState([]);
+  const [deactivateDr, setDeactivateDr] = useState("30");
+  const [deactivateExplanation, setDeactivateExplanation] = useState("");
+  const [deactivateBusy, setDeactivateBusy] = useState(false);
+
+
+  const [showPts, setShowPts] = useState(false);
+  const [ptsTab, setPtsTab] = useState("upload"); // "upload" | "download" | "query"
+  const [ptsToGln, setPtsToGln] = useState("");
+  const [ptsFile, setPtsFile] = useState(null); // { name, base64 }
+  const [ptsUploadResult, setPtsUploadResult] = useState(null);
+  const [ptsTransferId, setPtsTransferId] = useState("");
+  const [ptsDownloadResult, setPtsDownloadResult] = useState(null);
+  const [ptsFromGln, setPtsFromGln] = useState("");
+  const [ptsQueryToGln, setPtsQueryToGln] = useState("");
+  const [ptsGetAll, setPtsGetAll] = useState(false);
+  const [ptsTransfers, setPtsTransfers] = useState(null);
+  const [ptsBusy, setPtsBusy] = useState(false);
+
+  // ===== عمليات "برقم التشغيلة" (By Batch): قبول / إرجاع / نقل / إلغاء نقل =====
+  const [showReturnBatch, setShowReturnBatch] = useState(false);
+  const [returnBatchToGln, setReturnBatchToGln] = useState("");
+  const [returnBatchItems, setReturnBatchItems] = useState([]);
+  const [returnBatchBusy, setReturnBatchBusy] = useState(false);
+  const [recallQuery, setRecallQuery] = useState("");
+  const [recallResults, setRecallResults] = useState(null);
+
+  // 🔍 بحث عن رقم تشغيلة معين (Recall) في مخزون كل الأصناف — بيرجع كل الأصناف اللي
+  // عندها تشغيلة برقم مطابق (تطابق جزئي كمان) عشان تقدر تجمعها بسرعة وترجعها للشركة.
+  const searchRecallBatch = () => {
+    const q = recallQuery.trim().toLowerCase();
+    if (!q) {
+      showToast("اكتب رقم التشغيلة اللي عايز تدور عليه", "error");
+      return;
+    }
+    const found = [];
+    (products || []).forEach((p) => {
+      (p.batches || []).forEach((b) => {
+        if (b.qty > 0 && (b.batch_number || "").toLowerCase().includes(q)) {
+          found.push({
+            productId: p.id,
+            name: p.name_ar || p.name,
+            gtin: p.gtin || p.barcode,
+            batch_number: b.batch_number,
+            expiry_date: b.expiry_date || null,
+            qty: b.qty,
+          });
+        }
+      });
+    });
+    setRecallResults(found);
+    if (found.length === 0) showToast("مفيش أي صنف عنده تشغيلة بالرقم ده في المخزون الحالي", "warn");
+  };
+
+  // إضافة نتيجة بحث الـ Recall كسطر جاهز في نموذج الإرجاع برقم التشغيلة
+  const addRecallResultToReturn = (r) => {
+    setReturnBatchItems((prev) => [
+      ...prev,
+      { gtin: r.gtin || "", quantity: r.qty, batch: r.batch_number || "", expiry: r.expiry_date || "" },
+    ]);
+    showToast(`أُضيف "${r.name}" (${r.qty}) لنموذج الإرجاع`);
+  };
+
+  const ensureRasdReady = () => {
+    if (!config.apiUrl) {
+      showToast("يرجى ضبط رابط رصد (apiUrl) أولاً واحفظ الإعدادات", "error");
+      return false;
+    }
+    RasdService.configure(config);
+    return true;
+  };
+
+  const submitReturnBatch = async () => {
+    if (returnBatchItems.length === 0) {
+      showToast("أضف دفعة واحدة على الأقل", "error");
+      return;
+    }
+    if (!returnBatchToGln.trim()) {
+      showToast("أدخل GLN الجهة المرتجع لها", "error");
+      return;
+    }
+    if (!ensureRasdReady()) return;
+    setReturnBatchBusy(true);
+    // بنستخدم عملية Return الحقيقية (ReturnServiceRequest) نفسها، بس العناصر هنا بشكل
+    // "دفعة كاملة" (quantity بدل serial) — العملية دي بتقبل الشكلين لأن الـ PRODUCT
+    // object نفسه بنفس البنية الثابتة في كل خدمات رصد حسب DTTS-DEF.
+    const result = await RasdService.notifyReturn({ toGln: returnBatchToGln.trim(), items: returnBatchItems });
+    setReturnBatchBusy(false);
+    if (result.success) {
+      showToast("تم الإرجاع برقم التشغيلة في رصد ✓");
+      setShowReturnBatch(false);
+      setReturnBatchItems([]);
+      setReturnBatchToGln("");
+    } else {
+      RasdQueue.enqueue("return", { toGln: returnBatchToGln.trim(), items: returnBatchItems });
+      showToast("تعذر الإرجاع الفوري — تم حفظها للمحاولة تلقائيًا لاحقًا: " + result.error, "error");
+      setShowReturnBatch(false);
+      setReturnBatchItems([]);
+      setReturnBatchToGln("");
+    }
+  };
+
+  const submitDeactivate = async () => {
+    if (deactivateItems.length === 0) {
+      showToast("أضف صنف واحد على الأقل", "error");
+      return;
+    }
+    if (!ensureRasdReady()) return;
+    setDeactivateBusy(true);
+    const result =
+      deactivateMode === "out"
+        ? await RasdService.notifyDeactivate({ dr: deactivateDr, explanation: deactivateExplanation, items: deactivateItems })
+        : await RasdService.notifyDeactivateCancel({ items: deactivateItems });
+    setDeactivateBusy(false);
+    if (result.success) {
+      showToast(deactivateMode === "out" ? "تم إخراج الأصناف من رصد ✓" : "تم إلغاء الإخراج ✓");
+      setShowDeactivate(false);
+      setDeactivateItems([]);
+      setDeactivateExplanation("");
+    } else {
+      showToast("فشلت العملية: " + result.error, "error");
+    }
+  };
+
+  // ملحوظة: عمليات القبول والنقل/إلغاء النقل (Accept/Transfer/TransferCancel) بتتعمل يدوي
+  // من موقع رصد نفسه مش من البرنامج، فمفيش داعي لشاشات/دوال إرسال ليها هنا.
+
+  const handlePtsFilePick = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = String(reader.result).split(",")[1] || "";
+      setPtsFile({ name: file.name, base64 });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const submitPtsUpload = async () => {
+    if (!ptsToGln.trim() || !ptsFile) {
+      showToast("أدخل GLN المستلم واختر الملف (zip)", "error");
+      return;
+    }
+    if (!ensureRasdReady()) return;
+    setPtsBusy(true);
+    const result = await RasdService.ptsUpload({ toGln: ptsToGln.trim(), fileBase64: ptsFile.base64 });
+    setPtsBusy(false);
+    if (result.success) {
+      setPtsUploadResult(result.data);
+      showToast("تم رفع الملف ✓");
+    } else {
+      showToast("فشل الرفع: " + result.error, "error");
+    }
+  };
+
+  const submitPtsDownload = async () => {
+    if (!ptsTransferId.trim()) {
+      showToast("أدخل Transfer ID", "error");
+      return;
+    }
+    if (!ensureRasdReady()) return;
+    setPtsBusy(true);
+    const result = await RasdService.ptsDownload({ transferId: ptsTransferId.trim() });
+    setPtsBusy(false);
+    if (result.success) {
+      setPtsDownloadResult(result.data);
+      showToast("تم تنزيل بيانات الملف ✓");
+    } else {
+      showToast("فشل التنزيل: " + result.error, "error");
+    }
+  };
+
+  const saveBase64AsFile = (base64, filename) => {
+    try {
+      const bytes = atob(base64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      const blob = new Blob([arr], { type: "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("تعذر حفظ الملف محليًا", "error");
+    }
+  };
+
+  const submitPtsQuery = async () => {
+    if (!ensureRasdReady()) return;
+    setPtsBusy(true);
+    const result = await RasdService.ptsQuery({
+      fromGln: ptsFromGln.trim() || undefined,
+      toGln: ptsQueryToGln.trim() || undefined,
+      getAll: ptsGetAll,
+    });
+    setPtsBusy(false);
+    if (result.success) {
+      setPtsTransfers(result.data.transfers || []);
+    } else {
+      showToast("فشل الاستعلام: " + result.error, "error");
+    }
+  };
 
   // تحديث عداد الطابور كل شوية عشان يبان تحديث لحظي
   useEffect(() => {
@@ -11026,6 +11311,37 @@ function RasdSettings({ showToast }) {
         </Btn>
       </div>
 
+      {/* أدوات رصد إضافية */}
+      <div
+        style={{
+          background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+          border: `1px solid ${COLORS.border}`,
+          borderRadius: 14,
+          padding: 24,
+          marginBottom: 16,
+        }}
+      >
+        <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700, color: COLORS.blue }}>
+          أدوات رصد إضافية
+        </h3>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Btn variant="secondary" icon="x" onClick={() => setShowDeactivate(true)}>
+            إخراج / إلغاء إخراج
+          </Btn>
+          <Btn variant="secondary" icon="upload" onClick={() => setShowPts(true)}>
+            PTS رفع/تنزيل/استعلام
+          </Btn>
+        </div>
+        <div style={{ fontSize: 11, color: COLORS.textDim, margin: "16px 0 8px" }}>
+          الإرجاع بكمية من دفعة كاملة بدل كل رقم تسلسلي لوحده (القبول والنقل بيتعملوا يدوي من موقع رصد)
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Btn variant="secondary" icon="check" onClick={() => setShowReturnBatch(true)}>
+            الإرجاع برقم التشغيلة
+          </Btn>
+        </div>
+      </div>
+
       {/* Buttons */}
       <div style={{ display: "flex", gap: 10 }}>
         <Btn
@@ -11083,6 +11399,304 @@ function RasdSettings({ showToast }) {
           </div>
         ))}
       </div>
+
+      {/* ===== مودال: إخراج / إلغاء إخراج ===== */}
+      {showDeactivate && (
+        <Modal
+          open
+          wide
+          onClose={() => setShowDeactivate(false)}
+          title="إخراج منتج من رصد (Deactivation)"
+        >
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <Btn
+              size="sm"
+              variant={deactivateMode === "out" ? "primary" : "ghost"}
+              onClick={() => setDeactivateMode("out")}
+            >
+              إخراج جديد
+            </Btn>
+            <Btn
+              size="sm"
+              variant={deactivateMode === "cancel" ? "primary" : "ghost"}
+              onClick={() => setDeactivateMode("cancel")}
+            >
+              إلغاء إخراج سابق
+            </Btn>
+          </div>
+
+          {deactivateMode === "out" && (
+            <>
+              <Select
+                label="سبب الإخراج (DR)"
+                value={deactivateDr}
+                onChange={setDeactivateDr}
+                options={Object.entries(RasdService.DR_REASONS).map(([v, l]) => ({ v, l: `${v} — ${l}` }))}
+                style={{ marginBottom: 14 }}
+              />
+              <Input
+                label="توضيح إضافي (اختياري)"
+                value={deactivateExplanation}
+                onChange={setDeactivateExplanation}
+                placeholder="مثال: تلف نتيجة سوء تخزين"
+                style={{ marginBottom: 14 }}
+              />
+            </>
+          )}
+
+          <RasdItemsEditor items={deactivateItems} onChange={setDeactivateItems} />
+
+          <Btn
+            onClick={submitDeactivate}
+            disabled={deactivateBusy}
+            style={{ marginTop: 16, width: "100%", justifyContent: "center" }}
+          >
+            {deactivateBusy
+              ? "جارٍ التنفيذ..."
+              : deactivateMode === "out"
+              ? "تنفيذ الإخراج في رصد"
+              : "تنفيذ إلغاء الإخراج"}
+          </Btn>
+        </Modal>
+      )}
+
+      {/* ===== مودال: الإرجاع برقم التشغيلة ===== */}
+      {showReturnBatch && (
+        <Modal open wide onClose={() => setShowReturnBatch(false)} title="الإرجاع برقم التشغيلة">
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 14 }}>
+            إرجاع كمية من دفعة كاملة للمورد/الجهة دفعة واحدة بدل كل رقم تسلسلي على حدة.
+          </div>
+
+          <div
+            style={{
+              background: COLORS.surfaceAlt,
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 10,
+              padding: 12,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim, marginBottom: 8 }}>
+              🔍 بحث عن رقم تشغيلة (Recall) في كل المخزون
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={recallQuery}
+                onChange={(e) => setRecallQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && searchRecallBatch()}
+                placeholder="رقم التشغيلة المطلوب سحبها/إرجاعها"
+                style={{ ...rasdCellStyle, flex: 1 }}
+              />
+              <Btn size="sm" onClick={searchRecallBatch}>بحث</Btn>
+            </div>
+            {recallResults && (
+              <div style={{ marginTop: 10 }}>
+                {recallResults.length === 0 ? (
+                  <div style={{ fontSize: 12, color: COLORS.textDim }}>مفيش نتائج</div>
+                ) : (
+                  recallResults.map((r, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "6px 4px",
+                        borderBottom: `1px solid ${COLORS.border}`,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span>
+                        {r.name} — دفعة {r.batch_number} — الكمية بالمخزون: {r.qty}
+                        {r.expiry_date ? ` — صلاحية ${r.expiry_date}` : ""}
+                      </span>
+                      <Btn size="sm" variant="secondary" onClick={() => addRecallResultToReturn(r)}>
+                        إضافة للإرجاع
+                      </Btn>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          <Input
+            label="GLN الجهة المرتجع لها"
+            value={returnBatchToGln}
+            onChange={setReturnBatchToGln}
+            placeholder="مثال: 6281234567890"
+            style={{ marginBottom: 14 }}
+          />
+          <RasdItemsEditorBatch items={returnBatchItems} onChange={setReturnBatchItems} />
+          <Btn
+            onClick={submitReturnBatch}
+            disabled={returnBatchBusy}
+            style={{ marginTop: 16, width: "100%", justifyContent: "center" }}
+          >
+            {returnBatchBusy ? "جارٍ التنفيذ..." : "تنفيذ الإرجاع برقم التشغيلة"}
+          </Btn>
+        </Modal>
+      )}
+
+      {/* ===== مودال: PTS رفع/تنزيل/استعلام ===== */}
+      {showPts && (
+        <Modal
+          open
+          wide
+          onClose={() => setShowPts(false)}
+          title="PTS — نقل ملفات مجمّعة (Package Transfer Service)"
+        >
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <Btn size="sm" variant={ptsTab === "upload" ? "primary" : "ghost"} onClick={() => setPtsTab("upload")}>
+              رفع ملف
+            </Btn>
+            <Btn size="sm" variant={ptsTab === "download" ? "primary" : "ghost"} onClick={() => setPtsTab("download")}>
+              تنزيل ملف
+            </Btn>
+            <Btn size="sm" variant={ptsTab === "query" ? "primary" : "ghost"} onClick={() => setPtsTab("query")}>
+              استعلام
+            </Btn>
+          </div>
+
+          {ptsTab === "upload" && (
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 14 }}>
+                ارفع ملف zip فيه دفعة بيانات منتجات (GTIN-SN-BN-XD) بدل إرسال كل صنف لوحده — رصد
+                هنا ناقل ملفات بس، والتحقق من محتوى الملف مسؤولية الطرفين.
+              </div>
+              <Input
+                label="GLN الجهة المستلمة"
+                value={ptsToGln}
+                onChange={setPtsToGln}
+                placeholder="مثال: 6281234567890"
+                style={{ marginBottom: 14 }}
+              />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, color: COLORS.textDim, marginBottom: 6, fontWeight: 600 }}>
+                  ملف ZIP
+                </label>
+                <input type="file" accept=".zip" onChange={handlePtsFilePick} />
+                {ptsFile && (
+                  <div style={{ fontSize: 12, color: COLORS.green, marginTop: 6 }}>تم اختيار: {ptsFile.name}</div>
+                )}
+              </div>
+              <Btn
+                onClick={submitPtsUpload}
+                disabled={ptsBusy}
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                {ptsBusy ? "جارٍ الرفع..." : "رفع الملف"}
+              </Btn>
+              {ptsUploadResult && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    background: COLORS.greenSoft,
+                    border: `1px solid ${COLORS.green}`,
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: 12,
+                    color: COLORS.green,
+                  }}
+                >
+                  Transfer ID: {ptsUploadResult.transferId} — MD5: {ptsUploadResult.md5Checksum}
+                </div>
+              )}
+            </div>
+          )}
+
+          {ptsTab === "download" && (
+            <div>
+              <Input
+                label="Transfer ID"
+                value={ptsTransferId}
+                onChange={setPtsTransferId}
+                placeholder="مثال: TR-2026-000123"
+                style={{ marginBottom: 14 }}
+              />
+              <Btn
+                onClick={submitPtsDownload}
+                disabled={ptsBusy}
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                {ptsBusy ? "جارٍ التنزيل..." : "جلب الملف"}
+              </Btn>
+              {ptsDownloadResult && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 8 }}>
+                    MD5: {ptsDownloadResult.md5Checksum}
+                  </div>
+                  <Btn
+                    variant="secondary"
+                    onClick={() =>
+                      saveBase64AsFile(ptsDownloadResult.fileBase64, `rasd_${ptsTransferId.trim()}.zip`)
+                    }
+                  >
+                    حفظ الملف على الجهاز
+                  </Btn>
+                </div>
+              )}
+            </div>
+          )}
+
+          {ptsTab === "query" && (
+            <div>
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <Input label="من GLN (اختياري)" value={ptsFromGln} onChange={setPtsFromGln} style={{ flex: 1 }} />
+                <Input label="إلى GLN (اختياري)" value={ptsQueryToGln} onChange={setPtsQueryToGln} style={{ flex: 1 }} />
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
+                <input type="checkbox" checked={ptsGetAll} onChange={(e) => setPtsGetAll(e.target.checked)} />
+                عرض كل الملفات (شاملة اللي اتنزلت قبل كده)
+              </label>
+              <Btn
+                onClick={submitPtsQuery}
+                disabled={ptsBusy}
+                style={{ width: "100%", justifyContent: "center", marginBottom: 14 }}
+              >
+                {ptsBusy ? "جارٍ الاستعلام..." : "بحث"}
+              </Btn>
+              {ptsTransfers && (
+                <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                  {ptsTransfers.length === 0 && (
+                    <div style={{ padding: 12, fontSize: 12, color: COLORS.textDim }}>لا يوجد ملفات مطابقة</div>
+                  )}
+                  {ptsTransfers.map((t, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "10px 12px",
+                        borderBottom: i < ptsTransfers.length - 1 ? `1px solid ${COLORS.border}` : "none",
+                        fontSize: 12,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>{t.transferId}</div>
+                        <div style={{ color: COLORS.textDim }}>
+                          من {t.sender} إلى {t.receiver} — {t.sendDate}
+                        </div>
+                      </div>
+                      <Btn
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setPtsTransferId(t.transferId);
+                          setPtsTab("download");
+                        }}
+                      >
+                        تنزيل
+                      </Btn>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
@@ -11592,6 +12206,7 @@ function InventoryCount({
               cost: it.cost ?? it.receivedCost ?? 0,
               salePrice: it.salePrice ?? it.newSalePrice ?? 0,
               expiry_date: it.expiry_date || null,
+              batch_number: it.batch_number || null,
               date: po.date || null,
             });
           });
@@ -11629,6 +12244,7 @@ function InventoryCount({
             cost: p.cost || 0,
             salePrice: p.price || 0,
             expiry_date: null,
+            batch_number: null,
             date: "قديم",
           });
         }
@@ -16257,6 +16873,47 @@ function calcAutoDiscount(expiryDate, rules?) {
   return 0;
 }
 
+// ══════════ كشف الأصناف الراكدة (لأغراض العروض التلقائية) ══════════
+// معيارين مستقلين لتحديد إن الصنف "راكد" ومحتاج عرض:
+//  1) noSaleFlag: مفيش أي بيع للصنف من مدة أطول من الحد المسموح (noSaleDays) — أو مفيش بيع خالص في السجل المتاح
+//  2) wontSelloutFlag: معاه صلاحية، ومعدل بيعه الحالي (آخر velocityWindowDays يوم) بطيء جدًا لدرجة إن المخزون
+//     الحالي مش هيخلص قبل ما ينتهي — يعني هيتحول لهالك لو استنينا للعرض العادي حسب قرب الصلاحية بس
+function getStagnationInfo(product, sales, expiry, cfg) {
+  const now = new Date();
+  let lastSaleDate = null;
+  (sales || []).forEach((s) => {
+    const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+    if (items.some((it) => it.id === product.id)) {
+      const d = new Date(s.date);
+      if (!lastSaleDate || d > lastSaleDate) lastSaleDate = d;
+    }
+  });
+  const daysSinceLastSale = lastSaleDate ? Math.floor((now - lastSaleDate) / (1000 * 60 * 60 * 24)) : null;
+  // معيار 1: عدم وجود مبيعات من مدة كافية (أو الصنف لم يُبع نهائيًا في السجل المتاح رغم وجود مخزون)
+  const noSaleFlag = daysSinceLastSale === null ? (product.stock || 0) > 0 : daysSinceLastSale >= cfg.noSaleDays;
+
+  // معيار 2: هيفضل مخزون لما الصنف ينتهي حسب معدل البيع الحالي
+  let wontSelloutFlag = false;
+  if (expiry) {
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - cfg.velocityWindowDays);
+    let qtySold = 0;
+    (sales || []).forEach((s) => {
+      const d = new Date(s.date);
+      if (d < windowStart) return;
+      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+      items.forEach((it) => { if (it.id === product.id) qtySold += (it.qty || 0); });
+    });
+    const dailyVelocity = qtySold / cfg.velocityWindowDays;
+    const daysToExpiry = Math.ceil((new Date(expiry) - now) / (1000 * 60 * 60 * 24));
+    if (daysToExpiry > 0) {
+      wontSelloutFlag = dailyVelocity <= 0 ? (product.stock || 0) > 0 : (product.stock || 0) / dailyVelocity > daysToExpiry;
+    }
+  }
+
+  return { isStagnant: noSaleFlag || wontSelloutFlag, daysSinceLastSale, wontSelloutFlag, noSaleFlag };
+}
+
 function PromotionsModule({ products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast }) {
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual | incentive
   const [promos, setPromos] = useState([]);
@@ -16307,6 +16964,11 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     requireStock: true,
     enabledTypes: PROMO_TYPES.map((t) => t.id), // كل الأنماط مفعّلة افتراضيًا
     autoEligibleTypes: ["percent"], // بس النسبة قادرة تشتغل في العروض التلقائية حسب الصلاحية
+    // ── إعدادات الأصناف الراكدة (خصم ثابت مستقل عن تدرج الصلاحية) ──
+    stagnantEnabled: true,
+    stagnantNoSaleDays: 45,        // مفيش بيع من كام يوم يعتبر الصنف راكد
+    stagnantVelocityWindowDays: 90, // نافذة حساب معدل البيع الحالي لتوقع "هيخلص قبل الانتهاء ولا لأ"
+    stagnantDiscountPercent: 15,    // نسبة الخصم الثابتة للراكد
   });
 
   const blankPromo = {
@@ -16419,17 +17081,36 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const getProductExpiry = (p) =>
     productEarliestExpiry[p.id] || p.expiry || null;
 
-  const autoPromoProducts = products.filter((p) => {
+  const autoPromoProducts = products.reduce((acc, p) => {
     const cat = p.main_category || p.category || "";
-    if (autoPromoConfig.excludeCategories.includes(cat)) return false;
-    if (autoPromoConfig.requireStock && (p.stock || 0) <= 0) return false;
+    if (autoPromoConfig.excludeCategories.includes(cat)) return acc;
+    if (autoPromoConfig.requireStock && (p.stock || 0) <= 0) return acc;
+
     const expiry = getProductExpiry(p);
-    const disc = calcAutoDiscount(expiry, discountRules);
-    return disc > 0 && disc >= autoPromoConfig.minDiscount;
-  }).map((p) => {
-    const expiry = getProductExpiry(p);
-    return { ...p, expiry, autoDiscount: calcAutoDiscount(expiry, discountRules) };
-  }).sort((a, b) => b.autoDiscount - a.autoDiscount);
+    const expiryDiscount = calcAutoDiscount(expiry, discountRules);
+    const reasonExpiry = expiryDiscount > 0;
+
+    const stagInfo = autoPromoConfig.stagnantEnabled
+      ? getStagnationInfo(p, sales, expiry, {
+          noSaleDays: autoPromoConfig.stagnantNoSaleDays,
+          velocityWindowDays: autoPromoConfig.stagnantVelocityWindowDays,
+        })
+      : { isStagnant: false };
+    const reasonStagnant = stagInfo.isStagnant;
+
+    if (!reasonExpiry && !reasonStagnant) return acc;
+
+    // لو الصنف واقع تحت الاتنين، ناخد أعلى خصم بينهم
+    const autoDiscount = Math.max(reasonExpiry ? expiryDiscount : 0, reasonStagnant ? autoPromoConfig.stagnantDiscountPercent : 0);
+    if (autoDiscount <= 0 || autoDiscount < autoPromoConfig.minDiscount) return acc;
+
+    acc.push({
+      ...p, expiry, autoDiscount,
+      reasonExpiry, reasonStagnant,
+      daysSinceLastSale: stagInfo.daysSinceLastSale,
+    });
+    return acc;
+  }, []).sort((a, b) => b.autoDiscount - a.autoDiscount);
 
   // ── الأصناف المحفزة — حسب marginThreshold القابل للتعديل ──
   const highMarginProducts = products.filter((p) => {
@@ -16707,7 +17388,9 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     return total;
   };
 
-  const activePromos = promos.filter((p) => p.end_date >= today && p.start_date <= today);
+  const dateValidPromos = promos.filter((p) => p.end_date >= today && p.start_date <= today);
+  const activePromos = dateValidPromos.filter((p) => isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
+  const stockBlockedPromos = dateValidPromos.filter((p) => !isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
   const expiredPromos = promos.filter((p) => p.end_date < today);
 
   const discountColor = (d) => d >= 50 ? COLORS.red : d >= 25 ? COLORS.coral : d >= 20 ? COLORS.gold : COLORS.gold;
@@ -16740,7 +17423,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <span style={{ color: COLORS.gold, fontWeight: 700 }}>⚠️ {autoPromoProducts.length} صنف يحتاج عرض تلقائي</span>
-            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>أصناف غير دوائية بصلاحية أقل من 6 شهور</div>
+            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>أصناف غير دوائية بصلاحية أقل من 6 شهور، أو راكدة بدون حركة بيع</div>
           </div>
           <button onClick={() => setActiveTab("auto")} style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.gold, fontSize: 12, cursor: "pointer" }}>
             عرض التفاصيل
@@ -16847,6 +17530,63 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   </span>
                 </div>
 
+                {/* ── إعدادات الأصناف الراكدة ── */}
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${COLORS.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                    <span style={{ color: COLORS.textDim, fontSize: 12, fontWeight: 700 }}>📦 تضمين الأصناف الراكدة:</span>
+                    <div onClick={() => {
+                      const updated = { ...autoPromoConfig, stagnantEnabled: !autoPromoConfig.stagnantEnabled };
+                      setAutoPromoConfig(updated);
+                      saveAutoConfig(updated);
+                    }}
+                      style={{ width: 36, height: 20, borderRadius: 10, cursor: "pointer",
+                        background: autoPromoConfig.stagnantEnabled ? COLORS.green : COLORS.red,
+                        position: "relative", transition: "background 0.2s" }}>
+                      <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff",
+                        position: "absolute", top: 3,
+                        left: autoPromoConfig.stagnantEnabled ? 3 : 19, transition: "left 0.2s" }} />
+                    </div>
+                  </div>
+
+                  {autoPromoConfig.stagnantEnabled && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: COLORS.textDim, fontSize: 12, minWidth: 150 }}>مفيش بيع من (يوم):</span>
+                        <input type="number" min="7" value={autoPromoConfig.stagnantNoSaleDays}
+                          onChange={(e) => {
+                            const updated = { ...autoPromoConfig, stagnantNoSaleDays: +e.target.value };
+                            setAutoPromoConfig(updated);
+                            saveAutoConfig(updated);
+                          }}
+                          style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: COLORS.textDim, fontSize: 12, minWidth: 150 }}>نافذة حساب معدل البيع (يوم):</span>
+                        <input type="number" min="30" value={autoPromoConfig.stagnantVelocityWindowDays}
+                          onChange={(e) => {
+                            const updated = { ...autoPromoConfig, stagnantVelocityWindowDays: +e.target.value };
+                            setAutoPromoConfig(updated);
+                            saveAutoConfig(updated);
+                          }}
+                          style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: COLORS.textDim, fontSize: 12, minWidth: 150 }}>نسبة خصم الراكد (%):</span>
+                        <input type="number" min="0" max="100" value={autoPromoConfig.stagnantDiscountPercent}
+                          onChange={(e) => {
+                            const updated = { ...autoPromoConfig, stagnantDiscountPercent: +e.target.value };
+                            setAutoPromoConfig(updated);
+                            saveAutoConfig(updated);
+                          }}
+                          style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                      </div>
+                      <div style={{ color: COLORS.textDim, fontSize: 10 }}>
+                        الصنف يُعتبر راكد لو: مفيش بيع من المدة دي، أو معدل بيعه الحالي هيخلّي مخزونه الحالي ما يخلصش قبل ما ينتهي.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* تفعيل/تعطيل أنماط العروض */}
                 <div style={{ marginTop: 12 }}>
                   <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 6 }}>أنماط العروض المفعّلة (تظهر عند إضافة عرض يدوي):</div>
@@ -16926,29 +17666,42 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           {filteredAutoPromos.length === 0
             ? <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>✅ لا توجد أصناف تحتاج عروض تلقائية</div>
             : filteredAutoPromos.map((p) => {
-                const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+                const days = p.expiry ? Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24)) : null;
                 const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
                 return (
                   <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? COLORS.redSoft : p.autoDiscount >= 25 ? COLORS.coralSoft : COLORS.goldSoft)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
                           <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
                           <span style={{
                             background: discountColor(p.autoDiscount), color: "#fff",
                             borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
                           }}>-{p.autoDiscount}%</span>
+                          {p.reasonExpiry && (
+                            <span style={{ background: COLORS.goldSoft, color: COLORS.gold, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>⏰ قرب انتهاء</span>
+                          )}
+                          {p.reasonStagnant && (
+                            <span style={{ background: COLORS.purpleSoft, color: COLORS.purple, border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>📦 راكد</span>
+                          )}
                         </div>
-                        <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
+                        <div style={{ display: "flex", gap: 20, fontSize: 12, flexWrap: "wrap" }}>
                           <span style={{ color: COLORS.textDim }}>الفئة: <span style={{ color: COLORS.textDim }}>{p.main_category || p.category}</span></span>
                           <span style={{ color: COLORS.textDim }}>المخزون: <span style={{ color: COLORS.textPrimary }}>{p.stock}</span></span>
-                          <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
+                          {days !== null && (
+                            <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
+                          )}
+                          {p.reasonStagnant && (
+                            <span style={{ color: COLORS.textDim }}>
+                              آخر بيع: <span style={{ color: COLORS.purple }}>{p.daysSinceLastSale === null ? "لا يوجد" : `منذ ${p.daysSinceLastSale} يوم`}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div style={{ textAlign: "left", minWidth: 110 }}>
                         <div style={{ color: COLORS.textDim, fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
                         <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
-                        <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>
+                        {p.expiry && <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>}
                       </div>
                     </div>
                   </div>
@@ -17029,6 +17782,67 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {stockBlockedPromos.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ color: COLORS.coral, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>⛔ متوقفة مؤقتًا — الكمية لا تكفي ({stockBlockedPromos.length})</div>
+              {stockBlockedPromos.map((promo) => {
+                const prod = products.find((p) => p.id === promo.product_id);
+                const minQty = getPromoMinRequiredQty(promo);
+                const typeCfg = getPromoTypeConfig(promo.promo_type || "percent");
+                const desc = prod ? describePromo(promo, prod) : null;
+                return (
+                  <div key={promo.id} style={cardStyle(COLORS.redSoft)}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name_ar || prod?.name || prod?.nameAr || promo.product_id}</span>
+                          <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>{typeCfg.icon} {desc?.label}</span>
+                        </div>
+                        <div style={{ color: COLORS.coral, fontSize: 11 }}>
+                          المخزون الحالي: {prod?.stock ?? 0} — محتاج {minQty} على الأقل عشان العرض يفضل شغال
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => {
+                          setPromoForm({
+                            ...blankPromoDetails,
+                            promo_type: promo.promo_type || "percent",
+                            product_id: promo.product_id,
+                            manufacturer_id: promo.manufacturer_id || "",
+                            discount: promo.discount ?? "",
+                            fixed_amount: promo.fixed_amount ?? "",
+                            buy_qty: promo.buy_qty ?? "",
+                            get_qty: promo.get_qty ?? "",
+                            get_discount_percent: promo.get_discount_percent ?? 100,
+                            qty_discount_percent: promo.qty_discount_percent ?? "",
+                            bundle_qty: promo.bundle_qty ?? "",
+                            bundle_price: promo.bundle_price ?? "",
+                            gift_product_id: promo.gift_product_id ?? "",
+                            gift_qty: promo.gift_qty ?? "",
+                            start_date: promo.start_date,
+                            end_date: promo.end_date,
+                            note: promo.note || "",
+                          });
+                          setPromoMode("single");
+                          setEditPromoId(promo.id);
+                          setShowPromoForm(true);
+                        }} style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
+                        <button onClick={async () => {
+                          const { error: delPromoError } = await supabase.from("promotions").delete().eq("id", promo.id).eq("pharmacy_id", pharmacyId);
+                          if (delPromoError) { showToast("خطأ: " + delPromoError.message, "error"); return; }
+                          setPromos((p) => p.filter((x) => x.id !== promo.id));
+                        }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ color: COLORS.textDim, fontSize: 10, marginTop: 4 }}>
+                هتشتغل تلقائيًا تاني لو المخزون اتجدد قبل تاريخ الانتهاء — من غير ما تحتاج تعمل حاجة.
+              </div>
             </div>
           )}
 
