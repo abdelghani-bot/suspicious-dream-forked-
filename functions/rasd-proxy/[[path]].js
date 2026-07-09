@@ -1,4 +1,4 @@
-const UPSTREAM_BASE = "https://rsd.sfda.gov.sa/sop";
+const UPSTREAM_BASE = "https://rsd.sfda.gov.sa/ws";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
