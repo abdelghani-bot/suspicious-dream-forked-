@@ -1,6 +1,7 @@
 import { QRCodeSVG } from "qrcode.react";
 import { COLORS, tint, SHADOW } from "./theme";
 import { createClient } from "@supabase/supabase-js";
+import * as XLSX from "xlsx";
 const SUPABASE_URL = "https://glcdvwpwxbhutfecljdj.supabase.co";
 const supabase = createClient(
   SUPABASE_URL,
@@ -7748,6 +7749,11 @@ function PurchaseModule({
   const [manualTax, setManualTax] = useState("");
   const [showProductCard, setShowProductCard] = useState(null);
   const searchRef = useRef(null);
+
+  // ===== استيراد ملف Excel من موقع رصد (GTIN/SN/BN/XD) لفاتورة الشراء =====
+  const rasdExcelInputRef = useRef(null);
+  const [rasdImportBusy, setRasdImportBusy] = useState(false);
+  const [rasdImportResult, setRasdImportResult] = useState(null); // { matchedCount, unmatched: [{gtin,batch,expiry,qty}] }
   const [showDetail, setShowDetail] = useState(null);
   const [editItems, setEditItems] = useState([]);
   const [editSupplier, setEditSupplier] = useState("");
@@ -8132,6 +8138,146 @@ const LABEL_SIZES = [
     setSearchResults([]);
     setShowDropdown(false);
     focusNewItemQty(p);
+  };
+
+  // إضافة صف بكمية محدَّدة دفعة واحدة (بدون المرور بمنطق "زود الكمية بواحد" الخاص بـ addItem)
+  // — ده اللي بيستخدمه استيراد ملف رصد عشان يحط كل دفعة (batch+expiry) بكميتها الصحيحة مرة واحدة
+  const addItemWithQty = (p, expiry, batch, qty) => {
+    setItems((prev) => {
+      const ex = prev.find((i) => i.id === p.id && (i.expiry_date || "") === (expiry || "") && (i.batch_number || "") === (batch || ""));
+      if (ex) {
+        return prev.map((i) =>
+          i._rowKey === ex._rowKey ? { ...i, qty: (i.qty || 0) + qty } : i
+        );
+      }
+      return [
+        ...prev,
+        {
+          ...p,
+          qty,
+          bonusQty: 0,
+          discount1: 0,
+          discount2: 0,
+          receivedCost: p.cost,
+          newSalePrice: p.price,
+          expiry_date: expiry || "",
+          batch_number: batch || "",
+          _rowKey: p.id + "_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+        },
+      ];
+    });
+  };
+
+  // ==================== استيراد ملف Excel من موقع رصد (GTIN / SN / BN / XD) ====================
+  // بيقرأ ملف الشحنة اللي بينزل من رصد، ويجمع الصفوف لكل (GTIN + BN + XD)، ويدوّر على الصنف
+  // المطابق في قاعدة أصنافنا بمقارنة GTIN مع باركود الصنف (نفس منطق سكانر GS1)، ويحطهم في
+  // فاتورة الشراء تلقائيًا بدل الإدخال اليدوي.
+  const normalizeExcelGtin = (v) => {
+    if (v == null || v === "") return "";
+    if (typeof v === "number") return v.toFixed(0); // يتجنب صيغة الأس العلمي (Scientific Notation)
+    return String(v).trim();
+  };
+
+  // تاريخ الصلاحية في ملفات رصد بييجي إما نص (dd/mm/yyyy أو yyyy-mm-dd) أو رقم تاريخ إكسيل
+  const normalizeExcelExpiry = (v) => {
+    if (v == null || v === "") return "";
+    if (typeof v === "number") {
+      const d = XLSX.SSF.parse_date_code(v);
+      if (!d) return "";
+      return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+    }
+    const s = String(v).trim();
+    const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+    const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
+    return s;
+  };
+
+  // بيدوّر على اسم العمود الصح مهما اختلفت صياغته في ملف رصد — بيقارن بالتضمين (includes)
+  // مش بالتطابق التام، عشان يلحق العناوين الحقيقية زي "رقم بند التجارة العالمي" و"الكمية المستلمة"
+  const normalizeHeader = (s) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const findRasdColumn = (row, candidates) => {
+    const keys = Object.keys(row);
+    for (const cand of candidates) {
+      const hit = keys.find((k) => normalizeHeader(k).includes(cand));
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  const handleRasdExcelFile = async (file) => {
+    if (!file) return;
+    setRasdImportBusy(true);
+    setRasdImportResult(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+
+      if (!rows.length) {
+        showToast("الملف فارغ أو مفيش صفوف بيانات فيه", "error");
+        setRasdImportBusy(false);
+        return;
+      }
+
+      // ترتيب أولوية العناوين: الصياغة الحقيقية اللي بتنزل من رصد الأول، وبعدين بدائل عامة
+      const colGtin = findRasdColumn(rows[0], ["رقم بند التجارة العالمي", "بند التجارة العالمي", "gtin", "barcode", "الباركود"]);
+      const colBatch = findRasdColumn(rows[0], ["رقم الدفعة", "رقم التشغيلة", "batch", "bn"]);
+      const colExpiry = findRasdColumn(rows[0], ["تاريخ انتهاء الصلاحية", "تاريخ الصلاحية", "expiry", "xd"]);
+      const colQty = findRasdColumn(rows[0], ["الكمية المستلمة", "الكمية", "quantity", "qty"]);
+
+      if (!colGtin) {
+        showToast("مقدرتش ألاقي عمود الـ GTIN في الملف — تأكد إن أول صف هو صف العناوين", "error");
+        setRasdImportBusy(false);
+        return;
+      }
+
+      // تجميع الصفوف حسب (GTIN + BN + XD) — لو الملف فيه سطر لكل وحدة سيريال، بيتحسبوا مع بعض كـ qty
+      const grouped = new Map();
+      for (const row of rows) {
+        const gtinRaw = row[colGtin];
+        if (gtinRaw === "" || gtinRaw == null) continue;
+        const gtin = normalizeExcelGtin(gtinRaw);
+        const batch = colBatch ? String(row[colBatch] ?? "").trim() : "";
+        const expiry = colExpiry ? normalizeExcelExpiry(row[colExpiry]) : "";
+        const qty = colQty ? (Number(row[colQty]) || 1) : 1;
+        const key = gtin + "|" + batch + "|" + expiry;
+        grouped.set(key, {
+          gtin,
+          batch,
+          expiry,
+          qty: (grouped.get(key)?.qty || 0) + qty,
+        });
+      }
+
+      let matchedCount = 0;
+      const unmatched = [];
+      for (const entry of grouped.values()) {
+        const found = products.find(
+          (x) => normGtin(x.barcode) === normGtin(entry.gtin) || normGtin(x.gtin) === normGtin(entry.gtin)
+        );
+        if (!found) {
+          unmatched.push(entry);
+          continue;
+        }
+        addItemWithQty(found, entry.expiry, entry.batch, entry.qty);
+        matchedCount++;
+      }
+
+      setRasdImportResult({ matchedCount, unmatched });
+      if (matchedCount > 0) {
+        showToast(`تم استيراد ${matchedCount} صنف من ملف رصد ✓${unmatched.length ? ` (${unmatched.length} صنف مش موجود عندنا)` : ""}`);
+      } else {
+        showToast("مفيش أي صنف من الملف اتطابق مع أصنافنا بالـ GTIN", "error");
+      }
+    } catch (e) {
+      showToast("تعذّرت قراءة الملف: " + (e?.message || e), "error");
+    } finally {
+      setRasdImportBusy(false);
+      if (rasdExcelInputRef.current) rasdExcelInputRef.current.value = "";
+    }
   };
 
   const _focusBarcode__ = () => {
@@ -8531,6 +8677,47 @@ const LABEL_SIZES = [
             }}
             placeholder="امسح باركود الصنف..."
           />
+        </div>
+
+        {/* استيراد ملف Excel من موقع رصد — يطابق الأصناف بالـ GTIN ويحطها في الفاتورة تلقائيًا */}
+        <div style={{ marginBottom: 14 }}>
+          <input
+            ref={rasdExcelInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            style={{ display: "none" }}
+            onChange={(e) => handleRasdExcelFile(e.target.files?.[0])}
+          />
+          <Btn
+            icon="upload"
+            variant="secondary"
+            onClick={() => rasdExcelInputRef.current?.click()}
+            disabled={rasdImportBusy}
+          >
+            {rasdImportBusy ? "جارٍ الاستيراد..." : "📥 استيراد ملف رصد (Excel)"}
+          </Btn>
+          {rasdImportResult && rasdImportResult.unmatched.length > 0 && (
+            <div
+              style={{
+                marginTop: 8,
+                background: COLORS.goldSoft,
+                border: `1px solid ${COLORS.gold}`,
+                borderRadius: 8,
+                padding: "8px 12px",
+                fontSize: 12,
+                color: COLORS.textPrimary,
+              }}
+            >
+              ⚠️ {rasdImportResult.unmatched.length} صنف من الملف مالوش GTIN مطابق عندنا (لازم تتضاف الأصناف دي الأول أو تتربط باركوداتها):
+              <div style={{ marginTop: 6, maxHeight: 120, overflowY: "auto" }}>
+                {rasdImportResult.unmatched.map((u, idx) => (
+                  <div key={idx} style={{ fontFamily: "monospace", fontSize: 11, color: COLORS.textDim, padding: "2px 0" }}>
+                    GTIN: {u.gtin} {u.batch ? `— تشغيلة: ${u.batch}` : ""} {u.expiry ? `— صلاحية: ${u.expiry}` : ""} {u.qty > 1 ? `— كمية: ${u.qty}` : ""}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ position: "relative", marginBottom: 14, display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -12904,6 +13091,7 @@ function ProductFormModal({
 
   const blank = {
     id: "", nameAr: "", nameEn: "",
+    gtin: "", // 🆕 GTIN ثابت للصنف — مصدره الوحيد products.barcode، بيتحمّل مع باقي الفورم مباشرة (مش عن طريق استعلام منفصل)
     mainCategory: "دواء", subCategory1: "مستورد", subCategory2: "أقراص",
     packageType: "", saleUnits: "",
     price: "", cost: "", taxable: true,
@@ -12944,6 +13132,7 @@ function ProductFormModal({
         ...blank, ...p,
         nameAr: p.nameAr || p.name_ar || p.name || "",
         nameEn: p.nameEn || p.name_en || "",
+        gtin: p.barcode || "", // 🆕 GTIN بيتحمّل فورًا مع الفورم، مش منتظر رد أي استعلام
         price: String(p.taxable ? Math.round((p.price * 1.15) * 100) / 100 : p.price),
         cost: String(p.cost),
         minStock: String(p.min_stock || p.minStock || ""),
@@ -12960,8 +13149,11 @@ function ProductFormModal({
         notAvailableMarket: p.not_available_market ?? false,
         shortageReportUrl: p.shortage_report_url || "",
       });
-      supabase.from("product_barcodes").select("*").eq("product_id", p.id).order("is_primary", { ascending: false })
-        .then(({ data }) => setBarcodes(data || []));
+      // ── جدول product_barcodes بقى غرضه بس تتبع الدفعات (batch/serial/expiry) — الـ GTIN نفسه بقى منفصل في form.gtin أعلاه ──
+      supabase.from("product_barcodes").select("*").eq("product_id", p.id)
+        .then(({ data }) => {
+          setBarcodes(data && data.length > 0 ? data : [{ batch_number: "", serial_number: "", expiry_date: "" }]);
+        });
       supabase.from("product_ingredients").select("*, active_ingredients(name_ar, name_en)").eq("product_id", p.id)
         .then(({ data }) => {
           setSelectedIngredients((data || []).map((x) => {
@@ -12977,13 +13169,13 @@ function ProductFormModal({
       setSimilarSearch(""); setSimilarProductId("");
     } else {
       setForm({ ...blank, id: "P" + Date.now() });
-      setBarcodes([{ base_barcode: "", batch_number: "", serial_number: "", expiry_date: "", is_primary: true }]);
+      setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
       setSelectedIngredients([]);
       setSimilarSearch(""); setSimilarProductId("");
     }
   }, [open, editingId]);
 
-  const addBarcode = () => setBarcodes((prev) => [...prev, { base_barcode: "", batch_number: "", serial_number: "", expiry_date: "", is_primary: false }]);
+  const addBarcode = () => setBarcodes((prev) => [...prev, { batch_number: "", serial_number: "", expiry_date: "" }]);
   const updateBarcode = (i, key, val) => setBarcodes((prev) => prev.map((b, idx) => idx === i ? { ...b, [key]: val } : b));
   const removeBarcode = (i) => setBarcodes((prev) => prev.filter((_, idx) => idx !== i));
 
@@ -12995,28 +13187,24 @@ function ProductFormModal({
     if (!trimmed) return;
     const parsed = parseGS1Barcode(trimmed);
     if (parsed.gtin) {
-      const emptyIdx = barcodes.findIndex((b) => !b.base_barcode);
+      // 🆕 الـ GTIN من السكان بيروح مباشرة لخانة GTIN الثابتة، مش لصفوف الدفعات
+      F("gtin", parsed.gtin);
+      const emptyIdx = barcodes.findIndex((b) => !b.batch_number && !b.serial_number && !b.expiry_date);
       const newRow = {
-        base_barcode: parsed.gtin,
         batch_number: parsed.batch || "",
         serial_number: parsed.serial || "",
         expiry_date: parsed.expiry || "",
-        is_primary: barcodes.length === 0 || emptyIdx === 0,
       };
       if (emptyIdx !== -1) {
         setBarcodes((prev) => prev.map((b, idx) => idx === emptyIdx ? newRow : b));
       } else {
-        setBarcodes((prev) => [...prev, { ...newRow, is_primary: false }]);
+        setBarcodes((prev) => [...prev, newRow]);
       }
       setGs1ScanVal("");
       showToast(`✅ تم استخراج الباركود: ${parsed.gtin}${parsed.expiry ? " | صلاحية: " + parsed.expiry : ""}${parsed.batch ? " | تشغيلة: " + parsed.batch : ""}`, "success");
     } else {
-      const emptyIdx = barcodes.findIndex((b) => !b.base_barcode);
-      if (emptyIdx !== -1) {
-        updateBarcode(emptyIdx, "base_barcode", trimmed);
-      } else {
-        setBarcodes((prev) => [...prev, { base_barcode: trimmed, batch_number: "", serial_number: "", expiry_date: "", is_primary: false }]);
-      }
+      // باركود بسيط مش GS1 (زي كود صنف داخلي أو EAN بسيط) — بيتحط في خانة GTIN مباشرة
+      F("gtin", trimmed);
       setGs1ScanVal("");
       showToast("تم إضافة الباركود البسيط", "success");
     }
@@ -13058,7 +13246,7 @@ function ProductFormModal({
     const p = {
       id: form.id,
       name: form.nameAr, name_ar: form.nameAr, name_en: form.nameEn,
-      barcode: barcodes.find((b) => b.is_primary)?.base_barcode || barcodes[0]?.base_barcode || "",
+      barcode: form.gtin.trim(),
       category: form.mainCategory, main_category: form.mainCategory,
       sub_category1: form.subCategory1, sub_category2: form.subCategory2,
       package_type: form.packageType || null,
@@ -13101,9 +13289,16 @@ function ProductFormModal({
     }
 
     if (editing) await supabase.from("product_barcodes").delete().eq("product_id", productId);
-    const validBarcodes = barcodes.filter((b) => b.base_barcode.trim());
+    // ── صفوف الدفعات (batch/serial/expiry) بس — الـ GTIN نفسه راح مباشرة على products.barcode فوق ──
+    const validBarcodes = barcodes.filter((b) => (b.batch_number || "").trim() || (b.serial_number || "").trim() || (b.expiry_date || "").trim());
     if (validBarcodes.length > 0) {
-      await supabase.from("product_barcodes").insert(validBarcodes.map((b) => ({ ...b, product_id: productId, id: undefined, pharmacy_id: pharmacyId })));
+      await supabase.from("product_barcodes").insert(validBarcodes.map((b) => ({
+        batch_number: b.batch_number || null,
+        serial_number: b.serial_number || null,
+        expiry_date: b.expiry_date || null,
+        base_barcode: form.gtin.trim(), // نفس الـ GTIN الثابت مكرر لكل صف دفعة، عشان توافق أي كود قديم بيقرا من العمود ده
+        product_id: productId, pharmacy_id: pharmacyId,
+      })));
     }
 
     if (editing) await supabase.from("product_ingredients").delete().eq("product_id", productId);
@@ -13293,11 +13488,18 @@ function ProductFormModal({
         </div>
       </div>
 
-      {/* الباركودات */}
+      {/* GTIN — ثابت لكل صنف، مصدره الوحيد products.barcode */}
+      <div style={{ marginTop: 20, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>
+        <div style={{ fontWeight: 700, color: COLORS.blue, fontSize: 14, marginBottom: 10 }}>🔖 GTIN</div>
+        <input value={form.gtin} onChange={(e) => F("gtin", e.target.value)} placeholder="GTIN (رقم بند التجارة العالمي)"
+          style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+      </div>
+
+      {/* الدفعات — batch/serial/expiry فقط، الـ GTIN ثابت وموحّد أعلاه */}
       <div style={{ marginTop: 20, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontWeight: 700, color: COLORS.blue, fontSize: 14 }}>📦 الباركودات</div>
-          <Btn size="sm" icon="plus" onClick={addBarcode}>إضافة باركود</Btn>
+          <div style={{ fontWeight: 700, color: COLORS.blue, fontSize: 14 }}>📦 الدفعات (تشغيلة / صلاحية / سيريال)</div>
+          <Btn size="sm" icon="plus" onClick={addBarcode}>إضافة دفعة</Btn>
         </div>
 
         <div style={{
@@ -13321,19 +13523,13 @@ function ProductFormModal({
           <Btn size="sm" onClick={() => handleGs1Scan(gs1ScanVal)}>استخراج</Btn>
         </div>
         {barcodes.map((b, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
-            <input value={b.base_barcode} onChange={(e) => updateBarcode(i, "base_barcode", e.target.value)} placeholder="باركود أساسي *"
-              style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${b.is_primary ? COLORS.blue : COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
             <input value={b.batch_number} onChange={(e) => updateBarcode(i, "batch_number", e.target.value)} placeholder="رقم التشغيلة"
               style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
             <input value={b.serial_number} onChange={(e) => updateBarcode(i, "serial_number", e.target.value)} placeholder="الرقم التسلسلي"
               style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
             <input value={b.expiry_date} onChange={(e) => updateBarcode(i, "expiry_date", e.target.value)} type="date"
               style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
-            <button onClick={() => setBarcodes((prev) => prev.map((x, idx) => ({ ...x, is_primary: idx === i })))}
-              style={{ padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: b.is_primary ? "#1a3a6a" : COLORS.border, color: b.is_primary ? COLORS.blue : COLORS.textDim }}>
-              {b.is_primary ? "⭐ رئيسي" : "رئيسي"}
-            </button>
             {barcodes.length > 1 && <Btn size="sm" variant="danger" onClick={() => removeBarcode(i)}>✕</Btn>}
           </div>
         ))}
