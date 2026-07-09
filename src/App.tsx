@@ -1399,8 +1399,11 @@ const RasdService = {
     if (!this.baseUrl) return { success: false, error: "لم يتم ضبط رابط رصد (apiUrl) بعد" };
     const url = this._serviceUrl(serviceName);
     const soapAction = `http://dtts.sfda.gov.sa/${serviceName}/${requestElementName}`;
+    // ✅ SOAP 1.1 مش 1.2 — سيرفر رصد (rsd.sfda.gov.sa) بيرفض application/soap+xml بـ 415
+    // Unsupported Media Type. اتأكد بالاختبار المباشر عبر Fiddler إن السيرفر بيرد 200 OK
+    // بس لما نبعت text/xml + SOAPAction header منفصل + namespace SOAP 1.1 القديم.
     const envelope = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://www.w3.org/2003/05/soap-envelope" xmlns:tns="http://dtts.sfda.gov.sa/${serviceName}">
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://dtts.sfda.gov.sa/${serviceName}">
   <soapenv:Header>${this._wsSecurityHeader()}</soapenv:Header>
   <soapenv:Body>
     <tns:${requestElementName}>${innerXml}</tns:${requestElementName}>
@@ -1417,9 +1420,10 @@ const RasdService = {
         : null;
       const res = await fetch(url, {
         method: "POST",
-        // SOAP 1.2: مفيش SOAPAction header منفصل زي 1.1 — الـ action بيتحط جوه الـ Content-Type نفسه
+        // SOAP 1.1: Content-Type ثابت text/xml + SOAPAction هيدر منفصل (مش جوه Content-Type)
         headers: {
-          "Content-Type": `application/soap+xml; charset=utf-8; action="${soapAction}"`,
+          "Content-Type": "text/xml; charset=utf-8",
+          "SOAPAction": `"${soapAction}"`,
           ...(basicAuth ? { Authorization: basicAuth } : {}),
         },
         body: envelope,
