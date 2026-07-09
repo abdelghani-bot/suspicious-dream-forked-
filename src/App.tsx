@@ -4689,6 +4689,11 @@ function POS({
   const autoSaveTimerRef = useRef(null);
   const autoSaveCountdownRef = useRef(null);
 
+  // ── باركود اتقرا بس مش متطابق مع أي صنف عندنا (على الأغلب الشركة غيّرت الـ GTIN) ──
+  // بدل ما نرفض بس، بنسيب الكاشير يربط الكود الجديد بالصنف الصح يدويًا، والنظام يحدث الباركود تلقائي.
+  const [unmatchedScan, setUnmatchedScan] = useState(null); // { gtin/code, batch, expiry, serial }
+  const [unmatchedLinkSearch, setUnmatchedLinkSearch] = useState("");
+
   // ── ملصق الجرعة ──
   const [doseLabelItem, setDoseLabelItem] = useState(null);
   const [pharmSettingsPOS, setPharmSettingsPOS] = useState<any>({});
@@ -5190,7 +5195,48 @@ function POS({
         return;
       }
     }
-    showToast("الصنف غير موجود: " + (scan.gtin || scan.code), "error");
+    // ── الباركود مش متطابق مع أي صنف — بدل ما نرفضه بس، نديله فرصة يتربط بصنف موجود ──
+    playWarningBeep();
+    setUnmatchedScan({
+      gtin: scan.gtin || scan.code || "",
+      batch: scan.batch || "",
+      expiry: scan.expiry || "",
+      serial: scan.serial || "",
+    });
+    setUnmatchedLinkSearch("");
+  };
+
+  // ── ربط باركود جديد (اتقرا بالسكانر ومتلقاش صنف) بصنف موجود عندنا — للحالة اللي الشركة غيّرت الـ GTIN ──
+  const linkUnmatchedBarcodeToProduct = async (product) => {
+    const newGtin = unmatchedScan.gtin;
+    if (!newGtin) return;
+    const oldBarcode = product.barcode || "بدون باركود";
+    const { error } = await supabase.from("products").update({ barcode: newGtin }).eq("id", product.id).eq("pharmacy_id", pharmacyId);
+    if (error) { showToast("خطأ في تحديث الباركود: " + error.message, "error"); return; }
+    const updatedProduct = { ...product, barcode: newGtin };
+    setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
+    // نسجل الدفعة (تشغيلة/صلاحية/سيريال) بتاعة السكان ده في product_barcodes لو فيها بيانات
+    if (unmatchedScan.batch || unmatchedScan.expiry || unmatchedScan.serial) {
+      await supabase.from("product_barcodes").insert({
+        product_id: product.id, pharmacy_id: pharmacyId,
+        base_barcode: newGtin,
+        batch_number: unmatchedScan.batch || null,
+        serial_number: unmatchedScan.serial || null,
+        expiry_date: unmatchedScan.expiry || null,
+      });
+    }
+    showToast(`✅ تم تحديث باركود "${product.nameAr || product.name}" من (${oldBarcode}) إلى (${newGtin})`, "success");
+    const pendingScan = unmatchedScan;
+    setUnmatchedScan(null);
+    setUnmatchedLinkSearch("");
+    const norm = (v) => (v ? String(v).slice(0, 7) : "");
+    addToCart({
+      ...updatedProduct,
+      batch: pendingScan.batch,
+      serial: pendingScan.serial,
+      expiry: norm(pendingScan.expiry) || pendingScan.expiry,
+      _expiryConfirmed: !!pendingScan.expiry,
+    });
   };
 
   const searchLower = (inv.search || "").toLowerCase();
@@ -6994,6 +7040,54 @@ function POS({
       {showPrint && (
         <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} customerPhone={showPrint.customer_phone} />
       )}
+
+      {/* ── باركود اتقرا ومتلقاش صنف مطابق — الأرجح إن الشركة غيّرت الـ GTIN. نسيب الكاشير يربطه بصنف موجود ── */}
+      <Modal
+        open={!!unmatchedScan}
+        onClose={() => { setUnmatchedScan(null); setUnmatchedLinkSearch(""); }}
+        title="⚠️ باركود غير معروف"
+      >
+        {unmatchedScan && (
+          <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ color: COLORS.textDim, fontSize: 13, lineHeight: 1.7 }}>
+              الباركود <span style={{ color: COLORS.gold, fontWeight: 700 }}>{unmatchedScan.gtin}</span> مش متسجل لأي صنف عندك — يمكن الشركة المنتجة غيّرت الـ GTIN.
+              لو الصنف ده موجود عندك بباركود قديم، دوّر عليه واختاره تحت وهيتحدث باركوده تلقائيًا لهذا الكود الجديد.
+            </div>
+            <input
+              autoFocus
+              value={unmatchedLinkSearch}
+              onChange={(e) => setUnmatchedLinkSearch(e.target.value)}
+              placeholder="🔍 دوّر باسم الصنف اللي عايز تربطه بالباركود ده..."
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+            />
+            {unmatchedLinkSearch.trim() && (
+              <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                {products
+                  .filter((p) => (p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase()) || (p.nameEn || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase()))
+                  .slice(0, 20)
+                  .map((p) => (
+                    <div
+                      key={p.id}
+                      onClick={() => linkUnmatchedBarcodeToProduct(p)}
+                      style={{ padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, fontSize: 13, color: COLORS.textPrimary, display: "flex", justifyContent: "space-between" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = COLORS.surfaceAlt; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <span>{p.nameAr || p.name}</span>
+                      <span style={{ color: COLORS.textDim, fontSize: 11 }}>الباركود الحالي: {p.barcode || "—"}</span>
+                    </div>
+                  ))}
+                {products.filter((p) => (p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase())).length === 0 && (
+                  <div style={{ padding: 14, fontSize: 12.5, color: COLORS.textDim, textAlign: "center" }}>مفيش نتائج مطابقة</div>
+                )}
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => { setUnmatchedScan(null); setUnmatchedLinkSearch(""); }}>إلغاء</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={!!expiryPickerLine}
