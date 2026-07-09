@@ -1399,22 +1399,20 @@ const RasdService = {
     if (!this.baseUrl) return { success: false, error: "لم يتم ضبط رابط رصد (apiUrl) بعد" };
     const url = this._serviceUrl(serviceName);
     const soapAction = `http://dtts.sfda.gov.sa/${serviceName}/${requestElementName}`;
-    // ✅ SOAP 1.1 مش 1.2 — سيرفر رصد (rsd.sfda.gov.sa) بيرفض application/soap+xml بـ 415
-    // Unsupported Media Type. اتأكد بالاختبار المباشر عبر Fiddler إن السيرفر بيرد 200 OK
-    // بس لما نبعت text/xml + SOAPAction header منفصل + namespace SOAP 1.1 القديم.
+    // ✅ اتأكد بالاختبار المباشر عبر Fiddler (طلب ErrorCodeListService اللي رجع 200 OK فعلي)
+    // إن سيرفر رصد: (1) بيقبل SOAP 1.1 بس مش 1.2، (2) مفيهوش soapenv:Header خالص —
+    // الـ auth كله عن طريق HTTP Basic Auth header بس، من غير WS-Security UsernameToken جوه الـ Body.
+    // إضافة Header زيادة كانت بتخلي السيرفر يرفض الطلب بـ 400 Bad Request.
     const envelope = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://dtts.sfda.gov.sa/${serviceName}">
-  <soapenv:Header>${this._wsSecurityHeader()}</soapenv:Header>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
   <soapenv:Body>
-    <tns:${requestElementName}>${innerXml}</tns:${requestElementName}>
+    <${requestElementName} xmlns="http://dtts.sfda.gov.sa/${serviceName}">${innerXml}</${requestElementName}>
   </soapenv:Body>
 </soapenv:Envelope>`;
 
     try {
-      // بعض سيرفرات SFDA (Tomcat/WebLogic) بتحمي الخدمة بـ HTTP Basic Auth على مستوى
-      // الـ container قبل ما توصل لجسم SOAP نفسه — فبنبعت بيانات الدخول بطريقتين
-      // مع بعض: WS-Security جوه الـ Body (زي الأول)، وBasic Auth في الـ HTTP Header (جديد).
-      // لو حصل 401 برضو بعد كده، يبقى المشكلة يوزر/باسورد غلط فعليًا، مش طريقة الإرسال.
+      // الـ auth بيتبعت بـ HTTP Basic Auth بس (مؤكد إنه شغال من الاختبار المباشر) —
+      // WS-Security جوه الـ SOAP Header اتشال لأنه كان بيسبب 400 Bad Request.
       const basicAuth = (this.username || this.password)
         ? "Basic " + btoa(`${this.username}:${this.password}`)
         : null;
@@ -1574,19 +1572,24 @@ const RasdService = {
     if (!this.baseUrl) return { success: false, error: "لم يتم ضبط رابط رصد (apiUrl) بعد" };
     const url = `${this.baseUrl}/${op.service}/${op.service}`;
     const soapAction = `http://dtts.sfda.gov.sa/${op.service}/${op.service}/${op.operation}Request`;
+    // ✅ نفس تصحيح _call(): SOAP 1.1 من غير soapenv:Header، الـ auth بالـ Basic Auth بس
     const envelope = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://www.w3.org/2003/05/soap-envelope" xmlns:tns="http://dtts.sfda.gov.sa/${op.service}">
-  <soapenv:Header>${this._wsSecurityHeader()}</soapenv:Header>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
   <soapenv:Body>
-    <tns:${op.requestElement}>${innerXml}</tns:${op.requestElement}>
+    <${op.requestElement} xmlns="http://dtts.sfda.gov.sa/${op.service}">${innerXml}</${op.requestElement}>
   </soapenv:Body>
 </soapenv:Envelope>`;
 
     try {
+      const basicAuth = (this.username || this.password)
+        ? "Basic " + btoa(`${this.username}:${this.password}`)
+        : null;
       const res = await fetch(url, {
         method: "POST",
         headers: {
-          "Content-Type": `application/soap+xml; charset=utf-8; action="${soapAction}"`,
+          "Content-Type": "text/xml; charset=utf-8",
+          "SOAPAction": `"${soapAction}"`,
+          ...(basicAuth ? { Authorization: basicAuth } : {}),
         },
         body: envelope,
       });
