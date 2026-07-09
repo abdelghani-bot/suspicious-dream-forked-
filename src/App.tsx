@@ -1408,33 +1408,52 @@ const RasdService = {
 </soapenv:Envelope>`;
 
     try {
+      // بعض سيرفرات SFDA (Tomcat/WebLogic) بتحمي الخدمة بـ HTTP Basic Auth على مستوى
+      // الـ container قبل ما توصل لجسم SOAP نفسه — فبنبعت بيانات الدخول بطريقتين
+      // مع بعض: WS-Security جوه الـ Body (زي الأول)، وBasic Auth في الـ HTTP Header (جديد).
+      // لو حصل 401 برضو بعد كده، يبقى المشكلة يوزر/باسورد غلط فعليًا، مش طريقة الإرسال.
+      const basicAuth = (this.username || this.password)
+        ? "Basic " + btoa(`${this.username}:${this.password}`)
+        : null;
       const res = await fetch(url, {
         method: "POST",
         // SOAP 1.2: مفيش SOAPAction header منفصل زي 1.1 — الـ action بيتحط جوه الـ Content-Type نفسه
         headers: {
           "Content-Type": `application/soap+xml; charset=utf-8; action="${soapAction}"`,
+          ...(basicAuth ? { Authorization: basicAuth } : {}),
         },
         body: envelope,
       });
       const text = await res.text();
       const parsed = this._parseResponse(text);
+      // isRealSoapResponse: true بس لو فعلاً وصل رد SOAP حقيقي من رصد (حتى لو Fault)،
+      // مش مجرد خطأ من طبقة البروكسي نفسها (زي 405 Method Not Allowed أو صفحة HTML بدل XML)
+      const isRealSoapResponse = parsed.isXml === true;
       if (!res.ok || parsed.error) {
-        return { success: false, error: parsed.error || `HTTP ${res.status}`, raw: text };
+        return {
+          success: false,
+          error: parsed.error || `HTTP ${res.status}`,
+          raw: text,
+          httpStatus: res.status,
+          isRealSoapResponse,
+        };
       }
-      return { success: true, data: parsed };
+      return { success: true, data: parsed, httpStatus: res.status, isRealSoapResponse };
     } catch (e) {
-      return { success: false, error: e.message };
+      return { success: false, error: e.message, isRealSoapResponse: false };
     }
   },
 
   _parseResponse(xmlText) {
     const doc = new DOMParser().parseFromString(xmlText, "text/xml");
     const parserErr = doc.getElementsByTagName("parsererror")[0];
-    if (parserErr) return { error: "استجابة غير صالحة من رصد" };
+    // لو مش XML سليم (مثلاً صفحة HTML/نص عادي راجع من طبقة البروكسي بسبب 405 أو 404)
+    // معناه إننا مش وصلنا لسيرفر رصد فعليًا، حتى لو الطلب "اتبعت" من غير Failed to fetch
+    if (parserErr) return { error: "استجابة غير صالحة من رصد (مش XML — على الأغلب خطأ في البروكسي مش في رصد نفسه)", isXml: false };
     const faultString = doc.getElementsByTagName("faultstring")[0];
-    if (faultString) return { error: faultString.textContent };
+    if (faultString) return { error: faultString.textContent, isXml: true };
     const fc = doc.getElementsByTagName("FC")[0];
-    if (fc) return { error: "كود خطأ رصد: " + fc.textContent };
+    if (fc) return { error: "كود خطأ رصد: " + fc.textContent, isXml: true };
 
     // Return/Transfer/TransferCancel بيرجعوا NOTIFICATION_ID بـ underscore، الباقي NOTIFICATIONID من غيره
     const notifId =
@@ -1454,7 +1473,7 @@ const RasdService = {
     // بترجعوا بس في رد Dispatch Detail
     const fromGln = doc.getElementsByTagName("FROMGLN")[0]?.textContent || null;
     const notificationDate = doc.getElementsByTagName("NOTIFICATIONDATE")[0]?.textContent || null;
-    return { notificationId: notifId, products, gln1, gln2, fromGln, notificationDate };
+    return { notificationId: notifId, products, gln1, gln2, fromGln, notificationDate, isXml: true };
   },
 
   // ---- عمليات الصيدلية ----
@@ -11381,13 +11400,16 @@ function RasdSettings({ showToast, products }) {
       items: [{ gtin: "00000000000000", serial: "TEST" }],
     });
     setTesting(false);
-    // أي رد فعلي من السيرفر (حتى لو خطأ منطقي زي "منتج غير موجود") معناه الاتصال شغال
-    if (result.success || (result.error && !result.error.includes("Failed to fetch"))) {
+    // النجاح الحقيقي: لازم يوصل رد XML/SOAP فعلي من رصد (حتى لو Fault زي "منتج غير موجود"
+    // أو حتى خطأ auth)، مش مجرد إن الـ fetch "اتبعت من غير Failed to fetch". لو البروكسي
+    // نفسه واقع (405/404/502) أو راجع صفحة مش XML، ده لازم يتحسب فشل مش نجاح.
+    if (result.success || result.isRealSoapResponse) {
       setConnected(true);
       showToast("الاتصال بسيرفر رصد شغال ✓");
     } else {
       setConnected(false);
-      showToast("فشل الاتصال: " + result.error, "error");
+      const statusHint = result.httpStatus ? ` (HTTP ${result.httpStatus})` : "";
+      showToast("فشل الاتصال: " + result.error + statusHint, "error");
     }
   };
 
