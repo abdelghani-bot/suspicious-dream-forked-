@@ -3,7 +3,7 @@ const UPSTREAM_BASE = "https://rsd.sfda.gov.sa/ws";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, SOAPAction",
 };
 
 export async function onRequest(context) {
@@ -25,12 +25,18 @@ export async function onRequest(context) {
 
     const body = await request.text();
 
+    // بعض سيرفرات SFDA بتحمي الخدمة بـ HTTP Basic Auth على مستوى الـ container، فلازم
+    // نمرر الـ Authorization header زي ما جاي من الفرونت-إند (مش بس Content-Type/SOAPAction)
+    const upstreamHeaders = {
+      "Content-Type": request.headers.get("Content-Type") || "text/xml; charset=utf-8",
+      "SOAPAction": request.headers.get("SOAPAction") || "",
+    };
+    const authHeader = request.headers.get("Authorization");
+    if (authHeader) upstreamHeaders["Authorization"] = authHeader;
+
     const upstreamResponse = await fetch(upstreamUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": request.headers.get("Content-Type") || "text/xml; charset=utf-8",
-        "SOAPAction": request.headers.get("SOAPAction") || "",
-      },
+      headers: upstreamHeaders,
       body,
     });
 
