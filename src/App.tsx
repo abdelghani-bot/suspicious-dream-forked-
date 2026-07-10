@@ -8348,7 +8348,7 @@ const LABEL_SIZES = [
       // ترتيب أولوية العناوين: الصياغة الحقيقية اللي بتنزل من رصد الأول، وبعدين بدائل عامة
       const colGtin = findRasdColumn(rows[0], ["رقم بند التجارة العالمي", "بند التجارة العالمي", "gtin", "barcode", "الباركود"]);
       const colBatch = findRasdColumn(rows[0], ["رقم الدفعة", "رقم التشغيلة", "batch", "bn"]);
-      const colExpiry = findRasdColumn(rows[0], ["تاريخ انتهاء الصلاحية", "تاريخ الصلاحية", "expiry", "xd"]);
+      const colExpiry = findRasdColumn(rows[0], ["تاريخ الإنتهاء", "تاريخ الانتهاء", "تاريخ انتهاء الصلاحية", "تاريخ الصلاحية", "expiry", "xd"]);
       const colQty = findRasdColumn(rows[0], ["الكمية المستلمة", "الكمية", "quantity", "qty"]);
 
       if (!colGtin) {
