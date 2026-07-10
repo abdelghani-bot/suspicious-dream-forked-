@@ -7946,6 +7946,40 @@ function PurchaseModule({
   const rasdExcelInputRef = useRef(null);
   const [rasdImportBusy, setRasdImportBusy] = useState(false);
   const [rasdImportResult, setRasdImportResult] = useState(null); // { matchedCount, unmatched: [{gtin,batch,expiry,qty}] }
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 استيراد فاتورة مورد عام (كوزمتيك وغيرها) من ملف Excel بأي تنسيق —
+  // مش زي ملف رصد اللي عناوينه شبه ثابتة، هنا كل مورد بيبعت ملفه بشكله الخاص.
+  // بنعتمد على: (1) بروفايل تربيطة أعمدة محفوظ لكل مورد (يتحفظ أول مرة ويتطبق تلقائيًا بعد كده)
+  // (2) قاموس "كود المورد → صنف عندنا" محفوظ لكل مورد (زي باركود إضافي خاص بيه)
+  // (3) مطابقة تقريبية بالاسم لو مفيش باركود ولا كود مسجل، مع اقتراح أقرب الأصناف
+  // ═══════════════════════════════════════════════════
+  const supplierExcelInputRef = useRef(null);
+  const [supplierImportBusy, setSupplierImportBusy] = useState(false);
+  const [supplierImportResult, setSupplierImportResult] = useState(null); // { matchedCount, needsReview: [{key,name,code,barcode,qty,price,suggestions,saveCode}] }
+  const [supplierColumnProfile, setSupplierColumnProfile] = useState(null); // { name, code, barcode, qty, price } لهذا المورد
+  const [supplierCodesMap, setSupplierCodesMap] = useState({}); // { [supplier_code]: product_id } لهذا المورد
+  const [pendingSupplierRows, setPendingSupplierRows] = useState(null);
+  const [showColumnMapModal, setShowColumnMapModal] = useState(false);
+  const [columnMapDraft, setColumnMapDraft] = useState({ name: "", code: "", barcode: "", qty: "", price: "" });
+  const [reviewNewProductIdx, setReviewNewProductIdx] = useState(null); // index الصف اللي بيتضاف له صنف جديد
+  const [productFormPrefillName, setProductFormPrefillName] = useState("");
+
+  // تحميل بروفايل الأعمدة وقاموس أكواد الأصناف الخاصين بالمورد المختار
+  useEffect(() => {
+    if (!selSupplier || !pharmacyId) { setSupplierCodesMap({}); setSupplierColumnProfile(null); return; }
+    supabase.from("supplier_product_codes").select("supplier_code, product_id")
+      .eq("pharmacy_id", pharmacyId).eq("supplier_id", selSupplier)
+      .then(({ data }) => {
+        const map = {};
+        (data || []).forEach((r) => { map[r.supplier_code] = r.product_id; });
+        setSupplierCodesMap(map);
+      });
+    supabase.from("supplier_import_profiles").select("column_mapping")
+      .eq("pharmacy_id", pharmacyId).eq("supplier_id", selSupplier).maybeSingle()
+      .then(({ data }) => setSupplierColumnProfile(data?.column_mapping || null));
+  }, [selSupplier, pharmacyId]);
+
   const [showDetail, setShowDetail] = useState(null);
   const [editItems, setEditItems] = useState([]);
   const [editSupplier, setEditSupplier] = useState("");
@@ -8358,6 +8392,236 @@ const LABEL_SIZES = [
         },
       ];
     });
+  };
+
+  // إضافة صف بكمية وتكلفة وحدة محدَّدتين — ده اللي بيستخدمه استيراد فاتورة المورد العام
+  // (الخصم وتاريخ الصلاحية بيفضلوا زي ما هما، الصيدلي بيدخلهم يدويًا في نفس الصف بعد كده)
+  const addItemWithQtyAndCost = (p, qty, cost) => {
+    setItems((prev) => [
+      ...prev,
+      {
+        ...p,
+        qty: qty || 1,
+        bonusQty: 0,
+        discount1: 0,
+        discount2: 0,
+        receivedCost: cost > 0 ? cost : p.cost,
+        newSalePrice: p.price,
+        expiry_date: "",
+        batch_number: "",
+        _rowKey: p.id + "_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+      },
+    ]);
+  };
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 مطابقة تقريبية بالاسم (Dice coefficient على bigrams) — بتوحّد أشكال الهمزة/الألف
+  // المقصورة/التاء المربوطة وتشيل التشكيل والمسافات الزيادة الأول، عشان الفروق الإملائية
+  // البسيطة بين اسم الصنف في ملف المورد واسمه عندنا متكسرش المطابقة.
+  // ═══════════════════════════════════════════════════
+  const normalizeArabicName = (s) =>
+    stripInvisibleChars(String(s || ""))
+      .replace(/[\u064B-\u065F\u0670]/g, "") // تشكيل
+      .replace(/[إأآا]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/ة/g, "ه")
+      .replace(/[^\u0600-\u06FFa-zA-Z0-9]+/g, " ")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+  const diceCoefficient = (a, b) => {
+    const na = normalizeArabicName(a);
+    const nb = normalizeArabicName(b);
+    if (!na || !nb) return 0;
+    if (na === nb) return 1;
+    const grams = (s) => { const g = []; for (let i = 0; i < s.length - 1; i++) g.push(s.slice(i, i + 2)); return g; };
+    const ga = grams(na), gb = grams(nb);
+    if (!ga.length || !gb.length) return na === nb ? 1 : 0;
+    const map = new Map();
+    ga.forEach((g) => map.set(g, (map.get(g) || 0) + 1));
+    let inter = 0;
+    gb.forEach((g) => {
+      const c = map.get(g) || 0;
+      if (c > 0) { inter++; map.set(g, c - 1); }
+    });
+    return (2 * inter) / (ga.length + gb.length);
+  };
+
+  const findBestProductMatches = (name, topN = 3) =>
+    products
+      .map((p) => ({ product: p, score: diceCoefficient(name, p.name_ar || p.name || "") }))
+      .filter((s) => s.score >= 0.25)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topN);
+
+  // كلمات مفتاحية موسّعة لاكتشاف أعمدة فاتورة أي مورد (مش بس رصد) — الاسم/الكود/الباركود/الكمية/السعر
+  const SUPPLIER_COL_CANDIDATES = {
+    name: ["اسم الصنف", "اسم المنتج", "الصنف", "الوصف", "product name", "item name", "description", "الاسم", "name"],
+    code: ["كود الصنف", "كود المنتج", "رقم الصنف", "item code", "product code", "sku", "كود", "code"],
+    barcode: ["الباركود", "باركود", "barcode", "gtin", "رقم البند"],
+    qty: ["الكمية المطلوبة", "الكمية الموردة", "الكمية", "qty", "quantity", "العدد"],
+    price: ["سعر الوحدة", "سعر الشراء", "السعر", "unit price", "price", "سعر"],
+  };
+  const autoDetectSupplierColumns = (headerRow) => ({
+    name: findRasdColumn(headerRow, SUPPLIER_COL_CANDIDATES.name),
+    code: findRasdColumn(headerRow, SUPPLIER_COL_CANDIDATES.code),
+    barcode: findRasdColumn(headerRow, SUPPLIER_COL_CANDIDATES.barcode),
+    qty: findRasdColumn(headerRow, SUPPLIER_COL_CANDIDATES.qty),
+    price: findRasdColumn(headerRow, SUPPLIER_COL_CANDIDATES.price),
+  });
+
+  // تسجيل كود المورد كـ"باركود إضافي" دائم مربوط بيه — من ساعتها أي فاتورة جاية منه وفيها
+  // نفس الكود هتتطابق تلقائيًا من غير أي مراجعة يدوية
+  const registerSupplierCode = async (code, productId) => {
+    if (!code || !selSupplier || !pharmacyId) return;
+    setSupplierCodesMap((prev) => ({ ...prev, [code]: productId }));
+    const { error } = await supabase.from("supplier_product_codes").upsert(
+      { pharmacy_id: pharmacyId, supplier_id: selSupplier, supplier_code: code, product_id: productId },
+      { onConflict: "pharmacy_id,supplier_id,supplier_code" }
+    );
+    if (error) console.error("فشل حفظ كود المورد:", error.message);
+  };
+
+  // تجميع صفوف الملف حسب (باركود أو كود مورد أو اسم) ثم مطابقتها بأصنافنا بالترتيب:
+  // 1) باركود  2) كود مورد محفوظ سابقًا  3) مطابقة تقريبية بالاسم (تلقائي لو التطابق قوي جدًا، وإلا للمراجعة)
+  const processSupplierRows = (rows, mapping) => {
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const rawName = mapping.name ? stripInvisibleChars(row[mapping.name] ?? "").trim() : "";
+      if (!rawName) return;
+      const rawCode = mapping.code ? stripInvisibleChars(row[mapping.code] ?? "").trim() : "";
+      const rawBarcode = mapping.barcode ? normalizeExcelGtin(row[mapping.barcode]) : "";
+      const qty = mapping.qty ? (Number(row[mapping.qty]) || 1) : 1;
+      const price = mapping.price ? (Number(row[mapping.price]) || 0) : 0;
+      const key = rawBarcode || rawCode || rawName;
+      const prev = grouped.get(key);
+      grouped.set(key, {
+        key, name: rawName, code: rawCode, barcode: rawBarcode,
+        qty: (prev?.qty || 0) + qty,
+        price: price || prev?.price || 0,
+      });
+    });
+
+    let matchedCount = 0;
+    const needsReview = [];
+    for (const entry of grouped.values()) {
+      let found = entry.barcode
+        ? products.find((x) => normGtin(x.barcode) === normGtin(entry.barcode) || normGtin(x.gtin) === normGtin(entry.barcode))
+        : null;
+      if (!found && entry.code && supplierCodesMap[entry.code]) {
+        found = products.find((x) => String(x.id) === String(supplierCodesMap[entry.code]));
+      }
+      if (found) {
+        addItemWithQtyAndCost(found, entry.qty, entry.price);
+        matchedCount++;
+        continue;
+      }
+      const suggestions = findBestProductMatches(entry.name, 3);
+      if (suggestions.length && suggestions[0].score >= 0.85) {
+        addItemWithQtyAndCost(suggestions[0].product, entry.qty, entry.price);
+        matchedCount++;
+        if (entry.code) registerSupplierCode(entry.code, suggestions[0].product.id);
+        continue;
+      }
+      needsReview.push({ ...entry, suggestions, saveCode: !!entry.code });
+    }
+
+    setSupplierImportResult({ matchedCount, needsReview });
+    showToast(
+      `تم استيراد ${matchedCount} صنف تلقائيًا ✓` +
+      (needsReview.length ? ` — و${needsReview.length} صنف محتاج مراجعة يدوية` : "")
+    );
+  };
+
+  const handleSupplierExcelFile = async (file) => {
+    if (!file) return;
+    if (!selSupplier) { showToast("اختر المورد الأول", "error"); return; }
+    setSupplierImportBusy(true);
+    setSupplierImportResult(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+      if (!rows.length) {
+        showToast("الملف فارغ أو مفيش صفوف بيانات فيه", "error");
+        setSupplierImportBusy(false);
+        return;
+      }
+
+      const headerKeys = Object.keys(rows[0]);
+      // 🆕 لو فيه بروفايل أعمدة محفوظ لهذا المورد من فاتورة سابقة، وأعمدته الأساسية (اسم+كمية)
+      // لسه موجودة بنفس الاسم في الملف الجديد → طبّقه على طول من غير ما يشوف شاشة التأكيد
+      if (
+        supplierColumnProfile?.name && headerKeys.includes(supplierColumnProfile.name) &&
+        supplierColumnProfile?.qty && headerKeys.includes(supplierColumnProfile.qty)
+      ) {
+        processSupplierRows(rows, supplierColumnProfile);
+        showToast("✓ استُخدمت نفس تربيطة الأعمدة زي آخر فاتورة من هذا المورد");
+        setSupplierImportBusy(false);
+        if (supplierExcelInputRef.current) supplierExcelInputRef.current.value = "";
+        return;
+      }
+
+      // مفيش بروفايل مناسب → اكتشاف تلقائي بكلمات مفتاحية موسّعة + عرض شاشة تأكيد/تعديل
+      setColumnMapDraft(autoDetectSupplierColumns(rows[0]));
+      setPendingSupplierRows(rows);
+      setShowColumnMapModal(true);
+    } catch (e) {
+      showToast("تعذّرت قراءة الملف: " + (e?.message || e), "error");
+    } finally {
+      setSupplierImportBusy(false);
+      if (supplierExcelInputRef.current) supplierExcelInputRef.current.value = "";
+    }
+  };
+
+  const confirmColumnMapping = async () => {
+    if (!columnMapDraft.name || !columnMapDraft.qty) {
+      showToast("لازم تحدد عمود الاسم وعمود الكمية على الأقل", "error");
+      return;
+    }
+    setShowColumnMapModal(false);
+    setSupplierColumnProfile(columnMapDraft);
+    if (pharmacyId && selSupplier) {
+      const { error } = await supabase.from("supplier_import_profiles").upsert(
+        { pharmacy_id: pharmacyId, supplier_id: selSupplier, column_mapping: columnMapDraft },
+        { onConflict: "pharmacy_id,supplier_id" }
+      );
+      if (error) showToast("⚠️ اتطبّقت الأعمدة بس فشل حفظ البروفايل الدائم: " + error.message, "error");
+    }
+    processSupplierRows(pendingSupplierRows, columnMapDraft);
+    setPendingSupplierRows(null);
+  };
+
+  // اختيار صنف موجود يدويًا لصف "محتاج مراجعة"
+  const resolveReviewItem = (idx, product) => {
+    const item = supplierImportResult.needsReview[idx];
+    if (!item) return;
+    addItemWithQtyAndCost(product, item.qty, item.price);
+    if (item.code && item.saveCode) registerSupplierCode(item.code, product.id);
+    setSupplierImportResult((prev) => ({
+      matchedCount: prev.matchedCount + 1,
+      needsReview: prev.needsReview.filter((_, i2) => i2 !== idx),
+    }));
+    showToast(`اترابط الصنف "${product.name_ar || product.name}" وأتضاف للفاتورة ✓`);
+  };
+
+  const toggleReviewSaveCode = (idx) => {
+    setSupplierImportResult((prev) => ({
+      ...prev,
+      needsReview: prev.needsReview.map((it, i2) => (i2 === idx ? { ...it, saveCode: !it.saveCode } : it)),
+    }));
+  };
+
+  // فتح شاشة "إضافة صنف جديد" مع تعبئة الاسم من صف الملف، وربط الصنف الناتج بهذا الصف بعد الحفظ
+  const openAddProductFromReview = (idx) => {
+    const item = supplierImportResult.needsReview[idx];
+    if (!item) return;
+    setReviewNewProductIdx(idx);
+    setProductFormPrefillName(item.name);
+    setProductFormEditId(null);
+    setShowProductForm(true);
   };
 
   // ==================== استيراد ملف Excel من موقع رصد (GTIN / SN / BN / XD) ====================
@@ -8970,6 +9234,149 @@ const LABEL_SIZES = [
           )}
         </div>
 
+        {/* 🆕 استيراد فاتورة مورد عام (كوزمتيك وغيرها) — أي شكل ملف إكسيل، بيتعلم أعمدة كل مورد مرة واحدة */}
+        <div style={{ marginBottom: 14 }}>
+          <input
+            ref={supplierExcelInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            style={{ display: "none" }}
+            onChange={(e) => handleSupplierExcelFile(e.target.files?.[0])}
+          />
+          <Btn
+            icon="upload"
+            variant="secondary"
+            onClick={() => supplierExcelInputRef.current?.click()}
+            disabled={supplierImportBusy || !selSupplier}
+          >
+            {supplierImportBusy ? "جارٍ الاستيراد..." : "📥 استيراد فاتورة مورد (Excel)"}
+          </Btn>
+          {!selSupplier && (
+            <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>اختر المورد الأول عشان نقدر نتعرف على ترتيب أعمدة ملفه ونحفظه له</div>
+          )}
+
+          {supplierImportResult && supplierImportResult.needsReview.length > 0 && (
+            <div
+              style={{
+                marginTop: 8,
+                background: COLORS.goldSoft,
+                border: `1px solid ${COLORS.gold}`,
+                borderRadius: 8,
+                padding: "8px 12px",
+                fontSize: 12,
+                color: COLORS.textPrimary,
+              }}
+            >
+              ⚠️ {supplierImportResult.needsReview.length} صنف محتاج مراجعة يدوية (مطابقة الاسم مش أكيدة كفاية أو مالهاش نتيجة):
+              <div style={{ marginTop: 6, maxHeight: 280, overflowY: "auto" }}>
+                {supplierImportResult.needsReview.map((item, idx) => (
+                  <div key={item.key + idx} style={{ padding: "8px 0", borderBottom: `1px dashed ${COLORS.gold}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary }}>{item.name}</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 11, color: COLORS.textDim }}>
+                      {item.code && `كود المورد: ${item.code} `}
+                      {item.barcode && `— باركود: ${item.barcode} `}
+                      — كمية: {item.qty}
+                      {item.price > 0 && ` — سعر: ${item.price}`}
+                    </div>
+
+                    {/* أقرب اقتراحات بالاسم */}
+                    {item.suggestions.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                        {item.suggestions.map((s, si) => (
+                          <button
+                            key={si}
+                            onClick={() => resolveReviewItem(idx, s.product)}
+                            style={{
+                              fontSize: 11, padding: "4px 10px", borderRadius: 20,
+                              border: `1px solid ${COLORS.green}`, background: COLORS.greenSoft,
+                              color: COLORS.green, cursor: "pointer",
+                            }}
+                          >
+                            ✅ {s.product.name_ar || s.product.name} ({Math.round(s.score * 100)}%)
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          const pid = e.target.value;
+                          if (!pid) return;
+                          const p = products.find((x) => String(x.id) === pid);
+                          if (p) resolveReviewItem(idx, p);
+                        }}
+                        style={{
+                          fontSize: 11, maxWidth: 240, padding: "3px 6px", borderRadius: 6,
+                          border: `1px solid ${COLORS.gold}`, background: "#fff", color: COLORS.textPrimary,
+                        }}
+                      >
+                        <option value="">-- اربطه يدويًا بصنف موجود --</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name_ar || p.name} {p.barcode ? `(${p.barcode})` : ""}</option>
+                        ))}
+                      </select>
+
+                      <Btn size="sm" variant="secondary" icon="plus" onClick={() => openAddProductFromReview(idx)}>
+                        إضافة كصنف جديد
+                      </Btn>
+
+                      {item.code && (
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: COLORS.textDim, cursor: "pointer" }}>
+                          <input type="checkbox" checked={item.saveCode} onChange={() => toggleReviewSaveCode(idx)} />
+                          احفظ الكود "{item.code}" دائمًا لهذا المورد
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 🆕 شاشة تأكيد/تعديل تربيطة أعمدة ملف المورد — تظهر أول فاتورة من كل مورد، وبعدها بتتحفظ وتتطبق تلقائيًا */}
+        <Modal open={showColumnMapModal} onClose={() => setShowColumnMapModal(false)} title="تأكيد أعمدة ملف المورد">
+          {pendingSupplierRows && (
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 12 }}>
+                حاولنا نتعرف على أعمدة الملف تلقائيًا — راجع كل خانة وصحّح لو محتاجة. هنحفظ التربيطة دي لهذا المورد فيتطبقوا تلقائيًا في فواتيره الجاية.
+              </div>
+              {[
+                { key: "name", label: "عمود اسم الصنف", required: true },
+                { key: "qty", label: "عمود الكمية", required: true },
+                { key: "code", label: "عمود كود الصنف عند المورد", required: false },
+                { key: "barcode", label: "عمود الباركود/GTIN", required: false },
+                { key: "price", label: "عمود سعر الوحدة", required: false },
+              ].map((f) => (
+                <div key={f.key} style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4, display: "block" }}>
+                    {f.label} {f.required && <span style={{ color: COLORS.red }}>*</span>}
+                  </label>
+                  <select
+                    value={columnMapDraft[f.key] || ""}
+                    onChange={(e) => setColumnMapDraft((p) => ({ ...p, [f.key]: e.target.value || null }))}
+                    style={{
+                      width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                      borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13,
+                    }}
+                  >
+                    <option value="">-- لا يوجد --</option>
+                    {Object.keys(pendingSupplierRows[0] || {}).map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                <Btn variant="secondary" onClick={() => setShowColumnMapModal(false)}>إلغاء</Btn>
+                <Btn icon="check" onClick={confirmColumnMapping}>تأكيد وحفظ لهذا المورد</Btn>
+              </div>
+            </div>
+          )}
+        </Modal>
+
         <div style={{ position: "relative", marginBottom: 14, display: "flex", gap: 8, alignItems: "flex-start" }}>
           <div style={{ position: "relative", flex: 1 }}>
           <input
@@ -9440,14 +9847,22 @@ const LABEL_SIZES = [
       {/* 🆕 نافذة إضافة/تعديل صنف — تظهر فوق فاتورة الشراء وتفضل الفاتورة مفتوحة خلفها */}
       <ProductFormModal
         open={showProductForm}
-        onClose={() => setShowProductForm(false)}
+        onClose={() => { setShowProductForm(false); setReviewNewProductIdx(null); setProductFormPrefillName(""); }}
         editingId={productFormEditId}
         products={products}
         setProducts={setProducts}
         showToast={showToast}
         pharmacyId={pharmacyId}
         currentUser={currentUser}
+        prefillName={productFormPrefillName}
         onSaved={(saved) => {
+          // 🆕 لو الصنف ده أُضيف من مراجعة استيراد فاتورة مورد، اربطه بنفس الصف بدل الإضافة العادية
+          if (reviewNewProductIdx != null && saved?.id) {
+            resolveReviewItem(reviewNewProductIdx, saved);
+            setReviewNewProductIdx(null);
+            setProductFormPrefillName("");
+            return;
+          }
           // لو صنف جديد (مش تعديل)، نضيفه تلقائياً لسطور الفاتورة الحالية
           if (!productFormEditId && saved?.id) {
             const full = { ...saved };
@@ -13493,6 +13908,7 @@ function ProductFormModal({
   currentUser,
   onSaved,             // (savedProduct) => void — يُستدعى بعد الحفظ بنجاح
   onRequestAddManufacturer, // اختياري: فتح شاشة إدارة الشركات المنتجة الكاملة
+  prefillName = "",    // 🆕 اسم مبدئي يتحط في الفورم (مثلاً من صف فاتورة مورد لسه محتاج يتربط بصنف)
 }) {
   const [manufacturers, setManufacturers] = useState([]);
   const [allIngredients, setAllIngredients] = useState([]);
@@ -13583,7 +13999,7 @@ function ProductFormModal({
         });
       setSimilarSearch(""); setSimilarProductId("");
     } else {
-      setForm({ ...blank, id: "P" + Date.now() });
+      setForm({ ...blank, id: "P" + Date.now(), nameAr: prefillName || "" });
       setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
       setSelectedIngredients([]);
       setSimilarSearch(""); setSimilarProductId("");
