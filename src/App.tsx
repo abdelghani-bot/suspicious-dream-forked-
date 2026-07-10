@@ -811,11 +811,22 @@ const RasdItemsEditor = ({ items, onChange }) => {
     onChange(items.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
   const removeRow = (i) => onChange(items.filter((_, idx) => idx !== i));
 
+  // 🆕 مسح باركود الصنف (GS1) بيملأ GTIN + BN + XD + SN تلقائيًا في سطر جديد،
+  // بدل ما تدخلهم يدويًا واحد واحد في الخانات الأربعة.
+  const handleBarcodeScan = (scan) => {
+    const gtin = scan.gtin || scan.code || "";
+    if (!gtin) return;
+    onChange([...items, { gtin, serial: scan.serial || "", batch: scan.batch || "", expiry: scan.expiry || "" }]);
+  };
+
   return (
     <div>
+      <div style={{ marginBottom: 10 }}>
+        <BarcodeScanner onScan={handleBarcodeScan} placeholder="امسح باركود الصنف لإضافته تلقائيًا (GTIN + دفعة + صلاحية + تسلسلي)..." />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim }}>الأصناف ({items.length})</span>
-        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة صنف</Btn>
+        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة صنف يدويًا</Btn>
       </div>
       {items.length === 0 && (
         <div style={{ fontSize: 12, color: COLORS.textDim, padding: "10px 0" }}>لا يوجد أصناف — اضغط "إضافة صنف"</div>
@@ -896,11 +907,21 @@ const RasdItemsEditorBatch = ({ items, onChange }) => {
     onChange(items.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
   const removeRow = (i) => onChange(items.filter((_, idx) => idx !== i));
 
+  // 🆕 مسح باركود الصنف (GS1) بيملأ GTIN + BN + XD تلقائيًا في سطر جديد (الكمية افتراضيًا 1 وتقدر تعدّلها).
+  const handleBarcodeScan = (scan) => {
+    const gtin = scan.gtin || scan.code || "";
+    if (!gtin) return;
+    onChange([...items, { gtin, quantity: 1, batch: scan.batch || "", expiry: scan.expiry || "" }]);
+  };
+
   return (
     <div>
+      <div style={{ marginBottom: 10 }}>
+        <BarcodeScanner onScan={handleBarcodeScan} placeholder="امسح باركود الصنف لإضافته تلقائيًا (GTIN + دفعة + صلاحية)..." />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textDim }}>الدفعات ({items.length})</span>
-        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة دفعة</Btn>
+        <Btn size="sm" variant="secondary" icon="plus" onClick={addRow}>إضافة دفعة يدويًا</Btn>
       </div>
       {items.length === 0 && (
         <div style={{ fontSize: 12, color: COLORS.textDim, padding: "10px 0" }}>لا يوجد دفعات — اضغط "إضافة دفعة"</div>
@@ -10327,14 +10348,25 @@ function ReturnsModule({
   }, [type]);
 
   // ── فلترة فواتير المبيعات ──
-  const filteredSaleInvoices = sales.filter((s) => {
-    const q = invoiceSearch.toLowerCase();
-    if (!q) return true;
-    return (
-      (s.id || "").toLowerCase().includes(q) ||
-      (s.customer_name || "").toLowerCase().includes(q)
-    );
-  });
+  // 🆕 بحث موسّع: رقم الفاتورة / اسم العميل / اسم الكاشير / اسم أي صنف في الفاتورة / الإجمالي / التاريخ
+  // (مهم لحالة "زبون عادي" من غير فاتورة ورقية ومن غير صلاحية فتح التقارير — يقدر يوصلها
+  // بمعرفة الصنف اللي اشتراه أو المبلغ أو التاريخ التقريبي بدل ما يكون محتاج رقم الفاتورة بالظبط)
+  const filteredSaleInvoices = sales
+    .filter((s) => {
+      const q = invoiceSearch.trim().toLowerCase();
+      if (!q) return true;
+      const itemsArr = typeof s.items === "string" ? (() => { try { return JSON.parse(s.items); } catch { return []; } })() : (s.items || []);
+      return (
+        (s.id || "").toLowerCase().includes(q) ||
+        (s.customer_name || "").toLowerCase().includes(q) ||
+        (s.cashier_name || "").toLowerCase().includes(q) ||
+        (s.date || "").includes(q) ||
+        String(s.total || "").includes(q) ||
+        itemsArr.some((it) => (it.name || "").toLowerCase().includes(q))
+      );
+    })
+    // الأحدث أولاً — يسهّل تصفح آخر الفواتير لما العميل يفتكر التاريخ بس مش رقم الفاتورة
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // ── اختيار فاتورة مبيعات ──
   const handleSelectInvoice = (invoice) => {
@@ -10931,7 +10963,7 @@ function ReturnsModule({
               onChange={(e) => { setInvoiceSearch(e.target.value); setSelInvoice(null); setReturnItems([]); }}
               onFocus={() => setInvoiceSearchOpen(true)}
               onBlur={() => setTimeout(() => setInvoiceSearchOpen(false), 150)}
-              placeholder="ابحث برقم الفاتورة أو اسم العميل..."
+              placeholder="رقم الفاتورة / اسم العميل / اسم الكاشير / اسم الصنف / المبلغ / التاريخ..."
               style={{
                 width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 border: `1px solid ${selInvoice ? COLORS.blue : COLORS.border}`,
@@ -10939,6 +10971,11 @@ function ReturnsModule({
                 fontSize: 14, outline: "none", boxSizing: "border-box",
               }}
             />
+            {!selInvoice && (
+              <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>
+                💡 لو الفاتورة زبون عادي ومعاكش رقمها: دوّر باسم الصنف اللي اتباع، أو المبلغ، أو التاريخ (مثلاً 2026-07-10)، أو اسم الكاشير اللي باع.
+              </div>
+            )}
             {selInvoice && (
               <div style={{ marginTop: 6, padding: "6px 12px", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, fontSize: 12, color: COLORS.green, display: "flex", justifyContent: "space-between" }}>
                 <span>
@@ -10969,8 +11006,9 @@ function ReturnsModule({
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{inv.id}</div>
                         <div style={{ fontSize: 11, color: COLORS.textDim }}>
-                          {inv.customer_name} · {inv.date} · {(inv.total || 0).toFixed(2)} ر.س
+                          {inv.customer_name || "زبون عادي"} · {inv.date} · {(inv.total || 0).toFixed(2)} ر.س
                           {inv.payment === "آجل" && <span style={{ color: COLORS.gold }}> · آجل</span>}
+                          {inv.cashier_name && <span> · {inv.cashier_name}</span>}
                         </div>
                       </div>
                       {isOld && (
@@ -14250,6 +14288,7 @@ function SuppliersModule({
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [supplierNameSearch, setSupplierNameSearch] = useState(""); // 🆕 بحث سريع باسم المورد
   const [payments, setPayments] = useState([]);
   const [orders, setOrders] = useState([]);
   const [showDetail, setShowDetail] = useState(null);
@@ -14910,7 +14949,17 @@ function SuppliersModule({
     showToast(editing ? "تم تعديل المورد ✓" : "تمت إضافة المورد ✓");
   };
 
-  const filteredSuppliers = suppliers.filter((s) => filterStatus === "all" ? true : getSupplierStatus(s) === filterStatus);
+  const filteredSuppliers = suppliers
+    .filter((s) => filterStatus === "all" ? true : getSupplierStatus(s) === filterStatus)
+    .filter((s) => {
+      const q = supplierNameSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        (s.name || "").toLowerCase().includes(q) ||
+        (s.contact || "").toLowerCase().includes(q) ||
+        (s.phone || "").includes(q)
+      );
+    });
 
   // ── helper لإضافة سطر في تفاصيل رصيد أول المدة ──
   const addOpeningDetail = () => {
@@ -14936,6 +14985,21 @@ function SuppliersModule({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الموردين</h2>
         <Btn icon="plus" onClick={openAdd}>إضافة مورد</Btn>
+      </div>
+
+      {/* 🆕 بحث باسم المورد */}
+      <div style={{ position: "relative", marginBottom: 14, maxWidth: 360 }}>
+        <IC n="search" s={16} style={{ position: "absolute", top: "50%", right: 12, transform: "translateY(-50%)", color: COLORS.textDim }} />
+        <input
+          value={supplierNameSearch}
+          onChange={(e) => setSupplierNameSearch(e.target.value)}
+          placeholder="ابحث باسم المورد أو جهة الاتصال أو الجوال..."
+          style={{
+            width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+            border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: "10px 38px 10px 14px",
+            color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box",
+          }}
+        />
       </div>
 
       {/* فلتر الحالة */}
