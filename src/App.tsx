@@ -9160,8 +9160,8 @@ const LABEL_SIZES = [
                   <td style={{ padding: "4px" }}>
                     <input
                       id={`cell-${rowIndex}-expiry_date`}
-                      type="month"
-                      value={item.expiry_date || ""}
+                      type="date"
+                      value={/^\d{4}-\d{2}$/.test(item.expiry_date || "") ? `${item.expiry_date}-01` : (item.expiry_date || "")}
                       onChange={(e) =>
                         updateItem(item.id, "expiry_date", e.target.value)
                       }
@@ -9865,8 +9865,8 @@ const LABEL_SIZES = [
                     </td>
                     <td style={{ padding: "4px" }}>
                       <input
-                        type="month"
-                        value={item.expiry_date || ""}
+                        type="date"
+                        value={/^\d{4}-\d{2}$/.test(item.expiry_date || "") ? `${item.expiry_date}-01` : (item.expiry_date || "")}
                         onChange={(e) =>
                           setEditItems((prev) =>
                             prev.map((i) =>
