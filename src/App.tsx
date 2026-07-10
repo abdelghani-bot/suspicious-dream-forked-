@@ -1341,6 +1341,8 @@ const Login = ({ users, onLogin }) => {
 //   - Transfer/Return → حقل رقم الإشعار في الرد اسمه "NOTIFICATION_ID" بـ underscore، بعكس باقي الخدمات اللي بتستخدم "NOTIFICATIONID"
 // الـ baseUrl الحقيقي + مسارات كل Service الفعلية لازم تتأكد من ملف الـ WSDL (ANNEX-A) اللي بييجي مع كل ISD بعد التسجيل
 const RasdService = {
+  // ⚠️ مؤقت للاختبار اليدوي بس من الـ Console: window.RasdService.checkStatus({items:[{gtin:"...", serial:"..."}]}).then(console.log)
+  // احذف السطر ده بعد ما تخلص اختبار (مش مشكلة أمنية كبيرة لأن باقي الكود بيستخدم نفس الطريقة أصلاً، بس نضافة زيادة عن الحاجة في الإنتاج)
   baseUrl: "", // مثال متوقع: https://rsd.sfda.gov.sa/ws — يتحدد من الإعدادات
   username: "",
   password: "",
@@ -1661,6 +1663,9 @@ const RasdService = {
     return this._callPts("query", body);
   },
 };
+
+// ⚠️ مؤقت للاختبار اليدوي بس — احذف السطر ده بعد ما تخلص اختبار CheckStatus بمنتجات حقيقية
+if (typeof window !== "undefined") window.RasdService = RasdService;
 
 // ==================== RASSD QUEUE (رفع دوري بدل الإرسال الفوري) ====================
 // بدل ما نبعت كل عملية لرصد فورًا ونستنى الرد (وممكن يفشل البيع لو النت بطيء أو رصد واقع)
