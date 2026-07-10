@@ -8309,7 +8309,7 @@ const LABEL_SIZES = [
       if (!d) return "";
       return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
     }
-    const s = String(v).trim();
+    const s = String(v).trim().split(/\s+/)[0]; // يشيل أي وقت زائد بعد التاريخ زي "00:00:00"
     const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
     if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
     const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
@@ -8319,11 +8319,20 @@ const LABEL_SIZES = [
 
   // بيدوّر على اسم العمود الصح مهما اختلفت صياغته في ملف رصد — بيقارن بالتضمين (includes)
   // مش بالتطابق التام، عشان يلحق العناوين الحقيقية زي "رقم بند التجارة العالمي" و"الكمية المستلمة"
-  const normalizeHeader = (s) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
+  // ✅ بيشيل حروف الاتجاه المخفية (RTL mark وغيرها) اللي بتتسرب لما العنوان يتنسخ من صفحة ويب
+  // لإكسيل، وبيوحّد أشكال الهمزة (أ/إ/آ) عشان الفروق الشكلية دي متكسرش المطابقة
+  const normalizeHeader = (s) =>
+    String(s || "")
+      .replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, "")
+      .replace(/[أإآ]/g, "ا")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
   const findRasdColumn = (row, candidates) => {
     const keys = Object.keys(row);
     for (const cand of candidates) {
-      const hit = keys.find((k) => normalizeHeader(k).includes(cand));
+      const normCand = normalizeHeader(cand);
+      const hit = keys.find((k) => normalizeHeader(k).includes(normCand));
       if (hit) return hit;
     }
     return null;
@@ -8348,8 +8357,18 @@ const LABEL_SIZES = [
       // ترتيب أولوية العناوين: الصياغة الحقيقية اللي بتنزل من رصد الأول، وبعدين بدائل عامة
       const colGtin = findRasdColumn(rows[0], ["رقم بند التجارة العالمي", "بند التجارة العالمي", "gtin", "barcode", "الباركود"]);
       const colBatch = findRasdColumn(rows[0], ["رقم الدفعة", "رقم التشغيلة", "batch", "bn"]);
-      const colExpiry = findRasdColumn(rows[0], ["تاريخ الإنتهاء", "تاريخ الانتهاء", "تاريخ انتهاء الصلاحية", "تاريخ الصلاحية", "expiry", "xd"]);
+      let colExpiry = findRasdColumn(rows[0], ["تاريخ الإنتهاء", "تاريخ الانتهاء", "تاريخ انتهاء الصلاحية", "تاريخ الصلاحية", "expiry", "xd"]);
       const colQty = findRasdColumn(rows[0], ["الكمية المستلمة", "الكمية", "quantity", "qty"]);
+
+      // ✅ Fallback: لو اسم عمود الصلاحية مطابقش رغم توحيد الهمزة، جرب العمود اللي بعد
+      // "رقم الدفعة" مباشرة (ترتيب أعمدة ملفات رصد ثابت عادة: GTIN → الكمية → رقم الدفعة → تاريخ الانتهاء)
+      if (!colExpiry && colBatch) {
+        const headerKeys = Object.keys(rows[0]);
+        const batchIdx = headerKeys.indexOf(colBatch);
+        if (batchIdx !== -1 && headerKeys[batchIdx + 1]) {
+          colExpiry = headerKeys[batchIdx + 1];
+        }
+      }
 
       if (!colGtin) {
         showToast("مقدرتش ألاقي عمود الـ GTIN في الملف — تأكد إن أول صف هو صف العناوين", "error");
