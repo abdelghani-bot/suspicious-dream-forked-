@@ -1341,8 +1341,6 @@ const Login = ({ users, onLogin }) => {
 //   - Transfer/Return → حقل رقم الإشعار في الرد اسمه "NOTIFICATION_ID" بـ underscore، بعكس باقي الخدمات اللي بتستخدم "NOTIFICATIONID"
 // الـ baseUrl الحقيقي + مسارات كل Service الفعلية لازم تتأكد من ملف الـ WSDL (ANNEX-A) اللي بييجي مع كل ISD بعد التسجيل
 const RasdService = {
-  // ⚠️ مؤقت للاختبار اليدوي بس من الـ Console: window.RasdService.checkStatus({items:[{gtin:"...", serial:"..."}]}).then(console.log)
-  // احذف السطر ده بعد ما تخلص اختبار (مش مشكلة أمنية كبيرة لأن باقي الكود بيستخدم نفس الطريقة أصلاً، بس نضافة زيادة عن الحاجة في الإنتاج)
   baseUrl: "", // مثال متوقع: https://rsd.sfda.gov.sa/ws — يتحدد من الإعدادات
   username: "",
   password: "",
@@ -1664,9 +1662,6 @@ const RasdService = {
   },
 };
 
-// ⚠️ مؤقت للاختبار اليدوي بس — احذف السطر ده بعد ما تخلص اختبار CheckStatus بمنتجات حقيقية
-if (typeof window !== "undefined") window.RasdService = RasdService;
-
 // ==================== RASSD QUEUE (رفع دوري بدل الإرسال الفوري) ====================
 // بدل ما نبعت كل عملية لرصد فورًا ونستنى الرد (وممكن يفشل البيع لو النت بطيء أو رصد واقع)
 // بنسجل العملية في طابور محلي، وبنرفع كل اللي اتراكم كل فترة (زي أنظمة رصد الحقيقية اللي بترفع كل 10 دقايق)
@@ -1950,7 +1945,10 @@ function buildLabelBarcode(item) {
 // (زي اللي بيطلع من GS1) يتطابق مع الباركود الأصلي المسجل في قاعدة البيانات
 // (زي EAN-13 من غير الصفر) من غير ما نحتاج نعدّل بيانات الأصناف نفسها.
 function normGtin(v) {
-  return String(v || "").trim().replace(/^0+(?=\d)/, "");
+  // بنشيل أي حاجة مش رقم (مسافات عادية، مسافات مخفية زي NBSP/zero-width، شرط "-"، إلخ)
+  // اللي ممكن تتسرب لخانة الباركود من النسخ واللصق من موقع رصد أو ملف الإكسيل، عشان
+  // المقارنة تبقى بالأرقام بس - قبل ما نشيل الأصفار الزيادة على الشمال.
+  return String(v || "").replace(/\D+/g, "").replace(/^0+(?=\d)/, "");
 }
 // ==================== PHARMACY SHELF BACKGROUND ====================
 // خلفية موحّدة (رفوف + علب أدوية + بلور) — تُستخدم مرة واحدة في الـ wrapper
@@ -8834,10 +8832,44 @@ const LABEL_SIZES = [
               }}
             >
               ⚠️ {rasdImportResult.unmatched.length} صنف من الملف مالوش GTIN مطابق عندنا (لازم تتضاف الأصناف دي الأول أو تتربط باركوداتها):
-              <div style={{ marginTop: 6, maxHeight: 120, overflowY: "auto" }}>
+              <div style={{ marginTop: 6, maxHeight: 180, overflowY: "auto" }}>
                 {rasdImportResult.unmatched.map((u, idx) => (
-                  <div key={idx} style={{ fontFamily: "monospace", fontSize: 11, color: COLORS.textDim, padding: "2px 0" }}>
-                    GTIN: {u.gtin} {u.batch ? `— تشغيلة: ${u.batch}` : ""} {u.expiry ? `— صلاحية: ${u.expiry}` : ""} {u.qty > 1 ? `— كمية: ${u.qty}` : ""}
+                  <div key={idx} style={{ padding: "4px 0", borderBottom: `1px dashed ${COLORS.gold}` }}>
+                    <div style={{ fontFamily: "monospace", fontSize: 11, color: COLORS.textDim }}>
+                      GTIN: {u.gtin} {u.batch ? `— تشغيلة: ${u.batch}` : ""} {u.expiry ? `— صلاحية: ${u.expiry}` : ""} {u.qty > 1 ? `— كمية: ${u.qty}` : ""}
+                    </div>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        const pid = e.target.value;
+                        if (!pid) return;
+                        const p = products.find((x) => String(x.id) === pid);
+                        if (!p) return;
+                        addItemWithQty(p, u.expiry, u.batch, u.qty);
+                        setRasdImportResult((prev) => ({
+                          matchedCount: prev.matchedCount + 1,
+                          unmatched: prev.unmatched.filter((_, i2) => i2 !== idx),
+                        }));
+                        showToast(`اترابط الصنف "${p.name}" وأتضاف للفاتورة ✓ — لو ده بيتكرر، راجع الباركود المسجل في كارت الصنف`);
+                      }}
+                      style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        maxWidth: 280,
+                        padding: "3px 6px",
+                        borderRadius: 6,
+                        border: `1px solid ${COLORS.gold}`,
+                        background: "#fff",
+                        color: COLORS.textPrimary,
+                      }}
+                    >
+                      <option value="">-- اربطه يدويًا بصنف موجود --</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.barcode ? `(${p.barcode})` : ""}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 ))}
               </div>
