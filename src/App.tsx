@@ -8301,6 +8301,11 @@ const LABEL_SIZES = [
     return String(v).trim();
   };
 
+  // بيشيل حروف الاتجاه المخفية (RTL/LTR mark, NBSP...) اللي بتتسرب لقيم الخلايا (مش بس العناوين)
+  // لما البيانات تتنسخ من موقع رصد على الويب لملف إكسيل — لو سابناها، الـ regex بتاعة التاريخ
+  // بتفشل وتاريخ الصلاحية يفضل فاضي في حقل input[type=date] من غير أي خطأ ظاهر
+  const stripInvisibleChars = (s) => String(s || "").replace(/[\u200B-\u200F\u202A-\u202E\uFEFF\u00A0]/g, "");
+
   // تاريخ الصلاحية في ملفات رصد بييجي إما نص (dd/mm/yyyy أو yyyy-mm-dd) أو رقم تاريخ إكسيل
   const normalizeExcelExpiry = (v) => {
     if (v == null || v === "") return "";
@@ -8309,7 +8314,7 @@ const LABEL_SIZES = [
       if (!d) return "";
       return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
     }
-    const s = String(v).trim().split(/\s+/)[0]; // يشيل أي وقت زائد بعد التاريخ زي "00:00:00"
+    const s = stripInvisibleChars(v).trim().split(/\s+/)[0]; // يشيل أي وقت زائد بعد التاريخ زي "00:00:00"
     const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
     if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
     const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
@@ -8382,7 +8387,7 @@ const LABEL_SIZES = [
         const gtinRaw = row[colGtin];
         if (gtinRaw === "" || gtinRaw == null) continue;
         const gtin = normalizeExcelGtin(gtinRaw);
-        const batch = colBatch ? String(row[colBatch] ?? "").trim() : "";
+        const batch = colBatch ? stripInvisibleChars(row[colBatch] ?? "").trim() : "";
         const expiry = colExpiry ? normalizeExcelExpiry(row[colExpiry]) : "";
         const qty = colQty ? (Number(row[colQty]) || 1) : 1;
         const key = gtin + "|" + batch + "|" + expiry;
