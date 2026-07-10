@@ -2172,7 +2172,7 @@ export default function PharmacyPro() {
   setIsLoading(true);
   
   try {
-    const [p, s, c, sa, pu, ret, cp, inv, mfr] = await Promise.all([
+    const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow] = await Promise.all([
       supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
@@ -2182,7 +2182,14 @@ export default function PharmacyPro() {
       supabase.from("credit_payments").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("inventory_logs").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
       supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("pharmacy_settings").select("rasd_config").eq("pharmacy_id", pharmacyId).maybeSingle(),
     ]);
+    // 🆕 مرآة إعدادات رصد من السوبابيز (مصدر الحقيقة) لـ localStorage عشان كل الأماكن
+    // اللي بتقرا الإعداد بشكل sync (طابور رصد، حفظ الفواتير، ...) تشتغل بأحدث نسخة
+    // من غير ما تحتاج تتحول كلها لـ async.
+    if (rasdRow?.data?.rasd_config) {
+      localStorage.setItem("rasd_config", JSON.stringify(rasdRow.data.rasd_config));
+    }
     setProducts(
       (p.data ?? []).map((row) => ({
         ...row,
@@ -2767,7 +2774,7 @@ if (isLoading) return (
             canEditPurchaseReturns={canEdit("returns", "purchases")}
           />
         )}
-        {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} products={products} />}
+        {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} products={products} pharmacyId={pharmacyId} />}
         {tab === "audit_log" && currentUser?.role === "admin" && (
           <AuditLogModule pharmacyId={pharmacyId} showToast={showToast} />
         )}
@@ -5172,7 +5179,30 @@ function POS({
     });
   }
 };
-  const scanBarcode = (scan) => {
+  const scanBarcode = async (scan) => {
+    // ── منع تكرار مسح نفس الرقم التسلسلي: كل SN بيمثل علبة فيزيائية واحدة بس ──
+    if (scan.serial) {
+      // 1) مكرر جوه نفس الفاتورة الحالية (دبل سكان بالغلط)
+      const dupInCart = inv.cart.some((i) => i.serial && i.serial === scan.serial);
+      if (dupInCart) {
+        playWarningBeep();
+        showToast(`⚠️ الرقم التسلسلي (${scan.serial}) اتمسح في الفاتورة دي بالفعل`, "error");
+        return;
+      }
+      // 2) مباع قبل كده في فاتورة تانية ولسه معملوش إرجاع
+      const { data: soldRow } = await supabase
+        .from("sold_serials")
+        .select("invoice_id")
+        .eq("pharmacy_id", pharmacyId)
+        .eq("serial_number", scan.serial)
+        .eq("status", "sold")
+        .maybeSingle();
+      if (soldRow) {
+        playWarningBeep();
+        showToast(`⚠️ الرقم التسلسلي (${scan.serial}) مباع بالفعل في فاتورة ${soldRow.invoice_id} — راجع قبل ما تكمل`, "error");
+        return;
+      }
+    }
     let product = null;
     if (scan.type === "gs1" || scan.type === "custom") {
       product =
@@ -5452,6 +5482,24 @@ function POS({
     if (saleError) {
       showToast("فشل حفظ الفاتورة: " + saleError.message, "error");
       return;
+    }
+
+    // 🆕 تسجيل كل سيريال اتباع في الفاتورة دي — أساس منع تكرار بيع نفس العلبة تاني
+    const serializedItems = inv.cart.filter((i) => i.serial);
+    if (serializedItems.length) {
+      const soldSerialRows = serializedItems.map((i) => ({
+        serial_number: i.serial,
+        product_id: i.id,
+        pharmacy_id: pharmacyId,
+        invoice_id: id,
+        status: "sold",
+        sold_at: new Date().toISOString(),
+      }));
+      const { error: serialError } = await supabase.from("sold_serials").insert(soldSerialRows);
+      if (serialError) {
+        // الفاتورة اتحفظت بنجاح؛ فشل تسجيل التتبع لوحده ميوقفش البيع، بس ننبّه الكاشير يراجعه
+        showToast("⚠️ الفاتورة اتحفظت، لكن تسجيل تتبع السيريال فشل: " + serialError.message, "warning");
+      }
     }
 
     // بنجمع الكمية المباعة لكل منتج (ممكن يكون موزّع على أكتر من سطر بتواريخ صلاحية مختلفة)
@@ -10517,6 +10565,17 @@ function ReturnsModule({
     // + تحديث جزئي على بنود الفاتورة الأصلية في sales (مش الفاتورة كلها)
     // ═══════════════════════════════════════════════════
     if (type === "sales" && selInvoice) {
+      // 🆕 لو السطر المرتجع جاي أصلاً من مسح سيريال، رجّعه "متاح للبيع" تاني في سجل التتبع
+      const serializedReturns = itemsToReturn.filter((i) => i.originalSerial);
+      for (const sr of serializedReturns) {
+        await supabase
+          .from("sold_serials")
+          .update({ status: "returned" })
+          .eq("pharmacy_id", pharmacyId)
+          .eq("serial_number", sr.originalSerial)
+          .eq("status", "sold");
+      }
+
       const updatedItems = (selInvoice.items || []).map((item) => {
         const ri = itemsToReturn.find((i) => i.id === item.id);
         if (!ri) return item;
@@ -11204,7 +11263,7 @@ function ReturnsModule({
   );
 }
 // ==================== RASSD SETTINGS ====================
-function RasdSettings({ showToast, products }) {
+function RasdSettings({ showToast, products, pharmacyId }) {
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem("rasd_config");
     return saved
@@ -11218,6 +11277,18 @@ function RasdSettings({ showToast, products }) {
           uploadIntervalMinutes: 10,
         };
   });
+  // 🆕 لو فيه نسخة أحدث محفوظة في السوبابيز (اتعدّلت من جهاز تاني مثلًا)، هات أحدث نسخة
+  // بمجرد ما الشاشة تفتح، عشان الأدمن دايمًا يشوف آخر إعداد حقيقي مش نسخة محلية قديمة.
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase.from("pharmacy_settings").select("rasd_config").eq("pharmacy_id", pharmacyId).maybeSingle()
+      .then(({ data }) => {
+        if (data?.rasd_config) {
+          setConfig(data.rasd_config);
+          localStorage.setItem("rasd_config", JSON.stringify(data.rasd_config));
+        }
+      });
+  }, [pharmacyId]);
   const [testing, setTesting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -11449,10 +11520,19 @@ function RasdSettings({ showToast, products }) {
     setFlushing(false);
   };
 
-  const save = () => {
+  const save = async () => {
     localStorage.setItem("rasd_config", JSON.stringify(config));
     RasdQueue.stop();
     RasdQueue.start(showToast); // إعادة تشغيل المؤقت بالمدة الجديدة لو اتغيرت
+    if (pharmacyId) {
+      const { error } = await supabase
+        .from("pharmacy_settings")
+        .upsert({ pharmacy_id: pharmacyId, rasd_config: config }, { onConflict: "pharmacy_id" });
+      if (error) {
+        showToast("⚠️ اتحفظ محليًا بس فشل حفظ الإعدادات في قاعدة البيانات: " + error.message, "error");
+        return;
+      }
+    }
     showToast("تم حفظ إعدادات رصد ✓");
   };
 
