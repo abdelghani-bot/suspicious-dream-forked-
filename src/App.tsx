@@ -10297,6 +10297,10 @@ function ReturnsModule({
 
   // مرتجع مشتريات
   const [selPurchaseInvoice, setSelPurchaseInvoice] = useState("");
+  // 🆕 بحث بالمورد — لتصفية فواتير الشراء الخاصة به قبل اختيار الفاتورة
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [supplierSearchOpen, setSupplierSearchOpen] = useState(false);
+  const [selSupplier, setSelSupplier] = useState(null);
 
   // مدير: إرجاع بدون فاتورة
   const isAdmin = currentUser?.role === "admin";
@@ -10311,6 +10315,8 @@ function ReturnsModule({
     setSelInvoice(null);
     setCustomerSearch("");
     setSelCustomer(null);
+    setSupplierSearch("");
+    setSelSupplier(null);
     setReasonOption("");
     setReasonCustom("");
     setSelPurchaseInvoice("");
@@ -10368,6 +10374,25 @@ function ReturnsModule({
 
   // ── فاتورة مشتريات ──
   const purchaseInvoice = purchases.find((p) => p.id === selPurchaseInvoice);
+
+  // 🆕 الكمية المتاحة فعليًا في المخزون من نفس تشغيلة (batch_number + expiry_date) هذا الصنف
+  // في فاتورة الشراء. لازم نحسبها عشان مانسمحش بإرجاع كمية تم بيع جزء أو كل منها بالفعل.
+  // لو الصنف مش متتبّع بتشغيلات (batches فاضية)، بنستخدم إجمالي مخزون الصنف الحالي كسقف آمن.
+  const getPurchaseItemStockQty = (item) => {
+    const prod = products.find((p) => p.id === item.id);
+    if (!prod) return 0;
+    const batches = prod.batches || [];
+    if (batches.length === 0) {
+      return Math.min(item.qty || 0, prod.stock || 0);
+    }
+    const match = batches.find(
+      (b) =>
+        (b.batch_number || "").toString().trim() === (item.batch_number || "").toString().trim() &&
+        (b.expiry_date || "") === (item.expiry_date || "")
+    );
+    return match?.qty ?? 0;
+  };
+
   useEffect(() => {
     if (type === "purchases" && purchaseInvoice) {
       setReturnItems(
@@ -10375,6 +10400,7 @@ function ReturnsModule({
           ...i,
           returnQty: 0,
           alreadyReturnedQty: i.returnedQty || 0, // 🆕 لو خزّنت تفاصيل الإرجاع على مستوى الصنف
+          stockQty: getPurchaseItemStockQty(i), // 🆕 الكمية الموجودة فعليًا في المخزون من هذه التشغيلة
         }))
       );
     }
@@ -10525,6 +10551,14 @@ function ReturnsModule({
         if (origItem && item.returnQty + alreadyReturned > origItem.qty) {
           showToast(
             `⚠️ ${item.name}: الكمية المرتجعة (${item.returnQty}) + سابق إرجاعه (${alreadyReturned}) أكبر من المشتراة (${origItem.qty})`,
+            "error"
+          );
+          return;
+        }
+        // 🆕 مينفعش نرجّع للمورد كمية أكبر من الموجود فعليًا بالمخزون (لو جزء اتباع)
+        if (item.returnQty > (item.stockQty ?? 0)) {
+          showToast(
+            `⚠️ ${item.name}: الكمية المتاحة للإرجاع فعليًا في المخزون هي (${item.stockQty ?? 0}) فقط — جزء من الكمية تم بيعه/صرفه`,
             "error"
           );
           return;
@@ -11009,15 +11043,84 @@ function ReturnsModule({
 
       {/* ════ مرتجع مشتريات ════ */}
       {type === "purchases" && canViewPurchaseReturns && (
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* 🆕 بحث بالمورد — لعرض فواتيره فقط قبل اختيار الفاتورة */}
+          <div style={{ position: "relative" }}>
+            <label style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4, display: "block" }}>🏭 المورد</label>
+            <input
+              value={supplierSearch}
+              onChange={(e) => {
+                setSupplierSearch(e.target.value);
+                if (!e.target.value) setSelSupplier(null);
+              }}
+              onFocus={() => setSupplierSearchOpen(true)}
+              onBlur={() => setTimeout(() => setSupplierSearchOpen(false), 150)}
+              placeholder="ابحث باسم المورد..."
+              style={{
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                border: `1px solid ${selSupplier ? COLORS.blue : COLORS.border}`,
+                borderRadius: 9, padding: "11px 14px", color: COLORS.textPrimary,
+                fontSize: 14, outline: "none", boxSizing: "border-box",
+              }}
+            />
+            {selSupplier && (
+              <div style={{ marginTop: 6, padding: "6px 12px", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, fontSize: 12, color: COLORS.green, display: "flex", justifyContent: "space-between" }}>
+                <span>✅ {selSupplier.name}</span>
+                <button
+                  onClick={() => { setSelSupplier(null); setSupplierSearch(""); setSelPurchaseInvoice(""); }}
+                  style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            {supplierSearchOpen && !selSupplier && (
+              <div style={{
+                position: "absolute", top: "100%", right: 0, left: 0, zIndex: 200,
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                maxHeight: 220, overflowY: "auto", marginTop: 4, boxShadow: "0 8px 24px #0006",
+              }}>
+                {suppliers
+                  .filter((s) => {
+                    const q = supplierSearch.toLowerCase();
+                    if (!q) return true;
+                    return (s.name || "").toLowerCase().includes(q);
+                  })
+                  .slice(0, 15)
+                  .map((s) => (
+                    <div
+                      key={s.id}
+                      onMouseDown={() => {
+                        setSelSupplier(s);
+                        setSupplierSearch(s.name);
+                        setSupplierSearchOpen(false);
+                        setSelPurchaseInvoice(""); // إعادة ضبط الفاتورة المختارة عند تغيير المورد
+                      }}
+                      style={{ padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}
+                    >
+                      {s.name}
+                    </div>
+                  ))}
+                {suppliers.filter((s) => {
+                  const q = supplierSearch.toLowerCase();
+                  if (!q) return true;
+                  return (s.name || "").toLowerCase().includes(q);
+                }).length === 0 && (
+                  <div style={{ padding: 14, color: COLORS.textDim, textAlign: "center", fontSize: 13 }}>لا يوجد موردين مطابقين</div>
+                )}
+              </div>
+            )}
+          </div>
+
           <Select
             label="اختر فاتورة الشراء"
             value={selPurchaseInvoice}
             onChange={setSelPurchaseInvoice}
             options={[
-              { v: "", l: "اختر الفاتورة..." },
+              { v: "", l: selSupplier ? "اختر فاتورة المورد..." : "اختر الفاتورة..." },
               ...purchases
                 .filter((p) => (p.total - (p.returned_amount || 0)) > 0 || (p.returned_amount || 0) === 0)
+                .filter((p) => !selSupplier || String(p.supplier) === String(selSupplier.id))
                 .map((x) => ({
                   v: x.id,
                   l: `${x.id} — ${x.date} — ${(x.total ?? 0).toFixed(2)} ر.س${
@@ -11180,7 +11283,14 @@ function ReturnsModule({
             {!adminOverride && <span style={{ marginRight: 8, color: COLORS.gold, fontSize: 11 }}>⚠️ سيتم التحقق من الباتش والصلاحية</span>}
           </div>
           {returnItems.map((item, i) => {
-            const maxReturnable = Math.max(0, (item.qty || 0) - (item.alreadyReturnedQty || 0));
+            const remainingFromInvoice = Math.max(0, (item.qty || 0) - (item.alreadyReturnedQty || 0));
+            // 🆕 لمرتجع المشتريات: مينفعش نرجّع كمية أكبر من الموجود فعليًا بالمخزون من نفس التشغيلة
+            // (يعني لو جزء أو كل الكمية اتباع، الباقي القابل للإرجاع بيقل تبعًا لذلك)
+            const maxReturnable =
+              type === "purchases"
+                ? Math.max(0, Math.min(remainingFromInvoice, item.stockQty ?? 0))
+                : remainingFromInvoice;
+            const soldQty = type === "purchases" ? Math.max(0, remainingFromInvoice - (item.stockQty ?? 0)) : 0;
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: item.batchMismatch ? `1px solid ${COLORS.red}` : `1px solid ${COLORS.border}` }}>
                 <div style={{ flex: 1 }}>
@@ -11191,6 +11301,9 @@ function ReturnsModule({
                     <span style={{ marginRight: 8 }}>الكمية: {item.qty}</span>
                     {item.alreadyReturnedQty > 0 && (
                       <span style={{ marginRight: 8, color: COLORS.gold }}>سبق إرجاعه: {item.alreadyReturnedQty}</span>
+                    )}
+                    {soldQty > 0 && (
+                      <span style={{ marginRight: 8, color: COLORS.red }}>تم بيع/صرف: {soldQty} (الحد الأقصى للإرجاع: {maxReturnable})</span>
                     )}
                   </div>
                   {item.scannedBatch && (
