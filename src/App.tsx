@@ -5110,11 +5110,17 @@ function POS({
         return prev;
       }
       const newQty = ex.qty + 1;
+      // 🆕 لو السطر ده أصلاً بيتجمّع من كذا سكان (نفس الصنف/التشغيلة/الصلاحية)، لازم نحتفظ
+      // بسيريال كل علبة على حدة جوه مصفوفة "serials"، مش نفقد سيريال العلبة التانية والتالتة...
+      // لأن ده أصل مشكلة "منع تكرار السيريال بيشتغل بس على أول علبة" — كانت العلب بعد الأولى
+      // بتتجمّع في نفس السطر من غير ما سيريالها يتسجل في أي حتة.
+      const existingSerials = ex.serials && ex.serials.length ? ex.serials : (ex.serial ? [ex.serial] : []);
+      const newSerials = p.serial ? [...existingSerials, p.serial] : existingSerials;
       return {
         ...prev,
         cart: prev.cart.map((i) =>
           i.lineId === lineId
-            ? { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty) }
+            ? { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty), serials: newSerials }
             : i
         ),
       };
@@ -5143,6 +5149,8 @@ function POS({
       ...p,
       lineId,
       qty: initQty,
+      // 🆕 أول علبة في السطر ده — تبدأ مصفوفة السيريالات بيها
+      serials: p.serial ? [p.serial] : (p.serials || []),
       dose: "",
       price: cartPrice,
       unitPrice,
@@ -5204,7 +5212,11 @@ function POS({
     // ── منع تكرار مسح نفس الرقم التسلسلي: كل SN بيمثل علبة فيزيائية واحدة بس ──
     if (scan.serial) {
       // 1) مكرر جوه نفس الفاتورة الحالية (دبل سكان بالغلط)
-      const dupInCart = inv.cart.some((i) => i.serial && i.serial === scan.serial);
+      // 🆕 لازم نفتش جوه serials[] كمان، مش بس i.serial المفرد — لأن العلبة التانية والتالتة
+      // من نفس الصنف بتتجمّع في نفس السطر وسيريالها بيتخزن جوه المصفوفة دي (شوف addToCart).
+      const dupInCart = inv.cart.some(
+        (i) => (i.serials && i.serials.includes(scan.serial)) || i.serial === scan.serial
+      );
       if (dupInCart) {
         playWarningBeep();
         showToast(`⚠️ الرقم التسلسلي (${scan.serial}) اتمسح في الفاتورة دي بالفعل`, "error");
@@ -5474,6 +5486,9 @@ function POS({
         gtin: i.gtin || i.barcode,
         batch: i.batch || null,
         serial: i.serial || null,
+        // 🆕 لو السطر ده فيه أكتر من علبة اتمسحت (سيريالات متعددة)، نحفظهم كلهم —
+        // مش بس أول واحد — عشان المرتجعات ورصد يقدروا يتعاملوا مع كل علبة لوحدها.
+        serials: i.serials && i.serials.length ? i.serials : (i.serial ? [i.serial] : []),
         isMissed: !!i.isMissed,
         isJoker: !!i.isJoker,
         expiry:
@@ -5508,16 +5523,19 @@ function POS({
     }
 
     // 🆕 تسجيل كل سيريال اتباع في الفاتورة دي — أساس منع تكرار بيع نفس العلبة تاني
-    const serializedItems = inv.cart.filter((i) => i.serial);
-    if (serializedItems.length) {
-      const soldSerialRows = serializedItems.map((i) => ({
-        serial_number: i.serial,
+    // ✅ نفرد كل سطر لكل السيريالات اللي فيه (سطر ممكن يمثل أكتر من علبة اتمسحت)، مش بس أول واحد
+    const soldSerialRows = inv.cart.flatMap((i) => {
+      const serials = i.serials && i.serials.length ? i.serials : (i.serial ? [i.serial] : []);
+      return serials.map((sn) => ({
+        serial_number: sn,
         product_id: i.id,
         pharmacy_id: pharmacyId,
         invoice_id: id,
         status: "sold",
         sold_at: new Date().toISOString(),
       }));
+    });
+    if (soldSerialRows.length) {
       const { error: serialError } = await supabase.from("sold_serials").insert(soldSerialRows);
       if (serialError) {
         // الفاتورة اتحفظت بنجاح؛ فشل تسجيل التتبع لوحده ميوقفش البيع، بس ننبّه الكاشير يراجعه
@@ -5550,19 +5568,23 @@ function POS({
       }
     }
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
-    const gs1Items = inv.cart.filter((i) => i.serial);
-    if (rasdConfig.enabled && gs1Items.length > 0) {
+    // ✅ كل علبة (سيريال) لازم PRODUCT node مستقل في رصد — مش سطر واحد بكمية 2 وسيريال واحد بس
+    const rasdSaleItems = inv.cart.flatMap((i) => {
+      const serials = i.serials && i.serials.length ? i.serials : (i.serial ? [i.serial] : []);
+      return serials.map((sn) => ({
+        gtin: i.gtin || i.barcode,
+        serial: sn,
+        batch: i.batch,
+        expiry: i.expiry,
+      }));
+    });
+    if (rasdConfig.enabled && rasdSaleItems.length > 0) {
       // بنسجلها في الطابور بدل ما نستنى رد رصد فورًا — كده البيع ميتأخرش لو رصد بطيء أو واقع
       RasdQueue.enqueue("sale", {
         toGln: "0000000000000", // بيع مباشر للمريض (مش عن طريق جهة تسديد)
         prescriptionId: String(invoice.id ?? invoice.invoiceNumber ?? Date.now()),
         prescriptionDate: new Date().toISOString().slice(0, 10),
-        items: gs1Items.map((i) => ({
-          gtin: i.gtin || i.barcode,
-          serial: i.serial,
-          batch: i.batch,
-          expiry: i.expiry,
-        })),
+        items: rasdSaleItems,
       });
     }
 
@@ -10808,6 +10830,8 @@ function ReturnsModule({
         originalBatch: item.batch || null,
         originalExpiry: item.expiry || null,
         originalSerial: item.serial || null,
+        // 🆕 كل سيريالات السطر (ممكن يكون فيه أكتر من علبة)، مش بس أول واحدة
+        originalSerials: item.serials && item.serials.length ? item.serials : (item.serial ? [item.serial] : []),
         alreadyReturnedQty: item.returnedQty || 0, // 🆕 كمية سبق إرجاعها من هذا الصنف
       }))
     );
@@ -11049,13 +11073,22 @@ function ReturnsModule({
     // ═══════════════════════════════════════════════════
     if (type === "sales" && selInvoice) {
       // 🆕 لو السطر المرتجع جاي أصلاً من مسح سيريال، رجّعه "متاح للبيع" تاني في سجل التتبع
-      const serializedReturns = itemsToReturn.filter((i) => i.originalSerial);
-      for (const sr of serializedReturns) {
+      // ✅ السطر ممكن يمثل كذا علبة (كذا سيريال) — نفك بس عدد "returnQty" منهم، بادئين من بعد
+      // اللي اترجع قبل كده (alreadyReturnedQty)، عشان لو المرتجع جزئي (علبة من اتنين) نرجّع
+      // السيريال الصح بس، ومنمسحش سيريال العلبة اللي لسه في يد العميل.
+      const serializedReturns = itemsToReturn.filter(
+        (i) => (i.originalSerials && i.originalSerials.length) || i.originalSerial
+      );
+      const serialsToRelease = serializedReturns.flatMap((ri) => {
+        const all = ri.originalSerials && ri.originalSerials.length ? ri.originalSerials : (ri.originalSerial ? [ri.originalSerial] : []);
+        return all.slice(ri.alreadyReturnedQty || 0, (ri.alreadyReturnedQty || 0) + ri.returnQty);
+      });
+      for (const sn of serialsToRelease) {
         await supabase
           .from("sold_serials")
           .update({ status: "returned" })
           .eq("pharmacy_id", pharmacyId)
-          .eq("serial_number", sr.originalSerial)
+          .eq("serial_number", sn)
           .eq("status", "sold");
       }
 
@@ -11250,14 +11283,34 @@ function ReturnsModule({
     // "إلغاء" عملية البيع نفسها عن طريق Pharmacy Sale Cancel (بنفس PRESCRIPTIONID
     // اللي اتبعت وقت البيع الأصلي = رقم الفاتورة) — مؤكد من DTTS-ISD_PHARMACY_SALE.
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
-    const gs1Items = itemsToReturn.filter((i) => i.serial);
-    if (rasdConfig.enabled && gs1Items.length > 0) {
-      const rasdItems = gs1Items.map((i) => ({
-        gtin: i.gtin || i.barcode,
-        serial: i.serial,
-        batch: i.batch,
-        expiry: i.expiry,
-      }));
+    // ✅ مرتجع مبيعات: نستخدم بالظبط نفس السيريالات اللي اترجعت فعليًا (serialsToRelease
+    // المحسوبة فوق بمراعاة الكمية الجزئية)، مش سيريال واحد لكل سطر. مرتجع مشتريات لسه سطر=سيريال واحد
+    // زي ما هو (كل صف في فاتورة الشراء بيمثل علبة واحدة أصلاً).
+    const salesSerializedReturns =
+      type === "sales" && selInvoice
+        ? itemsToReturn.filter((i) => (i.originalSerials && i.originalSerials.length) || i.originalSerial)
+        : [];
+    const rasdItems =
+      type === "sales" && selInvoice
+        ? salesSerializedReturns.flatMap((ri) => {
+            const all = ri.originalSerials && ri.originalSerials.length ? ri.originalSerials : (ri.originalSerial ? [ri.originalSerial] : []);
+            const released = all.slice(ri.alreadyReturnedQty || 0, (ri.alreadyReturnedQty || 0) + ri.returnQty);
+            return released.map((sn) => ({
+              gtin: ri.gtin || ri.barcode,
+              serial: sn,
+              batch: ri.batch,
+              expiry: ri.expiry,
+            }));
+          })
+        : itemsToReturn
+            .filter((i) => i.serial)
+            .map((i) => ({
+              gtin: i.gtin || i.barcode,
+              serial: i.serial,
+              batch: i.batch,
+              expiry: i.expiry,
+            }));
+    if (rasdConfig.enabled && rasdItems.length > 0) {
       if (type === "sales" && selInvoice) {
         RasdQueue.enqueue("saleCancel", {
           toGln: "0000000000000", // نفس TOGLN اللي اتبعت وقت البيع الأصلي (بيع مباشر للمريض)
