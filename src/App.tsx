@@ -5260,14 +5260,13 @@ function POS({
             )
           : products.find((x) => x.barcode === scan.code || x.id === scan.code);
       if (product) {
-        // تشغيلات المخزون متسجلة بدقة الشهر/السنة بس (حقل التاريخ في فاتورة الشراء
-        // من نوع شهر)، والباركود بيقرا تاريخ كامل بالليوم — فبنقارن بدقة الشهر
-        // عشان مايترفضش الصنف غلط بسبب اختلاف دقة التاريخ بس.
+        // فاتورة الشراء بقت بتسجل الصلاحية بتاريخ كامل (type="date")، لكن ممكن يفضل
+        // في المخزون تشغيلات قديمة متسجلة بدقة الشهر بس ("YYYY-MM") من قبل التغيير ده.
+        // فبنقارن بدقة الشهر عشان الاتنين (القديم والجديد) يتطابقوا صح مع الباركود.
         const norm = (v) => (v ? String(v).slice(0, 7) : "");
         const scannedExpiry = norm(scan.expiry);
-        const knownExpiries = (product.batches || [])
-          .filter((b) => b.qty > 0 && b.expiry_date)
-          .map((b) => norm(b.expiry_date));
+        const knownBatches = (product.batches || []).filter((b) => b.qty > 0 && b.expiry_date);
+        const knownExpiries = knownBatches.map((b) => norm(b.expiry_date));
 
         // لو الصنف عنده تشغيلات مسجلة بتاريخ صلاحية، والتاريخ اللي قراه الباركود مش
         // مطابق لأي واحدة منها → نرفض ونطلع تنبيه صوتي، بدل ما نبيع بتاريخ غلط.
@@ -5280,16 +5279,20 @@ function POS({
           return;
         }
 
+        // 🆕 لازم نستخدم التاريخ الكامل زي ما هو متسجل فعليًا في التشغيلة (batches)، مش
+        // النسخة المقصوصة بدقة الشهر - عشان دروب داون اختيار الصلاحية في السلة (اللي
+        // بيقارن بالتاريخ الكامل من batches) يلاقيها متطابقة ومايجبرش الكاشير يختارها يدوي.
+        const matchedBatch = knownBatches.find((b) => norm(b.expiry_date) === scannedExpiry);
+        const finalExpiry = matchedBatch ? matchedBatch.expiry_date : (scannedExpiry || scan.expiry);
+
         addToCart({
           ...product,
           batch: scan.batch,
           serial: scan.serial,
-          // بنخزن بدقة الشهر زي ما هي متسجلة في التشغيلة، عشان تتطابق مع قائمة
-          // اختيار التشغيلة في السلة (الأصل الكامل باليوم بيفضل موجود في scan.expiry لو احتجناه)
-          expiry: scannedExpiry || scan.expiry,
+          expiry: finalExpiry,
           // ✅ الباركود نفسه قرا/أكد تاريخ الصلاحية (واتقارن مع التشغيلات المسجلة فوق)،
           // فمفيش داعي نجبر الكاشير يختار تاني من نافذة الاختيار — بس لو فعلاً في تاريخ مقروء.
-          _expiryConfirmed: !!(scannedExpiry || scan.expiry),
+          _expiryConfirmed: !!finalExpiry,
         });
         return;
       }
