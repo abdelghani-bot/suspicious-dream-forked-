@@ -1954,6 +1954,13 @@ function parseCustomExpiryBarcode(raw) {
 
 // نقطة دخول موحّدة للطباعة: يجرب GS1 الرسمي الأول (لو الباركود GTIN أرقام حقيقي)،
 // وبعدين الشكل البديل (لأي كود تاني زي P006)، وبعدين يرجع للباركود العادي من غير صلاحية
+// 🆕 السعر المطبوع على الملصق لازم يكون شامل الضريبة (ده اللي العميل بيدفعه فعليًا على الرف)،
+// مش سعر ما قبل الضريبة المخزّن داخليًا في newSalePrice/salePrice/price.
+function taxInclusiveLabelPrice(item) {
+  const base = item.newSalePrice ?? item.salePrice ?? item.price ?? 0;
+  const incl = item.taxable ? base * 1.15 : base;
+  return Math.round(incl * 100) / 100;
+}
 function buildLabelBarcode(item) {
   const gs1 = buildGS1Barcode(item);
   if (gs1.ok) return { ...gs1, mode: "gs1" };
@@ -5077,6 +5084,11 @@ function POS({
   const cameFromBarcodeScan = !!p._expiryConfirmed;
   let effectiveExpiry = cameFromBarcodeScan ? p.expiry : undefined;
   let needsExpiryChoice = false;
+  // 🆕 منطق اختيار الدفعة/الصلاحية الإجباري ده خاص بالدواء بس (تتبع Batch/Serial مطلوب
+  // لرصد ولسلامة المريض). الأصناف غير الدوائية (تجميل/مستلزمات...) باركودها العادي
+  // مش بيحمل تاريخ صلاحية أصلاً، فمينفعش نوقف البيع عشانها — ناخد أقرب تشغيلة (FIFO)
+  // تلقائيًا من غير ما نفتح نافذة اختيار.
+  const isDrugItem = (p.mainCategory || p.main_category || p.category) === "دواء";
   if (!effectiveExpiry && !p.isMissed && !p.isJoker) {
     const prodBatches = products.find((x) => x.id === p.id)?.batches || [];
     const validExpiries = Array.from(
@@ -5088,10 +5100,13 @@ function POS({
     ).sort();
     if (validExpiries.length === 1) {
       effectiveExpiry = validExpiries[0];
-    } else if (validExpiries.length > 1) {
-      // فيه أكتر من تشغيلة/تاريخ صلاحية: منسيبش الاختيار عشوائي أو تلقائي،
+    } else if (isDrugItem && validExpiries.length > 1) {
+      // دواء وفيه أكتر من تشغيلة/تاريخ صلاحية: منسيبش الاختيار عشوائي أو تلقائي،
       // هنسيب الحقل فاضي ونجبر الكاشير يختار من نافذة تظهر فورًا بعد الإضافة.
       needsExpiryChoice = true;
+    } else if (validExpiries.length > 1) {
+      // مش دواء: خد أقرب تاريخ صلاحية تلقائيًا (FIFO) من غير ما توقف البيع.
+      effectiveExpiry = validExpiries[0];
     }
   }
   p = { ...p, expiry: effectiveExpiry, _expiryConfirmed: undefined };
@@ -5569,15 +5584,20 @@ function POS({
     }
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     // ✅ كل علبة (سيريال) لازم PRODUCT node مستقل في رصد — مش سطر واحد بكمية 2 وسيريال واحد بس
-    const rasdSaleItems = inv.cart.flatMap((i) => {
-      const serials = i.serials && i.serials.length ? i.serials : (i.serial ? [i.serial] : []);
-      return serials.map((sn) => ({
-        gtin: i.gtin || i.barcode,
-        serial: sn,
-        batch: i.batch,
-        expiry: i.expiry,
-      }));
-    });
+    // 🆕 رصد بيغطي الدواء بس. لازم فلتر صريح بالفئة هنا (مش الاعتماد بس على وجود serial)،
+    // لأن بعض الأصناف غير الدوائية باركودها ممكن يتفهم غلط كـ GS1 ويطلع منه serial،
+    // فكنا هنرفعها لرصد غلط لمجرد إنها عندها serial.
+    const rasdSaleItems = inv.cart
+      .filter((i) => (i.category || i.main_category || i.mainCategory) === "دواء")
+      .flatMap((i) => {
+        const serials = i.serials && i.serials.length ? i.serials : (i.serial ? [i.serial] : []);
+        return serials.map((sn) => ({
+          gtin: i.gtin || i.barcode,
+          serial: sn,
+          batch: i.batch,
+          expiry: i.expiry,
+        }));
+      });
     if (rasdConfig.enabled && rasdSaleItems.length > 0) {
       // بنسجلها في الطابور بدل ما نستنى رد رصد فورًا — كده البيع ميتأخرش لو رصد بطيء أو واقع
       RasdQueue.enqueue("sale", {
@@ -8109,7 +8129,7 @@ const LABEL_SIZES = [
               <div class="product">${item.name}</div>
               <img class="barcode" id="bc${idx}" />
               <div class="details">
-                <span>سعر: ${item.newSalePrice || item.salePrice || item.price} ر.س</span>
+                <span>سعر: ${taxInclusiveLabelPrice(item)} ر.س</span>
                 <span>${item.expiry_date ? "صلاحية: " + item.expiry_date : ""}</span>
               </div>
             </div>
@@ -8235,7 +8255,7 @@ const LABEL_SIZES = [
       ctx.direction = "ltr";
       ctx.font = "12px Arial";
       ctx.fillText(
-        `سعر: ${item.newSalePrice || item.salePrice || item.price} ر.س`,
+        `سعر: ${taxInclusiveLabelPrice(item)} ر.س`,
         w / 2,
         y,
         w - 8
@@ -9641,6 +9661,13 @@ const LABEL_SIZES = [
                             : COLORS.textPrimary,
                       }}
                     />
+                    {/* 🆕 سعر البيع فوق ده مسجّل قبل الضريبة زي ما هو مخزّن — نعرض هنا في نفس الصف
+                        السعر شامل الضريبة (اللي العميل بيدفعه فعليًا)، بدل ما يبان بس تحت في إجمالي الفاتورة */}
+                    {item.taxable && (
+                      <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2, whiteSpace: "nowrap" }}>
+                        شامل الضريبة: {taxInclusiveLabelPrice(item)}
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: "4px" }}>
                     <input
@@ -10344,6 +10371,13 @@ const LABEL_SIZES = [
                           outline: "none",
                         }}
                       />
+                      {/* 🆕 نفس فكرة فورم الصنف: السعر فوق ده قبل الضريبة، فبنعرض هنا شامل الضريبة
+                          جنب الصف نفسه، بدل ما يبان بس تحت في إجمالي الفاتورة */}
+                      {item.taxable && (
+                        <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2, whiteSpace: "nowrap" }}>
+                          شامل الضريبة: {taxInclusiveLabelPrice(item)}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: "4px" }}>
                       <input
@@ -11286,9 +11320,14 @@ function ReturnsModule({
     // ✅ مرتجع مبيعات: نستخدم بالظبط نفس السيريالات اللي اترجعت فعليًا (serialsToRelease
     // المحسوبة فوق بمراعاة الكمية الجزئية)، مش سيريال واحد لكل سطر. مرتجع مشتريات لسه سطر=سيريال واحد
     // زي ما هو (كل صف في فاتورة الشراء بيمثل علبة واحدة أصلاً).
+    // 🆕 نفس فلتر "دواء بس" بتاع رصد المبيعات — مينفعش صنف غير دوائي يترفع لرصد في المرتجع
+    // حتى لو اتحسبله serial بالغلط (باركود اتفهم كـ GS1 من غير ما يكون فعلاً).
+    const isRasdDrugReturnLine = (i) => (i.category || i.main_category || i.mainCategory) === "دواء";
     const salesSerializedReturns =
       type === "sales" && selInvoice
-        ? itemsToReturn.filter((i) => (i.originalSerials && i.originalSerials.length) || i.originalSerial)
+        ? itemsToReturn.filter(
+            (i) => isRasdDrugReturnLine(i) && ((i.originalSerials && i.originalSerials.length) || i.originalSerial)
+          )
         : [];
     const rasdItems =
       type === "sales" && selInvoice
@@ -11303,7 +11342,7 @@ function ReturnsModule({
             }));
           })
         : itemsToReturn
-            .filter((i) => i.serial)
+            .filter((i) => isRasdDrugReturnLine(i) && i.serial)
             .map((i) => ({
               gtin: i.gtin || i.barcode,
               serial: i.serial,
