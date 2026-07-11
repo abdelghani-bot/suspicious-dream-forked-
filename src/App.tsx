@@ -560,14 +560,14 @@ const IC = ({ n, s = 18, style = {} }) => {
 };
 
 // ==================== UI COMPONENTS ====================
-const Modal = ({ open, onClose, title, children, wide }) => {
+const Modal = ({ open, onClose, title, children, wide, zIndex }) => {
   if (!open) return null;
   return (
     <div
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 1000,
+        zIndex: zIndex || 1000,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -13960,6 +13960,29 @@ const NON_DRUG_TYPES = [
 ];
 const NON_DRUG_SIZE_UNITS = ["مل", "جم", "كجم", "لتر", "قطعة"];
 
+// 🆕 نسخة إنجليزية من نفس القوائم — عشان اسم الصنف بالإنجليزي يتبني تلقائيًا هو كمان،
+// ويفضل بس محتاج "تمييز الصنف" (النص الحر) يتترجم يدويًا لأنه الجزء الوحيد اللي مالوش قائمة ثابتة.
+const NON_DRUG_TYPES_EN = {
+  "كريم": "Cream", "لوشن": "Lotion", "غسول": "Wash", "شامبو": "Shampoo",
+  "بلسم": "Conditioner", "سيروم": "Serum", "جل": "Gel", "بخاخ": "Spray",
+  "مرهم": "Ointment", "بودرة": "Powder", "فوم": "Foam", "زيت": "Oil",
+  "مقشر": "Scrub", "ماسك": "Mask", "واقي شمس": "Sunscreen",
+  "مناديل مبللة": "Wet Wipes", "معجون أسنان": "Toothpaste", "غسول فم": "Mouthwash",
+  "مكمل غذائي": "Supplement", "أخرى": "Other",
+};
+const NON_DRUG_SIZE_UNITS_EN = { "مل": "ml", "جم": "g", "كجم": "kg", "لتر": "L", "قطعة": "pcs" };
+
+function buildNonDrugNameEn(brandEn, itemTypeEn, sizeValue, sizeUnitEn, variantEn) {
+  const parts = [];
+  if (brandEn && brandEn.trim()) parts.push(brandEn.trim());
+  if (itemTypeEn && itemTypeEn.trim()) parts.push(itemTypeEn.trim());
+  if (sizeValue && String(sizeValue).trim()) {
+    parts.push(`${String(sizeValue).trim()}${sizeUnitEn || "ml"}`);
+  }
+  if (variantEn && variantEn.trim()) parts.push(variantEn.trim());
+  return parts.join(" - ");
+}
+
 function buildNonDrugName(brand, itemType, sizeValue, sizeUnit, variant) {
   const parts = [];
   if (brand && brand.trim()) parts.push(brand.trim());
@@ -13985,6 +14008,7 @@ function ProductFormModal({
   currentUser,
   onSaved,             // (savedProduct) => void — يُستدعى بعد الحفظ بنجاح
   onRequestAddManufacturer, // اختياري: فتح شاشة إدارة الشركات المنتجة الكاملة
+  pendingManufacturer, // 🆕 {id, name, ts} — بيوصل من الأب لما يتم إضافة شركة جديدة من جوه فورم الصنف نفسه، عشان نختارها تلقائيًا بدل ما "تضيع"
   prefillName = "",    // 🆕 اسم مبدئي يتحط في الفورم (مثلاً من صف فاتورة مورد لسه محتاج يتربط بصنف)
 }) {
   const [manufacturers, setManufacturers] = useState([]);
@@ -14012,10 +14036,23 @@ function ProductFormModal({
     // 🆕 حقول التسمية الموحّدة للأصناف الغير دوائية (كوزمتك/مستلزمات/إلخ)
     brandName: "", itemType: "", sizeValue: "", sizeUnit: "مل",
     variant: "", // 🆕 تمييز الصنف (مثلاً "لتساقط الشعر") — بيتضاف آخر الاسم بعد الحجم/الوحدة
+    variantEn: "", // 🆕 نفس التمييز بس بالإنجليزي — الجزء الوحيد اللي محتاج ترجمة يدوية لأنه نص حر
     searchKeywords: "", // 🆕 مرادفات/كلمات بحث إضافية (مفصولة بفواصل) — بتساعد البحث من غير ما تأثر على الاسم المعروض
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  // 🆕 لما نضيف شركة منتجة جديدة من جوه فورم الصنف (نافذة "إدارة الشركات" اللي بتفتح فوقه)،
+  // الأب بيبعتها هنا بمجرد ما تتحفظ — نضيفها لقائمتنا المحلية ونختارها تلقائيًا،
+  // بدل ما الكاشير يضطر يدور عليها تاني في القائمة المنسدلة.
+  useEffect(() => {
+    if (!pendingManufacturer?.id) return;
+    setManufacturers((prev) =>
+      prev.some((m) => m.id === pendingManufacturer.id) ? prev : [...prev, pendingManufacturer].sort((a, b) => a.name.localeCompare(b.name))
+    );
+    F("manufacturer_id", pendingManufacturer.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingManufacturer?.id, pendingManufacturer?.ts]);
 
   // 🆕 الأصناف الغير دوائية بتتسمى تلقائيًا من [البراند - النوع - الحجم/الوزن]
   // بدل خانة الاسم الحرة، عشان يبقى في وحدة في طريقة التسمية تسهّل البحث اليدوي.
@@ -14025,6 +14062,38 @@ function ProductFormModal({
     const built = buildNonDrugName(form.brandName, form.itemType, form.sizeValue, form.sizeUnit, form.variant);
     if (built && built !== form.nameAr) F("nameAr", built);
   }, [isNonDrug, form.brandName, form.itemType, form.sizeValue, form.sizeUnit, form.variant]);
+
+  // 🆕 نفس الفكرة بالظبط بس للاسم الإنجليزي: "النوع" و"الوحدة" ليهم قايمة ثابتة فبنترجمهم
+  // مباشرة، والبراند بنتعلمه من أي صنف سابق اتسجل بنفس البراند العربي وله اسم إنجليزي محفوظ
+  // (يعني أول مرة بس هتكتب "Nivea" بنفسك، وبعد كده أي صنف "نيفيا" جديد هياخدها تلقائي).
+  // الحقل الوحيد اللي فاضل نص حر فعلي هو "تمييز الصنف بالإنجليزي" — وده بالظبط اللي طلبته.
+  const brandEnMap = useMemo(() => {
+    const map = {};
+    products.forEach((p) => {
+      const cat = p.main_category || p.mainCategory || "";
+      const b = (p.brand_name || "").trim();
+      const en = (p.name_en || p.nameEn || "").trim();
+      if (cat !== "دواء" && b && en) {
+        const firstSeg = en.split(" - ")[0].trim();
+        if (firstSeg) map[b] = firstSeg;
+      }
+    });
+    return map;
+  }, [products]);
+  const brandEn = form.brandName ? (brandEnMap[form.brandName.trim()] || "") : "";
+  const itemTypeEn = NON_DRUG_TYPES_EN[form.itemType] || "";
+  const sizeUnitEn = NON_DRUG_SIZE_UNITS_EN[form.sizeUnit] || "";
+  // بنتابع آخر نص إنجليزي اتبنى تلقائيًا، عشان لو الكاشير عدّل الاسم الإنجليزي يدويًا بعد كده
+  // منكتبش فوق تعديله كل ما يغيّر حاجة تانية في الفورم (الحجم مثلاً).
+  const nameEnAutoRef = useRef("");
+  useEffect(() => {
+    if (!isNonDrug) return;
+    const builtEn = buildNonDrugNameEn(brandEn, itemTypeEn, form.sizeValue, sizeUnitEn, form.variantEn);
+    if (builtEn && (form.nameEn === "" || form.nameEn === nameEnAutoRef.current)) {
+      F("nameEn", builtEn);
+    }
+    nameEnAutoRef.current = builtEn;
+  }, [isNonDrug, brandEn, itemTypeEn, form.sizeValue, sizeUnitEn, form.variantEn]);
 
   // 🆕 قائمة البراندات المستخدمة سابقًا (للأصناف الغير دوائية فقط) عشان الـ autocomplete
   const knownBrands = useMemo(() => {
@@ -14295,14 +14364,26 @@ function ProductFormModal({
               </div>
             </div>
             {/* 🆕 تمييز الصنف — وصف حر بيتضاف آخر الاسم (مثلاً "لتساقط الشعر"، "بشرة جافة") لتفريق منتجات نفس البراند/النوع/الحجم عن بعض */}
-            <div style={{ gridColumn: "1 / -1" }}>
-              <Input label="تمييز الصنف (اختياري)" value={form.variant} onChange={(v) => F("variant", v)} placeholder="لتساقط الشعر" dir="rtl" lang="ar" />
+            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <Input label="تمييز الصنف (اختياري)" value={form.variant} onChange={(v) => F("variant", v)} placeholder="لتساقط الشعر" dir="rtl" lang="ar" />
+              </div>
+              <div style={{ flex: 1 }}>
+                {/* 🆕 الجزء الوحيد اللي محتاج ترجمة يدوية — كل حاجة تانية (البراند لو معروف، النوع، الحجم) بتتملي لوحدها في الاسم الإنجليزي تحت */}
+                <Input label="تمييز الصنف بالإنجليزي (اختياري)" value={form.variantEn} onChange={(v) => F("variantEn", v)} placeholder="Hair Loss" dir="ltr" lang="en" />
+              </div>
             </div>
             <div style={{ gridColumn: "1 / -1", fontSize: 12, color: COLORS.textDim, marginTop: -6 }}>
               الاسم النهائي (يتبني تلقائيًا): <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{form.nameAr || "—"}</span>
             </div>
-            {/* 🆕 الاسم بالإنجليزي يفضل متاح لو حابب يسجل الاسم الأجنبي على العبوة */}
+            {/* 🆕 الاسم بالإنجليزي: بيتبني تلقائيًا من نفس الحقول (النوع/الوحدة مترجمين ثابت، والبراند لو
+                اتسجل قبل كده بالإنجليزي لصنف تاني بنفس البراند) — تقدر تعدّله يدويًا في أي وقت */}
             <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Nivea Cream 400ml" dir="ltr" lang="en" />
+            {!brandEn && form.brandName && (
+              <div style={{ gridColumn: "1 / -1", fontSize: 11, color: COLORS.gold, marginTop: -6 }}>
+                💡 أول مرة تستخدم براند "{form.brandName}" — اكتب اسمه بالإنجليزي هنا مرة واحدة، وبعد كده هيتملي لوحده تلقائيًا لأي صنف جديد بنفس البراند.
+              </div>
+            )}
             {/* 🆕 مرادفات/كلمات بحث إضافية — اختياري، بيتخزن جنبًا ومش بيأثر على شكل الاسم المعروض */}
             <div style={{ gridColumn: "1 / -1" }}>
               <Input
@@ -14554,6 +14635,11 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   const [manufacturers, setManufacturers] = useState([]);
   const [showMfrModal, setShowMfrModal] = useState(false);
   const [newMfrName, setNewMfrName] = useState("");
+  // 🆕 لو نافذة "إدارة الشركات" اتفتحت من جوه فورم إضافة الصنف (زر "أضفها من هنا")،
+  // نسجّل ده هنا عشان بعد ما تتحفظ الشركة نقفل نافذة الشركات تلقائيًا ونرجّع
+  // الشركة الجديدة للفورم يختارها لوحده، بدل ما تضيع.
+  const [mfrModalFromProductForm, setMfrModalFromProductForm] = useState(false);
+  const [pendingManufacturerForForm, setPendingManufacturerForForm] = useState(null);
 
   useEffect(() => {
     supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId).order("name")
@@ -14585,6 +14671,12 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
     setManufacturers((p) => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
     setNewMfrName("");
     showToast("تمت إضافة الشركة ✓");
+    // 🆕 لو جاي من فورم الصنف، ارجع له فورًا بالشركة الجديدة مختارة، وقفل نافذة الشركات
+    if (mfrModalFromProductForm) {
+      setPendingManufacturerForForm({ id: data.id, name: data.name, ts: Date.now() });
+      setShowMfrModal(false);
+      setMfrModalFromProductForm(false);
+    }
   };
 
   const deleteManufacturer = async (id) => {
@@ -14644,7 +14736,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الأصناف</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn icon="settings" variant="secondary" onClick={() => setShowMfrModal(true)}>الشركات المنتجة</Btn>
+          <Btn icon="settings" variant="secondary" onClick={() => { setMfrModalFromProductForm(false); setShowMfrModal(true); }}>الشركات المنتجة</Btn>
           <Btn icon="plus" onClick={openAdd}>إضافة صنف</Btn>
         </div>
       </div>
@@ -14819,7 +14911,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       </Modal>
 
       {/* ── Modal إدارة الشركات ── */}
-      <Modal open={showMfrModal} onClose={() => setShowMfrModal(false)} title="🏭 إدارة الشركات المنتجة">
+      <Modal open={showMfrModal} onClose={() => { setShowMfrModal(false); setMfrModalFromProductForm(false); }} title="🏭 إدارة الشركات المنتجة" zIndex={1100}>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <input value={newMfrName} onChange={(e) => setNewMfrName(e.target.value)}
             placeholder="اسم الشركة المنتجة..."
@@ -14843,14 +14935,15 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
 
       <ProductFormModal
         open={showForm}
-        onClose={() => setShowForm(false)}
+        onClose={() => { setShowForm(false); setPendingManufacturerForForm(null); }}
         editingId={editingId}
         products={products}
         setProducts={setProducts}
         showToast={showToast}
         pharmacyId={pharmacyId}
         currentUser={currentUser}
-        onRequestAddManufacturer={() => setShowMfrModal(true)}
+        pendingManufacturer={pendingManufacturerForForm}
+        onRequestAddManufacturer={() => { setMfrModalFromProductForm(true); setShowMfrModal(true); }}
         onSaved={() => {}}
       />
     </div>
