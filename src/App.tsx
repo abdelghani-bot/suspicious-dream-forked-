@@ -2445,7 +2445,7 @@ if (isLoading) return (
   { id: "pos",        label: "نقطة البيع",          icon: "pos" },
   { id: "sales_returns", label: "مرتجع المبيعات",   icon: "returns" },
   { id: "promotions", label: "العروض",              icon: "tag" },
-  { id: "target",     label: "🎯 تارجت المبيعات",  icon: "target" },
+  { id: "target",     label: "🎯 تارجت المبيعات والتحفيز",  icon: "target" },
 
   // ── المخزون والموردين ──
   { id: "purchase",        label: "فواتير الشراء",  icon: "purchase" },
@@ -2968,6 +2968,7 @@ if (isLoading) return (
     users={users}
     sales={sales}
     customers={customers}
+    products={products}
     currentUser={currentUser}
     pharmacyId={pharmacyId}
     showToast={showToast}
@@ -18433,26 +18434,15 @@ function getStagnationInfo(product, sales, expiry, cfg) {
 }
 
 function PromotionsModule({ products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast }) {
-  const [activeTab, setActiveTab] = useState("auto"); // auto | manual | incentive
+  const [activeTab, setActiveTab] = useState("auto"); // auto | manual
   const [promos, setPromos] = useState([]);
-  const [incentiveList, setIncentiveList] = useState([]);
-  const [incentiveConfig, setIncentiveConfig] = useState({
-    rate: 5,
-    month: new Date().toISOString().slice(0, 7),
-    marginThreshold: 45, // ← حد الهامش التلقائي قابل للتعديل
-  });
   const [showPromoForm, setShowPromoForm] = useState(false);
   const [editPromoId, setEditPromoId] = useState(null);
-  const [showIncentiveForm, setShowIncentiveForm] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [promoSearch, setPromoSearch] = useState("");
 
   // ── الشركات المنتجة ──
   const [manufacturers, setManufacturers] = useState([]);
-  const [incentiveSupplierFilter, setIncentiveSupplierFilter] = useState("");
-
-  // ── تاريخ تغييرات الهامش (لمنع الأثر الرجعي) ──
-  const [thresholdHistory, setThresholdHistory] = useState<{ threshold: number; effective_from: string }[]>([]);
 
   const DEFAULT_RULES = [
     { days: 90,  discount: 50, color: COLORS.red },
@@ -18474,7 +18464,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     });
   }, [pharmacyId]);
 
-  const [incentiveSearch, setIncentiveSearch] = useState("");
   const [showAutoConfig, setShowAutoConfig] = useState(false);
   const [autoPromoConfig, setAutoPromoConfig] = useState({
     excludeCategories: ["دواء"],
@@ -18503,8 +18492,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   // وضع الإضافة: صنف واحد أو منتجات شركة كاملة
   const [promoMode, setPromoMode] = useState("single"); // single | company
   const [companyProductIds, setCompanyProductIds] = useState<string[]>([]); // المنتجات المحددة من الشركة
-  const [incentiveForm, setIncentiveForm] = useState({ rate: "", fixed_amount: "", note: "" });
-  const [selectedIncentiveProducts, setSelectedIncentiveProducts] = useState<string[]>([]); // IDs المحددة للإضافة
 
   // ── سجل الطباعة — عشان تقدر تعيد طباعة أي عرض (تلقائي أو يدوي) لاحقًا ──
   const [printHistory, setPrintHistory] = useState<any[]>([]);
@@ -18512,7 +18499,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const [selectedAutoIds, setSelectedAutoIds] = useState<string[]>([]); // الأصناف المختارة من التلقائي للطباعة
 
   const today = new Date().toISOString().split("T")[0];
-  const monthKey = incentiveConfig.month;
 
   // ── دالة حفظ autoPromoConfig في Supabase ──
   const saveAutoConfig = async (newConfig) => {
@@ -18523,68 +18509,27 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     });
   };
 
-  // ── دالة حفظ نسبة العمولة (كانت مفقودة — التعديل كان بيضيع بعد الريفرش) ──
-  const saveIncentiveRate = async (newRate: number) => {
-    const { error } = await supabase.from("incentive_config").upsert({
-      pharmacy_id: pharmacyId,
-      rate: newRate,
-    }, { onConflict: "pharmacy_id" });
-    if (error) { showToast("خطأ في حفظ نسبة العمولة: " + error.message, "error"); return; }
-    showToast("تم حفظ نسبة العمولة ✓");
-  };
-
-  // ── دالة تغيير الهامش مع حفظ التاريخ ──
-  const updateMarginThreshold = async (newThreshold: number) => {
-    const now = new Date().toISOString();
-    // حفظ في جدول التاريخ
-    const { error } = await supabase.from("incentive_threshold_history").insert({
-      pharmacy_id: pharmacyId,
-      threshold: newThreshold,
-      effective_from: now,
-      created_by: currentUser?.name || currentUser?.email || "",
-    });
-    if (error) { showToast("خطأ في حفظ الهامش: " + error.message, "error"); return; }
-    // تحديث الـ state
-    setThresholdHistory((prev) => [...prev, { threshold: newThreshold, effective_from: now }]);
-    setIncentiveConfig((p) => ({ ...p, marginThreshold: newThreshold }));
-  };
-
   // تحميل البيانات
   useEffect(() => {
     if (!pharmacyId) return;
     Promise.all([
       supabase.from("promotions").select("*").eq("pharmacy_id", pharmacyId).order("end_date"),
-      supabase.from("incentive_products").select("*").eq("pharmacy_id", pharmacyId),
-      supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).single(),
       // ── الشركات المنتجة مفلترة بالصيدلية ──
       supabase.from("manufacturers").select("id, name").eq("pharmacy_id", pharmacyId).order("name"),
       // ── إعدادات الإضافة التلقائية المحفوظة ──
       supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).single(),
-      // ── تاريخ تغييرات الهامش ──
-      supabase.from("incentive_threshold_history")
-        .select("threshold, effective_from")
-        .eq("pharmacy_id", pharmacyId)
-        .order("effective_from", { ascending: true }),
       // ── سجل طباعة العروض (لإعادة الطباعة لاحقًا) ──
       supabase.from("promo_print_log")
         .select("*")
         .eq("pharmacy_id", pharmacyId)
         .order("created_at", { ascending: false })
         .limit(100),
-    ]).then(([p, i, c, m, ps, th, pl]) => {
+    ]).then(([p, m, ps, pl]) => {
       if (p.data) setPromos(p.data);
-      if (i.data) setIncentiveList(i.data);
-      if (c.data) setIncentiveConfig((prev) => ({ ...prev, rate: c.data.rate || 5 }));
       if (m.data) setManufacturers(m.data);
       // ── تحميل autoPromoConfig المحفوظ ──
       if (ps.data?.auto_config) {
         setAutoPromoConfig((prev) => ({ ...prev, ...ps.data.auto_config }));
-      }
-      // ── تحميل تاريخ الهامش + تحديث القيمة الحالية من آخر سجل ──
-      if (th.data && th.data.length > 0) {
-        setThresholdHistory(th.data);
-        const latest = th.data[th.data.length - 1];
-        setIncentiveConfig((prev) => ({ ...prev, marginThreshold: latest.threshold }));
       }
       // ── تحميل سجل الطباعة ──
       if (pl.data) setPrintHistory(pl.data);
@@ -18643,14 +18588,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     });
     return acc;
   }, []).sort((a, b) => b.autoDiscount - a.autoDiscount);
-
-  // ── الأصناف المحفزة — حسب marginThreshold القابل للتعديل ──
-  const highMarginProducts = products.filter((p) => {
-    const cost = p.cost || 0;
-    const price = p.price || 0;
-    if (!cost || !price) return false;
-    return ((price - cost) / price) * 100 >= incentiveConfig.marginThreshold;
-  });
 
   // ── دالة طباعة Shelf Label ──
   // offerName: اسم/مناسبة العرض (عروض العيد، اليوم الوطني، رمضان...) بيظهر في مكان اسم الصيدلية القديم
@@ -18884,50 +18821,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     }
   };
 
-  // حفظ أصناف محفزة (متعددة)
-  const saveIncentive = async () => {
-    if (selectedIncentiveProducts.length === 0) { showToast("اختر صنفاً على الأقل", "error"); return; }
-    // تصفية الأصناف اللي مضافة مسبقاً
-    const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
-    const toAdd = selectedIncentiveProducts.filter((id) => !alreadyAdded.has(id));
-    if (toAdd.length === 0) { showToast("الأصناف المحددة مضافة مسبقاً", "error"); return; }
-    const rows = toAdd.map((product_id) => ({
-      product_id,
-      rate: incentiveForm.rate || null,
-      fixed_amount: incentiveForm.fixed_amount || null,
-      note: incentiveForm.note || null,
-      pharmacy_id: pharmacyId,
-    }));
-    const { data, error } = await supabase.from("incentive_products").insert(rows).select();
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setIncentiveList((p) => [...p, ...data]);
-    setIncentiveForm({ rate: "", fixed_amount: "", note: "" });
-    setSelectedIncentiveProducts([]);
-    setIncentiveSupplierFilter("");
-    setShowIncentiveForm(false);
-    showToast(`تم إضافة ${data.length} صنف للقائمة المحفزة ✓`);
-  };
-
-  // حساب مبيعات الصيدلي من الأصناف المحفزة في الشهر
-  const calcIncentiveSales = (userName) => {
-    const incentiveIds = new Set([
-      ...incentiveList.map((i) => i.product_id),
-      ...highMarginProducts.map((p) => p.id),
-    ]);
-    const monthSales = sales.filter((s) =>
-      s.date?.startsWith(monthKey) && !s.returned &&
-      (s.cashier === userName || s.user === userName || s.created_by === userName)
-    );
-    let total = 0;
-    monthSales.forEach((s) => {
-      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
-      items.forEach((item) => {
-        if (incentiveIds.has(item.id)) total += (item.price || 0) * (item.qty || 1);
-      });
-    });
-    return total;
-  };
-
   const dateValidPromos = promos.filter((p) => p.end_date >= today && p.start_date <= today);
   const activePromos = dateValidPromos.filter((p) => isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
   const stockBlockedPromos = dateValidPromos.filter((p) => !isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
@@ -18942,9 +18835,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const filteredAutoPromos = autoPromoProducts.filter((p) =>
     !promoSearch || (p.name || p.nameAr || "").includes(promoSearch)
   );
-  const filteredIncentive = incentiveList.filter((i) =>
-    !incentiveSearch || (products.find((p) => p.id === i.product_id)?.name || "").includes(incentiveSearch)
-  );
 
   return (
     <div>
@@ -18953,7 +18843,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🏷️ إدارة العروض</h2>
           <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>
-            عروض تلقائية حسب الصلاحية + عروض يدوية + أصناف محفزة
+            عروض تلقائية حسب الصلاحية + عروض يدوية
           </div>
         </div>
       </div>
@@ -18976,7 +18866,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         {[
           { k: "auto", l: `⏰ تلقائي (${autoPromoProducts.length})` },
           { k: "manual", l: `✋ يدوي (${activePromos.length})` },
-          { k: "incentive", l: "⭐ أصناف محفزة" },
           { k: "prints", l: `🖨️ سجل الطباعة (${printHistory.length})` },
         ].map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
@@ -19465,220 +19354,6 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
         </div>
       )}
 
-      {/* ── الأصناف المحفزة ── */}
-      {activeTab === "incentive" && (
-        <div>
-          {/* إعداد النسبة */}
-          <div style={cardStyle(COLORS.surfaceAlt)}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-              <div>
-                <div style={{ color: COLORS.blue, fontWeight: 700, marginBottom: 4 }}>⚙️ إعدادات العمولة</div>
-                <div style={{ color: COLORS.textDim, fontSize: 12 }}>نسبة الصيدلي من مبيعات الأصناف المحفزة</div>
-              </div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <div>
-                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
-                  <input type="month" value={incentiveConfig.month}
-                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, month: e.target.value }))}
-                    style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
-                </div>
-                <div>
-                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
-                  <input type="number" value={incentiveConfig.rate} min="1" max="20"
-                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
-                    onBlur={(e) => saveIncentiveRate(+e.target.value)}
-                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
-                </div>
-                {/* ── خانة حد الهامش التلقائي ── */}
-                <div>
-                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>حد الهامش التلقائي %</label>
-                  <input type="number" value={incentiveConfig.marginThreshold} min="1" max="100"
-                    onBlur={(e) => {
-                      const val = +e.target.value;
-                      if (val !== incentiveConfig.marginThreshold) updateMarginThreshold(val);
-                    }}
-                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, marginThreshold: +e.target.value }))}
-                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* أصناف بهامش تلقائية — العنوان يعكس القيمة الحالية */}
-          <div style={cardStyle(COLORS.surfaceAlt)}>
-            <div style={{ color: COLORS.purple, fontWeight: 700, marginBottom: 10 }}>
-              🎯 أصناف بهامش ربح ≥ {incentiveConfig.marginThreshold}% — تلقائية ({highMarginProducts.length})
-            </div>
-            {highMarginProducts.length === 0
-              ? <div style={{ color: COLORS.textDim, fontSize: 12 }}>لا توجد أصناف بهذا الهامش حالياً</div>
-              : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {highMarginProducts.map((p) => {
-                    const margin = (((p.price - p.cost) / p.price) * 100).toFixed(0);
-                    return (
-                      <div key={p.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
-                        <span style={{ color: COLORS.textPrimary, fontWeight: 600 }}>{p.name_ar || p.name || p.nameAr}</span>
-                        <span style={{ color: COLORS.purple, marginRight: 8, fontWeight: 700 }}>{margin}%</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
-            }
-          </div>
-
-          {/* أصناف مضافة يدوياً */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>✋ أصناف مضافة يدوياً ({incentiveList.length})</div>
-            <Btn icon="plus" size="sm" onClick={() => setShowIncentiveForm(true)}>إضافة صنف</Btn>
-          </div>
-
-          <input
-            value={incentiveSearch} onChange={(e) => setIncentiveSearch(e.target.value)}
-            placeholder="🔍 بحث..."
-            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
-          />
-
-          {filteredIncentive.map((item) => {
-            const prod = products.find((p) => p.id === item.product_id);
-            return (
-              <div key={item.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 6 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 13 }}>{prod?.name_ar || prod?.name || prod?.nameAr || item.product_id}</div>
-                    {item.note && <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>{item.note}</div>}
-                  </div>
-                  <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 2 }}>
-                    {item.rate && <span style={{ background: COLORS.greenSoft, color: COLORS.green, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.rate}% عمولة</span>}
-                    {item.fixed_amount && <span style={{ background: COLORS.blueSoft, color: COLORS.blue, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</span>}
-                    <button onClick={async () => {
-                      const { error: delIncError } = await supabase.from("incentive_products").delete().eq("id", item.id).eq("pharmacy_id", pharmacyId);
-                      if (delIncError) { showToast("خطأ: " + delIncError.message, "error"); return; }
-                      setIncentiveList((p) => p.filter((x) => x.id !== item.id));
-                    }} style={{ background: "transparent", border: "none", color: COLORS.red, fontSize: 11, cursor: "pointer", marginTop: 2 }}>🗑️ حذف</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* ── نسبة الصيدلي هذا الشهر ── */}
-          {(() => {
-            const incentiveIds = new Set([
-              ...incentiveList.map((i) => i.product_id),
-              ...highMarginProducts.map((p) => p.id),
-            ]);
-            const staffSales = {};
-            sales
-              .filter((s) => s.date?.startsWith(monthKey) && !s.returned)
-              .forEach((s) => {
-                const name = s.cashier || s.user || s.created_by || "غير محدد";
-                // وقت البيعة بالظبط لتحديد الهامش الساري وقتها
-                const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
-
-                // الهامش الساري وقت البيعة — آخر سجل قبل أو عند وقت البيعة
-                const applicableThreshold = thresholdHistory.length > 0
-                  ? (thresholdHistory.filter((h) => h.effective_from <= saleDateTime).at(-1)?.threshold ?? incentiveConfig.marginThreshold)
-                  : incentiveConfig.marginThreshold;
-
-                // الأصناف ذات الهامش المرتفع بناءً على الهامش الساري وقتها
-                const validMarginIds = new Set(
-                  products.filter((p) => {
-                    const cost = p.cost || 0;
-                    const price = p.price || 0;
-                    if (!cost || !price) return false;
-                    return ((price - cost) / price) * 100 >= applicableThreshold;
-                  }).map((p) => p.id)
-                );
-
-                // الأصناف اليدوية لا تتأثر بالهامش
-                const allIncentiveIds = new Set([
-                  ...incentiveList.map((i) => i.product_id),
-                  ...validMarginIds,
-                ]);
-
-                const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
-                items.forEach((item) => {
-                  if (allIncentiveIds.has(item.id)) {
-                    if (!staffSales[name]) staffSales[name] = { total: 0, items: {} };
-                    const amt = (item.price || 0) * (item.qty || 1);
-                    staffSales[name].total += amt;
-                    const prod = products.find((p) => p.id === item.id);
-                    const pName = prod?.name || prod?.nameAr || item.name || item.id;
-                    if (!staffSales[name].items[pName]) staffSales[name].items[pName] = 0;
-                    staffSales[name].items[pName] += amt;
-                  }
-                });
-              });
-
-            const staffList = Object.entries(staffSales).filter(([, v]) => v.total > 0);
-            if (staffList.length === 0) return (
-              <div style={{ ...cardStyle(), marginTop: 16, textAlign: "center" }}>
-                <div style={{ color: COLORS.textDim, padding: 20 }}>
-                  لا توجد مبيعات من الأصناف المحفزة في {monthKey}
-                </div>
-              </div>
-            );
-
-            const totalAllStaff = staffList.reduce((a, [, v]) => a + v.total, 0);
-
-            return (
-              <div style={{ ...cardStyle(COLORS.greenSoft), marginTop: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14 }}>
-                    📊 عمولة الأصناف المحفزة — {monthKey}
-                  </div>
-                  <div style={{ color: COLORS.textDim, fontSize: 12 }}>
-                    إجمالي المبيعات المحفزة: <span style={{ color: COLORS.green, fontWeight: 700 }}>{totalAllStaff.toFixed(2)} ر.س</span>
-                  </div>
-                </div>
-
-                {staffList.map(([name, data]) => {
-                  const rate = incentiveConfig.rate;
-                  const commission = (data.total * rate / 100);
-                  const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100).toFixed(1) : "0";
-                  return (
-                    <div key={name} style={{ padding: "12px 0", borderBottom: `1px solid ${COLORS.border}` }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <div>
-                          <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
-                          <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
-                            مبيعات محفزة: <span style={{ color: COLORS.green }}>{data.total.toFixed(2)} ر.س</span>
-                            <span style={{ marginRight: 10, color: COLORS.textDim }}>({pct}% من الإجمالي)</span>
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "left" }}>
-                          <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{commission.toFixed(2)} ر.س</div>
-                          <div style={{ color: COLORS.textDim, fontSize: 11 }}>عمولة {rate}%</div>
-                        </div>
-                      </div>
-                      <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 6, marginBottom: 8 }}>
-                        <div style={{ background: COLORS.green, height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
-                      </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {Object.entries(data.items).map(([pName, amt]) => (
-                          <div key={pName} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
-                            <span style={{ color: COLORS.textDim }}>{pName}</span>
-                            <span style={{ color: COLORS.green, marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "2px solid #1a3a1a" }}>
-                  <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>إجمالي العمولات المستحقة</span>
-                  <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>
-                    {staffList.reduce((a, [, v]) => a + v.total * incentiveConfig.rate / 100, 0).toFixed(2)} ر.س
-                  </span>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
       {/* ── سجل الطباعة — إعادة طباعة أي عرض سابق (تلقائي أو يدوي) ── */}
       {activeTab === "prints" && (
         <div>
@@ -19914,171 +19589,35 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <Btn icon="check" onClick={savePromo}>{editPromoId ? "حفظ التعديل" : "إضافة العرض"}</Btn>
         </div>
       </Modal>
-
-      {/* ── Modal إضافة صنف محفز — مع فلتر الشركة المنتجة وتحديد متعدد ── */}
-      <Modal open={showIncentiveForm} onClose={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }} title="⭐ إضافة أصناف للقائمة المحفزة">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-
-          {/* فلتر الشركة المنتجة */}
-          <div style={{ gridColumn: "1/-1" }}>
-            <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>
-              🏭 الشركة المنتجة
-            </label>
-            <select
-              value={incentiveSupplierFilter}
-              onChange={(e) => {
-                const mId = e.target.value;
-                setIncentiveSupplierFilter(mId);
-                // تحديد كل أصناف الشركة تلقائياً (ما عدا المضافة مسبقاً)
-                const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
-                const ids = products
-                  .filter((p) => p.manufacturer_id === mId && !alreadyAdded.has(p.id))
-                  .map((p) => p.id);
-                setSelectedIncentiveProducts(ids);
-              }}
-              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
-              <option value="">-- اختر شركة --</option>
-              {manufacturers.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <Input label="نسبة عمولة %" value={incentiveForm.rate} onChange={(v) => setIncentiveForm((p) => ({ ...p, rate: v }))} type="number" placeholder="اتركه فارغ لو ثابت" />
-          <Input label="مبلغ ثابت (ر.س)" value={incentiveForm.fixed_amount} onChange={(v) => setIncentiveForm((p) => ({ ...p, fixed_amount: v }))} type="number" placeholder="اتركه فارغ لو نسبة" />
-          <div style={{ gridColumn: "1/-1" }}>
-            <Input label="ملاحظة" value={incentiveForm.note} onChange={(v) => setIncentiveForm((p) => ({ ...p, note: v }))} placeholder="تطبق على جميع الأصناف المضافة..." />
-          </div>
-        </div>
-
-        {/* قائمة أصناف الشركة مع checkbox */}
-        {incentiveSupplierFilter && (() => {
-          const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
-          const mfProducts = products.filter((p) => p.manufacturer_id === incentiveSupplierFilter);
-          const available = mfProducts.filter((p) => !alreadyAdded.has(p.id));
-          const allSelected = available.length > 0 && available.every((p) => selectedIncentiveProducts.includes(p.id));
-
-          return (
-            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
-              {/* Header القائمة */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`, background: "#0a1220" }}>
-                <div style={{ color: COLORS.blue, fontWeight: 700, fontSize: 13 }}>
-                  {mfProducts.length} صنف
-                  {alreadyAdded.size > 0 && (
-                    <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11, marginRight: 8 }}>
-                      ({mfProducts.filter(p => alreadyAdded.has(p.id)).length} مضاف مسبقاً)
-                    </span>
-                  )}
-                </div>
-                {available.length > 0 && (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => setSelectedIncentiveProducts(available.map((p) => p.id))}
-                      style={{ background: "none", border: "none", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>
-                      تحديد الكل
-                    </button>
-                    <span style={{ color: COLORS.border }}>|</span>
-                    <button onClick={() => setSelectedIncentiveProducts([])}
-                      style={{ background: "none", border: "none", color: COLORS.coral, fontSize: 12, cursor: "pointer" }}>
-                      إلغاء الكل
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* الأصناف */}
-              <div style={{ maxHeight: 280, overflowY: "auto" }}>
-                {mfProducts.length === 0 ? (
-                  <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20, fontSize: 13 }}>
-                    لا توجد أصناف لهذه الشركة
-                  </div>
-                ) : (
-                  mfProducts.map((p) => {
-                    const isAdded = alreadyAdded.has(p.id);
-                    const isSelected = selectedIncentiveProducts.includes(p.id);
-                    const margin = p.cost && p.price
-                      ? (((p.price - p.cost) / p.price) * 100).toFixed(0)
-                      : null;
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          if (isAdded) return;
-                          setSelectedIncentiveProducts((prev) =>
-                            isSelected ? prev.filter((id) => id !== p.id) : [...prev, p.id]
-                          );
-                        }}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 12,
-                          padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`,
-                          cursor: isAdded ? "default" : "pointer",
-                          background: isAdded ? "#0a0f18" : isSelected ? COLORS.surfaceAlt : "transparent",
-                          opacity: isAdded ? 0.5 : 1,
-                          transition: "background 0.15s",
-                        }}>
-                        {/* Checkbox */}
-                        <div style={{
-                          width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                          border: `2px solid ${isAdded ? COLORS.green : isSelected ? COLORS.blue : COLORS.border}`,
-                          background: isAdded ? COLORS.greenSoft : isSelected ? COLORS.blue : "transparent",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                        }}>
-                          {(isSelected || isAdded) && (
-                            <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>
-                          )}
-                        </div>
-
-                        {/* اسم الصنف */}
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: isAdded ? COLORS.textDim : COLORS.textPrimary, fontSize: 13 }}>
-                            {p.name || p.nameAr}
-                            {isAdded && <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>• مضاف مسبقاً</span>}
-                          </div>
-                          {margin && (
-                            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
-                              هامش: <span style={{ color: +margin >= incentiveConfig.marginThreshold ? COLORS.purple : COLORS.textDim }}>{margin}%</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* السعر */}
-                        <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "left" }}>
-                          {p.price} ر.س
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Footer */}
-        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ color: COLORS.textDim, fontSize: 12 }}>
-            {selectedIncentiveProducts.length > 0 && (
-              <span style={{ color: COLORS.blue }}>{selectedIncentiveProducts.length} صنف محدد</span>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Btn variant="ghost" onClick={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }}>إلغاء</Btn>
-            <Btn icon="check" onClick={saveIncentive}>
-              إضافة {selectedIncentiveProducts.length > 0 ? `(${selectedIncentiveProducts.length})` : ""}
-            </Btn>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
 // ==================== TARGET MODULE ====================
-function TargetModule({ users, sales, customers, currentUser, pharmacyId, showToast }) {
+function TargetModule({ users, sales, customers, products, currentUser, pharmacyId, showToast }) {
+  const [subTab, setSubTab] = useState("target"); // target | incentive
   const [monthKey, setMonthKey] = useState(new Date().toISOString().slice(0, 7));
   const [targets, setTargets] = useState([]); // كل التارجتات لكل الشهور
   const [editing, setEditing] = useState(null);
   const [editValue, setEditValue] = useState("");
   const [expandedTarget, setExpandedTarget] = useState(null);
   const [compareWith, setCompareWith] = useState({}); // { [pharmacistName]: otherName }
+
+  // ── التحفيز — الأصناف المحفزة ──
+  const [incentiveList, setIncentiveList] = useState([]);
+  const [incentiveConfig, setIncentiveConfig] = useState({
+    rate: 5,
+    month: new Date().toISOString().slice(0, 7),
+    marginThreshold: 45, // ← حد الهامش التلقائي قابل للتعديل
+  });
+  const [showIncentiveForm, setShowIncentiveForm] = useState(false);
+  const [incentiveSupplierFilter, setIncentiveSupplierFilter] = useState("");
+  const [incentiveSearch, setIncentiveSearch] = useState("");
+  const [incentiveForm, setIncentiveForm] = useState({ rate: "", fixed_amount: "", note: "" });
+  const [selectedIncentiveProducts, setSelectedIncentiveProducts] = useState<string[]>([]); // IDs المحددة للإضافة
+  const [manufacturers, setManufacturers] = useState([]);
+  // ── تاريخ تغييرات الهامش (لمنع الأثر الرجعي) ──
+  const [thresholdHistory, setThresholdHistory] = useState<{ threshold: number; effective_from: string }[]>([]);
+  const incMonthKey = incentiveConfig.month;
 
   const isAdmin = currentUser?.role === "admin";
   const pharmacists = users.filter((u) => u.role === "pharmacist");
@@ -20092,6 +19631,92 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
       .eq("pharmacy_id", pharmacyId)
       .then(({ data }) => setTargets(data || []));
   }, [pharmacyId]);
+
+  // ── تحميل بيانات التحفيز ──
+  useEffect(() => {
+    if (!pharmacyId) return;
+    Promise.all([
+      supabase.from("incentive_products").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).single(),
+      supabase.from("manufacturers").select("id, name").eq("pharmacy_id", pharmacyId).order("name"),
+      supabase.from("incentive_threshold_history")
+        .select("threshold, effective_from")
+        .eq("pharmacy_id", pharmacyId)
+        .order("effective_from", { ascending: true }),
+    ]).then(([i, c, m, th]) => {
+      if (i.data) setIncentiveList(i.data);
+      if (c.data) setIncentiveConfig((prev) => ({ ...prev, rate: c.data.rate || 5 }));
+      if (m.data) setManufacturers(m.data);
+      if (th.data && th.data.length > 0) {
+        setThresholdHistory(th.data);
+        const latest = th.data[th.data.length - 1];
+        setIncentiveConfig((prev) => ({ ...prev, marginThreshold: latest.threshold }));
+      }
+    });
+  }, [pharmacyId]);
+
+  // ── دالة حفظ نسبة العمولة ──
+  const saveIncentiveRate = async (newRate: number) => {
+    const { error } = await supabase.from("incentive_config").upsert({
+      pharmacy_id: pharmacyId,
+      rate: newRate,
+    }, { onConflict: "pharmacy_id" });
+    if (error) { showToast("خطأ في حفظ نسبة العمولة: " + error.message, "error"); return; }
+    showToast("تم حفظ نسبة العمولة ✓");
+  };
+
+  // ── دالة تغيير الهامش مع حفظ التاريخ ──
+  const updateMarginThreshold = async (newThreshold: number) => {
+    const now = new Date().toISOString();
+    const { error } = await supabase.from("incentive_threshold_history").insert({
+      pharmacy_id: pharmacyId,
+      threshold: newThreshold,
+      effective_from: now,
+      created_by: currentUser?.name || currentUser?.email || "",
+    });
+    if (error) { showToast("خطأ في حفظ الهامش: " + error.message, "error"); return; }
+    setThresholdHistory((prev) => [...prev, { threshold: newThreshold, effective_from: now }]);
+    setIncentiveConfig((p) => ({ ...p, marginThreshold: newThreshold }));
+  };
+
+  // حفظ أصناف محفزة (متعددة)
+  const saveIncentive = async () => {
+    if (selectedIncentiveProducts.length === 0) { showToast("اختر صنفاً على الأقل", "error"); return; }
+    const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
+    const toAdd = selectedIncentiveProducts.filter((id) => !alreadyAdded.has(id));
+    if (toAdd.length === 0) { showToast("الأصناف المحددة مضافة مسبقاً", "error"); return; }
+    const rows = toAdd.map((product_id) => ({
+      product_id,
+      rate: incentiveForm.rate || null,
+      fixed_amount: incentiveForm.fixed_amount || null,
+      note: incentiveForm.note || null,
+      pharmacy_id: pharmacyId,
+    }));
+    const { data, error } = await supabase.from("incentive_products").insert(rows).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setIncentiveList((p) => [...p, ...data]);
+    setIncentiveForm({ rate: "", fixed_amount: "", note: "" });
+    setSelectedIncentiveProducts([]);
+    setIncentiveSupplierFilter("");
+    setShowIncentiveForm(false);
+    showToast(`تم إضافة ${data.length} صنف للقائمة المحفزة ✓`);
+  };
+
+  // ── الأصناف المحفزة — حسب marginThreshold القابل للتعديل ──
+  const highMarginProducts = products.filter((p) => {
+    const cost = p.cost || 0;
+    const price = p.price || 0;
+    if (!cost || !price) return false;
+    return ((price - cost) / price) * 100 >= incentiveConfig.marginThreshold;
+  });
+
+  const filteredIncentive = incentiveList.filter((i) =>
+    !incentiveSearch || (products.find((p) => p.id === i.product_id)?.name || "").includes(incentiveSearch)
+  );
+
+  const incentiveCardStyle = (border = COLORS.border) => ({
+    background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
+  });
 
   const getTarget = (name, mKey) =>
     targets.find((t) => t.pharmacist_name === name && t.month === mKey)?.target_amount || 0;
@@ -20227,14 +19852,33 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🎯 تارجت المبيعات</h2>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🎯 تارجت المبيعات والتحفيز</h2>
           <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>
-            تارجت شهري لكل صيدلي + تحليل فني لحظي + مقارنات
+            تارجت شهري لكل صيدلي + تحليل فني لحظي + مقارنات + أصناف محفزة وعمولات
           </div>
         </div>
-        <Input type="month" value={monthKey} onChange={setMonthKey} style={{ width: 160 }} />
+        {subTab === "target" && (
+          <Input type="month" value={monthKey} onChange={setMonthKey} style={{ width: 160 }} />
+        )}
       </div>
 
+      {/* Sub Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 4 }}>
+        {[
+          { k: "target", l: "🎯 التارجت" },
+          { k: "incentive", l: "⭐ التحفيز" },
+        ].map((t) => (
+          <button key={t.k} onClick={() => setSubTab(t.k)} style={{
+            flex: 1, padding: "9px 8px", borderRadius: 8, border: "none",
+            background: subTab === t.k ? COLORS.surface : "transparent",
+            color: subTab === t.k ? COLORS.blue : COLORS.textDim,
+            fontSize: 12, fontWeight: subTab === t.k ? 700 : 400, cursor: "pointer",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {subTab === "target" && (
+      <>
       {pharmacists.length === 0 && (
         <div style={{ color: COLORS.textDim, padding: 20 }}>لا يوجد صيادلة مسجلين بدور "pharmacist".</div>
       )}
@@ -20468,6 +20112,376 @@ function TargetModule({ users, sales, customers, currentUser, pharmacyId, showTo
           </div>
         );
       })}
+      </>
+      )}
+
+      {/* ── الأصناف المحفزة ── */}
+      {subTab === "incentive" && (
+        <div>
+          {/* إعداد النسبة */}
+          <div style={incentiveCardStyle(COLORS.surfaceAlt)}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ color: COLORS.blue, fontWeight: 700, marginBottom: 4 }}>⚙️ إعدادات العمولة</div>
+                <div style={{ color: COLORS.textDim, fontSize: 12 }}>نسبة الصيدلي من مبيعات الأصناف المحفزة</div>
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <div>
+                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>الشهر</label>
+                  <input type="month" value={incentiveConfig.month}
+                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, month: e.target.value }))}
+                    style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
+                </div>
+                <div>
+                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>نسبة العمولة %</label>
+                  <input type="number" value={incentiveConfig.rate} min="1" max="20"
+                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, rate: +e.target.value }))}
+                    onBlur={(e) => saveIncentiveRate(+e.target.value)}
+                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                </div>
+                {/* ── خانة حد الهامش التلقائي ── */}
+                <div>
+                  <label style={{ color: COLORS.border, fontSize: 11, display: "block", marginBottom: 2 }}>حد الهامش التلقائي %</label>
+                  <input type="number" value={incentiveConfig.marginThreshold} min="1" max="100"
+                    onBlur={(e) => {
+                      const val = +e.target.value;
+                      if (val !== incentiveConfig.marginThreshold) updateMarginThreshold(val);
+                    }}
+                    onChange={(e) => setIncentiveConfig((p) => ({ ...p, marginThreshold: +e.target.value }))}
+                    style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* أصناف بهامش تلقائية — العنوان يعكس القيمة الحالية */}
+          <div style={incentiveCardStyle(COLORS.surfaceAlt)}>
+            <div style={{ color: COLORS.purple, fontWeight: 700, marginBottom: 10 }}>
+              🎯 أصناف بهامش ربح ≥ {incentiveConfig.marginThreshold}% — تلقائية ({highMarginProducts.length})
+            </div>
+            {highMarginProducts.length === 0
+              ? <div style={{ color: COLORS.textDim, fontSize: 12 }}>لا توجد أصناف بهذا الهامش حالياً</div>
+              : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {highMarginProducts.map((p) => {
+                    const margin = (((p.price - p.cost) / p.price) * 100).toFixed(0);
+                    return (
+                      <div key={p.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+                        <span style={{ color: COLORS.textPrimary, fontWeight: 600 }}>{p.name_ar || p.name || p.nameAr}</span>
+                        <span style={{ color: COLORS.purple, marginRight: 8, fontWeight: 700 }}>{margin}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            }
+          </div>
+
+          {/* أصناف مضافة يدوياً */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>✋ أصناف مضافة يدوياً ({incentiveList.length})</div>
+            <Btn icon="plus" size="sm" onClick={() => setShowIncentiveForm(true)}>إضافة صنف</Btn>
+          </div>
+
+          <input
+            value={incentiveSearch} onChange={(e) => setIncentiveSearch(e.target.value)}
+            placeholder="🔍 بحث..."
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
+          />
+
+          {filteredIncentive.map((item) => {
+            const prod = products.find((p) => p.id === item.product_id);
+            return (
+              <div key={item.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 13 }}>{prod?.name_ar || prod?.name || prod?.nameAr || item.product_id}</div>
+                    {item.note && <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>{item.note}</div>}
+                  </div>
+                  <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {item.rate && <span style={{ background: COLORS.greenSoft, color: COLORS.green, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.rate}% عمولة</span>}
+                    {item.fixed_amount && <span style={{ background: COLORS.blueSoft, color: COLORS.blue, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</span>}
+                    <button onClick={async () => {
+                      const { error: delIncError } = await supabase.from("incentive_products").delete().eq("id", item.id).eq("pharmacy_id", pharmacyId);
+                      if (delIncError) { showToast("خطأ: " + delIncError.message, "error"); return; }
+                      setIncentiveList((p) => p.filter((x) => x.id !== item.id));
+                    }} style={{ background: "transparent", border: "none", color: COLORS.red, fontSize: 11, cursor: "pointer", marginTop: 2 }}>🗑️ حذف</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* ── نسبة الصيدلي هذا الشهر ── */}
+          {(() => {
+            const incentiveIds = new Set([
+              ...incentiveList.map((i) => i.product_id),
+              ...highMarginProducts.map((p) => p.id),
+            ]);
+            const staffSales = {};
+            sales
+              .filter((s) => s.date?.startsWith(incMonthKey) && !s.returned)
+              .forEach((s) => {
+                const name = s.cashier || s.user || s.created_by || "غير محدد";
+                // وقت البيعة بالظبط لتحديد الهامش الساري وقتها
+                const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
+
+                // الهامش الساري وقت البيعة — آخر سجل قبل أو عند وقت البيعة
+                const applicableThreshold = thresholdHistory.length > 0
+                  ? (thresholdHistory.filter((h) => h.effective_from <= saleDateTime).at(-1)?.threshold ?? incentiveConfig.marginThreshold)
+                  : incentiveConfig.marginThreshold;
+
+                // الأصناف ذات الهامش المرتفع بناءً على الهامش الساري وقتها
+                const validMarginIds = new Set(
+                  products.filter((p) => {
+                    const cost = p.cost || 0;
+                    const price = p.price || 0;
+                    if (!cost || !price) return false;
+                    return ((price - cost) / price) * 100 >= applicableThreshold;
+                  }).map((p) => p.id)
+                );
+
+                // الأصناف اليدوية لا تتأثر بالهامش
+                const allIncentiveIds = new Set([
+                  ...incentiveList.map((i) => i.product_id),
+                  ...validMarginIds,
+                ]);
+
+                const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+                items.forEach((item) => {
+                  if (allIncentiveIds.has(item.id)) {
+                    if (!staffSales[name]) staffSales[name] = { total: 0, items: {} };
+                    const amt = (item.price || 0) * (item.qty || 1);
+                    staffSales[name].total += amt;
+                    const prod = products.find((p) => p.id === item.id);
+                    const pName = prod?.name || prod?.nameAr || item.name || item.id;
+                    if (!staffSales[name].items[pName]) staffSales[name].items[pName] = 0;
+                    staffSales[name].items[pName] += amt;
+                  }
+                });
+              });
+
+            const staffList = Object.entries(staffSales).filter(([, v]) => v.total > 0);
+            if (staffList.length === 0) return (
+              <div style={{ ...incentiveCardStyle(), marginTop: 16, textAlign: "center" }}>
+                <div style={{ color: COLORS.textDim, padding: 20 }}>
+                  لا توجد مبيعات من الأصناف المحفزة في {incMonthKey}
+                </div>
+              </div>
+            );
+
+            const totalAllStaff = staffList.reduce((a, [, v]) => a + v.total, 0);
+
+            return (
+              <div style={{ ...incentiveCardStyle(COLORS.greenSoft), marginTop: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14 }}>
+                    📊 عمولة الأصناف المحفزة — {incMonthKey}
+                  </div>
+                  <div style={{ color: COLORS.textDim, fontSize: 12 }}>
+                    إجمالي المبيعات المحفزة: <span style={{ color: COLORS.green, fontWeight: 700 }}>{totalAllStaff.toFixed(2)} ر.س</span>
+                  </div>
+                </div>
+
+                {staffList.map(([name, data]) => {
+                  const rate = incentiveConfig.rate;
+                  const commission = (data.total * rate / 100);
+                  const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100).toFixed(1) : "0";
+                  return (
+                    <div key={name} style={{ padding: "12px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <div>
+                          <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
+                          <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
+                            مبيعات محفزة: <span style={{ color: COLORS.green }}>{data.total.toFixed(2)} ر.س</span>
+                            <span style={{ marginRight: 10, color: COLORS.textDim }}>({pct}% من الإجمالي)</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{commission.toFixed(2)} ر.س</div>
+                          <div style={{ color: COLORS.textDim, fontSize: 11 }}>عمولة {rate}%</div>
+                        </div>
+                      </div>
+                      <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 6, marginBottom: 8 }}>
+                        <div style={{ background: COLORS.green, height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {Object.entries(data.items).map(([pName, amt]) => (
+                          <div key={pName} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
+                            <span style={{ color: COLORS.textDim }}>{pName}</span>
+                            <span style={{ color: COLORS.green, marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "2px solid #1a3a1a" }}>
+                  <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>إجمالي العمولات المستحقة</span>
+                  <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>
+                    {staffList.reduce((a, [, v]) => a + v.total * incentiveConfig.rate / 100, 0).toFixed(2)} ر.س
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── Modal إضافة صنف محفز — مع فلتر الشركة المنتجة وتحديد متعدد ── */}
+      <Modal open={showIncentiveForm} onClose={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }} title="⭐ إضافة أصناف للقائمة المحفزة">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+
+          {/* فلتر الشركة المنتجة */}
+          <div style={{ gridColumn: "1/-1" }}>
+            <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>
+              🏭 الشركة المنتجة
+            </label>
+            <select
+              value={incentiveSupplierFilter}
+              onChange={(e) => {
+                const mId = e.target.value;
+                setIncentiveSupplierFilter(mId);
+                // تحديد كل أصناف الشركة تلقائياً (ما عدا المضافة مسبقاً)
+                const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
+                const ids = products
+                  .filter((p) => p.manufacturer_id === mId && !alreadyAdded.has(p.id))
+                  .map((p) => p.id);
+                setSelectedIncentiveProducts(ids);
+              }}
+              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+              <option value="">-- اختر شركة --</option>
+              {manufacturers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <Input label="نسبة عمولة %" value={incentiveForm.rate} onChange={(v) => setIncentiveForm((p) => ({ ...p, rate: v }))} type="number" placeholder="اتركه فارغ لو ثابت" />
+          <Input label="مبلغ ثابت (ر.س)" value={incentiveForm.fixed_amount} onChange={(v) => setIncentiveForm((p) => ({ ...p, fixed_amount: v }))} type="number" placeholder="اتركه فارغ لو نسبة" />
+          <div style={{ gridColumn: "1/-1" }}>
+            <Input label="ملاحظة" value={incentiveForm.note} onChange={(v) => setIncentiveForm((p) => ({ ...p, note: v }))} placeholder="تطبق على جميع الأصناف المضافة..." />
+          </div>
+        </div>
+
+        {/* قائمة أصناف الشركة مع checkbox */}
+        {incentiveSupplierFilter && (() => {
+          const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
+          const mfProducts = products.filter((p) => p.manufacturer_id === incentiveSupplierFilter);
+          const available = mfProducts.filter((p) => !alreadyAdded.has(p.id));
+          const allSelected = available.length > 0 && available.every((p) => selectedIncentiveProducts.includes(p.id));
+
+          return (
+            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
+              {/* Header القائمة */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`, background: "#0a1220" }}>
+                <div style={{ color: COLORS.blue, fontWeight: 700, fontSize: 13 }}>
+                  {mfProducts.length} صنف
+                  {alreadyAdded.size > 0 && (
+                    <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11, marginRight: 8 }}>
+                      ({mfProducts.filter(p => alreadyAdded.has(p.id)).length} مضاف مسبقاً)
+                    </span>
+                  )}
+                </div>
+                {available.length > 0 && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setSelectedIncentiveProducts(available.map((p) => p.id))}
+                      style={{ background: "none", border: "none", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>
+                      تحديد الكل
+                    </button>
+                    <span style={{ color: COLORS.border }}>|</span>
+                    <button onClick={() => setSelectedIncentiveProducts([])}
+                      style={{ background: "none", border: "none", color: COLORS.coral, fontSize: 12, cursor: "pointer" }}>
+                      إلغاء الكل
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* الأصناف */}
+              <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                {mfProducts.length === 0 ? (
+                  <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20, fontSize: 13 }}>
+                    لا توجد أصناف لهذه الشركة
+                  </div>
+                ) : (
+                  mfProducts.map((p) => {
+                    const isAdded = alreadyAdded.has(p.id);
+                    const isSelected = selectedIncentiveProducts.includes(p.id);
+                    const margin = p.cost && p.price
+                      ? (((p.price - p.cost) / p.price) * 100).toFixed(0)
+                      : null;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          if (isAdded) return;
+                          setSelectedIncentiveProducts((prev) =>
+                            isSelected ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                          );
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 12,
+                          padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`,
+                          cursor: isAdded ? "default" : "pointer",
+                          background: isAdded ? "#0a0f18" : isSelected ? COLORS.surfaceAlt : "transparent",
+                          opacity: isAdded ? 0.5 : 1,
+                          transition: "background 0.15s",
+                        }}>
+                        {/* Checkbox */}
+                        <div style={{
+                          width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                          border: `2px solid ${isAdded ? COLORS.green : isSelected ? COLORS.blue : COLORS.border}`,
+                          background: isAdded ? COLORS.greenSoft : isSelected ? COLORS.blue : "transparent",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          {(isSelected || isAdded) && (
+                            <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>
+                          )}
+                        </div>
+
+                        {/* اسم الصنف */}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ color: isAdded ? COLORS.textDim : COLORS.textPrimary, fontSize: 13 }}>
+                            {p.name || p.nameAr}
+                            {isAdded && <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>• مضاف مسبقاً</span>}
+                          </div>
+                          {margin && (
+                            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
+                              هامش: <span style={{ color: +margin >= incentiveConfig.marginThreshold ? COLORS.purple : COLORS.textDim }}>{margin}%</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* السعر */}
+                        <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "left" }}>
+                          {p.price} ر.س
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Footer */}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ color: COLORS.textDim, fontSize: 12 }}>
+            {selectedIncentiveProducts.length > 0 && (
+              <span style={{ color: COLORS.blue }}>{selectedIncentiveProducts.length} صنف محدد</span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <Btn variant="ghost" onClick={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }}>إلغاء</Btn>
+            <Btn icon="check" onClick={saveIncentive}>
+              إضافة {selectedIncentiveProducts.length > 0 ? `(${selectedIncentiveProducts.length})` : ""}
+            </Btn>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -24794,7 +24808,7 @@ const SYSTEM_SECTIONS = [
       { id: "licenses",       label: "التراخيص" },
     ] },
   { id: "shift",             label: "الشفتات",             icon: "🕐" },
-  { id: "target",            label: "تارجت المبيعات",      icon: "🎯" },
+  { id: "target",            label: "تارجت المبيعات والتحفيز",      icon: "🎯" },
   { id: "inventory_count",   label: "الجرد",               icon: "📋", subItems: [
       { id: "new_count", label: "بدء جرد جديد" },
       { id: "fix_stock", label: "إصلاح تشغيلات المخزون" },
