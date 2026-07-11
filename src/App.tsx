@@ -1130,11 +1130,35 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
 );
 
 // ==================== BARCODE SCANNER ====================
+// خريطة الأزرار الفيزيائية (event.code) لكيبورد US، بيها الوضع العادي والوضع مع Shift.
+// بنستخدم event.code (مش event.key) عشان ده بيرجع "الزرار اللي اتدوس فعليًا" بغض النظر
+// عن لغة نظام التشغيل الحالية (عربي/إنجليزي)، فالسكانر يفضل يبعت القيم الصح دايمًا
+// حتى لو الويندوز شغال عربي، وده بيحل مشكلة رموز زي "*" أو حروف زي "P" بتتقلب لحاجة غلط.
+const US_KEY_MAP: Record<string, [string, string]> = {
+  Backquote: ["`", "~"],
+  Digit1: ["1", "!"], Digit2: ["2", "@"], Digit3: ["3", "#"], Digit4: ["4", "$"],
+  Digit5: ["5", "%"], Digit6: ["6", "^"], Digit7: ["7", "&"], Digit8: ["8", "*"],
+  Digit9: ["9", "("], Digit0: ["0", ")"],
+  Minus: ["-", "_"], Equal: ["=", "+"],
+  BracketLeft: ["[", "{"], BracketRight: ["]", "}"], Backslash: ["\\", "|"],
+  Semicolon: [";", ":"], Quote: ["'", "\""], Comma: [",", "<"], Period: [".", ">"], Slash: ["/", "?"],
+  Space: [" ", " "],
+  Numpad0: ["0", "0"], Numpad1: ["1", "1"], Numpad2: ["2", "2"], Numpad3: ["3", "3"],
+  Numpad4: ["4", "4"], Numpad5: ["5", "5"], Numpad6: ["6", "6"], Numpad7: ["7", "7"],
+  Numpad8: ["8", "8"], Numpad9: ["9", "9"], NumpadDecimal: [".", "."],
+  NumpadMultiply: ["*", "*"], NumpadAdd: ["+", "+"], NumpadSubtract: ["-", "-"], NumpadDivide: ["/", "/"],
+};
+for (let i = 0; i < 26; i++) {
+  const letter = String.fromCharCode(97 + i); // a-z
+  US_KEY_MAP["Key" + letter.toUpperCase()] = [letter, letter.toUpperCase()];
+}
+
 const BarcodeScanner = forwardRef(({
   onScan,
   placeholder = "امسح أو اكتب الباركود...",
 }, forwardedRef) => {
   const [val, setVal] = useState("");
+  const bufferRef = useRef<string>("");
   const ref = useRef<HTMLInputElement>(null);
   const lastKeyTime = useRef<number>(0);
   const keyCount = useRef<number>(0);
@@ -1166,19 +1190,17 @@ const BarcodeScanner = forwardRef(({
         onScan({ type: "simple", code: trimmed, raw: trimmed });
       }
     }
+    bufferRef.current = "";
     setVal("");
     keyCount.current = 0;
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVal = e.target.value;
-    setVal(newVal);
-
+  const registerKeystroke = (newVal: string) => {
     const now = Date.now();
     const timeDiff = now - lastKeyTime.current;
     lastKeyTime.current = now;
 
-    // لو الفرق بين ضغطتين أقل من 100ms → scanner حقيقي
+    // لو الفرق بين ضغطتين أقل من 100ms → scanner حقيقي (سرعة كتابة السكانر أعلى من أي إنسان)
     if (timeDiff < 100) {
       keyCount.current += 1;
     } else {
@@ -1194,12 +1216,52 @@ const BarcodeScanner = forwardRef(({
     }
   };
 
-  const handleKey = (e: React.KeyboardEvent) => {
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Ctrl/Cmd + حرف (نسخ/لصق/تحديد الكل...) نسيبها تشتغل عادي من غير تدخل
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
     if (e.key === "Enter") {
       e.preventDefault();
       if (scanTimer.current) clearTimeout(scanTimer.current);
-      if (val.trim()) handleScan(val);
+      if (bufferRef.current.trim()) handleScan(bufferRef.current);
+      return;
     }
+
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      bufferRef.current = bufferRef.current.slice(0, -1);
+      setVal(bufferRef.current);
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      bufferRef.current = "";
+      setVal("");
+      keyCount.current = 0;
+      return;
+    }
+
+    const mapped = US_KEY_MAP[e.code];
+    if (mapped) {
+      // نمنع السلوك الافتراضي عشان نفك ارتباط القيمة عن لغة نظام التشغيل تمامًا
+      e.preventDefault();
+      const ch = e.shiftKey ? mapped[1] : mapped[0];
+      const newVal = bufferRef.current + ch;
+      bufferRef.current = newVal;
+      setVal(newVal);
+      registerKeystroke(newVal);
+    }
+    // أي زرار مش موجود في الخريطة (Tab, F1, أسهم...) بنسيبه يعدي عادي من غير تعديل
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text");
+    if (!pasted) return;
+    const newVal = bufferRef.current + pasted;
+    bufferRef.current = newVal;
+    setVal(newVal);
   };
 
   return (
@@ -1208,8 +1270,9 @@ const BarcodeScanner = forwardRef(({
       <input
         ref={ref}
         value={val}
-        onChange={handleChange}
+        onChange={() => {}}
         onKeyDown={handleKey}
+        onPaste={handlePaste}
         placeholder={placeholder}
         style={{
           background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -6541,8 +6604,12 @@ function POS({
   {inv.cart.map((item) => {
     const step = item.saleUnits > 1 ? 1 / item.saleUnits : 1;
     const maxQty = products.find(x => x.id === item.id)?.stock || 99;
-    const displayPrice = item.unitPrice ?? item.price;
-    const displayTotal = item.price * item.qty;
+    // 🆕 السعر المعروض في صف السلة لازم يكون شامل الضريبة (زي سعر الرف/الملصق)،
+    // ده مجرد عرض بصري بس - القيمة الأصلية (item.price) فاضلة زي ما هي وتحتها
+    // بيتحسب "قبل الضريبة" و"ضريبة 15%" و"الإجمالي" في فوتر الفاتورة عادي.
+    const taxFactor = item.taxable ? 1.15 : 1;
+    const displayPrice = (item.unitPrice ?? item.price) * taxFactor;
+    const displayTotal = item.price * item.qty * taxFactor;
 
     return (
       <tr key={item.lineId} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
@@ -8111,7 +8178,8 @@ const LABEL_SIZES = [
           .pharmacy { font-size: 7pt; font-weight: bold; text-align: center; }
           .phone { font-size: 6pt; text-align: center; color: #444; }
           .product { font-size: 7pt; font-weight: bold; text-align: center; margin: 1mm 0; }
-          .details { display: flex; justify-content: space-between; font-size: 6pt; }
+          .details { display: flex; justify-content: space-between; align-items: center; font-size: 7.5pt; font-weight: bold; margin-top: 1mm; gap: 4px; }
+          .details span { white-space: nowrap; }
           img.barcode { width: calc(100% - ${(Number(pharmSettings.barcode_margin_mm) || 2.5) * 2}mm); margin: 0 auto; height: ${size.h * 0.35}mm; display: block; }
           @media print {
             body { margin: 0; }
@@ -8132,8 +8200,8 @@ const LABEL_SIZES = [
               <div class="product">${item.name}</div>
               <img class="barcode" id="bc${idx}" />
               <div class="details">
-                <span>سعر: ${taxInclusiveLabelPrice(item)} ر.س</span>
-                <span>${item.expiry_date ? "صلاحية: " + item.expiry_date : ""}</span>
+                <span>شامل الضريبة: ${taxInclusiveLabelPrice(item)} ر.س</span>
+                <span>${item.expiry_date ? "تاريخ الانتهاء: " + item.expiry_date : ""}</span>
               </div>
             </div>
           `).join("")}
@@ -8193,12 +8261,12 @@ const LABEL_SIZES = [
       ctx.fillText(item.name || "", w / 2, y, w - 8);
       y += 10;
 
-      // نحجز مكان تحت لسطرين (سعر + صلاحية) قبل ما نحسب ارتفاع الباركود
-      // عشان الباركود ميوكلش المساحة كلها ويسيب الكلام اللي تحته من غير مكان
-      const footerLineHeight = 14;
+      // نحجز مكان تحت لسطر واحد بس (سعر شامل الضريبة + تاريخ الانتهاء جنب بعض) قبل ما نحسب
+      // ارتفاع الباركود، عشان الباركود ميوكلش المساحة كلها ويسيب الكلام اللي تحته من غير مكان
+      const priceLineHeight = 18; // السطر ده أكبر وأوضح من باقي السطور
       const hasExpiry = !!item.expiry_date;
-      const footerHeight = footerLineHeight * (hasExpiry ? 2 : 1) + 6;
-      const bcGapAfter = 10;
+      const footerHeight = priceLineHeight + 8;
+      const bcGapAfter = 14; // مسافة أكبر شوية بين الباركود والسطر تحته عشان يبقى واضح إنه سطر منفصل
       const availableForBarcode = h - y - footerHeight - bcGapAfter;
       const bcHeight = Math.max(20, Math.min(Math.round(h * 0.28), availableForBarcode));
 
@@ -8256,16 +8324,16 @@ const LABEL_SIZES = [
       }
 
       ctx.direction = "ltr";
-      ctx.font = "12px Arial";
-      ctx.fillText(
-        `سعر: ${taxInclusiveLabelPrice(item)} ر.س`,
-        w / 2,
-        y,
-        w - 8
-      );
+      ctx.font = "bold 13px Arial";
       if (hasExpiry) {
-        y += footerLineHeight;
-        ctx.fillText(`صلاحية: ${item.expiry_date}`, w / 2, y, w - 8);
+        // السعر يمين والتاريخ شمال على نفس السطر، كل واحد في نص مساحته عشان ميتلخبطوش
+        ctx.textAlign = "right";
+        ctx.fillText(`شامل الضريبة: ${taxInclusiveLabelPrice(item)} ر.س`, w - 6, y, w / 2 - 10);
+        ctx.textAlign = "left";
+        ctx.fillText(`تاريخ الانتهاء: ${item.expiry_date}`, 6, y, w / 2 - 10);
+        ctx.textAlign = "center";
+      } else {
+        ctx.fillText(`شامل الضريبة: ${taxInclusiveLabelPrice(item)} ر.س`, w / 2, y, w - 8);
       }
 
       resolve(canvas);
