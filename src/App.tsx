@@ -5327,12 +5327,14 @@ function POS({
     const barcode = (p.barcode || "").toLowerCase();
     const id = (p.id || "").toLowerCase();
     const ingredient = (p.active_ingredient || p.activeIngredient || "").toLowerCase();
+    const keywords = (p.search_keywords || "").toLowerCase();
     return (
       name.includes(searchLower) ||
       nameEn.includes(searchLower) ||
       barcode.includes(searchLower) ||
       id.includes(searchLower) ||
-      ingredient.includes(searchLower)
+      ingredient.includes(searchLower) ||
+      keywords.includes(searchLower)
     );
   });
   // لو البحث طابق المادة الفعالة (مش الاسم التجاري)، نبرز ده في النتيجة
@@ -13893,6 +13895,27 @@ const SUPPLY_CATEGORIES = [
   "حفاضات",
   "رضاعات ومستلزمات الرضاعة",
 ];
+
+// 🆕 نظام تسمية موحّد للأصناف الغير دوائية — بدل الاسم الحر، بيتبنى الاسم تلقائيًا
+// من حقول منفصلة (البراند + النوع + الحجم/الوزن) بترتيب ثابت، عشان البحث اليدوي
+// يبقى متسق مهما كان الموظف اللي بيضيف الصنف.
+// الصيغة النهائية: [البراند] - [النوع] - [الحجم/الوزن]
+const NON_DRUG_TYPES = [
+  "كريم", "لوشن", "غسول", "شامبو", "بلسم", "سيروم", "جل", "بخاخ",
+  "مرهم", "بودرة", "فوم", "زيت", "مقشر", "ماسك", "واقي شمس",
+  "مناديل مبللة", "معجون أسنان", "غسول فم", "مكمل غذائي", "أخرى",
+];
+const NON_DRUG_SIZE_UNITS = ["مل", "جم", "كجم", "لتر", "قطعة"];
+
+function buildNonDrugName(brand, itemType, sizeValue, sizeUnit) {
+  const parts = [];
+  if (brand && brand.trim()) parts.push(brand.trim());
+  if (itemType && itemType.trim()) parts.push(itemType.trim());
+  if (sizeValue && String(sizeValue).trim()) {
+    parts.push(`${String(sizeValue).trim()}${sizeUnit || "مل"}`);
+  }
+  return parts.join(" - ");
+}
 // ═══════════════════════════════════════════════════════════════════════
 // 🆕 ProductFormModal — نافذة موحّدة لإضافة/تعديل صنف، قابلة للاستخدام من
 // أي مكان (شاشة الأصناف، أو فوق فاتورة الشراء بدون إغلاقها)
@@ -13932,9 +13955,32 @@ function ProductFormModal({
     manufacturer_id: "",
     notAvailableMarket: false,
     shortageReportUrl: "",
+    // 🆕 حقول التسمية الموحّدة للأصناف الغير دوائية (كوزمتك/مستلزمات/إلخ)
+    brandName: "", itemType: "", sizeValue: "", sizeUnit: "مل",
+    searchKeywords: "", // 🆕 مرادفات/كلمات بحث إضافية (مفصولة بفواصل) — بتساعد البحث من غير ما تأثر على الاسم المعروض
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  // 🆕 الأصناف الغير دوائية بتتسمى تلقائيًا من [البراند - النوع - الحجم/الوزن]
+  // بدل خانة الاسم الحرة، عشان يبقى في وحدة في طريقة التسمية تسهّل البحث اليدوي.
+  const isNonDrug = form.mainCategory !== "دواء";
+  useEffect(() => {
+    if (!isNonDrug) return;
+    const built = buildNonDrugName(form.brandName, form.itemType, form.sizeValue, form.sizeUnit);
+    if (built && built !== form.nameAr) F("nameAr", built);
+  }, [isNonDrug, form.brandName, form.itemType, form.sizeValue, form.sizeUnit]);
+
+  // 🆕 قائمة البراندات المستخدمة سابقًا (للأصناف الغير دوائية فقط) عشان الـ autocomplete
+  const knownBrands = useMemo(() => {
+    const set = new Set();
+    products.forEach((p) => {
+      const cat = p.main_category || p.mainCategory || "";
+      const b = p.brand_name;
+      if (cat !== "دواء" && b && b.trim()) set.add(b.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ar"));
+  }, [products]);
 
   useEffect(() => {
     if (!pharmacyId) return;
@@ -13979,6 +14025,11 @@ function ProductFormModal({
         manufacturer_id: p.manufacturer_id || "",
         notAvailableMarket: p.not_available_market ?? false,
         shortageReportUrl: p.shortage_report_url || "",
+        brandName: p.brand_name || "",
+        itemType: p.item_type || "",
+        sizeValue: p.size_value != null ? String(p.size_value) : "",
+        sizeUnit: p.size_unit || "مل",
+        searchKeywords: p.search_keywords || "",
       });
       // ── جدول product_barcodes بقى غرضه بس تتبع الدفعات (batch/serial/expiry) — الـ GTIN نفسه بقى منفصل في form.gtin أعلاه ──
       supabase.from("product_barcodes").select("*").eq("product_id", p.id)
@@ -14093,6 +14144,12 @@ function ProductFormModal({
       manufacturer_id: form.manufacturer_id || null,
       not_available_market: form.notAvailableMarket,
       shortage_report_url: form.shortageReportUrl || null,
+      // 🆕 حقول التسمية الموحّدة — بتتسجل بس للأصناف الغير دوائية، وبتفضل فاضية للدواء
+      brand_name: isNonDrug ? (form.brandName || null) : null,
+      item_type: isNonDrug ? (form.itemType || null) : null,
+      size_value: isNonDrug && form.sizeValue ? +form.sizeValue : null,
+      size_unit: isNonDrug ? (form.sizeUnit || null) : null,
+      search_keywords: form.searchKeywords.trim() || null,
     };
 
     let productId = form.id;
@@ -14153,10 +14210,60 @@ function ProductFormModal({
     <Modal open={open} onClose={onClose} title={editingId ? "تعديل الصنف" : "إضافة صنف جديد"} wide>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Input label="رمز الصنف" value={form.id} onChange={(v) => F("id", v)} placeholder="P001" />
-        {/* 🆕 الاسم بالعربي: يتفعّل تلقائيًا اتجاه RTL ولغة عربي عند التركيز عليه */}
-        <Input label="الاسم بالعربي *" value={form.nameAr} onChange={(v) => F("nameAr", v)} placeholder="باراسيتامول" dir="rtl" lang="ar" />
-        {/* 🆕 الاسم بالإنجليزي: يتفعّل تلقائيًا اتجاه LTR ولغة إنجليزي عند التركيز عليه */}
-        <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Paracetamol" dir="ltr" lang="en" />
+
+        {isNonDrug ? (
+          <>
+            {/* 🆕 التسمية الموحّدة للأصناف الغير دوائية: البراند + النوع + الحجم/الوزن → الاسم بيتبني تلقائيًا */}
+            <div style={{ position: "relative" }}>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>البراند *</div>
+              <input
+                value={form.brandName}
+                onChange={(e) => F("brandName", e.target.value)}
+                placeholder="نيفيا"
+                dir="rtl" lang="ar"
+                list="brand-suggestions"
+                style={inputStyle}
+              />
+              <datalist id="brand-suggestions">
+                {knownBrands.map((b) => <option key={b} value={b} />)}
+              </datalist>
+            </div>
+            <Select label="النوع *" value={form.itemType} onChange={(v) => F("itemType", v)} options={["", ...NON_DRUG_TYPES]} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ flex: 2 }}>
+                <Input label="الحجم/الوزن" value={form.sizeValue} onChange={(v) => F("sizeValue", v)} type="number" placeholder="400" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Select label="الوحدة" value={form.sizeUnit} onChange={(v) => F("sizeUnit", v)} options={NON_DRUG_SIZE_UNITS} />
+              </div>
+            </div>
+            <div style={{ gridColumn: "1 / -1", fontSize: 12, color: COLORS.textDim, marginTop: -6 }}>
+              الاسم النهائي (يتبني تلقائيًا): <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{form.nameAr || "—"}</span>
+            </div>
+            {/* 🆕 الاسم بالإنجليزي يفضل متاح لو حابب يسجل الاسم الأجنبي على العبوة */}
+            <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Nivea Cream 400ml" dir="ltr" lang="en" />
+            {/* 🆕 مرادفات/كلمات بحث إضافية — اختياري، بيتخزن جنبًا ومش بيأثر على شكل الاسم المعروض */}
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Input
+                label="مرادفات/كلمات بحث إضافية (اختياري)"
+                value={form.searchKeywords}
+                onChange={(v) => F("searchKeywords", v)}
+                placeholder="مثال: nivea, نيفيا كريم, جسم"
+                dir="rtl" lang="ar"
+              />
+              <div style={{ fontSize: 11, color: COLORS.border, marginTop: 4 }}>
+                افصل بين الكلمات بفاصلة — بتساعد البحث اليدوي من غير ما تغيّر الاسم المعروض للصنف.
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* 🆕 الاسم بالعربي: يتفعّل تلقائيًا اتجاه RTL ولغة عربي عند التركيز عليه */}
+            <Input label="الاسم بالعربي *" value={form.nameAr} onChange={(v) => F("nameAr", v)} placeholder="باراسيتامول" dir="rtl" lang="ar" />
+            {/* 🆕 الاسم بالإنجليزي: يتفعّل تلقائيًا اتجاه LTR ولغة إنجليزي عند التركيز عليه */}
+            <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Paracetamol" dir="ltr" lang="en" />
+          </>
+        )}
 
         <Select label="الفئة الرئيسية" value={form.mainCategory} onChange={handleMainCategoryChange} options={Object.keys(MAIN_CATEGORIES)} />
         <Select label="فئة التوريد" value={form.supply_category} onChange={(v) => F("supply_category", v)} options={["", ...SUPPLY_CATEGORIES]} />
@@ -14400,7 +14507,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       str(p.nameEn).toLowerCase().includes(s) ||
       str(p.barcode).includes(search) ||
       str(p.id).includes(search) ||
-      str(p.mainCategory || p.category).includes(search)
+      str(p.mainCategory || p.category).includes(search) ||
+      str(p.search_keywords).toLowerCase().includes(s)
     );
   });
 
