@@ -19847,6 +19847,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   const [showTierForm, setShowTierForm] = useState(false);
   const [tierForm, setTierForm] = useState({ threshold: "", rate: "" });
   const [editingTierId, setEditingTierId] = useState<string | null>(null);
+  const [expandedTierId, setExpandedTierId] = useState<string | null>(null);
   // ── تاريخ تغييرات حد الهامش لكل Tier (لمنع الأثر الرجعي) ──
   const [tierThresholdHistory, setTierThresholdHistory] = useState<{ tier_id: string; threshold: number; effective_from: string }[]>([]);
   // ── استثناءات القائمة التلقائية (استثناء صنف مستوفي، أو إضافة صنف يدوياً لـ Tier معين) ──
@@ -19960,11 +19961,11 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   // ── استثناء صنف مستوفي تلقائياً، أو إضافة صنف استثنائياً لـ Tier معين ──
   const addIncentiveOverride = async (productId: string, type: "include" | "exclude", tierId?: string) => {
     const { data, error } = await supabase.from("incentive_overrides")
-      .insert({ pharmacy_id: pharmacyId, product_id: productId, type, tier_id: tierId || null })
+      .upsert({ pharmacy_id: pharmacyId, product_id: productId, type, tier_id: tierId || null }, { onConflict: "pharmacy_id,product_id" })
       .select().single();
     if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setIncentiveOverrides((p) => [...p, data]);
-    showToast(type === "exclude" ? "تم استثناء الصنف ✓" : "تمت إضافة الصنف استثنائياً ✓");
+    setIncentiveOverrides((p) => [...p.filter((o) => o.product_id !== productId), data]);
+    showToast(type === "exclude" ? "تم حذف الصنف من القائمة ✓" : "تم نقل الصنف ✓");
   };
 
   const removeIncentiveOverride = async (id: string) => {
@@ -20037,19 +20038,18 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   const excludedIds = new Set(incentiveOverrides.filter((o) => o.type === "exclude").map((o) => o.product_id));
   const includedOverrides = incentiveOverrides.filter((o) => o.type === "include");
 
-  // ── القائمة التلقائية الحالية (لحظة العرض) — Tiers + استثناءات ──
+  // ── القائمة التلقائية الحالية (لحظة العرض) — override (نقل/حذف يدوي) له الأولوية دايماً على الحساب الطبيعي ──
   const nowIso = new Date().toISOString();
   const autoIncentiveProducts = products
-    .filter((p) => !excludedIds.has(p.id))
     .map((p) => {
-      const tier = matchTierAt(p, nowIso);
-      if (tier) return { product: p, tier, manual: false };
       const inc = includedOverrides.find((o) => o.product_id === p.id);
       if (inc) {
         const tier2 = tiers.find((t) => t.id === inc.tier_id);
-        if (tier2) return { product: p, tier: tier2, manual: true };
+        return tier2 ? { product: p, tier: tier2, manual: true } : null;
       }
-      return null;
+      if (excludedIds.has(p.id)) return null;
+      const tier = matchTierAt(p, nowIso);
+      return tier ? { product: p, tier, manual: false } : null;
     })
     .filter(Boolean) as { product: any; tier: { id: string; threshold: number; rate: number }; manual: boolean }[];
 
@@ -20506,19 +20506,61 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
             </div>
             {tiers.length === 0
               ? <div style={{ color: COLORS.textDim, fontSize: 12 }}>لا توجد مستويات مضافة — أضف Tier عشان يبدأ التحفيز التلقائي يشتغل</div>
-              : [...tiers].sort((a, b) => b.threshold - a.threshold).map((t) => (
-                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.surfaceAlt, border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
-                  <div style={{ color: COLORS.textPrimary, fontSize: 13 }}>هامش ≥ <b style={{ color: COLORS.purple }}>{t.threshold}%</b></div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ color: COLORS.green, fontWeight: 700, fontSize: 13 }}>{t.rate}% عمولة</span>
-                    <button onClick={() => { setTierForm({ threshold: String(t.threshold), rate: String(t.rate) }); setEditingTierId(t.id); setShowTierForm(true); }}
-                      style={{ background: "none", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>✏️</button>
-                    <button onClick={() => deleteTier(t.id)} style={{ background: "none", border: "none", color: COLORS.red, fontSize: 12, cursor: "pointer" }}>🗑️</button>
-                  </div>
-                </div>
-              ))
+              : [...tiers].sort((a, b) => b.threshold - a.threshold).map((t) => {
+                  const tierProducts = autoIncentiveProducts.filter((x) => x.tier.id === t.id);
+                  const isOpen = expandedTierId === t.id;
+                  return (
+                    <div key={t.id} style={{ marginBottom: 6 }}>
+                      <div onClick={() => setExpandedTierId(isOpen ? null : t.id)}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.surfaceAlt, border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: isOpen ? "8px 8px 0 0" : 8, padding: "8px 12px", cursor: "pointer" }}>
+                        <div style={{ color: COLORS.textPrimary, fontSize: 13 }}>
+                          هامش ≥ <b style={{ color: COLORS.purple }}>{t.threshold}%</b>
+                          <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>({tierProducts.length} صنف)</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          <span style={{ color: COLORS.green, fontWeight: 700, fontSize: 13 }}>{t.rate}% عمولة</span>
+                          {isAdmin && (
+                            <>
+                              <button onClick={(e) => { e.stopPropagation(); setTierForm({ threshold: String(t.threshold), rate: String(t.rate) }); setEditingTierId(t.id); setShowTierForm(true); }}
+                                style={{ background: "none", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>✏️</button>
+                              <button onClick={(e) => { e.stopPropagation(); deleteTier(t.id); }} style={{ background: "none", border: "none", color: COLORS.red, fontSize: 12, cursor: "pointer" }}>🗑️</button>
+                            </>
+                          )}
+                          <span style={{ color: COLORS.textDim, fontSize: 11 }}>{isOpen ? "▲" : "▼"}</span>
+                        </div>
+                      </div>
+
+                      {isOpen && (
+                        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", padding: "8px 12px" }}>
+                          {tierProducts.length === 0
+                            ? <div style={{ color: COLORS.textDim, fontSize: 12, padding: "6px 0" }}>لا توجد أصناف في هذا المستوى حالياً</div>
+                            : tierProducts.map(({ product: p, manual }) => (
+                                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+                                  <div>
+                                    <span style={{ color: COLORS.textPrimary, fontSize: 13 }}>{p.name_ar || p.name || p.nameAr}</span>
+                                    {manual && <span style={{ color: COLORS.gold, fontSize: 11, marginRight: 6 }}>⭐ يدوي</span>}
+                                  </div>
+                                  {isAdmin && (
+                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      <select defaultValue="" onChange={(e) => { if (e.target.value) addIncentiveOverride(p.id, "include", e.target.value); }}
+                                        style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textPrimary, fontSize: 11, padding: "3px 6px" }}>
+                                        <option value="">↔️ نقل لـ...</option>
+                                        {tiers.filter((tt) => tt.id !== t.id).map((tt) => <option key={tt.id} value={tt.id}>{tt.threshold}% → {tt.rate}%</option>)}
+                                      </select>
+                                      <button onClick={() => addIncentiveOverride(p.id, "exclude")}
+                                        style={{ background: "none", border: "none", color: COLORS.red, fontSize: 12, cursor: "pointer" }}>🗑️ حذف</button>
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                          }
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
             }
-            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6 }}>لو صنف مستوفي أكتر من Tier في نفس اللحظة، بياخد نسبة الـ Tier الأعلى.</div>
+            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6 }}>لو صنف مستوفي أكتر من Tier في نفس اللحظة، بياخد نسبة الـ Tier الأعلى. دوس على أي Tier عشان تشوف الأصناف اللي فيه.</div>
           </div>
 
           {/* أصناف بهامش تلقائية — كارت مضغوط قابل للتوسيع */}
