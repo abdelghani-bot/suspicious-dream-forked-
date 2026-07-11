@@ -13907,13 +13907,14 @@ const NON_DRUG_TYPES = [
 ];
 const NON_DRUG_SIZE_UNITS = ["مل", "جم", "كجم", "لتر", "قطعة"];
 
-function buildNonDrugName(brand, itemType, sizeValue, sizeUnit) {
+function buildNonDrugName(brand, itemType, sizeValue, sizeUnit, variant) {
   const parts = [];
   if (brand && brand.trim()) parts.push(brand.trim());
   if (itemType && itemType.trim()) parts.push(itemType.trim());
   if (sizeValue && String(sizeValue).trim()) {
     parts.push(`${String(sizeValue).trim()}${sizeUnit || "مل"}`);
   }
+  if (variant && variant.trim()) parts.push(variant.trim());
   return parts.join(" - ");
 }
 // ═══════════════════════════════════════════════════════════════════════
@@ -13957,6 +13958,7 @@ function ProductFormModal({
     shortageReportUrl: "",
     // 🆕 حقول التسمية الموحّدة للأصناف الغير دوائية (كوزمتك/مستلزمات/إلخ)
     brandName: "", itemType: "", sizeValue: "", sizeUnit: "مل",
+    variant: "", // 🆕 تمييز الصنف (مثلاً "لتساقط الشعر") — بيتضاف آخر الاسم بعد الحجم/الوحدة
     searchKeywords: "", // 🆕 مرادفات/كلمات بحث إضافية (مفصولة بفواصل) — بتساعد البحث من غير ما تأثر على الاسم المعروض
   };
   const [form, setForm] = useState(blank);
@@ -13967,9 +13969,9 @@ function ProductFormModal({
   const isNonDrug = form.mainCategory !== "دواء";
   useEffect(() => {
     if (!isNonDrug) return;
-    const built = buildNonDrugName(form.brandName, form.itemType, form.sizeValue, form.sizeUnit);
+    const built = buildNonDrugName(form.brandName, form.itemType, form.sizeValue, form.sizeUnit, form.variant);
     if (built && built !== form.nameAr) F("nameAr", built);
-  }, [isNonDrug, form.brandName, form.itemType, form.sizeValue, form.sizeUnit]);
+  }, [isNonDrug, form.brandName, form.itemType, form.sizeValue, form.sizeUnit, form.variant]);
 
   // 🆕 قائمة البراندات المستخدمة سابقًا (للأصناف الغير دوائية فقط) عشان الـ autocomplete
   const knownBrands = useMemo(() => {
@@ -14029,6 +14031,7 @@ function ProductFormModal({
         itemType: p.item_type || "",
         sizeValue: p.size_value != null ? String(p.size_value) : "",
         sizeUnit: p.size_unit || "مل",
+        variant: p.variant || "",
         searchKeywords: p.search_keywords || "",
       });
       // ── جدول product_barcodes بقى غرضه بس تتبع الدفعات (batch/serial/expiry) — الـ GTIN نفسه بقى منفصل في form.gtin أعلاه ──
@@ -14149,6 +14152,7 @@ function ProductFormModal({
       item_type: isNonDrug ? (form.itemType || null) : null,
       size_value: isNonDrug && form.sizeValue ? +form.sizeValue : null,
       size_unit: isNonDrug ? (form.sizeUnit || null) : null,
+      variant: isNonDrug ? (form.variant || null) : null,
       search_keywords: form.searchKeywords.trim() || null,
     };
 
@@ -14236,6 +14240,10 @@ function ProductFormModal({
               <div style={{ flex: 1 }}>
                 <Select label="الوحدة" value={form.sizeUnit} onChange={(v) => F("sizeUnit", v)} options={NON_DRUG_SIZE_UNITS} />
               </div>
+            </div>
+            {/* 🆕 تمييز الصنف — وصف حر بيتضاف آخر الاسم (مثلاً "لتساقط الشعر"، "بشرة جافة") لتفريق منتجات نفس البراند/النوع/الحجم عن بعض */}
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Input label="تمييز الصنف (اختياري)" value={form.variant} onChange={(v) => F("variant", v)} placeholder="لتساقط الشعر" dir="rtl" lang="ar" />
             </div>
             <div style={{ gridColumn: "1 / -1", fontSize: 12, color: COLORS.textDim, marginTop: -6 }}>
               الاسم النهائي (يتبني تلقائيًا): <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{form.nameAr || "—"}</span>
