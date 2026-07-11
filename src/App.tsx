@@ -14059,6 +14059,16 @@ const SUPPLY_CATEGORIES = [
   "حفاضات",
   "رضاعات ومستلزمات الرضاعة",
 ];
+// 🆕 أيقونة لكل فئة توريد — تستخدم في بطاقات "تحليل الموردين"
+const SUPPLY_CATEGORY_ICONS = {
+  "دواء": "💊",
+  "مستلزمات طبية": "🩺",
+  "كوزمتك عادي": "💄",
+  "كوزمتك طبي": "🧴",
+  "حليب أطفال": "🍼",
+  "حفاضات": "👶",
+  "رضاعات ومستلزمات الرضاعة": "🍶",
+};
 
 // 🆕 نظام تسمية موحّد للأصناف الغير دوائية — بدل الاسم الحر، بيتبنى الاسم تلقائيًا
 // من حقول منفصلة (البراند + النوع + الحجم/الوزن) بترتيب ثابت، عشان البحث اليدوي
@@ -15078,6 +15088,11 @@ function SuppliersModule({
   const [editing, setEditing] = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [supplierNameSearch, setSupplierNameSearch] = useState(""); // 🆕 بحث سريع باسم المورد
+  // 🆕 تاب "قائمة الموردين" / "تحليل الموردين" + فلتر الفئة
+  const [supplierViewTab, setSupplierViewTab] = useState("list"); // "list" | "analysis"
+  const [categoryFilter, setCategoryFilter] = useState(null); // فئة توريد محددة من "تحليل الموردين"
+  const [analysisMonths, setAnalysisMonths] = useState(12); // 🆕 مدى شارت المشتريات/السداد الشهري
+  const [analysisSupplierIds, setAnalysisSupplierIds] = useState([]); // 🆕 موردين محددين للمقارنة (فاضي = كل الموردين)
   const [payments, setPayments] = useState([]);
   const [orders, setOrders] = useState([]);
   const [showDetail, setShowDetail] = useState(null);
@@ -15687,6 +15702,53 @@ function SuppliersModule({
     return months;
   };
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 تاب "تحليل الموردين" — إحصاءات الفئات + توزيع الدين + شارت شهري مجمّع
+  // ═══════════════════════════════════════════════════
+
+  // إحصاء كل فئة توريد: عدد الموردين + إجمالي الدين + إجمالي المشتريات
+  const getCategoryStats = () => {
+    return SUPPLY_CATEGORIES.map((cat) => {
+      const catSuppliers = suppliers.filter((s) => (s.supply_categories || []).includes(cat));
+      const totalDebt = catSuppliers.reduce((sum, s) => sum + getSupplierDebt(s.id), 0);
+      const totalPurchases = catSuppliers.reduce(
+        (sum, s) => sum + purchases.filter((p) => p.supplier === s.id).reduce((x, p) => x + (p.total || 0), 0),
+        0
+      );
+      return { category: cat, count: catSuppliers.length, totalDebt, totalPurchases };
+    });
+  };
+
+  // توزيع الدين على الموردين (للموردين المديونين فقط) — مرتب تنازليًا + النسبة من إجمالي الدين
+  const getDebtDistribution = () => {
+    const rows = suppliers
+      .map((s) => ({ supplier: s, debt: getSupplierDebt(s.id) }))
+      .filter((r) => r.debt > 0.01)
+      .sort((a, b) => b.debt - a.debt);
+    const total = rows.reduce((s, r) => s + r.debt, 0);
+    return { rows, total };
+  };
+
+  // شارت مشتريات/سداد مجمّع على مدى N شهر — لو monthsAt supplierIds فاضية بيجمع كل الموردين، غير كده بيقتصر على المحدد
+  const getAggregateMonthlyChart = (monthsCount = 12, supplierIds = []) => {
+    const idsSet = supplierIds.length > 0 ? new Set(supplierIds) : null;
+    const months = [];
+    for (let i = monthsCount - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = d.toLocaleDateString("ar", { month: "short", year: "2-digit" });
+      const purchases_ = purchases
+        .filter((p) => p.date?.startsWith(key) && (!idsSet || idsSet.has(p.supplier)))
+        .reduce((s, p) => s + (p.total || 0), 0);
+      const paid_ = payments
+        .filter((p) => p.date?.startsWith(key) && (!idsSet || idsSet.has(p.supplier_id)))
+        .reduce((s, p) => s + (p.amount || 0), 0);
+      months.push({ label, purchases: purchases_, paid: paid_, paidPct: purchases_ > 0 ? Math.min((paid_ / purchases_) * 100, 100) : 0 });
+    }
+    return months;
+  };
+
   const openAdd = () => {
     setEditing(null);
     setForm({ ...blank, id: "S" + Date.now() });
@@ -15740,6 +15802,7 @@ function SuppliersModule({
 
   const filteredSuppliers = suppliers
     .filter((s) => filterStatus === "all" ? true : getSupplierStatus(s) === filterStatus)
+    .filter((s) => !categoryFilter ? true : (s.supply_categories || []).includes(categoryFilter))
     .filter((s) => {
       const q = supplierNameSearch.trim().toLowerCase();
       if (!q) return true;
@@ -15776,6 +15839,22 @@ function SuppliersModule({
         <Btn icon="plus" onClick={openAdd}>إضافة مورد</Btn>
       </div>
 
+      {/* 🆕 تاب: قائمة الموردين / تحليل الموردين */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 18, borderBottom: `1px solid ${COLORS.border}` }}>
+        {[
+          { k: "list",     l: "📋 قائمة الموردين" },
+          { k: "analysis", l: "📊 تحليل الموردين" },
+        ].map((t) => (
+          <button key={t.k} onClick={() => setSupplierViewTab(t.k)} style={{
+            padding: "10px 18px", border: "none", borderBottom: `2px solid ${supplierViewTab === t.k ? COLORS.blue : "transparent"}`,
+            background: "transparent", color: supplierViewTab === t.k ? COLORS.blue : COLORS.textDim,
+            fontSize: 14, fontWeight: supplierViewTab === t.k ? 700 : 400, cursor: "pointer",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {supplierViewTab === "list" && (
+      <>
       {/* 🆕 بحث باسم المورد */}
       <div style={{ position: "relative", marginBottom: 14, maxWidth: 360 }}>
         <IC n="search" s={16} style={{ position: "absolute", top: "50%", right: 12, transform: "translateY(-50%)", color: COLORS.textDim }} />
@@ -15807,6 +15886,16 @@ function SuppliersModule({
             fontSize: 13, fontWeight: filterStatus === f.k ? 700 : 400, cursor: "pointer",
           }}>{f.l}</button>
         ))}
+        {/* 🆕 فلتر فئة نشط — جاي من تاب التحليل */}
+        {categoryFilter && (
+          <button onClick={() => setCategoryFilter(null)} style={{
+            padding: "7px 16px", borderRadius: 8, border: `1px solid ${COLORS.blue}`,
+            background: COLORS.surfaceAlt, color: COLORS.blue, fontSize: 13, fontWeight: 700,
+            cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+          }}>
+            {SUPPLY_CATEGORY_ICONS[categoryFilter] || "🏷"} {categoryFilter} ✕
+          </button>
+        )}
       </div>
 
       {/* كروت الموردين */}
@@ -16029,6 +16118,151 @@ function SuppliersModule({
           );
         })}
       </div>
+      </>
+      )}
+
+      {supplierViewTab === "analysis" && (() => {
+        const catStats = getCategoryStats();
+        const maxCatDebt = Math.max(...catStats.map((c) => c.totalDebt), 1);
+        const { rows: debtRows, total: totalDebt } = getDebtDistribution();
+        const maxDebtRow = Math.max(...debtRows.map((r) => r.debt), 1);
+        const monthlyData = getAggregateMonthlyChart(analysisMonths, analysisSupplierIds);
+        const maxMonthly = Math.max(...monthlyData.map((d) => Math.max(d.purchases, d.paid)), 1);
+        const toggleAnalysisSupplier = (id) => {
+          setAnalysisSupplierIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+        };
+        return (
+          <div>
+            {/* ===== بطاقات الفئات ===== */}
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>الموردون حسب الفئة</div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 12 }}>اضغط على أي فئة لعرض موردينها بكروتهم في قائمة الموردين</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12 }}>
+                {catStats.map((c) => (
+                  <div
+                    key={c.category}
+                    onClick={() => { setCategoryFilter(c.category); setFilterStatus("all"); setSupplierViewTab("list"); }}
+                    style={{
+                      background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+                      border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16, cursor: "pointer",
+                      transition: "border-color 0.15s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = COLORS.blue; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = COLORS.border; }}
+                  >
+                    <div style={{ fontSize: 26, marginBottom: 6 }}>{SUPPLY_CATEGORY_ICONS[c.category] || "🏷"}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{c.category}</div>
+                    <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 8 }}>{c.count} مورد</div>
+                    <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 6, overflow: "hidden", marginBottom: 6 }}>
+                      <div style={{ height: "100%", width: `${(c.totalDebt / maxCatDebt) * 100}%`, background: c.totalDebt > 0 ? COLORS.red : COLORS.green, borderRadius: 4 }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                      <span style={{ color: COLORS.textDim }}>دين مستحق</span>
+                      <span style={{ color: c.totalDebt > 0 ? COLORS.red : COLORS.green, fontWeight: 700 }}>{c.totalDebt.toFixed(0)} ر.س</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* ===== توزيع الدين حسب المورد ===== */}
+            <div style={{
+              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+              border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 18, marginBottom: 28,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>توزيع الدين على الموردين</div>
+                <div style={{ fontSize: 12, color: COLORS.textDim }}>إجمالي الدين: <span style={{ color: COLORS.red, fontWeight: 700 }}>{totalDebt.toFixed(0)} ر.س</span></div>
+              </div>
+              {debtRows.length === 0 ? (
+                <div style={{ color: COLORS.textDim, fontSize: 13, padding: "20px 0", textAlign: "center" }}>لا توجد ديون مستحقة على الموردين حاليًا 🎉</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+                  {debtRows.slice(0, 15).map(({ supplier: s, debt }) => {
+                    const pct = totalDebt > 0 ? (debt / totalDebt) * 100 : 0;
+                    return (
+                      <div key={s.id}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                          <span style={{ color: COLORS.textPrimary }}>{s.name}</span>
+                          <span style={{ color: COLORS.textDim }}>{debt.toFixed(0)} ر.س <span style={{ color: COLORS.red, fontWeight: 700 }}>({pct.toFixed(1)}%)</span></span>
+                        </div>
+                        <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 10, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${(debt / maxDebtRow) * 100}%`, background: COLORS.red, borderRadius: 4, transition: "width 0.3s" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {debtRows.length > 15 && (
+                    <div style={{ fontSize: 11, color: COLORS.textDim, textAlign: "center", marginTop: 4 }}>
+                      + {debtRows.length - 15} مورد آخر عليهم دين (اعرض التفاصيل من قائمة الموردين)
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ===== المشتريات والسداد الشهري (مجمّع) ===== */}
+            <div style={{
+              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+              border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 18,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>المشتريات والسداد الشهري {analysisSupplierIds.length > 0 ? `(${analysisSupplierIds.length} مورد محدد)` : "(كل الموردين)"}</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[6, 12].map((m) => (
+                    <button key={m} onClick={() => setAnalysisMonths(m)} style={{
+                      padding: "5px 14px", borderRadius: 8, border: "1px solid",
+                      borderColor: analysisMonths === m ? COLORS.blue : COLORS.border,
+                      background: analysisMonths === m ? COLORS.surfaceAlt : "transparent",
+                      color: analysisMonths === m ? COLORS.blue : COLORS.textDim,
+                      fontSize: 12, fontWeight: analysisMonths === m ? 700 : 400, cursor: "pointer",
+                    }}>{m} شهر</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* اختيار موردين للمقارنة */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, maxHeight: 90, overflowY: "auto" }}>
+                {analysisSupplierIds.length > 0 && (
+                  <button onClick={() => setAnalysisSupplierIds([])} style={{
+                    padding: "5px 12px", borderRadius: 20, border: `1px solid ${COLORS.red}`,
+                    background: "transparent", color: COLORS.red, fontSize: 11, cursor: "pointer",
+                  }}>✕ إلغاء التحديد</button>
+                )}
+                {suppliers.map((s) => {
+                  const active = analysisSupplierIds.includes(s.id);
+                  return (
+                    <button key={s.id} onClick={() => toggleAnalysisSupplier(s.id)} style={{
+                      padding: "5px 12px", borderRadius: 20, border: "1px solid",
+                      borderColor: active ? COLORS.blue : COLORS.border,
+                      background: active ? COLORS.surfaceAlt : "transparent",
+                      color: active ? COLORS.blue : COLORS.textDim,
+                      fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer",
+                    }}>{s.name}</button>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "flex-end", gap: analysisMonths > 6 ? 4 : 8, height: 140, overflowX: "auto" }}>
+                {monthlyData.map((d, i) => (
+                  <div key={i} style={{ flex: 1, minWidth: analysisMonths > 6 ? 32 : 44, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 110 }}>
+                      <div style={{ flex: 1, background: COLORS.blue, height: `${(d.purchases / maxMonthly) * 110}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مشتريات: ${d.purchases.toFixed(0)} ر.س`} />
+                      <div style={{ flex: 1, background: COLORS.green, height: `${(d.paid / maxMonthly) * 110}px`, borderRadius: "3px 3px 0 0", minHeight: 2 }} title={`مسدد: ${d.paid.toFixed(0)} ر.س — ${d.paidPct.toFixed(0)}% من مشتريات الشهر`} />
+                    </div>
+                    <span style={{ fontSize: 9, color: COLORS.textDim }}>{d.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+                <span style={{ fontSize: 11, color: COLORS.blue }}>■ مشتريات</span>
+                <span style={{ fontSize: 11, color: COLORS.green }}>■ مسدد</span>
+                <span style={{ fontSize: 11, color: COLORS.textDim }}>مرّر الماوس/إصبعك على أي عمود لعرض نسبة السداد من مشتريات الشهر</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ===== Modal المرتجع التلقائي ===== */}
       {showAutoReturn && (
