@@ -24525,7 +24525,10 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
 
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadPharmacists(), loadTodayLogs(), loadPrayerSettings(), loadPrayerBreaks(), loadWorkSchedules()]);
+    await loadPharmacists();
+    const schedulesData = await loadWorkSchedules();
+    await autoCloseOrphanLogs(schedulesData);
+    await Promise.all([loadTodayLogs(), loadPrayerSettings(), loadPrayerBreaks()]);
     try {
       const { data: settingsData } = await supabase
         .from("pharmacy_settings")
@@ -24541,6 +24544,57 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
       globalToast("تعذّر تحميل مواقيت الصلاة", "error");
     }
     setLoading(false);
+  }
+
+  // 🆕 إغلاق تلقائي لسجلات الحضور "اليتيمة" — لما صيدلي ينسى يسجل انصراف ويفضل السجل مفتوح من يوم سابق.
+  // بنقفله على وقت نهاية دوامه المجدول (+ الأوفرتايم المسموح)، مش وقت اكتشاف المشكلة،
+  // نفس منطق calcCappedHours بالظبط، عشان الساعات تتحسب صح ومايفضلش معلّق للأبد.
+  async function autoCloseOrphanLogs(schedulesData: any[]) {
+    const { data: orphans } = await supabase
+      .from("attendance_logs")
+      .select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .is("check_out", null)
+      .lt("date", today);
+    if (!orphans || orphans.length === 0) return;
+
+    for (const log of orphans) {
+      const dow = new Date(log.check_in).getDay();
+      const schedule = (schedulesData || []).find(
+        (s: any) => s.pharmacist_name === log.pharmacist_name && s.day_of_week === dow && s.shift_number === (log.shift_number || 1) && !s.is_off
+      );
+
+      let closeISO: string;
+      if (schedule?.shift_start && schedule?.shift_end) {
+        const [startH, startM] = schedule.shift_start.split(":").map(Number);
+        const [endH, endM] = schedule.shift_end.split(":").map(Number);
+        const scheduledEnd = new Date(log.check_in);
+        scheduledEnd.setHours(endH, endM, 0, 0);
+        if (endH * 60 + endM <= startH * 60 + startM) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
+        const overtimeAllowed = +schedule.overtime_minutes || 0;
+        closeISO = new Date(scheduledEnd.getTime() + overtimeAllowed * 60000).toISOString();
+      } else {
+        // مفيش جدول مطابق أصلاً — نقفله على نهاية يوم الحضور، وهيتحسب صفر ساعات زي ما بيحصل مع أي حضور خارج الدوام
+        const endOfDay = new Date(log.check_in);
+        endOfDay.setHours(23, 59, 59, 0);
+        closeISO = endOfDay.toISOString();
+      }
+
+      const { totalHours } = calcCappedHours(log.check_in, closeISO, schedule);
+      const { data: breaks } = await supabase.from("prayer_breaks").select("deducted_minutes").eq("attendance_id", log.id);
+      const totalDeductions = (breaks || []).reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
+      const netHours = Math.max(0, totalHours - totalDeductions);
+
+      await supabase.from("attendance_logs").update({
+        check_out: closeISO,
+        total_hours: +totalHours.toFixed(2),
+        total_deductions: +totalDeductions.toFixed(2),
+        net_hours: +netHours.toFixed(2),
+        auto_closed: true,
+      }).eq("id", log.id).eq("pharmacy_id", pharmacyId);
+    }
+
+    globalToast(`⚠️ تم إغلاق ${orphans.length} سجل حضور تلقائيًا (نسيان تسجيل انصراف)`, "warn");
   }
 
   async function loadPharmacists() {
@@ -24566,6 +24620,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   async function loadWorkSchedules() {
     const { data } = await supabase.from("work_schedules").select("*").eq("pharmacy_id", pharmacyId).order("pharmacist_name");
     if (data) setWorkSchedules(data);
+    return data || [];
   }
 
   async function loadReport(date: string) {
@@ -24924,7 +24979,12 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                           <td style={{ padding: "10px", textAlign: "center", color: log.late_minutes > 0 ? C.orange : C.muted }}>
                             {log.late_minutes > 0 ? `${log.late_minutes} د` : "—"}
                           </td>
-                          <td style={{ padding: "10px", textAlign: "center", color: log.check_out ? C.red : C.muted }}>{fmt(log.check_out)}</td>
+                          <td style={{ padding: "10px", textAlign: "center", color: log.check_out ? C.red : C.muted }}>
+                            {fmt(log.check_out)}
+                            {log.auto_closed && (
+                              <div style={{ fontSize: 9, color: C.orange, fontWeight: 700, marginTop: 2 }}>⏱ إغلاق تلقائي</div>
+                            )}
+                          </td>
                           <td style={{ padding: "10px", textAlign: "center" }}>{fmtHours(liveTotal)}</td>
                           <td style={{ padding: "10px", textAlign: "center", color: liveDeductions > 0 ? C.red : C.muted }}>
                             {liveDeductions > 0 ? `-${liveDeductions} د` : "—"}
@@ -25026,6 +25086,9 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                     {isOutsideSchedule(log) && (
                       <span style={{ fontSize: 11, color: C.red, fontWeight: 700, marginRight: 8 }}>⚠️ خارج الدوام</span>
                     )}
+                    {log.auto_closed && (
+                      <span style={{ fontSize: 11, color: C.orange, fontWeight: 700, marginRight: 8 }}>⏱ إغلاق تلقائي (نسيان انصراف)</span>
+                    )}
                   </div>
                   <span style={{ background: COLORS.blueSoft, color: C.accent, borderRadius: 6, padding: "3px 12px", fontSize: 13, fontWeight: 700 }}>
                     صافي: {fmtHours(log.net_hours)} س
@@ -25126,7 +25189,12 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
                             <td style={{ padding: "7px 8px", textAlign: "center", color: log.late_minutes > 0 ? C.orange : C.muted }}>
                               {log.late_minutes > 0 ? `${log.late_minutes} د` : "—"}
                             </td>
-                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.red }}>{fmt(log.check_out)}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center", color: C.red }}>
+                              {fmt(log.check_out)}
+                              {log.auto_closed && (
+                                <div style={{ fontSize: 9, color: C.orange, fontWeight: 700 }}>⏱ تلقائي</div>
+                              )}
+                            </td>
                             <td style={{ padding: "7px 8px", textAlign: "center", fontWeight: 700, color: C.accent }}>{fmtHours(log.net_hours)}</td>
                           </tr>
                         );
