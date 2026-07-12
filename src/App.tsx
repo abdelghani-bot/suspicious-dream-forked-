@@ -23512,6 +23512,13 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   const [openCash, setOpenCash] = useState("500");
   const [closeCash, setCloseCash] = useState("");
   const [notes, setNotes] = useState("");
+  const isAdmin = currentUser?.role === "admin";
+  // 🆕 إغلاق قسري (للمدير فقط) — لإقفال شفتات "يتيمة" فُتحت باسم مستخدم تم تغييره لاحقاً،
+  // وبالتالي لم تعد تطابق currentUser.name فلا تظهر كـ"شفتي الحالي" ولا يمكن إغلاقها من المسار العادي.
+  const [forceCloseTarget, setForceCloseTarget] = useState<any>(null);
+  const [forceCloseCash, setForceCloseCash] = useState("");
+  const [forceCloseNotes, setForceCloseNotes] = useState("");
+  const [forceClosing, setForceClosing] = useState(false);
 
   const currentShift = shifts.find(
   (s) => !s.end_time && s.user === currentUser?.name
@@ -23685,6 +23692,37 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
 
   showToast("تم إغلاق الشفت وتسليمه ✓");
 };
+
+  // 🆕 إغلاق قسري لشفت يتيم (مدير فقط) — بيقفل أي شفت مفتوح بمعرفه (id) مباشرة،
+  // من غير ما يشترط تطابق اسم المستخدم الحالي، عشان حالة تغيير اسم الصيدلي بعد فتح الشفت.
+  const closeShiftForce = async () => {
+    if (!forceCloseTarget) return;
+    if (!forceCloseCash) {
+      showToast("يرجى إدخال النقد الفعلي عند الإغلاق", "error");
+      return;
+    }
+    setForceClosing(true);
+    const updates = {
+      end_time: new Date().toISOString(),
+      close_cash: +forceCloseCash,
+      notes: `[إغلاق قسري بواسطة ${currentUser?.name || "مدير"}] ${forceCloseNotes || ""}`.trim(),
+    };
+    const { error } = await supabase
+      .from("shifts")
+      .update(updates)
+      .eq("id", forceCloseTarget.id);
+    setForceClosing(false);
+    if (error) {
+      showToast("فشل الإغلاق القسري: " + error.message, "error");
+      return;
+    }
+    setShifts((p) => p.map((s) => (s.id === forceCloseTarget.id ? { ...s, ...updates } : s)));
+    showToast(`تم إغلاق الشفت اليتيم ${forceCloseTarget.id} قسرياً ✓`);
+    setForceCloseTarget(null);
+    setForceCloseCash("");
+    setForceCloseNotes("");
+  };
+
   return (
     <div>
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
@@ -23869,6 +23907,78 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
           </Btn>
         </div>
       )}
+      {isAdmin && (() => {
+        const orphanShifts = shifts.filter((s) => !s.end_time && s.id !== currentShift?.id);
+        if (orphanShifts.length === 0) return null;
+        return (
+          <div
+            style={{
+              background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+              border: `1px solid ${COLORS.red}`,
+              borderRadius: 14,
+              padding: 20,
+              marginBottom: 20,
+              maxWidth: 560,
+            }}
+          >
+            <h3 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 800, color: COLORS.red }}>
+              ⚠️ شفتات مفتوحة يتيمة (مش شفتك الحالي)
+            </h3>
+            <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 12 }}>
+              غالباً فُتحت باسم مستخدم اتغيّر بعد كده — وهي اللي بتمنع تقفيل اليوم. بصفتك مدير تقدر تقفلها قسرياً من هنا.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {orphanShifts.map((s) => (
+                <div
+                  key={s.id}
+                  style={{
+                    background: COLORS.surfaceAlt, borderRadius: 10, padding: 12,
+                    display: "flex", flexDirection: "column", gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ fontSize: 13 }}>
+                      <span style={{ color: COLORS.blue, fontWeight: 700 }}>{s.id}</span>
+                      {"  —  "}
+                      <span style={{ color: COLORS.textPrimary }}>{s.user}</span>
+                      {"  —  بدأ: "}
+                      <span style={{ color: COLORS.textDim }}>{s.start_time}</span>
+                    </div>
+                    {forceCloseTarget?.id !== s.id && (
+                      <Btn variant="danger" onClick={() => { setForceCloseTarget(s); setForceCloseCash(""); setForceCloseNotes(""); }}>
+                        إغلاق قسري
+                      </Btn>
+                    )}
+                  </div>
+                  {forceCloseTarget?.id === s.id && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+                      <Input
+                        label="النقد الفعلي عند الإغلاق (ر.س)"
+                        value={forceCloseCash}
+                        onChange={setForceCloseCash}
+                        type="number"
+                        placeholder="0"
+                      />
+                      <Input
+                        label="ملاحظات (اختياري)"
+                        value={forceCloseNotes}
+                        onChange={setForceCloseNotes}
+                        placeholder="سبب الإغلاق القسري..."
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Btn variant="success" onClick={closeShiftForce} disabled={forceClosing}>
+                          {forceClosing ? "⏳ جارِ الحفظ..." : "تأكيد الإغلاق"}
+                        </Btn>
+                        <Btn variant="ghost" onClick={() => setForceCloseTarget(null)}>إلغاء</Btn>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       <Table
         headers={[
           "رقم الشفت",
