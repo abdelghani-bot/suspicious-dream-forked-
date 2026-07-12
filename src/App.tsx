@@ -9,6 +9,22 @@ const supabase = createClient(
 );
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 
+// ==================== تاريخ اليوم بالتوقيت المحلي (السعودية) ====================
+// 🆕 بديل آمن لـ todayLocal() اللي بترجع تاريخ UTC مش المحلي.
+// المشكلة: السعودية UTC+3، فمن الساعة 12 بالليل لحد 3 الفجر بالتوقيت المحلي،
+// toISOString() كانت لسه شايفة إن التاريخ "امبارح" مش "النهاردة" — وده كان بيسبب:
+// - تقفيل الخزنة يتسجل بتاريخ غلط
+// - فحص الشفتات المفتوحة "النهاردة" بيفوت شفت اتفتح قبل نص الليل وفضل مفتوح بعده
+// - تسجيل حضور/انصراف بعد نص الليل بيتسجل على تاريخ اليوم اللي فات
+// الدالة دي بتستخدم دوال الـ Date المحلية (getFullYear/getMonth/getDate) اللي بتاخد
+// توقيت جهاز المستخدم نفسه (الصيدلية) بدل UTC.
+function todayLocal(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // ==================== AUDIT LOG ====================
 // 🆕 دالة عامة لتسجيل أي عملية حساسة (حذف/تعديل سعر/إلغاء فاتورة/تعديل مخزون...) في جدول audit_logs.
 // بتتنادى من أي مكان في البرنامج قبل أو بعد تنفيذ العملية مباشرة.
@@ -3125,7 +3141,7 @@ function Dashboard({
   const [missedMonth, setMissedMonth] = useState({ count: 0, value: 0, items: [] });
   const [showMissedModal, setShowMissedModal] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
   const monthKey = today.substring(0, 7);
 
   // ══════════════════════════════════════════════════════════
@@ -3247,7 +3263,7 @@ const [myTarget, setMyTarget] = useState(null);
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (6 - i));
-    return d.toISOString().split("T")[0];
+    return todayLocal(d);
   });
   const last7Data = last7Days.map((day) => {
     const daySales = sales.filter((s) => s.date === day && !s.returned && s.payment !== "آجل");
@@ -3378,7 +3394,7 @@ const [myTarget, setMyTarget] = useState(null);
   });
 
   // ══════════ بيانات مركز التنبيهات ══════════
-  const todayISO = new Date().toISOString().split("T")[0];
+  const todayISO = todayLocal();
 
   // عروض تلقائية (غير دواء + قرب صلاحية حسب نفس قواعد قسم العروض) + عروض يدوية لا تحتاج هنا عداد دقيق (تُدار في قسمها)
   const autoPromoCandidates = products.filter((p) => {
@@ -3662,7 +3678,7 @@ const [myTarget, setMyTarget] = useState(null);
   });
 
   // ══════════ كارت تغيير الأسعار ══════════
-  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const oneWeekAgo = todayLocal(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
   const recentPriceChanges = (() => {
     const changes: any[] = [];
     const recentPurchases = (purchases || [])
@@ -4730,7 +4746,7 @@ function recalcCartLinePrice(item, newQty) {
 
 // ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
 function getEffectivePrice(product, promos, discountRules, productEarliestExpiry, products) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
   // 1. عروض يدوية نشطة (بأي نمط) وقابلة للتطبيق فعليًا حسب المخزون المتبقي
   const manualPromo = (promos || []).find(
     (p) =>
@@ -5548,7 +5564,7 @@ function POS({
 
     const invoice = {
       id,
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       created_at: new Date().toISOString(),
       customer: inv.selCustomer?.id || null,
       customer_name: inv.selCustomer?.name || "زبون عادي",
@@ -5800,7 +5816,7 @@ function POS({
     if (missedItems.length > 0) {
       const missedRecords = missedItems.map((i) => ({
         id: "MS-" + Date.now() + "-" + i.id,
-        date: new Date().toISOString().split("T")[0],
+        date: todayLocal(),
         product_id: i.id,
         product_name: i.nameAr || i.name,
         price: i.price,
@@ -9211,7 +9227,7 @@ const LABEL_SIZES = [
     const sup = suppliers.find((s) => s.id === selSupplier);
     const po = {
       id: "PO-" + Date.now(),
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       supplier: selSupplier,
       supplierName: sup.name,
       items: items.map((i) => ({
@@ -9265,7 +9281,7 @@ const LABEL_SIZES = [
         salePrice: ci.newSalePrice,
         expiry_date: ci.expiry_date || null,
         batch_number: ci.batch_number || null,
-        date: new Date().toISOString().split("T")[0],
+        date: todayLocal(),
       };
       const existingBatches = product.batches?.length
         ? product.batches
@@ -10984,7 +11000,7 @@ function ReturnsModule({
   // 🆕 مصدر فلوس الاسترجاع — بيظهر بس لو تقفيل اليوم حصل فعلاً النهارده
   // (يعني ممكن الكاش يتاخد من فلوس التقفيل اللي لسه معاك، أو من النقد الافتتاحي لشفت جديد)
   // ═══════════════════════════════════════════════════
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = todayLocal();
   const dayClosedToday = (entries || []).some(
     (e) => e.date === todayStr && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
   );
@@ -11330,7 +11346,7 @@ function ReturnsModule({
     }
 
     const returnId = `RET-${Date.now()}`;
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocal();
     const itemsToReturn = returnItems.filter((i) => i.returnQty > 0);
 
     // ── تحديث المخزون في Supabase ──
@@ -13704,7 +13720,7 @@ function InventoryCount({
   const saveCount = async () => {
     const logData = {
       id: "INV-ADJ-" + Date.now(),
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       type: "جرد",
       items: countItems.map((i) => ({
         id: i.id,
@@ -15500,7 +15516,7 @@ function SuppliersModule({
     const tax = items.reduce((s, i) => i.taxable ? s + (i.cost || i.price || 0) * i.returnQty * TAX_RATE : s, 0);
     const total = subtotal + tax;
     const returnId = "RET-" + Date.now();
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocal();
 
     const stockUpdates = [];
     for (const ri of items) {
@@ -15658,12 +15674,12 @@ function SuppliersModule({
     const payId = `PAY-${Date.now()}`;
     const { error } = await supabase.from("payments").insert({
       id: payId, supplier_id: supplier.id,
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       amount, notes: payForm.note, attachment_url: receiptUrl, pharmacy_id: pharmacyId,
     });
     if (error) { showToast("فشل حفظ الدفعة: " + error.message, "error"); return; }
 
-    setPayments((p) => [...p, { id: payId, supplier_id: supplier.id, date: new Date().toISOString().split("T")[0], amount, notes: payForm.note, attachment_url: receiptUrl }]);
+    setPayments((p) => [...p, { id: payId, supplier_id: supplier.id, date: todayLocal(), amount, notes: payForm.note, attachment_url: receiptUrl }]);
     await processPaymentFIFO(supplier.id, amount);
     const trPayload = {
       type: "expense",
@@ -15671,7 +15687,7 @@ function SuppliersModule({
       method: payForm.method || "نقدي",
       amount,
       note: `سداد مورد: ${supplier.name}${payForm.note ? " - " + payForm.note : ""}`,
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       pharmacy_id: pharmacyId,
       created_by: currentUser?.name || "",
       supplier_id: supplier.id,
@@ -15848,7 +15864,7 @@ function SuppliersModule({
     if (!showOrderForm || orderItems.length === 0) { showToast("لا توجد أصناف للطلب", "error"); return; }
     const orderId = `ORD-${Date.now()}`;
     const totalCost = orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0);
-    const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: new Date().toISOString().split("T")[0], coverage_days: coverageDays, budget: orderBudget ? +orderBudget : null, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
+    const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: todayLocal(), coverage_days: coverageDays, budget: orderBudget ? +orderBudget : null, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
     const { error } = await supabase.from("orders").insert(order);
     if (error) { showToast("فشل حفظ الأوردر: " + error.message, "error"); return; }
     setOrders((p) => [order, ...p]);
@@ -17123,7 +17139,7 @@ function CustomersModule({
       invoice_id: selectedInvoice.id,
       customer_id: selectedCreditCustomer.id,
       amount,
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       notes: "سداد جزئي/كامل",
       created_by: currentUser?.name || "",
       pharmacy_id: pharmacyId,
@@ -17136,7 +17152,7 @@ function CustomersModule({
     // إضافة السداد في مبيعات اليوم
     const paymentRecord = {
       id: "PAY-" + Date.now(),
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       created_at: new Date().toISOString(),
       customer: selectedCreditCustomer.id,
       payment: "تحصيل آجل",
@@ -17160,7 +17176,7 @@ function CustomersModule({
   invoice_id: selectedInvoice.id,
   customer_id: selectedCreditCustomer.id,
   amount,
-  date: new Date().toISOString().split("T")[0],
+  date: todayLocal(),
   notes: "سداد جزئي/كامل",
 }]);
     // تحديث الفواتير
@@ -18901,7 +18917,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     product_id: "",
     manufacturer_id: "",
     ...blankPromoDetails,
-    start_date: new Date().toISOString().split("T")[0],
+    start_date: todayLocal(),
     end_date: "",
     note: "",
     offer_name: "", // ← اسم/مناسبة العرض (عروض العيد، اليوم الوطني، رمضان...) يظهر في الطباعة
@@ -18916,7 +18932,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   const [autoOfferName, setAutoOfferName] = useState(""); // اسم/مناسبة العرض التلقائي قبل الطباعة
   const [selectedAutoIds, setSelectedAutoIds] = useState<string[]>([]); // الأصناف المختارة من التلقائي للطباعة
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
 
   // ── دالة حفظ autoPromoConfig في Supabase ──
   const saveAutoConfig = async (newConfig) => {
@@ -21145,7 +21161,17 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const [selectedDay, setSelectedDay] = useState(null);
   const printRef = useRef(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  // 🆕 بيانات الصيدلية (اسم/عنوان/رقم ضريبي) لعرضها في رأس تقرير التقفيل المطبوع
+  const [pharmInfo, setPharmInfo] = useState({ name: "", address: "", taxNumber: "" });
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase.from("pharmacy_settings").select("name_ar, address, tax_number").eq("pharmacy_id", pharmacyId).maybeSingle()
+      .then(({ data }) => {
+        if (data) setPharmInfo({ name: data.name_ar || "", address: data.address || "", taxNumber: data.tax_number || "" });
+      });
+  }, [pharmacyId]);
+
+  const today = todayLocal();
   const monthKey = today.substring(0, 7);
 
   const [closingForm, setClosingForm] = useState({
@@ -21230,7 +21256,9 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     // ⛔ نفس شرط تقفيل اليوم بالظبط: ما ينفعش نضيف تسوية والشفت لسه مفتوح —
     // لازم الصيدلي يقفل شفته الأول عشان نضمن إن كل مبيعات/مرتجعات الشفت اتلحقت في التسوية
     // ومفيش حركة هتحصل بعدها من غير ما تتسجل.
-    const openShiftsNow = ((shifts || []).filter((s) => s.start_time?.startsWith(today))).filter((s) => !s.end_time);
+    // 🆕 بنفحص أي شفت مفتوح خالص بغض النظر عن تاريخ بدايته، مش بس اللي بدأ "النهاردة" —
+    // لأن شفت اتفتح قبل نص الليل وفضل مفتوح بعده كان بيفوت من هذا الفحص ويسمح بالتقفيل غلط.
+    const openShiftsNow = (shifts || []).filter((s) => !s.end_time);
     if (openShiftsNow.length > 0) {
       showToast(`❌ يوجد ${openShiftsNow.length} شفت مفتوح — أقفل الشفت أولاً قبل إضافة التسوية`, "error");
       return;
@@ -21386,7 +21414,9 @@ useEffect(() => {
   });
 
   // ── حفظ التقفيل ──
-  const openShifts = ((shifts || []).filter((s) => s.start_time?.startsWith(today))).filter((s) => !s.end_time);
+  // 🆕 نفس التصحيح: أي شفت مفتوح (مش بس اللي بدأ النهاردة) بيمنع تقفيل اليوم —
+  // ده اللي بيضمن إن شفت عدّى نص الليل يتقفل هو الأول قبل ما نقدر نقفل يوم جديد فوقه.
+  const openShifts = (shifts || []).filter((s) => !s.end_time);
 
   const [savingClosing, setSavingClosing] = useState(false); // 🆕 يمنع تكرار حفظ التقفيل لو المستخدم دوس مرتين بسرعة
   const savingClosingRef = useRef(false); // 🆕 حماية فورية (state وحده مش كفاية لأن التحديث async)
@@ -21475,6 +21505,166 @@ useEffect(() => {
   });
   const sortedDays = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 اكتشاف أيام سابقة فيها مبيعات لكن من غير تقفيل مسجّل —
+  // أشهر سبب: شفت اتفتح قبل نص الليل وقُفل بعده، فاليوم اللي بدأ فيه الشفت راح من غير تقفيل رسمي.
+  // بنستبعد أي يوم لسه فيه شفت مفتوح (لسه الوقت متاح يتقفل بالطريقة العادية لما يتقفل الشفت).
+  // ═══════════════════════════════════════════════════
+  const closedDaySet = useMemo(
+    () => new Set(safeEntries.filter((e) => e.sub_type === "daily_closing").map((e) => e.date)),
+    [safeEntries]
+  );
+  const openShiftDaySet = useMemo(
+    () => new Set((shifts || []).filter((s) => !s.end_time && s.start_time).map((s) => todayLocal(new Date(s.start_time)))),
+    [shifts]
+  );
+  const missingClosingDays = useMemo(() => {
+    const saleDates = new Set((sales || []).filter((s) => s.date && s.date < today).map((s) => s.date));
+    return Array.from(saleDates)
+      .filter((d) => !closedDaySet.has(d) && !openShiftDaySet.has(d))
+      .sort((a, b) => b.localeCompare(a))
+      .slice(0, 30); // آخر 30 يوم ناقص بس، تجنبًا لضوضاء بيانات قديمة قبل تفعيل هذا الفحص
+  }, [sales, closedDaySet, openShiftDaySet, today]);
+
+  // ── حساب إجماليات يوم سابق بعينه (بنفس منطق حسابات "اليوم" لكن لتاريخ محدد) ──
+  const computeDayTotals = (dateStr) => {
+    const daySales = (sales || []).filter((s) => s.date === dateStr && !s.returned);
+    const cash = daySales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0);
+    const card = daySales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
+    const transfer = daySales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
+    const creditIncome = (creditPayments || []).filter((p) => p.date === dateStr).reduce((a, p) => a + p.amount, 0);
+    return { cash, card, transfer, creditIncome, count: daySales.length };
+  };
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 طباعة تقرير تقفيل يوم — بيشتغل لأي يوم اتقفل فعلاً (النهاردة، من التاريخ، أو تقفيل بأثر رجعي)
+  // بيقرأ القيود الفعلية المسجّلة في treasury_entries لليوم ده (مش حسابات لحظية) عشان التقرير
+  // يمثّل بالظبط اللي اتقفل وقتها، حتى لو الأرقام اللحظية اتغيّرت بعدين.
+  // ═══════════════════════════════════════════════════
+  const printDayClosing = (dateStr) => {
+    if (!closedDaySet.has(dateStr)) {
+      showToast("⚠️ لسه معملش تقفيل رسمي لهذا اليوم — اقفله الأول", "error");
+      return;
+    }
+    const dayEntries = groupedByDay[dateStr] || [];
+    const closingEntry = dayEntries.find((e) => e.sub_type === "daily_closing");
+    const incomeRows = dayEntries.filter((e) => e.type === "income");
+    const expenseRows = dayEntries.filter((e) => e.type === "expense");
+    const totalIncomeRec = incomeRows.reduce((a, e) => a + (e.amount || 0), 0);
+    const totalExpenseRec = expenseRows.reduce((a, e) => a + (e.amount || 0), 0);
+    const t = computeDayTotals(dateStr);
+    const netCashRec = totalIncomeRec - totalExpenseRec;
+
+    const rowsHtml = (rows, sign) => rows.map((e) => `
+      <tr>
+        <td>${e.note || (AUDIT_ENTITY_LABELS[e.sub_type] || e.sub_type)}</td>
+        <td style="text-align:center">${e.method || "—"}</td>
+        <td style="text-align:left; font-weight:bold; color:${sign > 0 ? "#0a7a3a" : "#a30f0f"}">${sign > 0 ? "+" : "-"}${(e.amount || 0).toFixed(2)}</td>
+      </tr>`).join("");
+
+    const win = window.open("", "_blank");
+    win.document.write(`
+      <html dir="rtl">
+      <head>
+        <meta charset="utf-8">
+        <title>تقفيل يوم ${dateStr}</title>
+        <style>
+          * { margin:0; padding:0; box-sizing:border-box; font-family: Arial, sans-serif; }
+          @page { size: A4; margin: 14mm; }
+          body { color:#111; font-size:13px; }
+          .header { text-align:center; border-bottom:2px solid #222; padding-bottom:10px; margin-bottom:16px; }
+          .header h1 { font-size:18px; margin-bottom:4px; }
+          .header .sub { color:#555; font-size:12px; }
+          h2 { font-size:15px; margin:18px 0 8px; border-right:4px solid #0a7a3a; padding-right:8px; }
+          table { width:100%; border-collapse:collapse; margin-bottom:10px; }
+          th, td { border:1px solid #ccc; padding:6px 8px; font-size:12px; }
+          th { background:#f2f2f2; text-align:right; }
+          .summary { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+          .box { flex:1; min-width:110px; border:1px solid #ccc; border-radius:6px; padding:10px; text-align:center; }
+          .box .lbl { font-size:11px; color:#666; margin-bottom:4px; }
+          .box .val { font-size:16px; font-weight:bold; }
+          .total-line { display:flex; justify-content:space-between; font-size:15px; font-weight:bold; border-top:2px solid #222; padding-top:8px; margin-top:8px; }
+          .meta { color:#555; font-size:11px; margin-top:20px; border-top:1px dashed #999; padding-top:8px; }
+          @media print { .no-print { display:none; } }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="text-align:center; padding:10px;">
+          <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">🖨️ طباعة</button>
+          <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-right:10px;">✕ إغلاق</button>
+        </div>
+        <div class="header">
+          <h1>${pharmInfo.name || "الصيدلية"}</h1>
+          <div class="sub">${pharmInfo.address || ""}${pharmInfo.taxNumber ? " · الرقم الضريبي: " + pharmInfo.taxNumber : ""}</div>
+          <div class="sub" style="margin-top:6px; font-weight:bold;">تقرير تقفيل يومي — ${dateStr}</div>
+        </div>
+
+        <div class="summary">
+          <div class="box"><div class="lbl">💵 نقدي</div><div class="val">${t.cash.toFixed(2)}</div></div>
+          <div class="box"><div class="lbl">💳 بطاقة</div><div class="val">${t.card.toFixed(2)}</div></div>
+          <div class="box"><div class="lbl">🏦 تحويل</div><div class="val">${t.transfer.toFixed(2)}</div></div>
+          <div class="box"><div class="lbl">سداد آجل</div><div class="val">${t.creditIncome.toFixed(2)}</div></div>
+          <div class="box"><div class="lbl">عدد الفواتير</div><div class="val">${t.count}</div></div>
+        </div>
+
+        ${incomeRows.length > 0 ? `<h2>الإيرادات المسجّلة</h2>
+        <table><thead><tr><th>البيان</th><th>طريقة الدفع</th><th>المبلغ</th></tr></thead>
+        <tbody>${rowsHtml(incomeRows, 1)}</tbody></table>` : ""}
+
+        ${expenseRows.length > 0 ? `<h2>المصروفات المسجّلة</h2>
+        <table><thead><tr><th>البيان</th><th>طريقة الدفع</th><th>المبلغ</th></tr></thead>
+        <tbody>${rowsHtml(expenseRows, -1)}</tbody></table>` : ""}
+
+        <div class="total-line">
+          <span>صافي الخزنة لهذا اليوم</span>
+          <span>${netCashRec.toFixed(2)} ر.س</span>
+        </div>
+
+        <div class="meta">
+          ${closingEntry ? `تم التقفيل بواسطة: ${closingEntry.created_by || "—"} — ${closingEntry.note || ""}${closingEntry.created_at ? " — " + new Date(closingEntry.created_at).toLocaleString("ar-SA") : ""}` : ""}
+        </div>
+      </body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  // ── تقفيل يوم سابق بأثر رجعي (نسخة مبسطة: بترحّل دخل المبيعات + مصروف إجمالي اختياري + علامة التقفيل) ──
+  const [retroClosingDate, setRetroClosingDate] = useState(null);
+  const [retroExpense, setRetroExpense] = useState("");
+  const [retroExpenseNote, setRetroExpenseNote] = useState("");
+  const [savingRetro, setSavingRetro] = useState(false);
+  const saveRetroClosing = async (dateStr) => {
+    if (savingRetro) return;
+    setSavingRetro(true);
+    try {
+      const t = computeDayTotals(dateStr);
+      const rows = [];
+      if (t.cash > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "نقدي", amount: t.cash, note: "دخل مبيعات (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
+      if (t.card > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "بطاقة", amount: t.card, note: "دخل مبيعات (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
+      if (t.transfer > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "تحويل", amount: t.transfer, note: "دخل مبيعات (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
+      if (+retroExpense > 0) rows.push({ type: "expense", sub_type: "variable", method: "نقدي", amount: +retroExpense, note: retroExpenseNote || "مصروفات اليوم (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
+      if (rows.length > 0) {
+        const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
+        if (error) { showToast("خطأ: " + error.message, "error"); return; }
+        setEntries((p) => [...data, ...p]);
+      }
+      const { data: closingRow, error: closingError } = await supabase
+        .from("treasury_entries")
+        .insert({ type: "closing", sub_type: "daily_closing", method: "نقدي", amount: 0, note: "تقفيل بأثر رجعي", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name })
+        .select();
+      if (closingError) { showToast("❌ فشل حفظ تقفيل اليوم: " + closingError.message, "error"); return; }
+      if (closingRow) setEntries((p) => [...closingRow, ...p]);
+      showToast(`✅ تم تقفيل يوم ${dateStr} بأثر رجعي`);
+      setRetroClosingDate(null);
+      setRetroExpense("");
+      setRetroExpenseNote("");
+      await logAudit({ pharmacyId, userName: currentUser?.name, action: "create", entityType: "invoice", entityLabel: `تقفيل بأثر رجعي — ${dateStr}`, description: `تقفيل يوم ${dateStr} كان ناقص (شفت عدّى نص الليل على الأغلب)` });
+    } finally {
+      setSavingRetro(false);
+    }
+  };
+
   // إجمالي الشهر
   const monthEntries = safeEntries.filter((e) => e.date?.startsWith(monthKey));
   const monthIncome = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0)
@@ -21500,6 +21690,63 @@ useEffect(() => {
           <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>{today}</div>
         </div>
       </div>
+
+      {/* ── 🆕 تنبيه: أيام سابقة فيها مبيعات من غير تقفيل (زي شفت عدّى نص الليل) ── */}
+      {canEditDayClosing && missingClosingDays.length > 0 && (
+        <div style={{
+          background: COLORS.redSoft, border: `1px solid ${COLORS.red}`, borderRadius: 14,
+          padding: 14, marginBottom: 14,
+        }}>
+          <div style={{ fontWeight: 800, color: COLORS.red, fontSize: 13, marginBottom: 8 }}>
+            ⚠️ فيه {missingClosingDays.length} يوم سابق فيه مبيعات بدون تقفيل مسجّل
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {missingClosingDays.map((d) => (
+              <button key={d} onClick={() => setRetroClosingDate(d)} style={{
+                background: COLORS.surface, border: `1px solid ${COLORS.red}`, borderRadius: 8,
+                padding: "6px 12px", color: COLORS.red, fontSize: 12, fontWeight: 700, cursor: "pointer",
+              }}>
+                {d} — قفل هذا اليوم
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── 🆕 نافذة تقفيل يوم سابق بأثر رجعي ── */}
+      {retroClosingDate && (() => {
+        const t = computeDayTotals(retroClosingDate);
+        const grossTotal = t.cash + t.card + t.transfer + t.creditIncome;
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "#0008", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
+            <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 24, maxWidth: 420, width: "90%" }}>
+              <h3 style={{ margin: "0 0 4px", fontSize: 17, color: COLORS.textPrimary }}>🗓️ تقفيل بأثر رجعي — {retroClosingDate}</h3>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 14 }}>
+                محسوب من فواتير هذا اليوم مباشرة ({t.count} فاتورة). أضِف مصروفات اليوم ده لو فيه، وإلا اتركها فاضية.
+              </div>
+              <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span>💵 نقدي</span><strong>{t.cash.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span>💳 بطاقة</span><strong>{t.card.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span>🏦 تحويل</span><strong>{t.transfer.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span>سداد آجل</span><strong>{t.creditIncome.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${COLORS.border}`, marginTop: 6, paddingTop: 6, fontWeight: 800 }}><span>الإجمالي</span><span>{grossTotal.toFixed(2)}</span></div>
+              </div>
+              <input placeholder="مصروفات اليوم (اختياري)" value={retroExpense} onChange={(e) => setRetroExpense(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, fontSize: 13, marginBottom: 8 }} />
+              <input placeholder="ملاحظة المصروف (اختياري)" value={retroExpenseNote} onChange={(e) => setRetroExpenseNote(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, fontSize: 13, marginBottom: 14 }} />
+              <div style={{ display: "flex", gap: 10 }}>
+                <button disabled={savingRetro} onClick={() => saveRetroClosing(retroClosingDate)} style={{ flex: 1, background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 10, padding: "10px", color: COLORS.green, fontWeight: 700, cursor: "pointer" }}>
+                  {savingRetro ? "جاري الحفظ..." : "✅ تأكيد التقفيل"}
+                </button>
+                <button disabled={savingRetro} onClick={() => { setRetroClosingDate(null); setRetroExpense(""); setRetroExpenseNote(""); }} style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px", color: COLORS.textDim, cursor: "pointer" }}>
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── رصيد الخزنة اللحظي ── */}
       {canViewOverview && (
@@ -21620,9 +21867,15 @@ useEffect(() => {
 
           <button
             onClick={() => setActiveTab("history")}
-            style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "8px 20px", color: COLORS.blue, fontSize: 13, cursor: "pointer" }}
+            style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "8px 20px", color: COLORS.blue, fontSize: 13, cursor: "pointer", marginLeft: 8 }}
           >
             📋 عرض سجل الأيام
+          </button>
+          <button
+            onClick={() => printDayClosing(today)}
+            style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 20px", color: COLORS.textPrimary, fontSize: 13, cursor: "pointer" }}
+          >
+            🖨️ طباعة التقفيل
           </button>
         </div>
       )}
@@ -21958,6 +22211,15 @@ useEffect(() => {
                       <div style={{ color: COLORS.textDim, fontSize: 10 }}>صافي</div>
                     </div>
                     <span style={{ color: COLORS.textDim }}>{isOpen ? "▲" : "▼"}</span>
+                    {closedDaySet.has(day) && (
+                      <button
+                        onClick={(ev) => { ev.stopPropagation(); printDayClosing(day); }}
+                        title="طباعة تقرير التقفيل"
+                        style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "5px 9px", color: COLORS.textDim, fontSize: 12, cursor: "pointer" }}
+                      >
+                        🖨️
+                      </button>
+                    )}
                   </div>
                 </div>
                 {isOpen && (
@@ -22879,7 +23141,7 @@ function FinThresholdsEditor({ thresholds, onSave }) {
 function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId }) {
   const [type, setType] = useState("sales");
   const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState(new Date().toISOString().split("T")[0]);
+  const [toDate, setToDate] = useState(todayLocal());
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterProduct, setFilterProduct] = useState("");
   const [filterManufacturer, setFilterManufacturer] = useState("");
@@ -23313,7 +23575,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   setShifts((p) => [...p, sh]);
 
   // ✅ تسجيل حضور تلقائي
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
   const existing = await supabase
     .from("attendance_logs")
     .select("id")
@@ -23374,7 +23636,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   );
 
   // ✅ تسجيل انصراف تلقائي — بيحسب الساعات الفعلية مربوطة بجدول الدوام (زيادة عن الشفت متتحسبش إلا لو أوفر تايم معتمد)
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
   const nowISO = new Date().toISOString();
   const { data: openLog } = await supabase
     .from("attendance_logs")
@@ -24094,7 +24356,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   const [prayerBreaks, setPrayerBreaks] = useState<any[]>([]);
   const [activePrayerPopup, setActivePrayerPopup] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState(todayLocal());
   const [reportLogs, setReportLogs] = useState<any[]>([]);
   const [workSchedules, setWorkSchedules] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -24105,7 +24367,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   const ramadan = isRamadan();
   const intervalRef = useRef<any>(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
   const todayDow = new Date().getDay();
 
   // ── ألوان النظام الداكن ──
@@ -24959,7 +25221,7 @@ const redeemPoints = async () => {
   });
 
   // 3. خصم من دخل اليوم — تسجيل كمصروف
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
   // ✅ استبدله بهذا
 await supabase.from("treasury_entries").insert({
   pharmacy_id: pharmacyId,
