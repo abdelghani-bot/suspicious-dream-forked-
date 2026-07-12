@@ -2972,6 +2972,7 @@ if (isLoading) return (
     currentUser={currentUser}
     pharmacyId={pharmacyId}
     showToast={showToast}
+    returns={returnsData}
   />
 )}
         {tab === "treasury" && canView("treasury") && (
@@ -19827,7 +19828,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
   );
 }
 // ==================== TARGET MODULE ====================
-function TargetModule({ users, sales, customers, products, currentUser, pharmacyId, showToast }) {
+function TargetModule({ users, sales, customers, products, currentUser, pharmacyId, showToast, returns = [] }) {
   const [subTab, setSubTab] = useState("target"); // target | incentive
   const [monthKey, setMonthKey] = useState(new Date().toISOString().slice(0, 7));
   const [targets, setTargets] = useState([]); // كل التارجتات لكل الشهور
@@ -19835,6 +19836,24 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   const [editValue, setEditValue] = useState("");
   const [expandedTarget, setExpandedTarget] = useState(null);
   const [compareWith, setCompareWith] = useState({}); // { [pharmacistName]: otherName }
+
+  // 🆕 خريطة مشتركة: الكمية المرتجعة فعليًا لكل صنف داخل كل فاتورة مبيعات (كلي أو جزئي)
+  // بتُستخدم في حساب "الأداء/التارجت" وفي حساب "العمولة" مع بعض عشان محدش يفوتها.
+  const returnedQtyByInvoiceItem = {};
+  const returnedAmountByInvoice = {};
+  (returns || [])
+    .filter((r) => r.type === "sales" && r.invoice_id)
+    .forEach((r) => {
+      const items = typeof r.items === "string" ? JSON.parse(r.items) : r.items || [];
+      items.forEach((ri) => {
+        const key = `${r.invoice_id}__${ri.id}`;
+        returnedQtyByInvoiceItem[key] = (returnedQtyByInvoiceItem[key] || 0) + (ri.returnQty || 0);
+      });
+      returnedAmountByInvoice[r.invoice_id] = (returnedAmountByInvoice[r.invoice_id] || 0) + (r.total || 0);
+    });
+  const getReturnedQty = (saleId, itemId) => returnedQtyByInvoiceItem[`${saleId}__${itemId}`] || 0;
+  // صافي قيمة الفاتورة بعد خصم أي مرتجع جزئي عليها (الفواتير المرتجعة بالكامل أصلاً مستبعدة بـ !s.returned)
+  const netSaleTotal = (s) => Math.max(0, (s.total || 0) - (returnedAmountByInvoice[s.id] || 0));
 
   // ── التحفيز — الأصناف المحفزة ──
   const [incentiveList, setIncentiveList] = useState([]);
@@ -20077,7 +20096,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
       (s) => (s.created_at || s.date || "").startsWith(mKey) && !s.returned
     );
     const mySales = monthSales.filter((s) => s.cashier_name === name);
-    const achieved = mySales.reduce((a, s) => a + (s.total || 0), 0);
+    const achieved = mySales.reduce((a, s) => a + netSaleTotal(s), 0);
     const target = getTarget(name, mKey);
 
     const simplePct = target > 0 ? (achieved / target) * 100 : 0;
@@ -20097,7 +20116,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
     let itemsSold = 0;
     mySales.forEach((s) => {
       const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
-      itemsSold += items.reduce((a, it) => a + (it.qty || 1), 0);
+      itemsSold += items.reduce((a, it) => a + Math.max(0, (it.qty || 1) - getReturnedQty(s.id, it.id)), 0);
     });
     const avgItemsPerInvoice = invoiceCount > 0 ? itemsSold / invoiceCount : 0;
     const avgInvoiceValue = invoiceCount > 0 ? achieved / invoiceCount : 0;
@@ -20142,7 +20161,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
             !s.returned &&
             s.cashier_name === name
         )
-        .reduce((a, s) => a + (s.total || 0), 0);
+        .reduce((a, s) => a + netSaleTotal(s), 0);
       days.push({ day: d, amount: amt });
     }
     return days;
@@ -20636,11 +20655,11 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
           {/* ── نسبة كل صيدلي هذا الشهر — حسب الـ Tier الفعلي وقت كل عملية بيع ── */}
           {(() => {
-            const commissionForItem = (item, saleDateTime) => {
-              const amt = (item.price || 0) * (item.qty || 1);
+            const commissionForItem = (item, saleDateTime, effQty) => {
+              const amt = (item.price || 0) * effQty;
               const manualEntry = incentiveList.find((i) => i.product_id === item.id);
               if (manualEntry) {
-                return manualEntry.rate ? amt * manualEntry.rate / 100 : (+manualEntry.fixed_amount || 0) * (item.qty || 1);
+                return manualEntry.rate ? amt * manualEntry.rate / 100 : (+manualEntry.fixed_amount || 0) * effQty;
               }
               if (excludedIds.has(item.id)) return 0;
               let tier = matchTierForSaleItem(item, saleDateTime);
@@ -20659,10 +20678,14 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                 const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
                 const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
                 items.forEach((item) => {
-                  const commission = commissionForItem(item, saleDateTime);
+                  // 🆕 نطرح أي كمية اترجعت (كلي أو جزئي) من هذا الصنف في هذه الفاتورة قبل حساب العمولة
+                  const returnedQty = getReturnedQty(s.id, item.id);
+                  const effQty = Math.max(0, (item.qty || 1) - returnedQty);
+                  if (effQty <= 0) return;
+                  const commission = commissionForItem(item, saleDateTime, effQty);
                   if (commission <= 0) return;
                   const prod = products.find((p) => p.id === item.id);
-                  const amt = (item.price || 0) * (item.qty || 1);
+                  const amt = (item.price || 0) * effQty;
                   if (!staffSales[name]) staffSales[name] = { total: 0, commission: 0, items: {} };
                   staffSales[name].total += amt;
                   staffSales[name].commission += commission;
