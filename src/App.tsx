@@ -19847,18 +19847,17 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   const [showTierForm, setShowTierForm] = useState(false);
   const [tierForm, setTierForm] = useState({ threshold: "", rate: "" });
   const [editingTierId, setEditingTierId] = useState<string | null>(null);
-  const [expandedTierId, setExpandedTierId] = useState<string | null>(null);
   // ── تاريخ تغييرات حد الهامش لكل Tier (لمنع الأثر الرجعي) ──
   const [tierThresholdHistory, setTierThresholdHistory] = useState<{ tier_id: string; threshold: number; effective_from: string }[]>([]);
   // ── استثناءات القائمة التلقائية (استثناء صنف مستوفي، أو إضافة صنف يدوياً لـ Tier معين) ──
   const [incentiveOverrides, setIncentiveOverrides] = useState<{ id: string; product_id: string; type: "include" | "exclude"; tier_id?: string }[]>([]);
   const [autoListExpanded, setAutoListExpanded] = useState(false);
   const [autoListSearch, setAutoListSearch] = useState("");
-  const [showIncentiveForm, setShowIncentiveForm] = useState(false);
-  const [incentiveSupplierFilter, setIncentiveSupplierFilter] = useState("");
-  const [incentiveSearch, setIncentiveSearch] = useState("");
-  const [incentiveForm, setIncentiveForm] = useState({ rate: "", fixed_amount: "", note: "" });
-  const [selectedIncentiveProducts, setSelectedIncentiveProducts] = useState<string[]>([]); // IDs المحددة للإضافة
+  const [configExpanded, setConfigExpanded] = useState(false);
+  const [commissionExpanded, setCommissionExpanded] = useState(true);
+  const [comparisonExpanded, setComparisonExpanded] = useState(false);
+  const [tierAddSearch, setTierAddSearch] = useState<{ [tierId: string]: string }>({});
+  const [expandedTierId, setExpandedTierId] = useState<string | null>(null);
   const [manufacturers, setManufacturers] = useState([]);
   const [incentiveMonthsBack, setIncentiveMonthsBack] = useState(6); // لمقارنة العمولة عبر الشهور
   const incMonthKey = incentiveConfig.month;
@@ -19974,29 +19973,6 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
     setIncentiveOverrides((p) => p.filter((o) => o.id !== id));
   };
 
-  // حفظ أصناف محفزة (متعددة)
-  const saveIncentive = async () => {
-    if (selectedIncentiveProducts.length === 0) { showToast("اختر صنفاً على الأقل", "error"); return; }
-    const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
-    const toAdd = selectedIncentiveProducts.filter((id) => !alreadyAdded.has(id));
-    if (toAdd.length === 0) { showToast("الأصناف المحددة مضافة مسبقاً", "error"); return; }
-    const rows = toAdd.map((product_id) => ({
-      product_id,
-      rate: incentiveForm.rate || null,
-      fixed_amount: incentiveForm.fixed_amount || null,
-      note: incentiveForm.note || null,
-      pharmacy_id: pharmacyId,
-    }));
-    const { data, error } = await supabase.from("incentive_products").insert(rows).select();
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setIncentiveList((p) => [...p, ...data]);
-    setIncentiveForm({ rate: "", fixed_amount: "", note: "" });
-    setSelectedIncentiveProducts([]);
-    setIncentiveSupplierFilter("");
-    setShowIncentiveForm(false);
-    showToast(`تم إضافة ${data.length} صنف للقائمة المحفزة ✓`);
-  };
-
   // ── حساب هامش الربح لصنف ──
   const getProductMargin = (p) => {
     const cost = p.cost || 0, price = p.price || 0;
@@ -20052,10 +20028,6 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
       return tier ? { product: p, tier, manual: false } : null;
     })
     .filter(Boolean) as { product: any; tier: { id: string; threshold: number; rate: number }; manual: boolean }[];
-
-  const filteredIncentive = incentiveList.filter((i) =>
-    !incentiveSearch || (products.find((p) => p.id === i.product_id)?.name || "").includes(incentiveSearch)
-  );
 
   const incentiveCardStyle = (border = COLORS.border) => ({
     background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
@@ -20463,9 +20435,11 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
         <div>
           {/* إعداد الشهر + الفئات المسموحة (إعداد عام يطبق على كل الـ Tiers) */}
           <div style={incentiveCardStyle(COLORS.surfaceAlt)}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
-              <div>
-                <div style={{ color: COLORS.blue, fontWeight: 700, marginBottom: 4 }}>⚙️ إعدادات العمولة</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div onClick={() => setConfigExpanded((v) => !v)} style={{ cursor: "pointer", flex: 1, minWidth: 200 }}>
+                <div style={{ color: COLORS.blue, fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                  ⚙️ إعدادات العمولة <span style={{ color: COLORS.textDim, fontSize: 12 }}>{configExpanded ? "▲" : "▼"}</span>
+                </div>
                 <div style={{ color: COLORS.textDim, fontSize: 12 }}>نسبة واحدة موحدة لكل الصيادلة — بتختلف حسب مستوى (Tier) الصنف مش حسب مين باعه</div>
               </div>
               <div>
@@ -20475,7 +20449,8 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                   style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none" }} />
               </div>
             </div>
-            <div>
+            {configExpanded && (
+            <div style={{ marginTop: 12 }}>
               <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 6 }}>الفئات المشمولة بالتحفيز التلقائي (فاضية = كل الفئات)</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {Object.keys(MAIN_CATEGORIES).map((cat) => {
@@ -20496,6 +20471,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                 })}
               </div>
             </div>
+            )}
           </div>
 
           {/* Tiers — مستويات عمولة متعددة حسب هامش الربح */}
@@ -20532,6 +20508,30 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
                       {isOpen && (
                         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", padding: "8px 12px" }}>
+                          {isAdmin && (
+                            <div style={{ marginBottom: 10 }}>
+                              <input
+                                value={tierAddSearch[t.id] || ""}
+                                onChange={(e) => setTierAddSearch((p) => ({ ...p, [t.id]: e.target.value }))}
+                                placeholder="🔍 بحث لإضافة صنف مباشرة لهذا الـ Tier..."
+                                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 12, outline: "none", boxSizing: "border-box" }}
+                              />
+                              {(tierAddSearch[t.id] || "").length > 0 && (
+                                <div style={{ maxHeight: 180, overflowY: "auto", marginTop: 6 }}>
+                                  {products
+                                    .filter((p) => (p.name_ar || p.name || p.nameAr || "").includes(tierAddSearch[t.id]) && !tierProducts.some((x) => x.product.id === p.id))
+                                    .slice(0, 20)
+                                    .map((p) => (
+                                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 8px", borderBottom: `1px solid ${COLORS.border}` }}>
+                                        <span style={{ color: COLORS.textPrimary, fontSize: 12 }}>{p.name_ar || p.name || p.nameAr}</span>
+                                        <button onClick={() => { addIncentiveOverride(p.id, "include", t.id); setTierAddSearch((prev) => ({ ...prev, [t.id]: "" })); }}
+                                          style={{ background: "none", border: "none", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>➕ إضافة</button>
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {tierProducts.length === 0
                             ? <div style={{ color: COLORS.textDim, fontSize: 12, padding: "6px 0" }}>لا توجد أصناف في هذا المستوى حالياً</div>
                             : tierProducts.map(({ product: p, manual }) => (
@@ -20634,41 +20634,6 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
             )}
           </div>
 
-          {/* أصناف مضافة يدوياً */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>✋ أصناف مضافة يدوياً ({incentiveList.length})</div>
-            <Btn icon="plus" size="sm" onClick={() => setShowIncentiveForm(true)}>إضافة صنف</Btn>
-          </div>
-
-          <input
-            value={incentiveSearch} onChange={(e) => setIncentiveSearch(e.target.value)}
-            placeholder="🔍 بحث..."
-            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }}
-          />
-
-          {filteredIncentive.map((item) => {
-            const prod = products.find((p) => p.id === item.product_id);
-            return (
-              <div key={item.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 6 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 13 }}>{prod?.name_ar || prod?.name || prod?.nameAr || item.product_id}</div>
-                    {item.note && <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>{item.note}</div>}
-                  </div>
-                  <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 2 }}>
-                    {item.rate && <span style={{ background: COLORS.greenSoft, color: COLORS.green, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.rate}% عمولة</span>}
-                    {item.fixed_amount && <span style={{ background: COLORS.blueSoft, color: COLORS.blue, padding: "2px 8px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>{item.fixed_amount} ر.س ثابت</span>}
-                    <button onClick={async () => {
-                      const { error: delIncError } = await supabase.from("incentive_products").delete().eq("id", item.id).eq("pharmacy_id", pharmacyId);
-                      if (delIncError) { showToast("خطأ: " + delIncError.message, "error"); return; }
-                      setIncentiveList((p) => p.filter((x) => x.id !== item.id));
-                    }} style={{ background: "transparent", border: "none", color: COLORS.red, fontSize: 11, cursor: "pointer", marginTop: 2 }}>🗑️ حذف</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
           {/* ── نسبة كل صيدلي هذا الشهر — حسب الـ Tier الفعلي وقت كل عملية بيع ── */}
           {(() => {
             const commissionForItem = (item, saleDateTime) => {
@@ -20690,7 +20655,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
             sales
               .filter((s) => s.date?.startsWith(incMonthKey) && !s.returned)
               .forEach((s) => {
-                const name = s.cashier || s.user || s.created_by || "غير محدد";
+                const name = s.cashier_name || "غير محدد";
                 const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
                 const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
                 items.forEach((item) => {
@@ -20720,15 +20685,20 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
             return (
               <div style={{ ...incentiveCardStyle(COLORS.greenSoft), marginTop: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div onClick={() => setCommissionExpanded((v) => !v)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: commissionExpanded ? 14 : 0 }}>
                   <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14 }}>
                     📊 عمولة الأصناف المحفزة — {incMonthKey}
                   </div>
-                  <div style={{ color: COLORS.textDim, fontSize: 12 }}>
-                    إجمالي المبيعات المحفزة: <span style={{ color: COLORS.green, fontWeight: 700 }}>{totalAllStaff.toFixed(2)} ر.س</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ color: COLORS.textDim, fontSize: 12 }}>
+                      إجمالي المبيعات المحفزة: <span style={{ color: COLORS.green, fontWeight: 700 }}>{totalAllStaff.toFixed(2)} ر.س</span>
+                    </div>
+                    <span style={{ color: COLORS.textDim, fontSize: 13 }}>{commissionExpanded ? "▲" : "▼"}</span>
                   </div>
                 </div>
 
+                {commissionExpanded && (
+                <>
                 {staffList.map(([name, data]: any) => {
                   const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100).toFixed(1) : "0";
                   return (
@@ -20767,11 +20737,11 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                     {totalCommission.toFixed(2)} ر.س
                   </span>
                 </div>
+                </>
+                )}
               </div>
             );
           })()}
-
-          {/* ── مقارنة العمولات عبر الشهور ── */}
           {(() => {
             const now = new Date();
             const months = Array.from({ length: incentiveMonthsBack }, (_, idx) => {
@@ -20804,188 +20774,45 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
             });
 
             const maxTotal = Math.max(1, ...monthlyTotals.map((m) => m.total));
+            const chartData = monthlyTotals.slice().reverse().map((m) => {
+              const [yy, mm] = m.month.split("-").map(Number);
+              const label = new Date(yy, mm - 1, 1).toLocaleDateString("ar", { month: "short", year: "2-digit" });
+              return { ...m, label };
+            });
 
             return (
               <div style={{ ...incentiveCardStyle(COLORS.surfaceAlt), marginTop: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div onClick={() => setComparisonExpanded((v) => !v)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: comparisonExpanded ? 14 : 0 }}>
                   <div style={{ color: COLORS.blue, fontWeight: 700 }}>📈 مقارنة العمولات عبر الشهور</div>
-                  <select value={incentiveMonthsBack} onChange={(e) => setIncentiveMonthsBack(+e.target.value)}
-                    style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textPrimary, fontSize: 12, padding: "4px 8px" }}>
-                    <option value={3}>آخر 3 شهور</option>
-                    <option value={6}>آخر 6 شهور</option>
-                    <option value={12}>آخر 12 شهر</option>
-                  </select>
-                </div>
-                {monthlyTotals.slice().reverse().map((m) => (
-                  <div key={m.month} style={{ marginBottom: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                      <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{m.month}</span>
-                      <span style={{ color: COLORS.green, fontWeight: 700 }}>{m.total.toFixed(2)} ر.س</span>
-                    </div>
-                    <div style={{ background: "#0a1220", borderRadius: 4, height: 8 }}>
-                      <div style={{ background: COLORS.green, height: "100%", borderRadius: 4, width: `${(m.total / maxTotal) * 100}%`, transition: "width 0.4s" }} />
-                    </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <select value={incentiveMonthsBack} onClick={(e) => e.stopPropagation()} onChange={(e) => setIncentiveMonthsBack(+e.target.value)}
+                      style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textPrimary, fontSize: 12, padding: "4px 8px" }}>
+                      <option value={3}>آخر 3 شهور</option>
+                      <option value={6}>آخر 6 شهور</option>
+                      <option value={12}>آخر 12 شهر</option>
+                    </select>
+                    <span style={{ color: COLORS.textDim, fontSize: 13 }}>{comparisonExpanded ? "▲" : "▼"}</span>
                   </div>
-                ))}
+                </div>
+                {comparisonExpanded && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 140, overflowX: "auto", paddingBottom: 4 }}>
+                    {chartData.map((m) => (
+                      <div key={m.month} style={{ flex: "1 0 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 10, color: COLORS.green, fontWeight: 700 }}>{m.total > 0 ? m.total.toFixed(0) : ""}</span>
+                        <div
+                          title={`${m.month}: ${m.total.toFixed(2)} ر.س`}
+                          style={{ width: "100%", maxWidth: 46, background: COLORS.green, height: Math.max((m.total / maxTotal) * 100, 2), borderRadius: "6px 6px 0 0" }}
+                        />
+                        <span style={{ fontSize: 10, color: COLORS.textDim, whiteSpace: "nowrap" }}>{m.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })()}
         </div>
       )}
-
-      {/* ── Modal إضافة صنف محفز — مع فلتر الشركة المنتجة وتحديد متعدد ── */}
-      <Modal open={showIncentiveForm} onClose={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }} title="⭐ إضافة أصناف للقائمة المحفزة">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-
-          {/* فلتر الشركة المنتجة */}
-          <div style={{ gridColumn: "1/-1" }}>
-            <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>
-              🏭 الشركة المنتجة
-            </label>
-            <select
-              value={incentiveSupplierFilter}
-              onChange={(e) => {
-                const mId = e.target.value;
-                setIncentiveSupplierFilter(mId);
-                // تحديد كل أصناف الشركة تلقائياً (ما عدا المضافة مسبقاً)
-                const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
-                const ids = products
-                  .filter((p) => p.manufacturer_id === mId && !alreadyAdded.has(p.id))
-                  .map((p) => p.id);
-                setSelectedIncentiveProducts(ids);
-              }}
-              style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
-              <option value="">-- اختر شركة --</option>
-              {manufacturers.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <Input label="نسبة عمولة %" value={incentiveForm.rate} onChange={(v) => setIncentiveForm((p) => ({ ...p, rate: v }))} type="number" placeholder="اتركه فارغ لو ثابت" />
-          <Input label="مبلغ ثابت (ر.س)" value={incentiveForm.fixed_amount} onChange={(v) => setIncentiveForm((p) => ({ ...p, fixed_amount: v }))} type="number" placeholder="اتركه فارغ لو نسبة" />
-          <div style={{ gridColumn: "1/-1" }}>
-            <Input label="ملاحظة" value={incentiveForm.note} onChange={(v) => setIncentiveForm((p) => ({ ...p, note: v }))} placeholder="تطبق على جميع الأصناف المضافة..." />
-          </div>
-        </div>
-
-        {/* قائمة أصناف الشركة مع checkbox */}
-        {incentiveSupplierFilter && (() => {
-          const alreadyAdded = new Set(incentiveList.map((i) => i.product_id));
-          const mfProducts = products.filter((p) => p.manufacturer_id === incentiveSupplierFilter);
-          const available = mfProducts.filter((p) => !alreadyAdded.has(p.id));
-          const allSelected = available.length > 0 && available.every((p) => selectedIncentiveProducts.includes(p.id));
-
-          return (
-            <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
-              {/* Header القائمة */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`, background: "#0a1220" }}>
-                <div style={{ color: COLORS.blue, fontWeight: 700, fontSize: 13 }}>
-                  {mfProducts.length} صنف
-                  {alreadyAdded.size > 0 && (
-                    <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11, marginRight: 8 }}>
-                      ({mfProducts.filter(p => alreadyAdded.has(p.id)).length} مضاف مسبقاً)
-                    </span>
-                  )}
-                </div>
-                {available.length > 0 && (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => setSelectedIncentiveProducts(available.map((p) => p.id))}
-                      style={{ background: "none", border: "none", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>
-                      تحديد الكل
-                    </button>
-                    <span style={{ color: COLORS.border }}>|</span>
-                    <button onClick={() => setSelectedIncentiveProducts([])}
-                      style={{ background: "none", border: "none", color: COLORS.coral, fontSize: 12, cursor: "pointer" }}>
-                      إلغاء الكل
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* الأصناف */}
-              <div style={{ maxHeight: 280, overflowY: "auto" }}>
-                {mfProducts.length === 0 ? (
-                  <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20, fontSize: 13 }}>
-                    لا توجد أصناف لهذه الشركة
-                  </div>
-                ) : (
-                  mfProducts.map((p) => {
-                    const isAdded = alreadyAdded.has(p.id);
-                    const isSelected = selectedIncentiveProducts.includes(p.id);
-                    const margin = p.cost && p.price
-                      ? (((p.price - p.cost) / p.price) * 100).toFixed(0)
-                      : null;
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          if (isAdded) return;
-                          setSelectedIncentiveProducts((prev) =>
-                            isSelected ? prev.filter((id) => id !== p.id) : [...prev, p.id]
-                          );
-                        }}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 12,
-                          padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`,
-                          cursor: isAdded ? "default" : "pointer",
-                          background: isAdded ? "#0a0f18" : isSelected ? COLORS.surfaceAlt : "transparent",
-                          opacity: isAdded ? 0.5 : 1,
-                          transition: "background 0.15s",
-                        }}>
-                        {/* Checkbox */}
-                        <div style={{
-                          width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                          border: `2px solid ${isAdded ? COLORS.green : isSelected ? COLORS.blue : COLORS.border}`,
-                          background: isAdded ? COLORS.greenSoft : isSelected ? COLORS.blue : "transparent",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                        }}>
-                          {(isSelected || isAdded) && (
-                            <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>
-                          )}
-                        </div>
-
-                        {/* اسم الصنف */}
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: isAdded ? COLORS.textDim : COLORS.textPrimary, fontSize: 13 }}>
-                            {p.name || p.nameAr}
-                            {isAdded && <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>• مضاف مسبقاً</span>}
-                          </div>
-                          {margin && (
-                            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
-                              هامش: <span style={{ color: tiers.some((t) => +margin >= t.threshold) ? COLORS.purple : COLORS.textDim }}>{margin}%</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* السعر */}
-                        <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "left" }}>
-                          {p.price} ر.س
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Footer */}
-        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ color: COLORS.textDim, fontSize: 12 }}>
-            {selectedIncentiveProducts.length > 0 && (
-              <span style={{ color: COLORS.blue }}>{selectedIncentiveProducts.length} صنف محدد</span>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Btn variant="ghost" onClick={() => { setShowIncentiveForm(false); setIncentiveSupplierFilter(""); setSelectedIncentiveProducts([]); }}>إلغاء</Btn>
-            <Btn icon="check" onClick={saveIncentive}>
-              إضافة {selectedIncentiveProducts.length > 0 ? `(${selectedIncentiveProducts.length})` : ""}
-            </Btn>
-          </div>
-        </div>
-      </Modal>
 
       {/* ── Modal إضافة/تعديل Tier ── */}
       <Modal open={showTierForm} onClose={() => { setShowTierForm(false); setEditingTierId(null); }} title={editingTierId ? "✏️ تعديل Tier" : "➕ Tier جديد"}>
