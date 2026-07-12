@@ -19839,18 +19839,22 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
   // 🆕 خريطة مشتركة: الكمية المرتجعة فعليًا لكل صنف داخل كل فاتورة مبيعات (كلي أو جزئي)
   // بتُستخدم في حساب "الأداء/التارجت" وفي حساب "العمولة" مع بعض عشان محدش يفوتها.
-  const returnedQtyByInvoiceItem = {};
-  const returnedAmountByInvoice = {};
-  (returns || [])
-    .filter((r) => r.type === "sales" && r.invoice_id)
-    .forEach((r) => {
-      const items = typeof r.items === "string" ? JSON.parse(r.items) : r.items || [];
-      items.forEach((ri) => {
-        const key = `${r.invoice_id}__${ri.id}`;
-        returnedQtyByInvoiceItem[key] = (returnedQtyByInvoiceItem[key] || 0) + (ri.returnQty || 0);
+  // معمولة useMemo عشان متتحسبش تاني إلا لو "returns" اتغيّرت فعليًا (مش كل render).
+  const { returnedQtyByInvoiceItem, returnedAmountByInvoice } = useMemo(() => {
+    const qtyMap = {};
+    const amtMap = {};
+    (returns || [])
+      .filter((r) => r.type === "sales" && r.invoice_id)
+      .forEach((r) => {
+        const items = typeof r.items === "string" ? JSON.parse(r.items) : r.items || [];
+        items.forEach((ri) => {
+          const key = `${r.invoice_id}__${ri.id}`;
+          qtyMap[key] = (qtyMap[key] || 0) + (ri.returnQty || 0);
+        });
+        amtMap[r.invoice_id] = (amtMap[r.invoice_id] || 0) + (r.total || 0);
       });
-      returnedAmountByInvoice[r.invoice_id] = (returnedAmountByInvoice[r.invoice_id] || 0) + (r.total || 0);
-    });
+    return { returnedQtyByInvoiceItem: qtyMap, returnedAmountByInvoice: amtMap };
+  }, [returns]);
   const getReturnedQty = (saleId, itemId) => returnedQtyByInvoiceItem[`${saleId}__${itemId}`] || 0;
   // صافي قيمة الفاتورة بعد خصم أي مرتجع جزئي عليها (الفواتير المرتجعة بالكامل أصلاً مستبعدة بـ !s.returned)
   const netSaleTotal = (s) => Math.max(0, (s.total || 0) - (returnedAmountByInvoice[s.id] || 0));
@@ -19883,6 +19887,9 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
   const isAdmin = currentUser?.role === "admin";
   const pharmacists = users.filter((u) => u.role === "pharmacist");
+  // 🆕 نفس مصدر الأسماء المستخدم في تاب "التارجت" — بنستخدمه في تاب "العمولة" كمان
+  // عشان لو ظهر اسم كاشير مش صيدلاني (أو فاتورة من غير cashier_name) نوضحه بدل ما يتلخبط مع الصيادلة.
+  const pharmacistNames = new Set(pharmacists.map((u) => u.name));
 
   // تحميل كل التارجتات (كل الشهور) مرة واحدة — يسمح بالمقارنة عبر الشهور من غير إعادة تحميل
   useEffect(() => {
@@ -19899,7 +19906,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
     if (!pharmacyId) return;
     Promise.all([
       supabase.from("incentive_products").select("*").eq("pharmacy_id", pharmacyId),
-      supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).single(),
+      supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).maybeSingle(),
       supabase.from("manufacturers").select("id, name").eq("pharmacy_id", pharmacyId).order("name"),
       supabase.from("incentive_tiers").select("*").eq("pharmacy_id", pharmacyId).order("margin_threshold", { ascending: true }),
       supabase.from("incentive_tier_threshold_history")
@@ -20085,18 +20092,47 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
   const now = new Date();
 
+  // 🆕 فهرسة المبيعات حسب الكاشير مرة واحدة بس (بتتغيّر لما sales تتغيّر فعليًا)،
+  // بدل ما نفلتر كل الفواتير (كل الصيادلة) من الأول في كل استدعاء لـ calcForMonth.
+  const salesByCashier = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    sales.forEach((s) => {
+      if (s.returned) return;
+      const name = s.cashier_name || "غير محدد";
+      if (!map[name]) map[name] = [];
+      map[name].push(s);
+    });
+    return map;
+  }, [sales]);
+
+  // 🆕 كاش لمبيعات صيدلي معين في شهر معين — بيتقرا كتير (كارت + تفاصيل + مقارنة + رسم بياني)
+  // فبنحسبه مرة واحدة بس لكل (صيدلي × شهر) مهما اتكرر الاستدعاء في نفس الـ render.
+  const cashierMonthSalesCache = useMemo(() => new Map<string, any[]>(), [sales]);
+  const getCashierMonthSales = (name: string, mKey: string) => {
+    const key = `${name}|${mKey}`;
+    if (cashierMonthSalesCache.has(key)) return cashierMonthSalesCache.get(key)!;
+    const result = (salesByCashier[name] || []).filter((s) => (s.created_at || s.date || "").startsWith(mKey));
+    cashierMonthSalesCache.set(key, result);
+    return result;
+  };
+
+  // 🆕 كاش نتيجة calcForMonth نفسها (كل الإحصائيات المجمّعة) — بيتصفّر لو sales/returns/targets/customers اتغيّروا فعليًا
+  const calcCache = useMemo(() => new Map<string, any>(), [sales, returns, targets, customers]);
+
   // ===== حساب أداء صيدلي في أي شهر (نعيد استخدامها للشهر الحالي وللمقارنات) =====
   const calcForMonth = (name, mKey) => {
+    const cacheKey = `${name}|${mKey}`;
+    if (calcCache.has(cacheKey)) return calcCache.get(cacheKey);
+
     const [yy, mm] = mKey.split("-").map(Number);
     const daysInM = new Date(yy, mm, 0).getDate();
     const isCurrent = mKey === now.toISOString().slice(0, 7);
     const daysP = isCurrent ? now.getDate() : daysInM;
 
-    const monthSales = sales.filter(
-      (s) => (s.created_at || s.date || "").startsWith(mKey) && !s.returned
-    );
-    const mySales = monthSales.filter((s) => s.cashier_name === name);
+    const mySales = getCashierMonthSales(name, mKey);
     const achieved = mySales.reduce((a, s) => a + netSaleTotal(s), 0);
+    // 🆕 قيمة المرتجعات الجزئية اللي أثّرت على الرقم ده — لعرضها كتنبيه بصري في الكارت
+    const returnsImpact = mySales.reduce((a, s) => a + (returnedAmountByInvoice[s.id] || 0), 0);
     const target = getTarget(name, mKey);
 
     const simplePct = target > 0 ? (achieved / target) * 100 : 0;
@@ -20140,27 +20176,27 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
       return daysSince > 90;
     }).length;
 
-    return {
+    const result = {
       achieved, target, simplePct, projected, paceStatus, daysP, daysInM, mKey,
       invoiceCount, itemsSold, avgItemsPerInvoice, avgInvoiceValue,
-      customerRegRate, newCustomers, inactiveCustomers,
+      customerRegRate, newCustomers, inactiveCustomers, returnsImpact,
     };
+    calcCache.set(cacheKey, result);
+    return result;
   };
 
   const calcForPharmacist = (name) => calcForMonth(name, monthKey);
 
   // ===== أداء يومي خلال الشهر الحالي =====
   const getDailyPerformance = (name, c) => {
+    // 🆕 بنفلتر يوم-بيوم على مبيعات "الصيدلي ده في الشهر ده" بس (مُجهّزة مسبقًا)،
+    // مش على كل فواتير الصيدلية من الأول لكل يوم.
+    const mySales = getCashierMonthSales(name, monthKey);
     const days = [];
     for (let d = 1; d <= c.daysP; d++) {
       const dayStr = `${monthKey}-${String(d).padStart(2, "0")}`;
-      const amt = sales
-        .filter(
-          (s) =>
-            (s.created_at || s.date || "").startsWith(dayStr) &&
-            !s.returned &&
-            s.cashier_name === name
-        )
+      const amt = mySales
+        .filter((s) => (s.created_at || s.date || "").startsWith(dayStr))
         .reduce((a, s) => a + netSaleTotal(s), 0);
       days.push({ day: d, amount: amt });
     }
@@ -20251,7 +20287,14 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                 </div>
                 <div style={{ textAlign: "left" }}>
                   <div style={{ color: COLORS.textDim, fontSize: 10 }}>المحقق</div>
-                  <div style={{ color: COLORS.textPrimary, fontWeight: 800 }}>{c.achieved.toFixed(0)} ر.س</div>
+                  <div style={{ color: COLORS.textPrimary, fontWeight: 800 }}>
+                    {c.achieved.toFixed(0)} ر.س
+                    {c.returnsImpact > 0 && (
+                      <span title={`الرقم ده بعد خصم مرتجعات بقيمة ${c.returnsImpact.toFixed(0)} ر.س`} style={{ marginRight: 5, fontSize: 11, color: COLORS.coral }}>
+                        🔄
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -20310,6 +20353,16 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                     المتوقع نهاية الشهر (Run Rate): <b style={{ color: COLORS.purple }}>{c.projected.toFixed(0)} ر.س</b>
                   </span>
                   <span style={{ fontWeight: 700 }}>{c.paceStatus}</span>
+                </div>
+              )}
+
+              {/* 🆕 تنبيه واضح لو المحقق اتأثر بمرتجعات جزئية/كلية الشهر ده */}
+              {c.returnsImpact > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, fontSize: 12, background: tint(COLORS.coral, 0.9), border: `1px solid ${tint(COLORS.coral, 0.4)}`, borderRadius: 8, padding: "8px 12px" }}>
+                  <span>🔄</span>
+                  <span style={{ color: COLORS.textDim }}>
+                    الرقم المحقق أعلاه بعد خصم مرتجعات بقيمة <b style={{ color: COLORS.coral }}>{c.returnsImpact.toFixed(0)} ر.س</b> هذا الشهر
+                  </span>
                 </div>
               )}
 
@@ -20654,12 +20707,16 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
           </div>
 
           {/* ── نسبة كل صيدلي هذا الشهر — حسب الـ Tier الفعلي وقت كل عملية بيع ── */}
+          {/* 🆕 المرتجع (كلي أو جزئي) بيتخصم من عمولة "شهر حدوث المرتجع نفسه"، مش شهر البيع الأصلي —
+              يعني لو صنف اتباع في يونيو ورجع في يوليو، عمولة يونيو تفضل زي ما هي، وعمولة يوليو
+              هي اللي هتتخصم منها قيمة المرتجع. الاستثناء الوحيد: الفاتورة اللي رجعت بالكامل
+              (s.returned = true) أصلاً مستبعدة تمامًا من كل الشهور زي ما كان الوضع قبل كده. */}
           {(() => {
-            const commissionForItem = (item, saleDateTime, effQty) => {
-              const amt = (item.price || 0) * effQty;
+            const commissionForItem = (item, saleDateTime, qty) => {
+              const amt = (item.price || 0) * qty;
               const manualEntry = incentiveList.find((i) => i.product_id === item.id);
               if (manualEntry) {
-                return manualEntry.rate ? amt * manualEntry.rate / 100 : (+manualEntry.fixed_amount || 0) * effQty;
+                return manualEntry.rate ? amt * manualEntry.rate / 100 : (+manualEntry.fixed_amount || 0) * qty;
               }
               if (excludedIds.has(item.id)) return 0;
               let tier = matchTierForSaleItem(item, saleDateTime);
@@ -20670,7 +20727,18 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
               return tier ? amt * tier.rate / 100 : 0;
             };
 
+            const salesById = {};
+            sales.forEach((s) => { salesById[s.id] = s; });
+
             const staffSales = {};
+            const addToStaff = (name, amt, commission, pName) => {
+              if (!staffSales[name]) staffSales[name] = { total: 0, commission: 0, items: {}, isPharmacist: pharmacistNames.has(name) };
+              staffSales[name].total += amt;
+              staffSales[name].commission += commission;
+              staffSales[name].items[pName] = (staffSales[name].items[pName] || 0) + amt;
+            };
+
+            // 1) العمولة الأساسية: كل مبيعات هذا الشهر بكامل كمياتها (من غير خصم مرتجعات مستقبلية)
             sales
               .filter((s) => s.date?.startsWith(incMonthKey) && !s.returned)
               .forEach((s) => {
@@ -20678,23 +20746,41 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                 const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
                 const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
                 items.forEach((item) => {
-                  // 🆕 نطرح أي كمية اترجعت (كلي أو جزئي) من هذا الصنف في هذه الفاتورة قبل حساب العمولة
-                  const returnedQty = getReturnedQty(s.id, item.id);
-                  const effQty = Math.max(0, (item.qty || 1) - returnedQty);
-                  if (effQty <= 0) return;
-                  const commission = commissionForItem(item, saleDateTime, effQty);
+                  const qty = item.qty || 1;
+                  const commission = commissionForItem(item, saleDateTime, qty);
                   if (commission <= 0) return;
                   const prod = products.find((p) => p.id === item.id);
-                  const amt = (item.price || 0) * effQty;
-                  if (!staffSales[name]) staffSales[name] = { total: 0, commission: 0, items: {} };
-                  staffSales[name].total += amt;
-                  staffSales[name].commission += commission;
+                  const amt = (item.price || 0) * qty;
                   const pName = prod?.name || prod?.nameAr || item.name || item.id;
-                  staffSales[name].items[pName] = (staffSales[name].items[pName] || 0) + amt;
+                  addToStaff(name, amt, commission, pName);
                 });
               });
 
-            const staffList: [string, any][] = Object.entries(staffSales).filter(([, v]: any) => v.total > 0);
+            // 2) خصم أي مرتجع (كلي أو جزئي) حصل فعليًا خلال هذا الشهر — بغض النظر عن شهر البيع الأصلي
+            (returns || [])
+              .filter((r) => r.type === "sales" && r.date?.startsWith(incMonthKey))
+              .forEach((r) => {
+                const originalSale = salesById[r.invoice_id];
+                // فاتورة رجعت بالكامل أصلاً مستبعدة من كل الشهور (!s.returned فوق) فمفيش عمولة نرجعها هنا
+                if (originalSale?.returned) return;
+                const name = originalSale?.cashier_name || "غير محدد";
+                const saleDateTime = originalSale?.created_at || (originalSale?.date ? originalSale.date + "T00:00:00.000Z" : r.date + "T00:00:00.000Z");
+                const items = typeof r.items === "string" ? JSON.parse(r.items) : r.items || [];
+                items.forEach((ri) => {
+                  const qty = ri.returnQty || 0;
+                  if (qty <= 0) return;
+                  const commission = commissionForItem(ri, saleDateTime, qty);
+                  if (commission <= 0) return;
+                  const prod = products.find((p) => p.id === ri.id);
+                  const amt = (ri.price || 0) * qty;
+                  const pName = prod?.name || prod?.nameAr || ri.name || ri.id;
+                  addToStaff(name, -amt, -commission, pName);
+                });
+              });
+
+            const staffList: [string, any][] = Object.entries(staffSales)
+              .filter(([, v]: any) => v.total !== 0 || v.commission !== 0)
+              .sort((a: any, b: any) => (b[1].isPharmacist ? 1 : 0) - (a[1].isPharmacist ? 1 : 0));
             if (staffList.length === 0) return (
               <div style={{ ...incentiveCardStyle(), marginTop: 16, textAlign: "center" }}>
                 <div style={{ color: COLORS.textDim, padding: 20 }}>
@@ -20723,32 +20809,46 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                 {commissionExpanded && (
                 <>
                 {staffList.map(([name, data]: any) => {
-                  const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100).toFixed(1) : "0";
+                  const pct = totalAllStaff > 0 ? (data.total / totalAllStaff * 100) : 0;
+                  const barPct = Math.max(0, Math.min(100, pct));
+                  const isNegative = data.commission < 0;
+                  const amountColor = isNegative ? COLORS.red : COLORS.green;
                   return (
                     <div key={name} style={{ padding: "12px 0", borderBottom: `1px solid ${COLORS.border}` }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <div>
-                          <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>👤 {name}</div>
+                          <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>
+                            👤 {name}
+                            {!data.isPharmacist && (
+                              <span title="الاسم ده مش موجود في قائمة الصيادلة (تاب التارجت) — تحقق من اسم الكاشير على الفاتورة" style={{ marginRight: 8, fontSize: 10, fontWeight: 700, color: COLORS.gold, background: tint(COLORS.gold, 0.85), border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 6, padding: "2px 6px" }}>
+                                ⚠️ مش من قائمة الصيادلة
+                              </span>
+                            )}
+                          </div>
                           <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
-                            مبيعات محفزة: <span style={{ color: COLORS.green }}>{data.total.toFixed(2)} ر.س</span>
-                            <span style={{ marginRight: 10, color: COLORS.textDim }}>({pct}% من الإجمالي)</span>
+                            {isNegative ? "خصم مرتجعات: " : "مبيعات محفزة: "}
+                            <span style={{ color: amountColor }}>{data.total.toFixed(2)} ر.س</span>
+                            {!isNegative && <span style={{ marginRight: 10, color: COLORS.textDim }}>({pct.toFixed(1)}% من الإجمالي)</span>}
                           </div>
                         </div>
                         <div style={{ textAlign: "left" }}>
-                          <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{data.commission.toFixed(2)} ر.س</div>
-                          <div style={{ color: COLORS.textDim, fontSize: 11 }}>عمولة</div>
+                          <div style={{ color: amountColor, fontWeight: 900, fontSize: 18 }}>{data.commission.toFixed(2)} ر.س</div>
+                          <div style={{ color: COLORS.textDim, fontSize: 11 }}>{isNegative ? "خصم مرتجع من العمولة" : "عمولة"}</div>
                         </div>
                       </div>
                       <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 6, marginBottom: 8 }}>
-                        <div style={{ background: COLORS.green, height: "100%", borderRadius: 4, width: `${pct}%`, transition: "width 0.4s" }} />
+                        <div style={{ background: amountColor, height: "100%", borderRadius: 4, width: `${barPct}%`, transition: "width 0.4s" }} />
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {Object.entries(data.items).map(([pName, amt]) => (
-                          <div key={pName} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
-                            <span style={{ color: COLORS.textDim }}>{pName}</span>
-                            <span style={{ color: COLORS.green, marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
-                          </div>
-                        ))}
+                        {Object.entries(data.items).map(([pName, amt]) => {
+                          const itemNegative = (amt as number) < 0;
+                          return (
+                            <div key={pName} style={{ background: itemNegative ? tint(COLORS.red, 0.85) : COLORS.greenSoft, border: `1px solid ${tint(itemNegative ? COLORS.red : COLORS.green, 0.35)}`, borderRadius: 6, padding: "3px 10px", fontSize: 11 }}>
+                              <span style={{ color: COLORS.textDim }}>{pName}</span>
+                              <span style={{ color: itemNegative ? COLORS.red : COLORS.green, marginRight: 6, fontWeight: 700 }}>{(amt as number).toFixed(0)} ر.س</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -20756,7 +20856,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "2px solid #1a3a1a" }}>
                   <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>إجمالي العمولات المستحقة</span>
-                  <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>
+                  <span style={{ color: totalCommission < 0 ? COLORS.red : COLORS.green, fontWeight: 900, fontSize: 18 }}>
                     {totalCommission.toFixed(2)} ر.س
                   </span>
                 </div>
