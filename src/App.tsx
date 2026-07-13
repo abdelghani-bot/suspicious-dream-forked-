@@ -576,7 +576,7 @@ const IC = ({ n, s = 18, style = {} }) => {
 };
 
 // ==================== UI COMPONENTS ====================
-const Modal = ({ open, onClose, title, children, wide, zIndex }) => {
+const Modal = ({ open, onClose, title, children, wide, zIndex, closeOnBackdrop = true }) => {
   if (!open) return null;
   return (
     <div
@@ -591,7 +591,7 @@ const Modal = ({ open, onClose, title, children, wide, zIndex }) => {
         backdropFilter: "blur(6px)",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (closeOnBackdrop && e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -9564,6 +9564,7 @@ const LABEL_SIZES = [
         }}
         title="فاتورة شراء جديدة"
         wide
+        closeOnBackdrop={false}
       >
         <div
           style={{
