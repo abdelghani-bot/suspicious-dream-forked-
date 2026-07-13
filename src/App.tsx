@@ -2218,6 +2218,43 @@ export default function PharmacyPro() {
 
   const [posInvoices, setPosInvoices] = useState([emptyInvoice()]);
   const [posActiveTab, setPosActiveTab] = useState(0);
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 حفظ سلة نقطة البيع (بكل تابات الفواتير المفتوحة) في localStorage —
+  // عشان لو الجهاز فصل أو المتصفح قفل فجأة أثناء العمل على فاتورة بيع، ترجع تلاقيها
+  // تاني بمجرد ما تفتح البرنامج، مش بس عند التنقل بين التابات.
+  // ═══════════════════════════════════════════════════
+  const posDraftKey = `pharmacypro_pos_draft_${pharmacyId}`;
+  const posDraftRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (posDraftRestoredRef.current || !pharmacyId) return;
+    posDraftRestoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(posDraftKey);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (Array.isArray(draft) && draft.some((inv) => inv?.cart?.length > 0)) {
+        setPosInvoices(draft);
+        showToast("↩️ تم استرجاع فاتورة/فواتير بيع لم تكتمل");
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pharmacyId]);
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    try {
+      const hasItems = posInvoices.some((inv) => inv?.cart?.length > 0);
+      if (hasItems) {
+        localStorage.setItem(posDraftKey, JSON.stringify(posInvoices));
+      } else {
+        localStorage.removeItem(posDraftKey);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posInvoices, pharmacyId]);
+
   const [posPromos, setPosPromos] = useState([]);
   const [posDiscountRules, setPosDiscountRules] = useState([
     { days: 90,  discount: 50, color: COLORS.red },
@@ -8257,6 +8294,50 @@ function PurchaseModule({
   const [showProductCard, setShowProductCard] = useState(null);
   const searchRef = useRef(null);
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 مسودة فاتورة الشراء: عشان لو الصيدلي فتح فاتورة شراء وبدأ يضيف أصناف،
+  // وبعدين احتاج يروح لنقطة البيع أو أي شاشة تانية، ميضيعش اللي دخّله.
+  // بنحفظ المسودة في localStorage (مربوطة بالصيدلية) ونرجّعها تلقائي لما يرجع لشاشة المشتريات.
+  // ═══════════════════════════════════════════════════
+  const purchaseDraftKey = `pharmacypro_purchase_draft_${pharmacyId}`;
+  const draftRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (draftRestoredRef.current || !pharmacyId) return;
+    draftRestoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(purchaseDraftKey);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft && Array.isArray(draft.items) && draft.items.length > 0) {
+        setItems(draft.items);
+        setSelSupplier(draft.selSupplier || "");
+        setManualSubtotal(draft.manualSubtotal || "");
+        setManualTax(draft.manualTax || "");
+        setShowNew(true);
+        showToast("↩️ تم استرجاع مسودة فاتورة شراء لم تكتمل");
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pharmacyId]);
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    try {
+      if (showNew && items.length > 0) {
+        localStorage.setItem(purchaseDraftKey, JSON.stringify({ items, selSupplier, manualSubtotal, manualTax }));
+      } else {
+        localStorage.removeItem(purchaseDraftKey);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, selSupplier, manualSubtotal, manualTax, showNew, pharmacyId]);
+
+  const clearPurchaseDraft = () => {
+    try { localStorage.removeItem(purchaseDraftKey); } catch {}
+  };
+
+
   // ===== استيراد ملف Excel من موقع رصد (GTIN/SN/BN/XD) لفاتورة الشراء =====
   const rasdExcelInputRef = useRef(null);
   const [rasdImportBusy, setRasdImportBusy] = useState(false);
@@ -9336,6 +9417,7 @@ const LABEL_SIZES = [
     setManualSubtotal("");
     setManualTax("");
     setShowNew(false);
+    clearPurchaseDraft();
     showToast("تم حفظ فاتورة الشراء ✓");
 
     // ✅ فتح نافذة طباعة الباركود بعد نجاح الحفظ
@@ -14381,6 +14463,27 @@ function ProductFormModal({
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 مسودة "إضافة صنف جديد": عشان لو الصيدلي بدأ يدخّل بيانات صنف واحتاج
+  // يسيب الشاشة (يروح نقطة البيع مثلاً) وبعدين يرجع، ميضيعش اللي كتبه.
+  // بتتفعّل بس في حالة "إضافة" (مش تعديل صنف موجود) عشان منلخبطش بيانات صنف حقيقي.
+  // ═══════════════════════════════════════════════════
+  const productDraftKey = `pharmacypro_product_draft_${pharmacyId}`;
+
+  useEffect(() => {
+    if (!open || editingId || !pharmacyId) return;
+    try {
+      if (form.nameAr?.trim() || form.brandName?.trim()) {
+        localStorage.setItem(productDraftKey, JSON.stringify(form));
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, open, editingId, pharmacyId]);
+
+  const clearProductDraft = () => {
+    try { localStorage.removeItem(productDraftKey); } catch {}
+  };
+
   // 🆕 لما نضيف شركة منتجة جديدة من جوه فورم الصنف (نافذة "إدارة الشركات" اللي بتفتح فوقه)،
   // الأب بيبعتها هنا بمجرد ما تتحفظ — نضيفها لقائمتنا المحلية ونختارها تلقائيًا،
   // بدل ما الكاشير يضطر يدور عليها تاني في القائمة المنسدلة.
@@ -14514,7 +14617,21 @@ function ProductFormModal({
         });
       setSimilarSearch(""); setSimilarProductId("");
     } else {
-      setForm({ ...blank, id: "P" + Date.now(), nameAr: prefillName || "" });
+      let restored = false;
+      try {
+        const raw = localStorage.getItem(productDraftKey);
+        if (raw) {
+          const draft = JSON.parse(raw);
+          if (draft && (draft.nameAr?.trim() || draft.brandName?.trim())) {
+            setForm({ ...blank, ...draft, id: draft.id || "P" + Date.now() });
+            showToast("↩️ تم استرجاع مسودة صنف لم يكتمل إدخالها");
+            restored = true;
+          }
+        }
+      } catch {}
+      if (!restored) {
+        setForm({ ...blank, id: "P" + Date.now(), nameAr: prefillName || "" });
+      }
       setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
       setSelectedIngredients([]);
       setSimilarSearch(""); setSimilarProductId("");
@@ -14647,6 +14764,7 @@ function ProductFormModal({
       if (error) { showToast("خطأ في الإضافة: " + error.message, "error"); return; }
       productId = data[0].id;
       setProducts((prev) => [...prev, data[0]]);
+      clearProductDraft();
       logAudit({
         pharmacyId, userName: currentUser?.name, action: "create", entityType: "product",
         entityId: productId, entityLabel: p.name,
