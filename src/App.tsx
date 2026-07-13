@@ -24024,6 +24024,25 @@ function isRamadan() {
   return ranges.some((r) => now >= r.start && now <= r.end);
 }
 
+// 🆕 هل التاريخ ده واقع في إجازة رسمية معتمدة؟ بيرجع الإجازة نفسها لو لقاها
+function findHolidayForDate(holidays: any[], dateStr: string) {
+  return (holidays || []).find((h) => dateStr >= h.date_start && dateStr <= h.date_end) || null;
+}
+
+// 🆕 حساب مين الصيدلي المستحق في دورة تبديل (زي الجمعة) في تاريخ معيّن.
+// cycle_length = كام أسبوع متتالي ياخدهم كل صيدلي قبل ما يجي دور اللي بعده
+// (cycle_length=1 → أسبوع وأسبوع بالتبادل، cycle_length=2 → جمعتين ورا بعض لكل واحد... وهكذا)
+function getRotationPharmacistForDate(rotation: any, dateStr: string) {
+  if (!rotation?.pharmacist_names?.length || !rotation?.start_date) return null;
+  const start = new Date(rotation.start_date + "T00:00:00");
+  const cur = new Date(dateStr + "T00:00:00");
+  const weeksSince = Math.floor((cur.getTime() - start.getTime()) / (7 * 24 * 3600 * 1000));
+  if (weeksSince < 0) return null;
+  const cycle = Math.max(1, +rotation.cycle_length || 1);
+  const turnIndex = Math.floor(weeksSince / cycle) % rotation.pharmacist_names.length;
+  return rotation.pharmacist_names[turnIndex];
+}
+
 function fmt(ts: string | null) {
   if (!ts) return "--:--";
   return new Date(ts).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -24137,6 +24156,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
 
   const [selectedPharmacist, setSelectedPharmacist] = useState("");
   const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState<"normal" | "ramadan">("normal"); // 🆕 جدول عادي أو نسخة رمضان
 
   // بناء جدول افتراضي أسبوعي
   const emptyWeek = () =>
@@ -24154,7 +24174,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
   // لما يختار صيدلي، يحمّل جدوله الموجود
   useEffect(() => {
     if (!selectedPharmacist) { setWeekForm(emptyWeek()); return; }
-    const pharmSchedules = workSchedules.filter((s: any) => s.pharmacist_name === selectedPharmacist);
+    const pharmSchedules = workSchedules.filter((s: any) => s.pharmacist_name === selectedPharmacist && !!s.is_ramadan === (mode === "ramadan"));
     if (pharmSchedules.length === 0) { setWeekForm(emptyWeek()); return; }
 
     const newWeek = emptyWeek().map((day) => {
@@ -24175,7 +24195,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
       };
     });
     setWeekForm(newWeek);
-  }, [selectedPharmacist, workSchedules]);
+  }, [selectedPharmacist, workSchedules, mode]);
 
   const updateDay = (dow: number, field: string, value: any) => {
     setWeekForm((prev) => prev.map((d) => d.day_of_week === dow ? { ...d, [field]: value } : d));
@@ -24194,10 +24214,13 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
     if (!selectedPharmacist) { globalToast("اختر الصيدلي أولاً"); return; }
     setSaving(true);
 
-    // حذف الجدول القديم للصيدلي
+    const isRamadanMode = mode === "ramadan";
+
+    // حذف الجدول القديم للصيدلي (بنفس الوضع بس — عادي أو رمضان — من غير ما نلمس النسخة التانية)
     await supabase.from("work_schedules").delete()
       .eq("pharmacy_id", pharmacyId)
-      .eq("pharmacist_name", selectedPharmacist);
+      .eq("pharmacist_name", selectedPharmacist)
+      .eq("is_ramadan", isRamadanMode);
 
     // بناء الصفوف الجديدة
     const rows: any[] = [];
@@ -24212,6 +24235,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
           shift_start: null,
           shift_end: null,
           is_off: true,
+          is_ramadan: isRamadanMode,
         });
       } else {
         day.shifts.forEach((sh: any) => {
@@ -24225,6 +24249,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             shift_end: sh.shift_end,
             is_off: false,
             overtime_minutes: +sh.overtime_minutes || 0,
+            is_ramadan: isRamadanMode,
           });
         });
       }
@@ -24236,7 +24261,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
     setSaving(false);
 
     if (error) { globalToast("خطأ في الحفظ: " + error.message); return; }
-    globalToast(`✓ تم حفظ جدول ${selectedPharmacist}`);
+    globalToast(`✓ تم حفظ جدول ${selectedPharmacist}${isRamadanMode ? " (رمضان)" : ""}`);
     onSaved();
   };
 
@@ -24269,6 +24294,17 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             <option value="">اختر صيدلي...</option>
             {pharmacists.map((n: string) => <option key={n} value={n}>{n}</option>)}
           </select>
+
+          {/* 🆕 التبديل بين الجدول العادي ونسخة رمضان */}
+          <div style={{ display: "flex", background: C.bg2, borderRadius: 8, padding: 3 }}>
+            <button onClick={() => setMode("normal")} style={{ border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: mode === "normal" ? C.bg : "transparent", color: mode === "normal" ? C.accent : C.muted }}>
+              📅 عادي
+            </button>
+            <button onClick={() => setMode("ramadan")} style={{ border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: mode === "ramadan" ? C.bg : "transparent", color: mode === "ramadan" ? COLORS.gold : C.muted }}>
+              🌙 رمضان
+            </button>
+          </div>
+
           {selectedPharmacist && (
             <div style={{ marginRight: "auto", display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 12, color: C.muted }}>
@@ -24441,6 +24477,326 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
     </div>
   );
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🆕 التبديل الدوري (زي تبديل الجمعة بين صيادلة) — نمط مرن: أي عدد أسابيع متتالية لكل صيدلي
+// ══════════════════════════════════════════════════════════════════════════════
+function RotationTab({ pharmacists, rotationSchedules, pharmacyId, C, onSaved, globalToast, readOnly = false }: any) {
+  const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+  const emptyForm = () => ({
+    group_name: "", day_of_week: 5, pharmacist_names: [] as string[],
+    cycle_length: 1, start_date: todayLocal(), shift_start: "09:00", shift_end: "21:00",
+  });
+  const [form, setForm] = useState<any>(emptyForm());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const togglePharmacist = (name: string) => {
+    setForm((p: any) => ({
+      ...p,
+      pharmacist_names: p.pharmacist_names.includes(name)
+        ? p.pharmacist_names.filter((n: string) => n !== name)
+        : [...p.pharmacist_names, name],
+    }));
+  };
+
+  const startEdit = (r: any) => {
+    setEditingId(r.id);
+    setForm({
+      group_name: r.group_name, day_of_week: r.day_of_week, pharmacist_names: [...(r.pharmacist_names || [])],
+      cycle_length: r.cycle_length, start_date: r.start_date, shift_start: r.shift_start, shift_end: r.shift_end,
+    });
+  };
+
+  const save = async () => {
+    if (readOnly) { globalToast("❌ لا تملك صلاحية تعديل التبديل الدوري", "error"); return; }
+    if (!form.group_name.trim()) { globalToast("اكتب اسم المجموعة"); return; }
+    if (form.pharmacist_names.length < 2) { globalToast("اختر صيدليين اتنين على الأقل"); return; }
+    setSaving(true);
+    const row = {
+      pharmacy_id: pharmacyId, group_name: form.group_name.trim(), day_of_week: +form.day_of_week,
+      pharmacist_names: form.pharmacist_names, cycle_length: +form.cycle_length || 1,
+      start_date: form.start_date, shift_start: form.shift_start, shift_end: form.shift_end, active: true,
+    };
+    const { error } = editingId
+      ? await supabase.from("rotation_schedules").update(row).eq("id", editingId).eq("pharmacy_id", pharmacyId)
+      : await supabase.from("rotation_schedules").insert(row);
+    setSaving(false);
+    if (error) { globalToast("خطأ في الحفظ: " + error.message, "error"); return; }
+    globalToast("✓ تم حفظ التبديل الدوري");
+    setForm(emptyForm());
+    setEditingId(null);
+    onSaved();
+  };
+
+  const remove = async (id: string) => {
+    if (readOnly) { globalToast("❌ لا تملك صلاحية الحذف", "error"); return; }
+    await supabase.from("rotation_schedules").delete().eq("id", id).eq("pharmacy_id", pharmacyId);
+    globalToast("تم الحذف");
+    onSaved();
+  };
+
+  const inputStyle: React.CSSProperties = { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", color: C.text, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" };
+
+  return (
+    <div>
+      <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, color: C.text, fontSize: 14, marginBottom: 4 }}>🔁 {editingId ? "تعديل" : "إضافة"} تبديل دوري</div>
+        <div style={{ color: C.muted, fontSize: 12, marginBottom: 12 }}>
+          مثال: صيدليين يتبادلوا الجمعة — حدد اليوم، رتّب الصيادلة بالدور، وحدد كام أسبوع ياخد كل واحد قبل ما يجي دور اللي بعده (١ = أسبوع وأسبوع بالتبادل، ٢ = جمعتين ورا بعض لكل واحد... وهكذا)
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>اسم المجموعة</label>
+            <input style={inputStyle} value={form.group_name} disabled={readOnly} placeholder="مثال: تبديل الجمعة" onChange={(e) => setForm((p: any) => ({ ...p, group_name: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>اليوم</label>
+            <select style={inputStyle} value={form.day_of_week} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, day_of_week: +e.target.value }))}>
+              {DAY_NAMES.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: C.muted }}>الصيادلة (بالترتيب اللي هيبدأ بيهم الدور)</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+            {pharmacists.map((name: string) => {
+              const idx = form.pharmacist_names.indexOf(name);
+              return (
+                <button key={name} type="button" disabled={readOnly} onClick={() => togglePharmacist(name)}
+                  style={{ background: idx >= 0 ? COLORS.blueSoft : C.bg2, border: `1px solid ${idx >= 0 ? C.accent : C.border}`, borderRadius: 8, padding: "6px 12px", color: C.text, fontSize: 12, cursor: readOnly ? "not-allowed" : "pointer" }}>
+                  {idx >= 0 ? `${idx + 1}. ` : ""}{name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>كام أسبوع لكل صيدلي</label>
+            <input type="number" min={1} style={inputStyle} value={form.cycle_length} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, cycle_length: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>تاريخ بداية الدورة</label>
+            <input type="date" style={inputStyle} value={form.start_date} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, start_date: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>من الساعة</label>
+            <input type="time" style={inputStyle} value={form.shift_start} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, shift_start: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>إلى الساعة</label>
+            <input type="time" style={inputStyle} value={form.shift_end} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, shift_end: e.target.value }))} />
+          </div>
+        </div>
+
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={save} disabled={saving} style={{ background: C.accent, border: "none", borderRadius: 8, padding: "9px 20px", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {saving ? "جاري الحفظ..." : editingId ? "حفظ التعديل" : "إضافة"}
+            </button>
+            {editingId && (
+              <button onClick={() => { setEditingId(null); setForm(emptyForm()); }} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 20px", color: C.muted, fontSize: 13, cursor: "pointer" }}>
+                إلغاء
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>📋 التبديلات المحفوظة</div>
+      {rotationSchedules.length === 0 && <div style={{ color: C.muted, fontSize: 13, padding: 20, textAlign: "center" }}>لا يوجد تبديل دوري محفوظ</div>}
+      {rotationSchedules.map((r: any) => {
+        const nextTurn = getRotationPharmacistForDate(r, todayLocal());
+        return (
+          <div key={r.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 700, color: C.text, fontSize: 13 }}>{r.group_name} — {DAY_NAMES[r.day_of_week]}</div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{(r.pharmacist_names || []).join(" ← ")} · كل {r.cycle_length} أسبوع · {r.shift_start}–{r.shift_end}</div>
+                {nextTurn && <div style={{ fontSize: 12, color: C.accent, marginTop: 4, fontWeight: 700 }}>👤 الدور على: {nextTurn} (النهاردة)</div>}
+              </div>
+              {!readOnly && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => startEdit(r)} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", color: C.accent, fontSize: 11, cursor: "pointer" }}>تعديل</button>
+                  <button onClick={() => remove(r.id)} style={{ background: "transparent", border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 10px", color: C.red, fontSize: 11, cursor: "pointer" }}>حذف</button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🆕 الإجازات الرسمية — المدير بيضيفها ويحدد هل الصيدلية شغالة فيها ولو شغالة بكام ساعة
+// ══════════════════════════════════════════════════════════════════════════════
+function HolidaysTab({ officialHolidays, pharmacyId, C, onSaved, globalToast, readOnly = false }: any) {
+  // مناسبات معروفة مسبقًا — الثابتة تواريخها مؤكدة، الهجرية (الأعياد/رمضان) تقديرية لحد ما وزارة الموارد البشرية تعلنها رسميًا
+  const SUGGESTED_2026 = [
+    { name: "يوم التأسيس", date_start: "2026-02-22", date_end: "2026-02-22", is_estimated: false },
+    { name: "عيد الفطر", date_start: "2026-03-19", date_end: "2026-03-23", is_estimated: true },
+    { name: "يوم عرفة + عيد الأضحى", date_start: "2026-05-25", date_end: "2026-05-29", is_estimated: true },
+    { name: "اليوم الوطني", date_start: "2026-09-23", date_end: "2026-09-23", is_estimated: false },
+  ];
+
+  const emptyForm = () => ({ name: "", date_start: todayLocal(), date_end: todayLocal(), is_worked: false, work_hours_start: "09:00", work_hours_end: "17:00", is_estimated: false });
+  const [form, setForm] = useState<any>(emptyForm());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = (h: any) => {
+    setEditingId(h.id);
+    setForm({
+      name: h.name, date_start: h.date_start, date_end: h.date_end, is_worked: h.is_worked,
+      work_hours_start: h.work_hours_start || "09:00", work_hours_end: h.work_hours_end || "17:00", is_estimated: h.is_estimated,
+    });
+  };
+
+  const quickAdd = (s: any) => {
+    setEditingId(null);
+    setForm({ name: s.name, date_start: s.date_start, date_end: s.date_end, is_worked: false, work_hours_start: "09:00", work_hours_end: "17:00", is_estimated: s.is_estimated });
+    globalToast(s.is_estimated ? "⚠️ التاريخ ده تقديري — أكّده لما وزارة الموارد البشرية تعلن رسميًا" : "تاريخ ثابت مؤكد");
+  };
+
+  const save = async () => {
+    if (readOnly) { globalToast("❌ لا تملك صلاحية تعديل الإجازات", "error"); return; }
+    if (!form.name.trim()) { globalToast("اكتب اسم المناسبة"); return; }
+    if (form.date_end < form.date_start) { globalToast("تاريخ النهاية قبل البداية!"); return; }
+    setSaving(true);
+    const row = {
+      pharmacy_id: pharmacyId, name: form.name.trim(), date_start: form.date_start, date_end: form.date_end,
+      is_worked: form.is_worked, is_estimated: form.is_estimated,
+      work_hours_start: form.is_worked ? form.work_hours_start : null,
+      work_hours_end: form.is_worked ? form.work_hours_end : null,
+    };
+    const { error } = editingId
+      ? await supabase.from("official_holidays").update(row).eq("id", editingId).eq("pharmacy_id", pharmacyId)
+      : await supabase.from("official_holidays").insert(row);
+    setSaving(false);
+    if (error) { globalToast("خطأ في الحفظ: " + error.message, "error"); return; }
+    globalToast("✓ تم حفظ الإجازة");
+    setForm(emptyForm());
+    setEditingId(null);
+    onSaved();
+  };
+
+  const remove = async (id: string) => {
+    if (readOnly) { globalToast("❌ لا تملك صلاحية الحذف", "error"); return; }
+    await supabase.from("official_holidays").delete().eq("id", id).eq("pharmacy_id", pharmacyId);
+    globalToast("تم الحذف");
+    onSaved();
+  };
+
+  const inputStyle: React.CSSProperties = { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", color: C.text, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" };
+  const sorted = [...officialHolidays].sort((a: any, b: any) => a.date_start.localeCompare(b.date_start));
+
+  return (
+    <div>
+      {!readOnly && (
+        <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, color: C.text, fontSize: 13, marginBottom: 8 }}>⚡ إضافة سريعة — مناسبات ٢٠٢٦</div>
+          <div style={{ color: C.muted, fontSize: 11, marginBottom: 10 }}>التواريخ الهجرية (الأعياد) تقديرية حسب التقويم — لازم تأكيدها بعد الإعلان الرسمي من وزارة الموارد البشرية</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {SUGGESTED_2026.map((s) => (
+              <button key={s.name} onClick={() => quickAdd(s)} style={{ background: C.bg2, border: `1px solid ${s.is_estimated ? C.orange : C.green}`, borderRadius: 8, padding: "7px 12px", color: C.text, fontSize: 12, cursor: "pointer" }}>
+                {s.is_estimated ? "🌙" : "📌"} {s.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, color: C.text, fontSize: 14, marginBottom: 12 }}>🗓️ {editingId ? "تعديل" : "إضافة"} إجازة رسمية</div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: C.muted }}>اسم المناسبة</label>
+          <input style={inputStyle} value={form.name} disabled={readOnly} placeholder="مثال: عيد الفطر" onChange={(e) => setForm((p: any) => ({ ...p, name: e.target.value }))} />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>من تاريخ</label>
+            <input type="date" style={inputStyle} value={form.date_start} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, date_start: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: C.muted }}>إلى تاريخ</label>
+            <input type="date" style={inputStyle} value={form.date_end} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, date_end: e.target.value }))} />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 16, marginBottom: 10, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text, cursor: readOnly ? "not-allowed" : "pointer" }}>
+            <input type="checkbox" checked={form.is_worked} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, is_worked: e.target.checked }))} style={{ width: 16, height: 16 }} />
+            الصيدلية شغالة في الإجازة دي
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text, cursor: readOnly ? "not-allowed" : "pointer" }}>
+            <input type="checkbox" checked={form.is_estimated} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, is_estimated: e.target.checked }))} style={{ width: 16, height: 16 }} />
+            تاريخ تقديري (لسه مش معلن رسميًا)
+          </label>
+        </div>
+
+        {form.is_worked && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, color: C.muted }}>من الساعة</label>
+              <input type="time" style={inputStyle} value={form.work_hours_start} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, work_hours_start: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: C.muted }}>إلى الساعة</label>
+              <input type="time" style={inputStyle} value={form.work_hours_end} disabled={readOnly} onChange={(e) => setForm((p: any) => ({ ...p, work_hours_end: e.target.value }))} />
+            </div>
+          </div>
+        )}
+
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={save} disabled={saving} style={{ background: C.accent, border: "none", borderRadius: 8, padding: "9px 20px", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {saving ? "جاري الحفظ..." : editingId ? "حفظ التعديل" : "إضافة"}
+            </button>
+            {editingId && (
+              <button onClick={() => { setEditingId(null); setForm(emptyForm()); }} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 20px", color: C.muted, fontSize: 13, cursor: "pointer" }}>
+                إلغاء
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>📋 الإجازات المحفوظة</div>
+      {sorted.length === 0 && <div style={{ color: C.muted, fontSize: 13, padding: 20, textAlign: "center" }}>لا يوجد إجازات رسمية محفوظة</div>}
+      {sorted.map((h: any) => (
+        <div key={h.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 700, color: C.text, fontSize: 13 }}>
+                {h.name} {h.is_estimated && <span style={{ background: COLORS.goldSoft, color: COLORS.gold, borderRadius: 4, padding: "1px 6px", fontSize: 10, marginRight: 6 }}>🌙 تقديري</span>}
+              </div>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
+                {h.date_start === h.date_end ? h.date_start : `${h.date_start} → ${h.date_end}`}
+                {" · "}
+                {h.is_worked ? `شغالة ${h.work_hours_start}–${h.work_hours_end}` : "إجازة كاملة"}
+              </div>
+            </div>
+            {!readOnly && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => startEdit(h)} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", color: C.accent, fontSize: 11, cursor: "pointer" }}>تعديل</button>
+                <button onClick={() => remove(h.id)} style={{ background: "transparent", border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 10px", color: C.red, fontSize: 11, cursor: "pointer" }}>حذف</button>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToast: globalToast, canViewSub = (_sub) => true, canEditSub = (_sub) => true }: {
   pharmacyId: string;
@@ -24455,10 +24811,11 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   const TAB_PERM_KEY: Record<string, string> = {
     attendance: "checkin", schedule: "schedule", settings: "prayers",
     report: "daily_report", monthly: "monthly_report",
+    holidays: "schedule", rotation: "schedule",
   };
   const canViewTab = (t: string) => canViewSub(TAB_PERM_KEY[t] || t);
   const canEditTab = (t: string) => canEditSub(TAB_PERM_KEY[t] || t);
-  const [tab, setTab] = useState<"attendance" | "schedule" | "settings" | "report" | "monthly">("attendance");
+  const [tab, setTab] = useState<"attendance" | "schedule" | "settings" | "report" | "monthly" | "holidays" | "rotation">("attendance");
   const [pharmacists, setPharmacists] = useState<string[]>([]);
   const [todayLogs, setTodayLogs] = useState<any[]>([]);
   const [prayerTimes, setPrayerTimes] = useState<Record<string, string>>({});
@@ -24469,6 +24826,8 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   const [selectedDate, setSelectedDate] = useState(todayLocal());
   const [reportLogs, setReportLogs] = useState<any[]>([]);
   const [workSchedules, setWorkSchedules] = useState<any[]>([]);
+  const [officialHolidays, setOfficialHolidays] = useState<any[]>([]);
+  const [rotationSchedules, setRotationSchedules] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [monthlyLogs, setMonthlyLogs] = useState<any[]>([]);
   const [scheduleForm, setScheduleForm] = useState<any>({ pharmacist_name: "", day_of_week: 0, shift_number: 1, shift_start: "09:00", shift_end: "21:00", is_off: false });
@@ -24527,6 +24886,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     setLoading(true);
     await loadPharmacists();
     const schedulesData = await loadWorkSchedules();
+    await Promise.all([loadOfficialHolidays(), loadRotationSchedules()]);
     await autoCloseOrphanLogs(schedulesData);
     await Promise.all([loadTodayLogs(), loadPrayerSettings(), loadPrayerBreaks()]);
     try {
@@ -24623,6 +24983,18 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     return data || [];
   }
 
+  async function loadOfficialHolidays() {
+    const { data } = await supabase.from("official_holidays").select("*").eq("pharmacy_id", pharmacyId).order("date_start");
+    if (data) setOfficialHolidays(data);
+    return data || [];
+  }
+
+  async function loadRotationSchedules() {
+    const { data } = await supabase.from("rotation_schedules").select("*").eq("pharmacy_id", pharmacyId).order("group_name");
+    if (data) setRotationSchedules(data);
+    return data || [];
+  }
+
   async function loadReport(date: string) {
     const { data } = await supabase.from("attendance_logs").select("*, prayer_breaks(*)").eq("pharmacy_id", pharmacyId).eq("date", date).order("check_in");
     if (data) setReportLogs(data);
@@ -24633,10 +25005,46 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     if (data) setMonthlyLogs(data);
   }
 
-  // ── منطق جدول الدوام: إيجاد الشفت المتوقع للصيدلي الآن ──
-  function getExpectedShift(pharmacistName: string, dow: number, shiftNumber: number) {
+  // ── منطق جدول الدوام: إيجاد الشفت المتوقع للصيدلي — بترتيب أولوية:
+  // ١) إجازة رسمية معتمدة لليوم ده (لو شغالة فيها بيستخدم ساعاتها، لو إجازة كاملة يرجع "مفيش شفت")
+  // ٢) تبديل دوري (زي الجمعة) لو الصيدلي ضمن مجموعة تبديل في اليوم ده
+  // ٣) الجدول الأسبوعي — نسخة رمضان لو الشهر رمضان وموجودة له نسخة، وإلا الجدول العادي
+  function getExpectedShift(pharmacistName: string, dow: number, shiftNumber: number, dateStr: string = today) {
+    const holiday = findHolidayForDate(officialHolidays, dateStr);
+    if (holiday) {
+      if (!holiday.is_worked) return null; // إجازة كاملة — مفيش دوام أصلاً
+      if (shiftNumber !== 1) return null; // ساعات الإجازة بتتحسب كشفت واحد بس
+      return {
+        pharmacist_name: pharmacistName, day_of_week: dow, shift_number: 1,
+        shift_start: holiday.work_hours_start, shift_end: holiday.work_hours_end,
+        is_off: false, overtime_minutes: 0, is_holiday: true, holiday_name: holiday.name,
+      };
+    }
+
+    const rotation = rotationSchedules.find(
+      (r) => r.active && r.day_of_week === dow && (r.pharmacist_names || []).includes(pharmacistName)
+    );
+    if (rotation) {
+      if (shiftNumber !== 1) return null;
+      const turnPharmacist = getRotationPharmacistForDate(rotation, dateStr);
+      if (turnPharmacist !== pharmacistName) return null; // مش دوره — إجازة
+      return {
+        pharmacist_name: pharmacistName, day_of_week: dow, shift_number: 1,
+        shift_start: rotation.shift_start, shift_end: rotation.shift_end,
+        is_off: false, overtime_minutes: 0, is_rotation: true,
+      };
+    }
+
+    const ramadanActive = isRamadan();
+    if (ramadanActive) {
+      const ramadanMatch = workSchedules.find(
+        (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off && s.is_ramadan
+      );
+      if (ramadanMatch) return ramadanMatch;
+    }
+
     return workSchedules.find(
-      (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off
+      (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off && !s.is_ramadan
     );
   }
 
@@ -24644,7 +25052,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   function isOutsideSchedule(log: any) {
     if (!log?.check_in) return false;
     const dow = new Date(log.check_in).getDay();
-    const schedule = getExpectedShift(log.pharmacist_name, dow, log.shift_number || 1);
+    const schedule = getExpectedShift(log.pharmacist_name, dow, log.shift_number || 1, log.date || todayLocal());
     if (!schedule) return true;
     if (log.check_out) {
       const { outsideSchedule } = calcCappedHours(log.check_in, log.check_out, schedule);
@@ -24666,7 +25074,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   }
 
   function calcLateMinutes(pharmacistName: string, shiftNum: number, checkInTime: string) {
-    const schedule = getExpectedShift(pharmacistName, new Date(checkInTime).getDay(), shiftNum);
+    const schedule = getExpectedShift(pharmacistName, new Date(checkInTime).getDay(), shiftNum, checkInTime.slice(0, 10));
     if (!schedule) return 0;
     const [expH, expM] = schedule.shift_start.split(":").map(Number);
     const expected = new Date(checkInTime);
@@ -24711,7 +25119,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
   async function handleCheckOut(log: any) {
     if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الانصراف", "error"); return; }
     const now = new Date();
-    const schedule = getExpectedShift(log.pharmacist_name, new Date(log.check_in).getDay(), log.shift_number || 1);
+    const schedule = getExpectedShift(log.pharmacist_name, new Date(log.check_in).getDay(), log.shift_number || 1, log.date || todayLocal());
     const { totalHours, capped, outsideSchedule } = calcCappedHours(log.check_in, now.toISOString(), schedule);
     const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
     const totalDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
@@ -24805,15 +25213,18 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     const totalLate = logs.reduce((s, l) => s + (l.late_minutes || 0), 0);
     const daysWorked = logs.filter((l) => l.check_out).length;
 
-    // حساب الساعات المطلوبة من جدول الدوام
+    // حساب الساعات المطلوبة من جدول الدوام — مع مراعاة الإجازات الرسمية وتبديل الجمعة ورمضان
     const year = parseInt(selectedMonth.split("-")[0]);
     const month = parseInt(selectedMonth.split("-")[1]) - 1;
     let requiredHours = 0;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
       const dow = new Date(year, month, d).getDay();
-      const daySchedules = workSchedules.filter((s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && !s.is_off);
-      daySchedules.forEach((s) => {
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const schedule = getExpectedShift(pharmacistName, dow, 1, dateStr);
+      const schedule2 = getExpectedShift(pharmacistName, dow, 2, dateStr);
+      [schedule, schedule2].forEach((s) => {
+        if (!s?.shift_start || !s?.shift_end) return;
         const [sh, sm] = s.shift_start.split(":").map(Number);
         const [eh, em] = s.shift_end.split(":").map(Number);
         requiredHours += (eh * 60 + em - (sh * 60 + sm)) / 60;
@@ -24854,6 +25265,8 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
         {[
           { k: "attendance", l: "📋 الحضور" },
           { k: "schedule",   l: "📅 جدول الدوام" },
+          { k: "rotation",   l: "🔁 التبديل الدوري" },
+          { k: "holidays",   l: "🗓️ الإجازات الرسمية" },
           { k: "settings",   l: "⚙️ الصلوات" },
           { k: "report",     l: "📊 تقرير يومي" },
           { k: "monthly",    l: "📈 تقرير شهري" },
@@ -25030,6 +25443,32 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     readOnly={!canEditTab("schedule")}
   />
 )}
+
+      {/* ════ TAB: ROTATION (تبديل دوري زي الجمعة) ════ */}
+      {tab === "rotation" && canViewTab("rotation") && (
+        <RotationTab
+          pharmacists={pharmacists}
+          rotationSchedules={rotationSchedules}
+          pharmacyId={pharmacyId}
+          C={C}
+          onSaved={loadRotationSchedules}
+          globalToast={globalToast}
+          readOnly={!canEditTab("rotation")}
+        />
+      )}
+
+      {/* ════ TAB: OFFICIAL HOLIDAYS ════ */}
+      {tab === "holidays" && canViewTab("holidays") && (
+        <HolidaysTab
+          officialHolidays={officialHolidays}
+          pharmacyId={pharmacyId}
+          C={C}
+          onSaved={loadOfficialHolidays}
+          globalToast={globalToast}
+          readOnly={!canEditTab("holidays")}
+        />
+      )}
+
       {/* ════ TAB: PRAYER SETTINGS ════ */}
       {tab === "settings" && canViewTab("settings") && (
         <div style={cardStyle}>
