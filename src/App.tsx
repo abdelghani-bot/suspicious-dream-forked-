@@ -2122,6 +2122,20 @@ export default function PharmacyPro() {
   const [sales, setSales] = useStorage("ph_sales", INIT_SALES);
   const [purchases, setPurchases] = useStorage("ph_purchases", INIT_PURCHASES);
   const [creditPayments, setCreditPayments] = useState([]);
+
+  // 🆕 تصنيف العملاء (VIP/نمط الشراء/الاتجاه) محسوب مرة واحدة هنا، ومتبعت لأي موديول محتاجه
+  // (قسم العملاء وقسم العروض) بدل ما كل موديول يحسبه لوحده بمنطق منفصل.
+  const enrichedCustomers = useMemo(() => {
+    const KIDS_COSMETICS_CATS = ["مستلزمات أطفال", "كوزمتك عادي", "كوزمتك طبي"];
+    return (customers || []).map((c) => {
+      const stats = computeCustomerStats(c, sales, creditPayments);
+      const missedKidsCosmetics =
+        c.category === "family_with_kids" &&
+        !!stats &&
+        !KIDS_COSMETICS_CATS.some((cat) => (stats.categorySpend?.[cat] || 0) > 0);
+      return { ...c, stats, missedKidsCosmetics };
+    });
+  }, [customers, sales, creditPayments]);
   const [returnsData, setReturnsData] = useStorage("ph_returns", []);
   const [inventoryLogs, setInventoryLogs] = useState([]);
   const [manufacturers, setManufacturers] = useState([]);
@@ -3080,6 +3094,7 @@ if (isLoading) return (
             currentUser={currentUser}
             pharmacyId={pharmacyId}
             showToast={showToast}
+            enrichedCustomers={enrichedCustomers}
           />
         )}
         {tab === "target" && canView("target") && (
@@ -17357,164 +17372,16 @@ function CreditTab({ customers, onPay, sales = [], creditPayments = [] }) {
     </div>
   );
 }
-function CustomersModule({
-  customers,
-  setCustomers,
-  showToast,
-  sales = [],
-  setSales,
-  creditPayments,
-  setCreditPayments,
-  currentUser,
-  pharmacyId,
-}) {
-  const [search, setSearch] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [activeTab, setActiveTab] = useState("cards");
-  const [filterVip, setFilterVip] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterCategory, setFilterCategory] = useState("all");
-  const [showOpportunityOnly, setShowOpportunityOnly] = useState(false);
-  const [expandedCard, setExpandedCard] = useState(null);
-  const [creditInvoices, setCreditInvoices] = useState([]);
-  const [showCredit, setShowCredit] = useState(false);
-  const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
-  const [payAmount, setPayAmount] = useState("");
-  const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [trendGroupView, setTrendGroupView] = useState(null); // "up" | "down" | "stable" | null
-
-  const blank = {
-    id: "",
-    name: "",
-    phone: "",
-    taxId: "",
-    totalSpent: 0,
-    visits: 0,
-    lastVisit: "-",
-    category: "individual",
-    children_count: "",
-    children_ages: [],
-    payment_terms: 30,
-  };
-  const [form, setForm] = useState(blank);
-  const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const openCreditModal = async (customer) => {
-    setSelectedCreditCustomer(customer);
-
-    // جلب كل فواتير الآجل بتاعة العميل
-    const { data: ajilSales } = await supabase
-      .from("sales")
-      .select("*")
-      .eq("customer", customer.id)
-      .eq("payment", "آجل")
-      .eq("pharmacy_id", pharmacyId);
-
-    // جلب المدفوع منها
-    const { data: paid } = await supabase
-      .from("credit_payments")
-      .select("*")
-      .eq("customer_id", customer.id)
-      .eq("pharmacy_id", pharmacyId);
-
-    // حساب الباقي لكل فاتورة
-    const invoicesWithBalance = ajilSales
-      ?.map((inv) => {
-        const totalPaid =
-          paid
-            ?.filter((p) => p.invoice_id === inv.id)
-            .reduce((s, p) => s + p.amount, 0) || 0;
-        return {
-          ...inv,
-          totalPaid,
-          remaining: inv.total - totalPaid,
-        };
-      })
-      .filter((inv) => inv.remaining > 0); // الفواتير المفتوحة بس
-
-    setCreditInvoices(invoicesWithBalance || []);
-    setShowCredit(true);
-  };
-
-  const payCreditInvoice = async () => {
-    if (!selectedInvoice || !payAmount) return;
-
-    const amount = parseFloat(payAmount);
-    if (amount <= 0 || amount > selectedInvoice.remaining) {
-      showToast("المبلغ غير صحيح", "error");
-      return;
-    }
-
-    const { error } = await supabase.from("credit_payments").insert({
-      invoice_id: selectedInvoice.id,
-      customer_id: selectedCreditCustomer.id,
-      amount,
-      date: todayLocal(),
-      notes: "سداد جزئي/كامل",
-      created_by: currentUser?.name || "",
-      pharmacy_id: pharmacyId,
-    });
-
-    if (error) {
-      showToast("خطأ في السداد: " + error.message, "error");
-      return;
-    }
-    // إضافة السداد في مبيعات اليوم
-    const paymentRecord = {
-      id: "PAY-" + Date.now(),
-      date: todayLocal(),
-      created_at: new Date().toISOString(),
-      customer: selectedCreditCustomer.id,
-      payment: "تحصيل آجل",
-      total: amount,
-      subtotal: amount,
-      tax_amount: 0,
-      discount_amt: 0,
-      items: [],
-      notes: `تحصيل فاتورة ${selectedInvoice.id}`,
-      returned: false,
-      pharmacy_id: pharmacyId,
-    };
-
-    const { error: salesInsertError } = await supabase.from("sales").insert(paymentRecord);
-    if (salesInsertError) {
-      showToast("⚠️ تم تسجيل السداد لكن فشل تسجيله في المبيعات: " + salesInsertError.message, "error");
-    } else {
-      setSales((p) => [...p, paymentRecord]);
-    }
-    setCreditPayments((p) => [...p, {
-  invoice_id: selectedInvoice.id,
-  customer_id: selectedCreditCustomer.id,
-  amount,
-  date: todayLocal(),
-  notes: "سداد جزئي/كامل",
-}]);
-    // تحديث الفواتير
-    setCreditInvoices((p) =>
-      p
-        .map((inv) =>
-          inv.id === selectedInvoice.id
-            ? {
-                ...inv,
-                totalPaid: inv.totalPaid + amount,
-                remaining: inv.remaining - amount,
-              }
-            : inv
-        )
-        .filter((inv) => inv.remaining > 0)
-    );
-
-    setPayAmount("");
-    setSelectedInvoice(null);
-    showToast("تم تسجيل السداد ✓");
-  };
-
-  // ===== حساب إحصائيات العميل من المبيعات الفعلية =====
+// ═══════════════════════════════════════════════════
+// 🆕 حساب إحصائيات وتصنيف العميل — دالة عامة مشتركة (مش مقصورة على قسم العملاء بس)
+// عشان أي موديول تاني (زي قسم العروض) يقدر يستخدم نفس تصنيفات العميل (VIP/نمط الشراء/الاتجاه)
+// من غير ما يكرر المنطق. بتاخد sales/creditPayments كمعطيات صريحة بدل الاعتماد على closure.
+// ═══════════════════════════════════════════════════
+function computeCustomerStats(customer, sales = [], creditPayments = []) {
   const now = new Date();
   const thisMonthKey = now.toISOString().slice(0, 7);
   const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
 
-  const computeStats = (customer) => {
     const customerId = customer.id;
     const cSales = sales.filter((s) => s.customer === customerId);
     if (cSales.length === 0) return null;
@@ -17686,56 +17553,201 @@ function CustomersModule({
       trendDirection,
       activeMonthsCount,
     };
+}
+
+// ── تصنيفات العميل الجاهزة للعرض (ألوان/تسميات) — مشتركة بين قسم العملاء وقسم العروض ──
+const vipConfig = {
+  vip: { label: "👑 VIP", color: COLORS.gold, bg: COLORS.goldSoft },
+  excellent: { label: "⭐ ممتاز", color: COLORS.blue, bg: COLORS.blueSoft },
+  good: { label: "✅ جيد", color: COLORS.green, bg: COLORS.greenSoft },
+  weak: { label: "🔴 ضعيف", color: COLORS.red, bg: COLORS.redSoft },
+};
+const statusConfig = {
+  new: { label: "🆕 جديد", color: COLORS.green },
+  regular: { label: "✅ منتظم", color: COLORS.blue },
+  at_risk: { label: "⚠️ في خطر", color: COLORS.gold },
+  inactive: { label: "💤 مختفي", color: COLORS.red },
+};
+const trendConfig = {
+  up: { label: "📈 صعودي", icon: "📈", color: COLORS.green, bg: COLORS.greenSoft },
+  down: { label: "📉 نزولي", icon: "📉", color: COLORS.red, bg: COLORS.redSoft },
+  stable: { label: "➖ ثابت", icon: "➖", color: COLORS.textDim, bg: COLORS.surfaceAlt },
+};
+
+// ── واتساب: دوال عامة مشتركة (مش محصورة جوه قسم العملاء) ──
+function openWhatsApp(phone, message = "") {
+  const clean = String(phone || "").replace(/[^0-9]/g, "");
+  const wa = clean.startsWith("0") ? "966" + clean.slice(1) : clean;
+  window.open(`https://wa.me/${wa}?text=${encodeURIComponent(message)}`, "_blank");
+}
+function sendBulk(list, message) {
+  list.forEach((c, i) => setTimeout(() => openWhatsApp(c.phone, message), i * 600));
+}
+
+function CustomersModule({
+  customers,
+  setCustomers,
+  showToast,
+  sales = [],
+  setSales,
+  creditPayments,
+  setCreditPayments,
+  currentUser,
+  pharmacyId,
+}) {
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [activeTab, setActiveTab] = useState("cards");
+  const [filterVip, setFilterVip] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [showOpportunityOnly, setShowOpportunityOnly] = useState(false);
+  const [expandedCard, setExpandedCard] = useState(null);
+  const [creditInvoices, setCreditInvoices] = useState([]);
+  const [showCredit, setShowCredit] = useState(false);
+  const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [trendGroupView, setTrendGroupView] = useState(null); // "up" | "down" | "stable" | null
+
+  const blank = {
+    id: "",
+    name: "",
+    phone: "",
+    taxId: "",
+    totalSpent: 0,
+    visits: 0,
+    lastVisit: "-",
+    category: "individual",
+    children_count: "",
+    children_ages: [],
+    payment_terms: 30,
+  };
+  const [form, setForm] = useState(blank);
+  const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+  const openCreditModal = async (customer) => {
+    setSelectedCreditCustomer(customer);
+
+    // جلب كل فواتير الآجل بتاعة العميل
+    const { data: ajilSales } = await supabase
+      .from("sales")
+      .select("*")
+      .eq("customer", customer.id)
+      .eq("payment", "آجل")
+      .eq("pharmacy_id", pharmacyId);
+
+    // جلب المدفوع منها
+    const { data: paid } = await supabase
+      .from("credit_payments")
+      .select("*")
+      .eq("customer_id", customer.id)
+      .eq("pharmacy_id", pharmacyId);
+
+    // حساب الباقي لكل فاتورة
+    const invoicesWithBalance = ajilSales
+      ?.map((inv) => {
+        const totalPaid =
+          paid
+            ?.filter((p) => p.invoice_id === inv.id)
+            .reduce((s, p) => s + p.amount, 0) || 0;
+        return {
+          ...inv,
+          totalPaid,
+          remaining: inv.total - totalPaid,
+        };
+      })
+      .filter((inv) => inv.remaining > 0); // الفواتير المفتوحة بس
+
+    setCreditInvoices(invoicesWithBalance || []);
+    setShowCredit(true);
   };
 
-  // فئات "كوزمتك/مستلزمات أطفال" — لو عميل أسرة مع أطفال ومبيشتريش منها، ده فرصة عرض مستهدف
+  const payCreditInvoice = async () => {
+    if (!selectedInvoice || !payAmount) return;
+
+    const amount = parseFloat(payAmount);
+    if (amount <= 0 || amount > selectedInvoice.remaining) {
+      showToast("المبلغ غير صحيح", "error");
+      return;
+    }
+
+    const { error } = await supabase.from("credit_payments").insert({
+      invoice_id: selectedInvoice.id,
+      customer_id: selectedCreditCustomer.id,
+      amount,
+      date: todayLocal(),
+      notes: "سداد جزئي/كامل",
+      created_by: currentUser?.name || "",
+      pharmacy_id: pharmacyId,
+    });
+
+    if (error) {
+      showToast("خطأ في السداد: " + error.message, "error");
+      return;
+    }
+    // إضافة السداد في مبيعات اليوم
+    const paymentRecord = {
+      id: "PAY-" + Date.now(),
+      date: todayLocal(),
+      created_at: new Date().toISOString(),
+      customer: selectedCreditCustomer.id,
+      payment: "تحصيل آجل",
+      total: amount,
+      subtotal: amount,
+      tax_amount: 0,
+      discount_amt: 0,
+      items: [],
+      notes: `تحصيل فاتورة ${selectedInvoice.id}`,
+      returned: false,
+      pharmacy_id: pharmacyId,
+    };
+
+    const { error: salesInsertError } = await supabase.from("sales").insert(paymentRecord);
+    if (salesInsertError) {
+      showToast("⚠️ تم تسجيل السداد لكن فشل تسجيله في المبيعات: " + salesInsertError.message, "error");
+    } else {
+      setSales((p) => [...p, paymentRecord]);
+    }
+    setCreditPayments((p) => [...p, {
+  invoice_id: selectedInvoice.id,
+  customer_id: selectedCreditCustomer.id,
+  amount,
+  date: todayLocal(),
+  notes: "سداد جزئي/كامل",
+}]);
+    // تحديث الفواتير
+    setCreditInvoices((p) =>
+      p
+        .map((inv) =>
+          inv.id === selectedInvoice.id
+            ? {
+                ...inv,
+                totalPaid: inv.totalPaid + amount,
+                remaining: inv.remaining - amount,
+              }
+            : inv
+        )
+        .filter((inv) => inv.remaining > 0)
+    );
+
+    setPayAmount("");
+    setSelectedInvoice(null);
+    showToast("تم تسجيل السداد ✓");
+  };
+
+  // 🆕 التصنيفات والدوال دي بقت مشتركة على مستوى الملف كله (computeCustomerStats/vipConfig/
+  // statusConfig/trendConfig/openWhatsApp/sendBulk) — عشان موديولات تانية زي قسم العروض
+  // تقدر تستخدم نفس المنطق بالظبط من غير تكرار.
   const KIDS_COSMETICS_CATS = ["مستلزمات أطفال", "كوزمتك عادي", "كوزمتك طبي"];
   const enriched = customers.map((c) => {
-    const stats = computeStats(c);
+    const stats = computeCustomerStats(c, sales, creditPayments);
     const missedKidsCosmetics =
       c.category === "family_with_kids" &&
       !!stats &&
       !KIDS_COSMETICS_CATS.some((cat) => (stats.categorySpend?.[cat] || 0) > 0);
     return { ...c, stats, missedKidsCosmetics };
   });
-
-  // ===== واتساب =====
-  const openWhatsApp = (phone, message = "") => {
-    const clean = phone.replace(/[^0-9]/g, "");
-    const wa = clean.startsWith("0") ? "966" + clean.slice(1) : clean;
-    window.open(
-      `https://wa.me/${wa}?text=${encodeURIComponent(message)}`,
-      "_blank"
-    );
-  };
-
-  const sendBulk = (list, message) => {
-    list.forEach((c, i) =>
-      setTimeout(() => openWhatsApp(c.phone, message), i * 600)
-    );
-  };
-
-  // ===== تصنيف VIP =====
-  const vipConfig = {
-    vip: { label: "👑 VIP", color: COLORS.gold, bg: COLORS.goldSoft },
-    excellent: { label: "⭐ ممتاز", color: COLORS.blue, bg: COLORS.blueSoft },
-    good: { label: "✅ جيد", color: COLORS.green, bg: COLORS.greenSoft },
-    weak: { label: "🔴 ضعيف", color: COLORS.red, bg: COLORS.redSoft },
-  };
-
-  const statusConfig = {
-    new: { label: "🆕 جديد", color: COLORS.green },
-    regular: { label: "✅ منتظم", color: COLORS.blue },
-    at_risk: { label: "⚠️ في خطر", color: COLORS.gold },
-    inactive: { label: "💤 مختفي", color: COLORS.red },
-  };
-
-  // ===== تصنيف اتجاه الشراء =====
-  const trendConfig = {
-    up: { label: "📈 صعودي", icon: "📈", color: COLORS.green, bg: COLORS.greenSoft },
-    down: { label: "📉 نزولي", icon: "📉", color: COLORS.red, bg: COLORS.redSoft },
-    stable: { label: "➖ ثابت", icon: "➖", color: COLORS.textDim, bg: COLORS.surfaceAlt },
-  };
 
   // ===== فلترة =====
   const filtered = enriched.filter((c) => {
@@ -19191,7 +19203,7 @@ function getStagnationInfo(product, sales, expiry, cfg) {
   return { isStagnant: noSaleFlag || wontSelloutFlag, daysSinceLastSale, wontSelloutFlag, noSaleFlag };
 }
 
-function PromotionsModule({ products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast }) {
+function PromotionsModule({ products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast, enrichedCustomers = [] }) {
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual
   const [promos, setPromos] = useState([]);
   const [showPromoForm, setShowPromoForm] = useState(false);
@@ -19679,6 +19691,53 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     showToast("تم اعتماد العرض ✓");
   };
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 إرسال العرض لعملاء مستهدفين (مش إرسال عشوائي) — بناءً على تصنيفات العميل:
+  // - نمط الشراء: العميل لازم يكون سبق واشترى من نفس فئة الصنف (أو عميل "شامل")، عشان العرض يبقى ذو صلة
+  // - الحالة/الاتجاه: العملاء "في خطر" أو الاتجاه "نازل" بيتقدّموا في الترتيب (أولى بالاسترجاع)
+  // - قوة العميل (VIP): بعد كده الترتيب حسب قوة العميل (VIP الأول)
+  // ═══════════════════════════════════════════════════
+  const getMatchedCustomersForProduct = (product) => {
+    if (!product) return [];
+    const cat = product.main_category || product.category || "";
+    const vipRank = { vip: 0, excellent: 1, good: 2, weak: 3 };
+    return enrichedCustomers
+      .filter((c) => c.phone && c.stats)
+      .filter((c) => c.stats.isComprehensiveBuyer || (c.stats.categorySpend?.[cat] || 0) > 0)
+      .sort((a, b) => {
+        const pa = a.stats.status === "at_risk" || a.stats.trendDirection === "down" ? 0 : 1;
+        const pb = b.stats.status === "at_risk" || b.stats.trendDirection === "down" ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        return (vipRank[a.stats.vipLevel] ?? 4) - (vipRank[b.stats.vipLevel] ?? 4);
+      });
+  };
+
+  const [sendTarget, setSendTarget] = useState(null); // { promo, product, matches }
+  const [selectedSendIds, setSelectedSendIds] = useState<string[]>([]);
+
+  const openSendPanel = (promo, product) => {
+    const matches = getMatchedCustomersForProduct(product);
+    setSendTarget({ promo, product, matches });
+    setSelectedSendIds(matches.map((c) => c.id));
+  };
+
+  const buildOfferMessage = (product, promo) => {
+    const desc = product ? describePromo(promo, product) : null;
+    const name = product?.name_ar || product?.name || "";
+    return `مرحباً {name}! 😊 عندنا عرض خاص على ${name}${desc ? ` — ${desc.label}` : ""}. يسعدنا زيارتك للاستفادة منه 🎉`;
+  };
+
+  const sendToSelected = () => {
+    if (!sendTarget) return;
+    const list = sendTarget.matches.filter((c) => selectedSendIds.includes(c.id));
+    list.forEach((c, i) => {
+      const msg = buildOfferMessage(sendTarget.product, sendTarget.promo).replace("{name}", c.name || "");
+      setTimeout(() => openWhatsApp(c.phone, msg), i * 600);
+    });
+    showToast(`جاري إرسال العرض لـ ${list.length} عميل ✓`);
+    setSendTarget(null);
+  };
+
   return (
     <div>
       {/* Header */}
@@ -20136,6 +20195,8 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                               logPrintHistory(promo.offer_name, false, [labelItem]);
                             }} style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>🖨️ طباعة</button>
                           )}
+                          <button onClick={() => openSendPanel(promo, prod)}
+                            style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>📤 إرسال للعملاء</button>
                           <button onClick={() => {
                             setPromoForm({
                               ...blankPromoDetails,
@@ -20492,6 +20553,57 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
           <Btn variant="ghost" onClick={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); setPromoMode("single"); setCompanyProductIds([]); }}>إلغاء</Btn>
           <Btn icon="check" onClick={savePromo}>{editPromoId ? "حفظ التعديل" : "إضافة العرض"}</Btn>
         </div>
+      </Modal>
+
+      {/* 🆕 نافذة إرسال العرض للعملاء المستهدفين — حسب نمط الشراء + حالة/اتجاه الشراء + قوة العميل */}
+      <Modal open={!!sendTarget} onClose={() => setSendTarget(null)} title="📤 إرسال العرض للعملاء المستهدفين">
+        {sendTarget && (
+          <div>
+            <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 10 }}>
+              العرض على: <b style={{ color: COLORS.textPrimary }}>{sendTarget.product?.name_ar || sendTarget.product?.name}</b>
+              {" — "}العملاء اللي سبق واشتروا من نفس الفئة، مرتبين حسب الأولوية (في خطر/نازل الأول، وبعدين حسب قوة العميل).
+            </div>
+
+            {sendTarget.matches.length === 0 && (
+              <div style={{ textAlign: "center", padding: 20, color: COLORS.textDim }}>مفيش عملاء متطابقين مع فئة الصنف ده حاليًا</div>
+            )}
+
+            {sendTarget.matches.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>{selectedSendIds.length} من {sendTarget.matches.length} محدد</span>
+                <span
+                  onClick={() => setSelectedSendIds(selectedSendIds.length === sendTarget.matches.length ? [] : sendTarget.matches.map((c) => c.id))}
+                  style={{ cursor: "pointer", color: COLORS.blue, fontSize: 12 }}
+                >
+                  {selectedSendIds.length === sendTarget.matches.length ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                </span>
+              </div>
+            )}
+
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              {sendTarget.matches.map((c) => {
+                const checked = selectedSendIds.includes(c.id);
+                const vip = c.stats ? vipConfig[c.stats.vipLevel] : null;
+                return (
+                  <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 4px", borderBottom: `1px solid ${COLORS.border}`, cursor: "pointer" }}>
+                    <input type="checkbox" checked={checked} onChange={(e) => {
+                      setSelectedSendIds((prev) => e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id));
+                    }} />
+                    <span style={{ flex: 1, fontSize: 13 }}>{c.name}</span>
+                    {vip && <span style={{ background: vip.bg, color: vip.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{vip.label}</span>}
+                    {c.stats?.trendDirection && <span style={{ fontSize: 11 }}>{trendConfig[c.stats.trendDirection].icon}</span>}
+                    {c.stats?.status === "at_risk" && <span style={{ fontSize: 11 }}>⚠️</span>}
+                  </label>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => setSendTarget(null)}>إلغاء</Btn>
+              <Btn icon="whatsapp" onClick={sendToSelected}>إرسال لـ {selectedSendIds.length} عميل</Btn>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
