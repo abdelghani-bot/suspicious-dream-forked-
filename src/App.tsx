@@ -9267,6 +9267,12 @@ const LABEL_SIZES = [
       setPurchases((p) => p.filter((x) => x.id !== po.id)); // نتراجع عن الإضافة المحلية لأن الحفظ فشل
       return; // لا نكمّل تحديث المخزون لأن الفاتورة نفسها لم تُحفظ
     }
+    logAudit({
+      pharmacyId, userName: currentUser?.name, action: "create", entityType: "purchase",
+      entityId: po.id, entityLabel: `فاتورة شراء — ${po.supplierName}`,
+      newValue: { supplier: po.supplierName, total: po.total, itemsCount: po.items.length },
+      description: `إضافة فاتورة شراء من "${po.supplierName}" بإجمالي ${po.total} ر.س`,
+    });
     const stockUpdateFailures = [];
     // بنجهز الـ batches الجديدة لكل صنف قبل الكتابة، عشان نضمن إنها تتحفظ فعليًا
     // في Supabase (مش بس في الذاكرة المحلية) — ده كان السبب في ضياع تواريخ الصلاحية
@@ -11576,6 +11582,12 @@ function ReturnsModule({
       showToast("خطأ في حفظ المرتجع: " + error.message, "error");
       return;
     }
+    logAudit({
+      pharmacyId, userName: currentUser?.name, action: "create", entityType: "return",
+      entityId: returnId, entityLabel: type === "sales" ? (selCustomer?.name || "زبون عادي") : "مرتجع مشتريات",
+      newValue: { type, total: returnTotal, reason },
+      description: type === "sales" ? `مرتجع مبيعات بقيمة ${returnTotal} ر.س — السبب: ${reason || "—"}` : `مرتجع مشتريات بقيمة ${returnTotal} ر.س — السبب: ${reason || "—"}`,
+    });
 
     // 🆕 تحديث state المرتجعات محليًا فورًا (من غير كده تفضل كارتات الشفتات وتسوية التقفيل قديمة لحد ما تعمل refresh كامل)
     if (newReturnRows && newReturnRows[0]) {
@@ -13743,6 +13755,12 @@ function InventoryCount({
       showToast("❌ خطأ في حفظ الجرد: " + logError.message);
       return;
     }
+    logAudit({
+      pharmacyId, userName: currentUser?.name, action: "update", entityType: "inventory",
+      entityId: logData.id, entityLabel: "جرد مخزون",
+      newValue: { itemsCount: logData.items.length, notes },
+      description: `تنفيذ جرد مخزون على ${logData.items.length} صنف${notes ? ` — ملاحظات: ${notes}` : ""}`,
+    });
 
     // بنجمع كل أسطر تواريخ الصلاحية الخاصة بنفس الصنف عشان نحسب إجمالي الكمية الفعلية له
     const productTotals = {};
@@ -14607,20 +14625,34 @@ function ProductFormModal({
       const { error } = await supabase.from("products").update(p).eq("id", editingId).eq("pharmacy_id", pharmacyId);
       if (error) { showToast("خطأ في التعديل: " + error.message, "error"); return; }
       setProducts((prev) => prev.map((x) => (x.id === editingId ? { ...x, ...p } : x)));
-      if (oldProduct && (+oldProduct.price !== +p.price || +oldProduct.cost !== +p.cost)) {
-        logAudit({
-          pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
-          entityId: editingId, entityLabel: p.name,
-          oldValue: { price: oldProduct.price, cost: oldProduct.cost },
-          newValue: { price: p.price, cost: p.cost },
-          description: `تعديل سعر/تكلفة الصنف "${p.name}"`,
+      // 🆕 نسجل أي تغيير في أي حقل من حقول الصنف، مش بس السعر/التكلفة
+      if (oldProduct) {
+        const trackedFields = ["name", "price", "cost", "barcode", "category", "mainCategory", "supplier_id", "is_essential", "is_chronic", "not_available_market"];
+        const oldSnap: any = {}; const newSnap: any = {};
+        trackedFields.forEach((k) => {
+          const ov = (oldProduct as any)[k]; const nv = (p as any)[k];
+          if (JSON.stringify(ov) !== JSON.stringify(nv)) { oldSnap[k] = ov; newSnap[k] = nv; }
         });
+        if (Object.keys(newSnap).length > 0) {
+          logAudit({
+            pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
+            entityId: editingId, entityLabel: p.name,
+            oldValue: oldSnap, newValue: newSnap,
+            description: `تعديل بيانات الصنف "${p.name}"`,
+          });
+        }
       }
     } else {
       const { data, error } = await supabase.from("products").insert({ ...p, pharmacy_id: pharmacyId }).select();
       if (error) { showToast("خطأ في الإضافة: " + error.message, "error"); return; }
       productId = data[0].id;
       setProducts((prev) => [...prev, data[0]]);
+      logAudit({
+        pharmacyId, userName: currentUser?.name, action: "create", entityType: "product",
+        entityId: productId, entityLabel: p.name,
+        newValue: { name: p.name, price: p.price, cost: p.cost, barcode: p.barcode },
+        description: `إضافة صنف جديد "${p.name}"`,
+      });
     }
 
     if (editing) await supabase.from("product_barcodes").delete().eq("product_id", productId);
@@ -15557,6 +15589,12 @@ function SuppliersModule({
       showToast("فشل حفظ المرتجع: " + error.message, "error");
       return;
     }
+    logAudit({
+      pharmacyId, userName: currentUser?.name, action: "create", entityType: "return",
+      entityId: returnId, entityLabel: showAutoReturn.name,
+      newValue: { supplier: showAutoReturn.name, total, itemsCount: items.length },
+      description: `مرتجع تلقائي (قرب انتهاء الصلاحية) للمورد "${showAutoReturn.name}" بقيمة ${total} ر.س`,
+    });
 
     // 🆕 توزيع قيمة المرتجع على أقدم فواتير المورد المديونة (FIFO عكسي)
     await persistReturnFIFO(showAutoReturn.id, total);
@@ -15988,13 +16026,27 @@ function SuppliersModule({
       gln: form.gln || null,
     };
     if (editing) {
+      const oldSupplier = suppliers.find((x) => x.id === editing);
       const { error } = await supabase.from("suppliers").update(payload).eq("id", editing).eq("pharmacy_id", pharmacyId);
       if (error) { showToast("فشل التعديل: " + error.message, "error"); return; }
       setSuppliers((p) => p.map((x) => (x.id === editing ? { ...x, ...form, opening_balance: openingBal } : x)));
+      logAudit({
+        pharmacyId, userName: currentUser?.name, action: "update", entityType: "supplier",
+        entityId: editing, entityLabel: payload.name,
+        oldValue: oldSupplier ? { name: oldSupplier.name, phone: oldSupplier.phone, credit_limit: oldSupplier.credit_limit, payment_terms: oldSupplier.payment_terms } : null,
+        newValue: { name: payload.name, phone: payload.phone, credit_limit: payload.credit_limit, payment_terms: payload.payment_terms },
+        description: `تعديل بيانات المورد "${payload.name}"`,
+      });
     } else {
       const { data, error } = await supabase.from("suppliers").insert({ id: form.id, ...payload, pharmacy_id: pharmacyId }).select();
       if (error) { showToast("فشل الإضافة: " + error.message, "error"); return; }
       setSuppliers((p) => [...p, data[0]]);
+      logAudit({
+        pharmacyId, userName: currentUser?.name, action: "create", entityType: "supplier",
+        entityId: data?.[0]?.id, entityLabel: payload.name,
+        newValue: { name: payload.name, phone: payload.phone, credit_limit: payload.credit_limit },
+        description: `إضافة مورد جديد "${payload.name}"`,
+      });
     }
     setShowForm(false);
     showToast(editing ? "تم تعديل المورد ✓" : "تمت إضافة المورد ✓");
@@ -17775,6 +17827,7 @@ function CustomersModule({
       created_by: form.created_by || currentUser?.name || "",
     };
     if (editing) {
+      const oldCustomer = customers.find((x) => x.id === editing);
       const { error } = await supabase
         .from("customers")
         .update(saved)
@@ -17784,6 +17837,13 @@ function CustomersModule({
         return;
       }
       setCustomers((p) => p.map((x) => (x.id === editing ? saved : x)));
+      logAudit({
+        pharmacyId, userName: currentUser?.name, action: "update", entityType: "customer",
+        entityId: editing, entityLabel: saved.name,
+        oldValue: oldCustomer ? { name: oldCustomer.name, phone: oldCustomer.phone, category: oldCustomer.category, payment_terms: oldCustomer.payment_terms } : null,
+        newValue: { name: saved.name, phone: saved.phone, category: saved.category, payment_terms: saved.payment_terms },
+        description: `تعديل بيانات العميل "${saved.name}"`,
+      });
     } else {
       const { data, error } = await supabase
         .from("customers")
@@ -17794,6 +17854,12 @@ function CustomersModule({
         return;
       }
       setCustomers((p) => [...p, data ? data[0] : saved]);
+      logAudit({
+        pharmacyId, userName: currentUser?.name, action: "create", entityType: "customer",
+        entityId: data?.[0]?.id, entityLabel: saved.name,
+        newValue: { name: saved.name, phone: saved.phone, category: saved.category },
+        description: `إضافة عميل جديد "${saved.name}"`,
+      });
     }
     setShowForm(false);
     showToast(editing ? "تم تعديل العميل ✓" : "تمت إضافة العميل ✓");
