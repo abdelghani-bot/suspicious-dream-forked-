@@ -20091,6 +20091,18 @@ function PromotionsModule({
                 style={{ background: selectedAutoIds.length ? COLORS.blueSoft : COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 14px", color: selectedAutoIds.length ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: selectedAutoIds.length ? "pointer" : "not-allowed" }}>
                 🖨️ طباعة المحدد ({selectedAutoIds.length})
               </button>
+              {/* 🆕 إرسال نفس الأصناف المحددة (بنفس checkbox الطباعة) كعروض دفعة واحدة للعملاء المناسبين */}
+              <button
+                disabled={selectedAutoIds.length === 0}
+                onClick={() => {
+                  const items = filteredAutoPromos
+                    .filter((p) => selectedAutoIds.includes(p.id))
+                    .map((p) => ({ promo: { promo_type: "percent", discount: p.autoDiscount }, product: p }));
+                  openSendPanel(items);
+                }}
+                style={{ background: selectedAutoIds.length ? COLORS.greenSoft : COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 14px", color: selectedAutoIds.length ? COLORS.green : COLORS.textDim, fontSize: 12, fontWeight: 700, cursor: selectedAutoIds.length ? "pointer" : "not-allowed" }}>
+                📤 إرسال المحدد للعملاء ({selectedAutoIds.length})
+              </button>
               <button onClick={() => printAutoPromoItems(filteredAutoPromos, autoOfferName)}
                 style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 8, padding: "8px 14px", color: COLORS.gold, fontSize: 12, cursor: "pointer" }}>
                 🖨️ طباعة الكل ({filteredAutoPromos.length})
@@ -20235,19 +20247,23 @@ function PromotionsModule({
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                 <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 13 }}>✅ عروض نشطة ({activePromos.length})</div>
                 {/* 🆕 تحديد عدة عروض وإرسالها للعملاء المناسبين بضغطة واحدة، بدل إرسال كل صنف لوحده */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   {selectedPromoIds.length > 0 && (
                     <span style={{ fontSize: 12, color: COLORS.textDim }}>{selectedPromoIds.length} عرض محدد</span>
                   )}
-                  <span
+                  <button
                     onClick={() => setSelectedPromoIds(selectedPromoIds.length === activePromos.length ? [] : activePromos.map((p) => p.id))}
-                    style={{ cursor: "pointer", color: COLORS.blue, fontSize: 12 }}
+                    style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 14px", color: COLORS.textDim, fontSize: 12, cursor: "pointer" }}
                   >
-                    {selectedPromoIds.length === activePromos.length ? "إلغاء تحديد الكل" : "تحديد الكل"}
-                  </span>
-                  {selectedPromoIds.length > 0 && (
-                    <Btn icon="whatsapp" onClick={openBulkSendPanel}>📤 إرسال العروض المحددة ({selectedPromoIds.length})</Btn>
-                  )}
+                    {selectedPromoIds.length === activePromos.length ? "إلغاء تحديد الكل" : "☑️ تحديد الكل"}
+                  </button>
+                  <button
+                    disabled={selectedPromoIds.length === 0}
+                    onClick={openBulkSendPanel}
+                    style={{ background: selectedPromoIds.length ? COLORS.greenSoft : COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 14px", color: selectedPromoIds.length ? COLORS.green : COLORS.textDim, fontSize: 12, fontWeight: 700, cursor: selectedPromoIds.length ? "pointer" : "not-allowed" }}
+                  >
+                    📤 إرسال العروض المحددة ({selectedPromoIds.length})
+                  </button>
                 </div>
               </div>
               {activePromos.map((promo) => {
