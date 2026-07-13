@@ -9480,7 +9480,28 @@ const LABEL_SIZES = [
           فواتير الشراء
         </h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn icon="plus" onClick={() => setShowNew(true)}>
+          {!showNew && items.length > 0 && (
+            <Btn
+              icon="edit"
+              variant="secondary"
+              onClick={() => setShowNew(true)}
+            >
+              استكمال فاتورة الشراء ({items.length} صنف)
+            </Btn>
+          )}
+          <Btn
+            icon="plus"
+            onClick={() => {
+              if (items.length > 0) {
+                if (!window.confirm("في فاتورة شراء غير مكتملة، هل تريد إلغاؤها والبدء من جديد؟")) return;
+                setItems([]);
+                setManualSubtotal("");
+                setManualTax("");
+                clearPurchaseDraft();
+              }
+              setShowNew(true);
+            }}
+          >
             فاتورة شراء جديدة
           </Btn>
         </div>
@@ -9535,10 +9556,11 @@ const LABEL_SIZES = [
       <Modal
         open={showNew}
         onClose={() => {
+          // ⚠️ لا نمسح items/manualSubtotal/manualTax هنا حتى لا تضيع المسودة
+          // عند إغلاق النافذة بالخطأ أو التنقل لصفحة تانية والرجوع.
+          // المسودة بتتمسح فقط بعد الحفظ الناجح (clearPurchaseDraft) أو
+          // عند الضغط الصريح على "فاتورة شراء جديدة" بعد التأكيد.
           setShowNew(false);
-          setItems([]);
-          setManualSubtotal("");
-          setManualTax("");
         }}
         title="فاتورة شراء جديدة"
         wide
