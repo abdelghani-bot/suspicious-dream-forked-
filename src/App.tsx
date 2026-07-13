@@ -4750,6 +4750,33 @@ const PROMO_TYPES = [
 const getPromoTypeConfig = (id) => PROMO_TYPES.find((t) => t.id === id) || PROMO_TYPES[0];
 const blankPromoDetails = { discount: "", fixed_amount: "", buy_qty: "", get_qty: "", get_discount_percent: 100, qty_discount_percent: "", bundle_qty: "", bundle_price: "", gift_product_id: "", gift_qty: "" };
 
+// ═══════════════════════════════════════════════════
+// 🆕 اكتشاف نمط "عرض من المورد" في اسم الصنف — بيتفعّل وقت كتابة اسم صنف جديد
+// (مثلاً "Closeup 3+1" أو "بادج شامبو عرض") عشان ننبّه الصيدلي إنه يربطه بالصنف الأصلي
+// بدل ما يفضل مسجّل كصنف منفصل عن العرض التلقائي في قسم العروض.
+// بيرجع buyQty/getQty لو قدرنا نستخرجهم من نمط رقم+رقم، وإلا بيرجعوا null (يتملوا يدوي بعدين).
+// ═══════════════════════════════════════════════════
+const SUPPLIER_OFFER_KEYWORDS = ["عرض", "offer", "special offer", "free", "مجانا", "مجاناً", "هدية", "بونص", "bonus"];
+function detectSupplierOfferPattern(name) {
+  const s = String(name || "").trim();
+  if (!s) return { isOffer: false, buyQty: null, getQty: null };
+  const toEnDigits = (str) => str.replace(/[\u0660-\u0669]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+  // نمط رقم+رقم بأي فاصل (+ أو x أو "خد"): 3+1, ٣+١, 2 + 2, "10 خد 1"
+  const plusMatch = toEnDigits(s).match(/(\d{1,3})\s*\+\s*(\d{1,3})/);
+  if (plusMatch) {
+    return { isOffer: true, buyQty: +plusMatch[1], getQty: +plusMatch[2] };
+  }
+  const khodMatch = toEnDigits(s).match(/(\d{1,3})\s*(?:خد|واخد|واحصل على)\s*(\d{1,3})/);
+  if (khodMatch) {
+    return { isOffer: true, buyQty: +khodMatch[1], getQty: +khodMatch[2] };
+  }
+  const lower = s.toLowerCase();
+  if (SUPPLIER_OFFER_KEYWORDS.some((k) => lower.includes(k))) {
+    return { isOffer: true, buyQty: null, getQty: null };
+  }
+  return { isOffer: false, buyQty: null, getQty: null };
+}
+
 // وصف نصي مختصر للعرض + السعر الفعّال (بيستخدم في العرض والطباعة)
 function describePromo(promo, product) {
   const type = promo.promo_type || "percent";
@@ -14510,9 +14537,27 @@ function ProductFormModal({
     variant: "", // 🆕 تمييز الصنف (مثلاً "لتساقط الشعر") — بيتضاف آخر الاسم بعد الحجم/الوحدة
     variantEn: "", // 🆕 نفس التمييز بس بالإنجليزي — الجزء الوحيد اللي محتاج ترجمة يدوية لأنه نص حر
     searchKeywords: "", // 🆕 مرادفات/كلمات بحث إضافية (مفصولة بفواصل) — بتساعد البحث من غير ما تأثر على الاسم المعروض
+    linkedProductId: "", // 🆕 لو الصنف ده كارت عرض منفصل من المورد (مثلاً "Closeup 3+1")، ده id الصنف الأصلي (Closeup 75ml العادي)
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  // 🆕 نبّهني إن اسم الصنف اللي بيتكتب دلوقتي شكله عرض من المورد (مش صنف منفصل حقيقي)
+  const offerPattern = useMemo(() => detectSupplierOfferPattern(form.nameAr), [form.nameAr]);
+  const [offerNudgeDismissed, setOfferNudgeDismissed] = useState(false);
+  const [offerLinkSearch, setOfferLinkSearch] = useState("");
+  const [showOfferLinkDropdown, setShowOfferLinkDropdown] = useState(false);
+  const linkedProduct = useMemo(
+    () => products.find((p) => p.id === form.linkedProductId) || null,
+    [products, form.linkedProductId]
+  );
+  const offerLinkResults = useMemo(() => {
+    if (!offerLinkSearch.trim()) return [];
+    const q = offerLinkSearch.trim();
+    return products
+      .filter((p) => p.id !== editingId && (p.name_ar || p.name || "").includes(q))
+      .slice(0, 8);
+  }, [products, offerLinkSearch, editingId]);
 
   // ═══════════════════════════════════════════════════
   // 🆕 مسودة "إضافة صنف جديد": عشان لو الصيدلي بدأ يدخّل بيانات صنف واحتاج
@@ -14648,6 +14693,7 @@ function ProductFormModal({
         sizeUnit: p.size_unit || "مل",
         variant: p.variant || "",
         searchKeywords: p.search_keywords || "",
+        linkedProductId: p.linked_product_id || "",
       });
       // ── جدول product_barcodes بقى غرضه بس تتبع الدفعات (batch/serial/expiry) — الـ GTIN نفسه بقى منفصل في form.gtin أعلاه ──
       supabase.from("product_barcodes").select("*").eq("product_id", p.id)
@@ -14783,6 +14829,7 @@ function ProductFormModal({
       size_unit: isNonDrug ? (form.sizeUnit || null) : null,
       variant: isNonDrug ? (form.variant || null) : null,
       search_keywords: form.searchKeywords.trim() || null,
+      linked_product_id: form.linkedProductId || null, // 🆕 لو الصنف ده كارت عرض من المورد، مربوط بالصنف الأصلي
     };
 
     let productId = form.id;
@@ -14927,6 +14974,48 @@ function ProductFormModal({
             {/* 🆕 الاسم بالإنجليزي: يتفعّل تلقائيًا اتجاه LTR ولغة إنجليزي عند التركيز عليه */}
             <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Paracetamol" dir="ltr" lang="en" />
           </>
+        )}
+
+        {/* 🆕 تنويه: الاسم اللي بيتكتب شكله "عرض من المورد" مش صنف منفصل حقيقي —
+            نقترح ربطه بالصنف الأصلي عشان يتحول تلقائيًا لعرض BOGO جاهز في قسم العروض */}
+        {!editingId && offerPattern.isOffer && !form.linkedProductId && !offerNudgeDismissed && (
+          <div style={{ gridColumn: "1 / -1", background: COLORS.goldSoft, border: `1px dashed ${COLORS.gold}`, borderRadius: 10, padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, justifyContent: "space-between" }}>
+              <div style={{ fontSize: 13, color: COLORS.textPrimary, fontWeight: 700 }}>
+                ⚠️ الاسم ده شكله عرض من المورد — حابب تربطه بصنف موجود بدل ما يتسجل كصنف منفصل؟
+              </div>
+              <span onClick={() => setOfferNudgeDismissed(true)} style={{ cursor: "pointer", color: COLORS.textDim, fontSize: 12, whiteSpace: "nowrap" }}>تجاهل ✕</span>
+            </div>
+            <div style={{ position: "relative", marginTop: 8 }}>
+              <input
+                value={offerLinkSearch}
+                onChange={(e) => { setOfferLinkSearch(e.target.value); setShowOfferLinkDropdown(true); }}
+                onFocus={() => setShowOfferLinkDropdown(true)}
+                placeholder="دوّر على الصنف الأصلي (مثلاً Closeup 75ml)..."
+                dir="rtl" lang="ar"
+                style={inputStyle}
+              />
+              {showOfferLinkDropdown && offerLinkResults.length > 0 && (
+                <div style={{ position: "absolute", top: "100%", right: 0, left: 0, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginTop: 4, zIndex: 20, maxHeight: 220, overflowY: "auto", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+                  {offerLinkResults.map((p) => (
+                    <div
+                      key={p.id}
+                      onMouseDown={() => { F("linkedProductId", p.id); setOfferLinkSearch(""); setShowOfferLinkDropdown(false); }}
+                      style={{ padding: "8px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${COLORS.border}` }}
+                    >
+                      {p.name_ar || p.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {form.linkedProductId && (
+          <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 8, background: COLORS.greenSoft, borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+            🔗 مرتبط بـ: <b>{linkedProduct?.name_ar || linkedProduct?.name || "..."}</b>
+            <span onClick={() => F("linkedProductId", "")} style={{ cursor: "pointer", color: COLORS.red, marginRight: "auto", fontSize: 12 }}>إلغاء الربط ✕</span>
+          </div>
         )}
 
         <Select label="الفئة الرئيسية" value={form.mainCategory} onChange={handleMainCategoryChange} options={Object.keys(MAIN_CATEGORIES)} />
@@ -19505,6 +19594,91 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     !promoSearch || (p.name || p.nameAr || "").includes(promoSearch)
   );
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 اقتراحات عروض من المورد — مصدرين مختلفين:
+  // 1) bonusQty على نفس كارت الصنف (فاتورة شراء فيها كمية مجانية مسجّلة عادي)
+  // 2) أصناف اتربطت يدويًا (linked_product_id من فورم الصنف) لأنها كانت كارت عرض
+  //    منفصل بالاسم زي "Closeup 3+1" — الكمية بتتستخرج من الاسم لو أمكن، وإلا تتملى يدوي
+  // ═══════════════════════════════════════════════════
+  const hasActivePromoFor = (productId) =>
+    promos.some((p) => p.product_id === productId && (!p.end_date || p.end_date >= today) && p.start_date <= today);
+
+  const supplierSuggestions = useMemo(() => {
+    const list = [];
+    const seenProductIds = new Set();
+
+    // مصدر 1: bonusQty من فواتير الشراء
+    (purchases || []).forEach((pu) => {
+      const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
+      items.forEach((item) => {
+        const bonusQty = +item.bonusQty || 0;
+        const qty = +item.qty || 0;
+        if (bonusQty <= 0 || !item.id) return;
+        const product = products.find((p) => p.id === item.id);
+        if (!product || seenProductIds.has(product.id) || hasActivePromoFor(product.id)) return;
+        seenProductIds.add(product.id);
+        list.push({ key: "bonus_" + product.id, product, source: "bonus", confidence: "high", buyQty: qty, getQty: bonusQty });
+      });
+    });
+
+    // مصدر 2: أصناف اتربطت يدويًا كـ"كارت عرض" لصنف أصلي
+    products.forEach((linkCard) => {
+      const parentId = linkCard.linked_product_id;
+      if (!parentId || seenProductIds.has(parentId)) return;
+      const parent = products.find((p) => p.id === parentId);
+      if (!parent || hasActivePromoFor(parent.id)) return;
+      const pattern = detectSupplierOfferPattern(linkCard.name_ar || linkCard.name);
+      seenProductIds.add(parentId);
+      list.push({
+        key: "linked_" + linkCard.id, product: parent, source: "linked",
+        sourceCardName: linkCard.name_ar || linkCard.name,
+        confidence: pattern.buyQty && pattern.getQty ? "medium" : "low",
+        buyQty: pattern.buyQty || "", getQty: pattern.getQty || "",
+      });
+    });
+
+    return list;
+  }, [purchases, products, promos, today]);
+
+  const suggestionInputStyle = { background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
+  const [suggestionEdits, setSuggestionEdits] = useState({});
+  const defaultSuggestionEndDate = () => { const d = new Date(); d.setDate(d.getDate() + 14); return todayLocal(d); };
+  const getSuggestionEdit = (s) => suggestionEdits[s.key] || { buyQty: s.buyQty, getQty: s.getQty, endDate: defaultSuggestionEndDate() };
+  const setSuggestionEdit = (key, patch) =>
+    setSuggestionEdits((prev) => ({ ...prev, [key]: { ...getSuggestionEdit({ key, buyQty: "", getQty: "" }), ...prev[key], ...patch } }));
+
+  const dismissedSuggestions = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`) || "[]"); } catch { return []; }
+  }, [pharmacyId]);
+  const dismissSuggestion = (key) => {
+    const next = [...dismissedSuggestions, key];
+    try { localStorage.setItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`, JSON.stringify(next)); } catch {}
+    setSuggestionEdits((p) => ({ ...p })); // فورس ريندر
+  };
+  const visibleSuggestions = supplierSuggestions.filter((s) => !dismissedSuggestions.includes(s.key));
+
+  // اعتماد اقتراح → عرض BOGO فعلي في جدول promotions
+  const acceptSupplierSuggestion = async (s) => {
+    const edit = getSuggestionEdit(s);
+    const buyQty = +edit.buyQty || 0;
+    const getQty = +edit.getQty || 0;
+    if (buyQty <= 0 || getQty <= 0) { showToast("يرجى تحديد الكمية المطلوبة والمجانية", "error"); return; }
+    if (!edit.endDate) { showToast("يرجى تحديد تاريخ نهاية العرض", "error"); return; }
+    const row = {
+      promo_type: "bogo",
+      ...blankPromoDetails,
+      buy_qty: buyQty, get_qty: getQty, get_discount_percent: 100,
+      start_date: today, end_date: edit.endDate,
+      note: s.source === "bonus" ? "عرض مورد تلقائي (بونص فاتورة شراء)" : `عرض مورد — كارت مرتبط: ${s.sourceCardName || ""}`,
+      offer_name: "عرض من المورد", manufacturer_id: null,
+      pharmacy_id: pharmacyId, product_id: s.product.id,
+    };
+    const { data, error } = await supabase.from("promotions").insert(row).select();
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setPromos((p) => [...p, ...(data || [])]);
+    showToast("تم اعتماد العرض ✓");
+  };
+
   return (
     <div>
       {/* Header */}
@@ -19534,6 +19708,7 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
       <div style={{ display: "flex", gap: 4, marginBottom: 16, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 4 }}>
         {[
           { k: "auto", l: `⏰ تلقائي (${autoPromoProducts.length})` },
+          { k: "supplier", l: `🚚 من المورد (${visibleSuggestions.length})` },
           { k: "manual", l: `✋ يدوي (${activePromos.length})` },
           { k: "prints", l: `🖨️ سجل الطباعة (${printHistory.length})` },
         ].map((t) => (
@@ -19846,6 +20021,66 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                 );
               })
           }
+        </div>
+      )}
+
+      {/* ── اقتراحات عروض من المورد ── */}
+      {activeTab === "supplier" && (
+        <div>
+          <div style={cardStyle(tint(COLORS.blue,0.35))}>
+            <div style={{ color: COLORS.blue, fontWeight: 700, marginBottom: 4 }}>🚚 عروض جاية من المورد</div>
+            <div style={{ color: COLORS.textDim, fontSize: 12 }}>
+              مقترحة تلقائيًا من فواتير الشراء (بونص على نفس الصنف) أو من أصناف ربطتها يدويًا لأنها كانت كارت عرض منفصل بالاسم.
+              راجع الكمية والتاريخ قبل الاعتماد.
+            </div>
+          </div>
+
+          {visibleSuggestions.length === 0 && (
+            <div style={{ textAlign: "center", padding: 30, color: COLORS.textDim }}>مفيش اقتراحات عروض من المورد دلوقتي</div>
+          )}
+
+          {visibleSuggestions.map((s) => {
+            const edit = getSuggestionEdit(s);
+            const p = s.product;
+            return (
+              <div key={s.key} style={cardStyle()}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name_ar || p.name}</div>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
+                      {s.source === "bonus"
+                        ? "المصدر: بونص فاتورة شراء (نفس كارت الصنف)"
+                        : `المصدر: كارت مرتبط بالاسم — "${s.sourceCardName}"`}
+                    </div>
+                    <span style={{
+                      display: "inline-block", marginTop: 4, fontSize: 10, fontWeight: 700, borderRadius: 6, padding: "2px 8px",
+                      color: s.confidence === "high" ? COLORS.green : s.confidence === "medium" ? COLORS.gold : COLORS.textDim,
+                      background: s.confidence === "high" ? COLORS.greenSoft : s.confidence === "medium" ? COLORS.goldSoft : COLORS.surfaceAlt,
+                    }}>
+                      {s.confidence === "high" ? "✓ ثقة عالية" : s.confidence === "medium" ? "تحقق قبل الاعتماد" : "محتاج تدخل يدوي"}
+                    </span>
+                  </div>
+                  <span onClick={() => dismissSuggestion(s.key)} style={{ cursor: "pointer", color: COLORS.textDim, fontSize: 12 }}>تجاهل ✕</span>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div style={{ width: 100 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>اشتري كمية</div>
+                    <input type="number" value={edit.buyQty} onChange={(e) => setSuggestionEdit(s.key, { buyQty: e.target.value })} style={suggestionInputStyle} />
+                  </div>
+                  <div style={{ width: 100 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>يحصل مجانًا على</div>
+                    <input type="number" value={edit.getQty} onChange={(e) => setSuggestionEdit(s.key, { getQty: e.target.value })} style={suggestionInputStyle} />
+                  </div>
+                  <div style={{ width: 150 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>تاريخ نهاية العرض</div>
+                    <input type="date" value={edit.endDate} onChange={(e) => setSuggestionEdit(s.key, { endDate: e.target.value })} style={suggestionInputStyle} />
+                  </div>
+                  <Btn icon="check" onClick={() => acceptSupplierSuggestion(s)}>اعتماد كعرض</Btn>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
