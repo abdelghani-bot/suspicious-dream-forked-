@@ -19739,13 +19739,16 @@ function PromotionsModule({
   // - الحالة/الاتجاه: العملاء "في خطر" أو الاتجاه "نازل" بيتقدّموا في الترتيب (أولى بالاسترجاع)
   // - قوة العميل (VIP): بعد كده الترتيب حسب قوة العميل (VIP الأول)
   // ═══════════════════════════════════════════════════
-  const getMatchedCustomersForProduct = (product) => {
-    if (!product) return [];
-    const cat = product.main_category || product.category || "";
+  // 🆕 بقت بتاخد أكتر من صنف مرة واحدة (لإرسال عدة عروض دفعة واحدة) — بتجمع كل التصنيفات
+  // المرتبطة بالأصناف المختارة وتدوّر على أي عميل مناسب لأي صنف منها (اتحاد مش تقاطع)
+  const getMatchedCustomersForProducts = (prods) => {
+    const validProds = (prods || []).filter(Boolean);
+    if (!validProds.length) return [];
+    const cats = [...new Set(validProds.map((p) => p.main_category || p.category || ""))];
     const vipRank = { vip: 0, excellent: 1, good: 2, weak: 3 };
     return enrichedCustomers
       .filter((c) => c.phone && c.stats)
-      .filter((c) => c.stats.isComprehensiveBuyer || (c.stats.categorySpend?.[cat] || 0) > 0)
+      .filter((c) => c.stats.isComprehensiveBuyer || cats.some((cat) => (c.stats.categorySpend?.[cat] || 0) > 0))
       .sort((a, b) => {
         const pa = a.stats.status === "at_risk" || a.stats.trendDirection === "down" ? 0 : 1;
         const pb = b.stats.status === "at_risk" || b.stats.trendDirection === "down" ? 0 : 1;
@@ -19754,30 +19757,58 @@ function PromotionsModule({
       });
   };
 
-  const [sendTarget, setSendTarget] = useState(null); // { promo, product, matches }
+  const [sendTarget, setSendTarget] = useState(null); // { items: [{promo, product}], matches }
   const [selectedSendIds, setSelectedSendIds] = useState<string[]>([]);
+  // 🆕 تحديد أكتر من عرض من قائمة "العروض النشطة" للإرسال دفعة واحدة
+  const [selectedPromoIds, setSelectedPromoIds] = useState<string[]>([]);
+  const togglePromoSelection = (promoId) => {
+    setSelectedPromoIds((prev) => prev.includes(promoId) ? prev.filter((id) => id !== promoId) : [...prev, promoId]);
+  };
 
-  const openSendPanel = (promo, product) => {
-    const matches = getMatchedCustomersForProduct(product);
-    setSendTarget({ promo, product, matches });
+  // بيقبل إما (promo, product) للإرسال المفرد القديم، أو مصفوفة [{promo, product}, ...] للإرسال الجماعي
+  const openSendPanel = (promoOrItems, product) => {
+    const items = Array.isArray(promoOrItems) ? promoOrItems : [{ promo: promoOrItems, product }];
+    const matches = getMatchedCustomersForProducts(items.map((it) => it.product));
+    setSendTarget({ items, matches });
     setSelectedSendIds(matches.map((c) => c.id));
   };
 
-  const buildOfferMessage = (product, promo) => {
-    const desc = product ? describePromo(promo, product) : null;
-    const name = product?.name_ar || product?.name || "";
-    return `مرحباً {name}! 😊 عندنا عرض خاص على ${name}${desc ? ` — ${desc.label}` : ""}. يسعدنا زيارتك للاستفادة منه 🎉`;
+  // 🆕 فتح لوحة الإرسال لكل العروض النشطة المحددة بالـ checkbox دفعة واحدة
+  const openBulkSendPanel = () => {
+    const items = activePromos
+      .filter((promo) => selectedPromoIds.includes(promo.id))
+      .map((promo) => ({ promo, product: products.find((p) => p.id === promo.product_id) }));
+    if (!items.length) return;
+    openSendPanel(items);
+  };
+
+  const buildOfferMessage = (items) => {
+    const list = (items || []).filter((it) => it.product);
+    if (list.length === 0) return `مرحباً {name}! 😊 عندنا عرض خاص يسعدنا زيارتك للاستفادة منه 🎉`;
+    if (list.length === 1) {
+      const { product, promo } = list[0];
+      const desc = describePromo(promo, product);
+      const name = product?.name_ar || product?.name || "";
+      return `مرحباً {name}! 😊 عندنا عرض خاص على ${name}${desc ? ` — ${desc.label}` : ""}. يسعدنا زيارتك للاستفادة منه 🎉`;
+    }
+    const lines = list.map(({ product, promo }) => {
+      const desc = describePromo(promo, product);
+      const name = product?.name_ar || product?.name || "";
+      return `• ${name}${desc ? ` — ${desc.label}` : ""}`;
+    }).join("\n");
+    return `مرحباً {name}! 😊 عندنا عروض خاصة تناسبك:\n${lines}\nيسعدنا زيارتك للاستفادة منها 🎉`;
   };
 
   const sendToSelected = () => {
     if (!sendTarget) return;
     const list = sendTarget.matches.filter((c) => selectedSendIds.includes(c.id));
     list.forEach((c, i) => {
-      const msg = buildOfferMessage(sendTarget.product, sendTarget.promo).replace("{name}", c.name || "");
+      const msg = buildOfferMessage(sendTarget.items).replace("{name}", c.name || "");
       setTimeout(() => openWhatsApp(c.phone, msg), i * 600);
     });
-    showToast(`جاري إرسال العرض لـ ${list.length} عميل ✓`);
+    showToast(`جاري إرسال ${sendTarget.items.length > 1 ? `${sendTarget.items.length} عروض` : "العرض"} لـ ${list.length} عميل ✓`);
     setSendTarget(null);
+    setSelectedPromoIds([]);
   };
 
   return (
@@ -20201,7 +20232,24 @@ function PromotionsModule({
 
           {activePromos.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>✅ عروض نشطة ({activePromos.length})</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 13 }}>✅ عروض نشطة ({activePromos.length})</div>
+                {/* 🆕 تحديد عدة عروض وإرسالها للعملاء المناسبين بضغطة واحدة، بدل إرسال كل صنف لوحده */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {selectedPromoIds.length > 0 && (
+                    <span style={{ fontSize: 12, color: COLORS.textDim }}>{selectedPromoIds.length} عرض محدد</span>
+                  )}
+                  <span
+                    onClick={() => setSelectedPromoIds(selectedPromoIds.length === activePromos.length ? [] : activePromos.map((p) => p.id))}
+                    style={{ cursor: "pointer", color: COLORS.blue, fontSize: 12 }}
+                  >
+                    {selectedPromoIds.length === activePromos.length ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                  </span>
+                  {selectedPromoIds.length > 0 && (
+                    <Btn icon="whatsapp" onClick={openBulkSendPanel}>📤 إرسال العروض المحددة ({selectedPromoIds.length})</Btn>
+                  )}
+                </div>
+              </div>
               {activePromos.map((promo) => {
                 const prod = products.find((p) => p.id === promo.product_id);
                 const typeCfg = getPromoTypeConfig(promo.promo_type || "percent");
@@ -20213,6 +20261,13 @@ function PromotionsModule({
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                          {/* 🆕 checkbox تحديد العرض للإرسال الجماعي */}
+                          <input
+                            type="checkbox"
+                            checked={selectedPromoIds.includes(promo.id)}
+                            onChange={() => togglePromoSelection(promo.id)}
+                            style={{ cursor: "pointer" }}
+                          />
                           <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{prod?.name_ar || prod?.name || prod?.nameAr || promo.product_id}</span>
                           <span style={{ background: COLORS.coral, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900 }}>{typeCfg.icon} {desc?.label}</span>
                           {manufacturer && <span style={{ background: COLORS.blueSoft, color: COLORS.blue, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>🏭 {manufacturer.name}</span>}
@@ -20604,13 +20659,19 @@ function PromotionsModule({
         </div>
       </Modal>
 
-      {/* 🆕 نافذة إرسال العرض للعملاء المستهدفين — حسب نمط الشراء + حالة/اتجاه الشراء + قوة العميل */}
-      <Modal open={!!sendTarget} onClose={() => setSendTarget(null)} title="📤 إرسال العرض للعملاء المستهدفين">
+      {/* 🆕 نافذة إرسال العرض (أو عدة عروض) للعملاء المستهدفين — حسب نمط الشراء + حالة/اتجاه الشراء + قوة العميل */}
+      <Modal open={!!sendTarget} onClose={() => setSendTarget(null)} title={sendTarget?.items?.length > 1 ? `📤 إرسال ${sendTarget.items.length} عروض للعملاء المستهدفين` : "📤 إرسال العرض للعملاء المستهدفين"}>
         {sendTarget && (
           <div>
             <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 10 }}>
-              العرض على: <b style={{ color: COLORS.textPrimary }}>{sendTarget.product?.name_ar || sendTarget.product?.name}</b>
-              {" — "}العملاء اللي سبق واشتروا من نفس الفئة، مرتبين حسب الأولوية (في خطر/نازل الأول، وبعدين حسب قوة العميل).
+              {sendTarget.items.length > 1 ? (
+                <>
+                  العروض المرسلة: <b style={{ color: COLORS.textPrimary }}>{sendTarget.items.map((it) => it.product?.name_ar || it.product?.name).filter(Boolean).join("، ")}</b>
+                </>
+              ) : (
+                <>العرض على: <b style={{ color: COLORS.textPrimary }}>{sendTarget.items[0]?.product?.name_ar || sendTarget.items[0]?.product?.name}</b></>
+              )}
+              {" — "}العملاء اللي سبق واشتروا من نفس الفئات، مرتبين حسب الأولوية (في خطر/نازل الأول، وبعدين حسب قوة العميل).
             </div>
 
             {sendTarget.matches.length === 0 && (
