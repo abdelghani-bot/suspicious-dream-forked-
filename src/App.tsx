@@ -2226,24 +2226,29 @@ export default function PharmacyPro() {
   // ═══════════════════════════════════════════════════
   const posDraftKey = `pharmacypro_pos_draft_${pharmacyId}`;
   const posDraftRestoredRef = useRef(false);
+  const [posDraftHydrated, setPosDraftHydrated] = useState(false);
 
   useEffect(() => {
     if (posDraftRestoredRef.current || !pharmacyId) return;
     posDraftRestoredRef.current = true;
     try {
       const raw = localStorage.getItem(posDraftKey);
-      if (!raw) return;
-      const draft = JSON.parse(raw);
-      if (Array.isArray(draft) && draft.some((inv) => inv?.cart?.length > 0)) {
-        setPosInvoices(draft);
-        showToast("↩️ تم استرجاع فاتورة/فواتير بيع لم تكتمل");
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (Array.isArray(draft) && draft.some((inv) => inv?.cart?.length > 0)) {
+          setPosInvoices(draft);
+          showToast("↩️ تم استرجاع فاتورة/فواتير بيع لم تكتمل");
+        }
       }
     } catch {}
+    // 🆕 مهم: منفعّلش حفظ المسودة إلا بعد ما نخلّص محاولة الاسترجاع دي فعليًا،
+    // عشان تأثير الحفظ (تحت) ميشتغلش بحالة قديمة فاضية ويمسح المسودة قبل لما تتقرأ في الواجهة.
+    setPosDraftHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pharmacyId]);
 
   useEffect(() => {
-    if (!pharmacyId) return;
+    if (!pharmacyId || !posDraftHydrated) return;
     try {
       const hasItems = posInvoices.some((inv) => inv?.cart?.length > 0);
       if (hasItems) {
@@ -2253,7 +2258,7 @@ export default function PharmacyPro() {
       }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [posInvoices, pharmacyId]);
+  }, [posInvoices, pharmacyId, posDraftHydrated]);
 
   const [posPromos, setPosPromos] = useState([]);
   const [posDiscountRules, setPosDiscountRules] = useState([
@@ -8279,47 +8284,42 @@ function PurchaseModule({
   pharmacyId,
   currentUser,
 }) {
-  const [showNew, setShowNew] = useState(false);
+  // ═══════════════════════════════════════════════════
+  // 🆕 مسودة فاتورة الشراء: عشان لو الصيدلي فتح فاتورة شراء وبدأ يضيف أصناف،
+  // وبعدين احتاج يروح لنقطة البيع أو أي شاشة تانية، ميضيعش اللي دخّله.
+  // بنقرأ المسودة (لو موجودة) وقت أول رندر للكومبوننت نفسه — قبل ما أي useEffect يشتغل —
+  // عشان نضمن إن الحالة تتظبط صح من غير أي سباق (race) مع تأثيرات تانية بتحفظ/تمسح المسودة.
+  // ═══════════════════════════════════════════════════
+  const purchaseDraftKey = `pharmacypro_purchase_draft_${pharmacyId}`;
+  const [restoredPurchaseDraft] = useState(() => {
+    try {
+      const raw = localStorage.getItem(purchaseDraftKey);
+      if (!raw) return null;
+      const draft = JSON.parse(raw);
+      if (draft && Array.isArray(draft.items) && draft.items.length > 0) return draft;
+    } catch {}
+    return null;
+  });
+
+  const [showNew, setShowNew] = useState(!!restoredPurchaseDraft);
   // 🆕 نافذة إضافة/تعديل صنف فوق فاتورة الشراء (من غير ما تقفل الفاتورة)
   const [showProductForm, setShowProductForm] = useState(false);
   const [productFormEditId, setProductFormEditId] = useState(null);
-  const [items, setItems] = useState([]);
-  const [selSupplier, setSelSupplier] = useState("");
+  const [items, setItems] = useState(restoredPurchaseDraft?.items || []);
+  const [selSupplier, setSelSupplier] = useState(restoredPurchaseDraft?.selSupplier || "");
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightedPurchIdx, setHighlightedPurchIdx] = useState(-1);
-  const [manualSubtotal, setManualSubtotal] = useState("");
-  const [manualTax, setManualTax] = useState("");
+  const [manualSubtotal, setManualSubtotal] = useState(restoredPurchaseDraft?.manualSubtotal || "");
+  const [manualTax, setManualTax] = useState(restoredPurchaseDraft?.manualTax || "");
   const [showProductCard, setShowProductCard] = useState(null);
   const searchRef = useRef(null);
 
-  // ═══════════════════════════════════════════════════
-  // 🆕 مسودة فاتورة الشراء: عشان لو الصيدلي فتح فاتورة شراء وبدأ يضيف أصناف،
-  // وبعدين احتاج يروح لنقطة البيع أو أي شاشة تانية، ميضيعش اللي دخّله.
-  // بنحفظ المسودة في localStorage (مربوطة بالصيدلية) ونرجّعها تلقائي لما يرجع لشاشة المشتريات.
-  // ═══════════════════════════════════════════════════
-  const purchaseDraftKey = `pharmacypro_purchase_draft_${pharmacyId}`;
-  const draftRestoredRef = useRef(false);
-
   useEffect(() => {
-    if (draftRestoredRef.current || !pharmacyId) return;
-    draftRestoredRef.current = true;
-    try {
-      const raw = localStorage.getItem(purchaseDraftKey);
-      if (!raw) return;
-      const draft = JSON.parse(raw);
-      if (draft && Array.isArray(draft.items) && draft.items.length > 0) {
-        setItems(draft.items);
-        setSelSupplier(draft.selSupplier || "");
-        setManualSubtotal(draft.manualSubtotal || "");
-        setManualTax(draft.manualTax || "");
-        setShowNew(true);
-        showToast("↩️ تم استرجاع مسودة فاتورة شراء لم تكتمل");
-      }
-    } catch {}
+    if (restoredPurchaseDraft) showToast("↩️ تم استرجاع مسودة فاتورة شراء لم تكتمل");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pharmacyId]);
+  }, []);
 
   useEffect(() => {
     if (!pharmacyId) return;
