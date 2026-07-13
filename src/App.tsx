@@ -2260,6 +2260,62 @@ export default function PharmacyPro() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posInvoices, pharmacyId, posDraftHydrated]);
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 فاتورة الشراء الجاري إدخالها — رفعناها هنا (بدل ما تكون state محلي جوه PurchaseModule)
+  // عشان ماتضيعش خالص لما الصيدلي يتنقّل بين التابات (مثلاً يروح نقطة البيع ويرجع).
+  // PurchaseModule بيتقفل ويتفتح تاني كل مرة تتغير فيها التاب، لكن دلوقتي البيانات هنا
+  // في App نفسه اللي مش بيتقفل، فمش بتتأثر خالص — أضمن من أي حفظ في localStorage.
+  // بنحتفظ كمان بنسخة احتياطية في localStorage تحسبًا لفصل الجهاز أو إغلاق المتصفح فجأة —
+  // وبنستخدم نفس أسلوب "بوابة الاسترجاع" اللي استخدمناه في نقطة البيع، عشان pharmacyId
+  // مش معروف أول ما الصفحة تفتح (لسه بيتحمّل من الـ session)، فمينفعش نقرأ localStorage
+  // كـ initializer عادي — لازم نستنى لحد ما pharmacyId يتحدد فعليًا بعد تسجيل الدخول.
+  // ═══════════════════════════════════════════════════
+  const purchaseDraftKey = `pharmacypro_purchase_draft_${pharmacyId}`;
+  const [purchShowNew, setPurchShowNew] = useState(false);
+  const [purchItems, setPurchItems] = useState([]);
+  const [purchSelSupplier, setPurchSelSupplier] = useState("");
+  const [purchManualSubtotal, setPurchManualSubtotal] = useState("");
+  const [purchManualTax, setPurchManualTax] = useState("");
+  const purchDraftRestoredRef = useRef(false);
+  const [purchDraftHydrated, setPurchDraftHydrated] = useState(false);
+
+  useEffect(() => {
+    if (purchDraftRestoredRef.current || !pharmacyId) return;
+    purchDraftRestoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(purchaseDraftKey);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft && Array.isArray(draft.items) && draft.items.length > 0) {
+          setPurchItems(draft.items);
+          setPurchSelSupplier(draft.selSupplier || "");
+          setPurchManualSubtotal(draft.manualSubtotal || "");
+          setPurchManualTax(draft.manualTax || "");
+          setPurchShowNew(true);
+          showToast("↩️ تم استرجاع مسودة فاتورة شراء لم تكتمل");
+        }
+      }
+    } catch {}
+    // 🆕 مهم: منفعّلش الحفظ إلا بعد محاولة الاسترجاع دي، عشان تأثير الحفظ (تحت)
+    // ميشتغلش بحالة قديمة فاضية ويمسح المسودة قبل ما تتقرأ فعليًا.
+    setPurchDraftHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pharmacyId]);
+
+  useEffect(() => {
+    if (!pharmacyId || !purchDraftHydrated) return;
+    try {
+      if (purchShowNew && purchItems.length > 0) {
+        localStorage.setItem(purchaseDraftKey, JSON.stringify({
+          items: purchItems, selSupplier: purchSelSupplier, manualSubtotal: purchManualSubtotal, manualTax: purchManualTax,
+        }));
+      } else {
+        localStorage.removeItem(purchaseDraftKey);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchItems, purchSelSupplier, purchManualSubtotal, purchManualTax, purchShowNew, pharmacyId, purchDraftHydrated]);
+
   const [posPromos, setPosPromos] = useState([]);
   const [posDiscountRules, setPosDiscountRules] = useState([
     { days: 90,  discount: 50, color: COLORS.red },
@@ -2875,6 +2931,11 @@ if (isLoading) return (
             showToast={showToast}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
+            items={purchItems} setItems={setPurchItems}
+            selSupplier={purchSelSupplier} setSelSupplier={setPurchSelSupplier}
+            manualSubtotal={purchManualSubtotal} setManualSubtotal={setPurchManualSubtotal}
+            manualTax={purchManualTax} setManualTax={setPurchManualTax}
+            showNew={purchShowNew} setShowNew={setPurchShowNew}
           />
         )}
         {tab === "sales_returns" && canView("returns", "sales") && (
@@ -8283,60 +8344,27 @@ function PurchaseModule({
   showToast,
   pharmacyId,
   currentUser,
+  // 🆕 حالة فاتورة الشراء الجاري إدخالها — مرفوعة لـ App عشان تفضل موجودة لو الصيدلي غيّر التاب ورجع
+  items, setItems,
+  selSupplier, setSelSupplier,
+  manualSubtotal, setManualSubtotal,
+  manualTax, setManualTax,
+  showNew, setShowNew,
 }) {
-  // ═══════════════════════════════════════════════════
-  // 🆕 مسودة فاتورة الشراء: عشان لو الصيدلي فتح فاتورة شراء وبدأ يضيف أصناف،
-  // وبعدين احتاج يروح لنقطة البيع أو أي شاشة تانية، ميضيعش اللي دخّله.
-  // بنقرأ المسودة (لو موجودة) وقت أول رندر للكومبوننت نفسه — قبل ما أي useEffect يشتغل —
-  // عشان نضمن إن الحالة تتظبط صح من غير أي سباق (race) مع تأثيرات تانية بتحفظ/تمسح المسودة.
-  // ═══════════════════════════════════════════════════
-  const purchaseDraftKey = `pharmacypro_purchase_draft_${pharmacyId}`;
-  const [restoredPurchaseDraft] = useState(() => {
-    try {
-      const raw = localStorage.getItem(purchaseDraftKey);
-      if (!raw) return null;
-      const draft = JSON.parse(raw);
-      if (draft && Array.isArray(draft.items) && draft.items.length > 0) return draft;
-    } catch {}
-    return null;
-  });
-
-  const [showNew, setShowNew] = useState(!!restoredPurchaseDraft);
   // 🆕 نافذة إضافة/تعديل صنف فوق فاتورة الشراء (من غير ما تقفل الفاتورة)
   const [showProductForm, setShowProductForm] = useState(false);
   const [productFormEditId, setProductFormEditId] = useState(null);
-  const [items, setItems] = useState(restoredPurchaseDraft?.items || []);
-  const [selSupplier, setSelSupplier] = useState(restoredPurchaseDraft?.selSupplier || "");
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightedPurchIdx, setHighlightedPurchIdx] = useState(-1);
-  const [manualSubtotal, setManualSubtotal] = useState(restoredPurchaseDraft?.manualSubtotal || "");
-  const [manualTax, setManualTax] = useState(restoredPurchaseDraft?.manualTax || "");
   const [showProductCard, setShowProductCard] = useState(null);
   const searchRef = useRef(null);
-
-  useEffect(() => {
-    if (restoredPurchaseDraft) showToast("↩️ تم استرجاع مسودة فاتورة شراء لم تكتمل");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!pharmacyId) return;
-    try {
-      if (showNew && items.length > 0) {
-        localStorage.setItem(purchaseDraftKey, JSON.stringify({ items, selSupplier, manualSubtotal, manualTax }));
-      } else {
-        localStorage.removeItem(purchaseDraftKey);
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, selSupplier, manualSubtotal, manualTax, showNew, pharmacyId]);
-
+  // ملحوظة: items/selSupplier/manualSubtotal/manualTax/showNew بقوا جايين من App (props)
+  // بدل ما يكونوا state محلي هنا، عشان يفضلوا موجودين حتى لو الكومبوننت اتقفل وفتح تاني (تغيير تاب).
   const clearPurchaseDraft = () => {
-    try { localStorage.removeItem(purchaseDraftKey); } catch {}
+    try { localStorage.removeItem(`pharmacypro_purchase_draft_${pharmacyId}`); } catch {}
   };
-
 
   // ===== استيراد ملف Excel من موقع رصد (GTIN/SN/BN/XD) لفاتورة الشراء =====
   const rasdExcelInputRef = useRef(null);
