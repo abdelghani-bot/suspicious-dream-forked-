@@ -2337,6 +2337,9 @@ export default function PharmacyPro() {
     { days: 150, discount: 20, color: COLORS.gold },
     { days: 180, discount: 15, color: COLORS.gold },
   ]);
+  // 🆕 إعدادات العروض التلقائية (استبعاد فئات + شرط مخزون + أقل خصم + إعدادات الراكد) — نفس الحالة
+  // بيقرا منها تبويب "العروض" وبتتطبق فعليًا في نقطة البيع (getEffectivePrice)
+  const [posAutoPromoConfig, setPosAutoPromoConfig] = useState(DEFAULT_AUTO_PROMO_CONFIG);
   const posProductEarliestExpiry = useMemo(() => {
     const map = {};
     (purchases || []).forEach((pu) => {
@@ -2352,13 +2355,15 @@ export default function PharmacyPro() {
     });
     return map;
   }, [purchases, products]);
-  // تحميل العروض وقواعد الخصم للـ POS
+  // تحميل العروض وقواعد الخصم وإعدادات العروض التلقائية للـ POS
   useEffect(() => {
     if (!pharmacyId) return;
     supabase.from("promotions").select("*").eq("pharmacy_id", pharmacyId).order("end_date")
       .then(({ data }) => { if (data) setPosPromos(data); });
     supabase.from("promo_rules").select("*").eq("pharmacy_id", pharmacyId).order("days")
       .then(({ data }) => { if (data && data.length > 0) setPosDiscountRules(data); });
+    supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).single()
+      .then(({ data }) => { if (data?.auto_config) setPosAutoPromoConfig((prev) => ({ ...prev, ...data.auto_config })); });
   }, [pharmacyId]);
   const [isLoading, setIsLoading] = useState(false);
   const showToast = useCallback((msg, type = "success") => {
@@ -2933,6 +2938,7 @@ if (isLoading) return (
             promos={posPromos}
             discountRules={posDiscountRules}
             productEarliestExpiry={posProductEarliestExpiry}
+            autoPromoConfig={posAutoPromoConfig}
           />
         )}
         {tab === "purchase" && canView("purchase") && (
@@ -3094,6 +3100,12 @@ if (isLoading) return (
             currentUser={currentUser}
             pharmacyId={pharmacyId}
             showToast={showToast}
+            promos={posPromos}
+            setPromos={setPosPromos}
+            discountRules={posDiscountRules}
+            setDiscountRules={setPosDiscountRules}
+            autoPromoConfig={posAutoPromoConfig}
+            setAutoPromoConfig={setPosAutoPromoConfig}
             enrichedCustomers={enrichedCustomers}
           />
         )}
@@ -4890,7 +4902,9 @@ function recalcCartLinePrice(item, newQty) {
 }
 
 // ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
-function getEffectivePrice(product, promos, discountRules, productEarliestExpiry, products) {
+// sales و autoPromoConfig اختياريين (توافقية للخلف)، لكن لازم يتوفروا عشان العرض التلقائي
+// (خصوصًا خصم "الراكد" وشروط استبعاد الفئات/المخزون/أقل خصم) يتطابق فعليًا مع اللي بيتحاسب في نقطة البيع
+function getEffectivePrice(product, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig) {
   const today = todayLocal();
   // 1. عروض يدوية نشطة (بأي نمط) وقابلة للتطبيق فعليًا حسب المخزون المتبقي
   const manualPromo = (promos || []).find(
@@ -4912,17 +4926,34 @@ function getEffectivePrice(product, promos, discountRules, productEarliestExpiry
       promoLabel: desc.label,
     };
   }
-  // 2. عروض تلقائية (غير دواء + صلاحية قريبة)
-  const cat = product.main_category || product.category || "";
-  if (cat !== "دواء") {
+  // 2. عروض تلقائية (صلاحية + راكد) — لو متوفر autoPromoConfig بنستخدم نفس منطق تبويب "العروض التلقائية"
+  // بالظبط (بما فيه الراكد + استبعاد الفئات + شرط المخزون + أقل خصم)، عشان السعر المعروض هناك
+  // يبقى هو نفسه اللي بيتحاسب بيه العميل في نقطة البيع.
+  if (autoPromoConfig) {
     const expiry = (productEarliestExpiry || {})[product.id] || product.expiry || null;
-    const autoPct = calcAutoDiscount(expiry, discountRules);
-    if (autoPct > 0) {
+    const auto = computeAutoPromoForProduct(product, discountRules, expiry, sales, autoPromoConfig);
+    if (auto) {
       return {
-        price: +(product.price * (1 - autoPct / 100)).toFixed(2),
-        discountPct: autoPct,
+        price: +(product.price * (1 - auto.autoDiscount / 100)).toFixed(2),
+        discountPct: auto.autoDiscount,
         source: "auto",
+        autoReasonExpiry: auto.reasonExpiry,
+        autoReasonStagnant: auto.reasonStagnant,
       };
+    }
+  } else {
+    // ── توافقية للخلف: لو الطلب مبعتش autoPromoConfig، نرجع لمنطق الصلاحية القديم بس ──
+    const cat = product.main_category || product.category || "";
+    if (cat !== "دواء") {
+      const expiry = (productEarliestExpiry || {})[product.id] || product.expiry || null;
+      const autoPct = calcAutoDiscount(expiry, discountRules);
+      if (autoPct > 0) {
+        return {
+          price: +(product.price * (1 - autoPct / 100)).toFixed(2),
+          discountPct: autoPct,
+          source: "auto",
+        };
+      }
     }
   }
   // 3. السعر الأصلي
@@ -4968,6 +4999,7 @@ function POS({
   promos,
   discountRules,
   productEarliestExpiry,
+  autoPromoConfig,
 }) {
   const [showPrint, setShowPrint] = useState(null);
   const fileRef = useRef();
@@ -5372,7 +5404,7 @@ function POS({
   : 1;
     const effective = p.isMissed || p.isJoker
       ? { price: p.price, discountPct: 0, source: null }
-      : getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products);
+      : getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig);
 
     // السعر الكامل للحساب، سعر الوحدة للعرض
     // أنماط مرتبطة بالكمية (BOGO / كمية / باقة) بيتغيّر متوسط سعر الوحدة حسب عدد القطع
@@ -6452,7 +6484,7 @@ function POS({
                               }}
                             >
                               {(() => {
-                                const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products);
+                                const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig);
                                 return eff.discountPct > 0 ? (
                                   <span>
                                     <span style={{ textDecoration: "line-through", color: COLORS.textDim, fontSize: 10, marginLeft: 4 }}>{p.price?.toFixed(2)}</span>
@@ -19203,9 +19235,59 @@ function getStagnationInfo(product, sales, expiry, cfg) {
   return { isStagnant: noSaleFlag || wontSelloutFlag, daysSinceLastSale, wontSelloutFlag, noSaleFlag };
 }
 
-function PromotionsModule({ products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast, enrichedCustomers = [] }) {
+// دالة موحّدة لحساب الخصم التلقائي (صلاحية + راكد) لصنف واحد — نفس المنطق مستخدم في معاينة تبويب
+// "العروض التلقائية" وفي حساب السعر الفعلي بنقطة البيع (getEffectivePrice)، عشان السعر يفضل متطابق
+// في المكانين ومايحصلش "العرض ظاهر في الشاشة بس مبيتطبقش وقت البيع".
+function computeAutoPromoForProduct(product, discountRules, expiry, sales, autoPromoConfig) {
+  if (!product || !autoPromoConfig) return null;
+  const cat = product.main_category || product.category || "";
+  if ((autoPromoConfig.excludeCategories || []).includes(cat)) return null;
+  if (autoPromoConfig.requireStock && (product.stock || 0) <= 0) return null;
+
+  const expiryDiscount = calcAutoDiscount(expiry, discountRules);
+  const reasonExpiry = expiryDiscount > 0;
+
+  const stagInfo = autoPromoConfig.stagnantEnabled
+    ? getStagnationInfo(product, sales, expiry, {
+        noSaleDays: autoPromoConfig.stagnantNoSaleDays,
+        velocityWindowDays: autoPromoConfig.stagnantVelocityWindowDays,
+      })
+    : { isStagnant: false };
+  const reasonStagnant = stagInfo.isStagnant;
+
+  if (!reasonExpiry && !reasonStagnant) return null;
+
+  // لو الصنف واقع تحت الاتنين، ناخد أعلى خصم بينهم
+  const autoDiscount = Math.max(reasonExpiry ? expiryDiscount : 0, reasonStagnant ? autoPromoConfig.stagnantDiscountPercent : 0);
+  if (autoDiscount <= 0 || autoDiscount < autoPromoConfig.minDiscount) return null;
+
+  return { autoDiscount, reasonExpiry, reasonStagnant, daysSinceLastSale: stagInfo.daysSinceLastSale };
+}
+
+// ── القيم الافتراضية لإعدادات العروض التلقائية — مشتركة بين هذا المكون وأعلى التطبيق (App) ──
+const DEFAULT_AUTO_PROMO_CONFIG = {
+  excludeCategories: ["دواء"],
+  minDiscount: 0,
+  requireStock: true,
+  enabledTypes: PROMO_TYPES.map((t) => t.id), // كل الأنماط مفعّلة افتراضيًا
+  autoEligibleTypes: ["percent"], // بس النسبة قادرة تشتغل في العروض التلقائية حسب الصلاحية
+  // ── إعدادات الأصناف الراكدة (خصم ثابت مستقل عن تدرج الصلاحية) ──
+  stagnantEnabled: true,
+  stagnantNoSaleDays: 45,        // مفيش بيع من كام يوم يعتبر الصنف راكد
+  stagnantVelocityWindowDays: 90, // نافذة حساب معدل البيع الحالي لتوقع "هيخلص قبل الانتهاء ولا لأ"
+  stagnantDiscountPercent: 15,    // نسبة الخصم الثابتة للراكد
+};
+
+// 🆕 promos/discountRules/autoPromoConfig بقوا جايين كـ props من App (نفس الحالة اللي نقطة البيع
+// posPromos/posDiscountRules/posAutoPromoConfig بتقرا منها) — عشان أي إضافة/تعديل/حذف هنا يظهر فورًا
+// في نقطة البيع من غير ما تحتاج تعمل ريفريش للصفحة، ويبقى السعر المطبّق هو نفسه المعروض هنا بالظبط.
+function PromotionsModule({
+  products, setProducts, sales, purchases, shifts, currentUser, pharmacyId, showToast, enrichedCustomers = [],
+  promos, setPromos,
+  discountRules, setDiscountRules,
+  autoPromoConfig, setAutoPromoConfig,
+}) {
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual
-  const [promos, setPromos] = useState([]);
   const [showPromoForm, setShowPromoForm] = useState(false);
   const [editPromoId, setEditPromoId] = useState(null);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
@@ -19220,33 +19302,10 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     { days: 150, discount: 20, color: COLORS.gold },
     { days: 180, discount: 15, color: COLORS.gold },
   ];
-  const [discountRules, setDiscountRules] = useState(DEFAULT_RULES);
   const [editRules, setEditRules] = useState(DEFAULT_RULES);
 
-  // تحميل قواعد الخصم من Supabase
-  useEffect(() => {
-    if (!pharmacyId) return;
-    supabase.from("promo_rules").select("*").eq("pharmacy_id", pharmacyId).order("days").then(({ data }) => {
-      if (data && data.length > 0) {
-        setDiscountRules(data);
-        setEditRules(data);
-      }
-    });
-  }, [pharmacyId]);
-
   const [showAutoConfig, setShowAutoConfig] = useState(false);
-  const [autoPromoConfig, setAutoPromoConfig] = useState({
-    excludeCategories: ["دواء"],
-    minDiscount: 0,
-    requireStock: true,
-    enabledTypes: PROMO_TYPES.map((t) => t.id), // كل الأنماط مفعّلة افتراضيًا
-    autoEligibleTypes: ["percent"], // بس النسبة قادرة تشتغل في العروض التلقائية حسب الصلاحية
-    // ── إعدادات الأصناف الراكدة (خصم ثابت مستقل عن تدرج الصلاحية) ──
-    stagnantEnabled: true,
-    stagnantNoSaleDays: 45,        // مفيش بيع من كام يوم يعتبر الصنف راكد
-    stagnantVelocityWindowDays: 90, // نافذة حساب معدل البيع الحالي لتوقع "هيخلص قبل الانتهاء ولا لأ"
-    stagnantDiscountPercent: 15,    // نسبة الخصم الثابتة للراكد
-  });
+  // 🆕 autoPromoConfig بقى جاي من App (مشترك بين هنا وبين نقطة البيع) — القيمة الافتراضية DEFAULT_AUTO_PROMO_CONFIG أعلى الملف
 
   const blankPromo = {
     promo_type: "percent",
@@ -19329,32 +19388,15 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
     productEarliestExpiry[p.id] || p.expiry || null;
 
   const autoPromoProducts = products.reduce((acc, p) => {
-    const cat = p.main_category || p.category || "";
-    if (autoPromoConfig.excludeCategories.includes(cat)) return acc;
-    if (autoPromoConfig.requireStock && (p.stock || 0) <= 0) return acc;
-
     const expiry = getProductExpiry(p);
-    const expiryDiscount = calcAutoDiscount(expiry, discountRules);
-    const reasonExpiry = expiryDiscount > 0;
-
-    const stagInfo = autoPromoConfig.stagnantEnabled
-      ? getStagnationInfo(p, sales, expiry, {
-          noSaleDays: autoPromoConfig.stagnantNoSaleDays,
-          velocityWindowDays: autoPromoConfig.stagnantVelocityWindowDays,
-        })
-      : { isStagnant: false };
-    const reasonStagnant = stagInfo.isStagnant;
-
-    if (!reasonExpiry && !reasonStagnant) return acc;
-
-    // لو الصنف واقع تحت الاتنين، ناخد أعلى خصم بينهم
-    const autoDiscount = Math.max(reasonExpiry ? expiryDiscount : 0, reasonStagnant ? autoPromoConfig.stagnantDiscountPercent : 0);
-    if (autoDiscount <= 0 || autoDiscount < autoPromoConfig.minDiscount) return acc;
+    // 🆕 نفس الدالة بالظبط اللي بتحسب سعر نقطة البيع (computeAutoPromoForProduct) — مفيش أي اختلاف منطق
+    const result = computeAutoPromoForProduct(p, discountRules, expiry, sales, autoPromoConfig);
+    if (!result) return acc;
 
     acc.push({
-      ...p, expiry, autoDiscount,
-      reasonExpiry, reasonStagnant,
-      daysSinceLastSale: stagInfo.daysSinceLastSale,
+      ...p, expiry, autoDiscount: result.autoDiscount,
+      reasonExpiry: result.reasonExpiry, reasonStagnant: result.reasonStagnant,
+      daysSinceLastSale: result.daysSinceLastSale,
     });
     return acc;
   }, []).sort((a, b) => b.autoDiscount - a.autoDiscount);
@@ -20070,10 +20112,17 @@ function PromotionsModule({ products, setProducts, sales, purchases, shifts, cur
                         <div style={{ color: COLORS.textDim, fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
                         <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
                         {p.expiry && <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>}
-                        <button onClick={() => printAutoPromoItems([p], autoOfferName)}
-                          style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>
-                          🖨️ طباعة
-                        </button>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => printAutoPromoItems([p], autoOfferName)}
+                            style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>
+                            🖨️ طباعة
+                          </button>
+                          {/* 🆕 نفس زرار "إرسال للعملاء" الموجود في العروض اليدوية — بيبني عرض وهمي بنسبة الخصم التلقائي عشان يستخدم نفس منطق الاستهداف */}
+                          <button onClick={() => openSendPanel({ promo_type: "percent", discount: p.autoDiscount }, p)}
+                            style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
+                            📤 إرسال
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
