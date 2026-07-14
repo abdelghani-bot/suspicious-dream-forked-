@@ -3142,6 +3142,9 @@ if (isLoading) return (
             autoPromoConfig={posAutoPromoConfig}
             setAutoPromoConfig={setPosAutoPromoConfig}
             enrichedCustomers={enrichedCustomers}
+            canAdd={canAdd("promotions")}
+            canEdit={canEdit("promotions")}
+            canDelete={canDelete("promotions")}
           />
         )}
         {tab === "target" && canView("target") && (
@@ -3154,6 +3157,9 @@ if (isLoading) return (
     pharmacyId={pharmacyId}
     showToast={showToast}
     returns={returnsData}
+    canAdd={canAdd("target")}
+    canEdit={canEdit("target")}
+    canDelete={canDelete("target")}
   />
 )}
         {tab === "treasury" && canView("treasury") && (
@@ -19654,6 +19660,7 @@ function PromotionsModule({
   promos, setPromos,
   discountRules, setDiscountRules,
   autoPromoConfig, setAutoPromoConfig,
+  canAdd = true, canEdit = true, canDelete = true,
 }) {
   const [activeTab, setActiveTab] = useState("auto"); // auto | manual
   const [showPromoForm, setShowPromoForm] = useState(false);
@@ -20228,14 +20235,18 @@ function PromotionsModule({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ color: COLORS.green, fontWeight: 700 }}>📋 منطق الخصم التدرجي التلقائي</div>
               <div style={{ display: "flex", gap: 8 }}>
+                {canEdit && (
                 <button onClick={() => setShowAutoConfig((v) => !v)}
                   style={{ background: "#1a0a2a", border: `1px solid ${tint(COLORS.purple,0.35)}`, borderRadius: 8, padding: "5px 14px", color: COLORS.purple, fontSize: 12, cursor: "pointer" }}>
                   ⚙️ شرط الإضافة
                 </button>
+                )}
+                {canEdit && (
                 <button onClick={() => { setEditRules(discountRules.map(r => ({...r}))); setShowRulesEditor(true); }}
                   style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.blue,0.35)}`, borderRadius: 8, padding: "5px 14px", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
                   ✏️ تعديل القواعد
                 </button>
+                )}
               </div>
             </div>
 
@@ -20595,7 +20606,7 @@ function PromotionsModule({
                     <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>تاريخ نهاية العرض</div>
                     <input type="date" value={edit.endDate} onChange={(e) => setSuggestionEdit(s.key, { endDate: e.target.value })} style={suggestionInputStyle} />
                   </div>
-                  <Btn icon="check" onClick={() => acceptSupplierSuggestion(s)}>اعتماد كعرض</Btn>
+                  {canAdd && <Btn icon="check" onClick={() => acceptSupplierSuggestion(s)}>اعتماد كعرض</Btn>}
                 </div>
               </div>
             );
@@ -20607,7 +20618,7 @@ function PromotionsModule({
       {activeTab === "manual" && (
         <div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            <Btn icon="plus" onClick={() => setShowPromoForm(true)}>إضافة عرض</Btn>
+            {canAdd && <Btn icon="plus" onClick={() => setShowPromoForm(true)}>إضافة عرض</Btn>}
           </div>
 
           {activePromos.length > 0 && (
@@ -20685,6 +20696,7 @@ function PromotionsModule({
                           )}
                           <button onClick={() => openSendPanel(promo, prod)}
                             style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>📤 إرسال للعملاء</button>
+                          {canEdit && (
                           <button onClick={() => {
                             setPromoForm({
                               ...blankPromoDetails,
@@ -20710,11 +20722,14 @@ function PromotionsModule({
                             setEditPromoId(promo.id);
                             setShowPromoForm(true);
                           }} style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
+                          )}
+                          {canDelete && (
                           <button onClick={async () => {
                             const { error: delPromoError } = await supabase.from("promotions").delete().eq("id", promo.id).eq("pharmacy_id", pharmacyId);
                             if (delPromoError) { showToast("خطأ: " + delPromoError.message, "error"); return; }
                             setPromos((p) => p.filter((x) => x.id !== promo.id));
                           }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -20745,6 +20760,7 @@ function PromotionsModule({
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
+                        {canEdit && (
                         <button onClick={() => {
                           setPromoForm({
                             ...blankPromoDetails,
@@ -20770,11 +20786,14 @@ function PromotionsModule({
                           setEditPromoId(promo.id);
                           setShowPromoForm(true);
                         }} style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
+                        )}
+                        {canDelete && (
                         <button onClick={async () => {
                           const { error: delPromoError } = await supabase.from("promotions").delete().eq("id", promo.id).eq("pharmacy_id", pharmacyId);
                           if (delPromoError) { showToast("خطأ: " + delPromoError.message, "error"); return; }
                           setPromos((p) => p.filter((x) => x.id !== promo.id));
                         }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -21103,7 +21122,7 @@ function PromotionsModule({
   );
 }
 // ==================== TARGET MODULE ====================
-function TargetModule({ users, sales, customers, products, currentUser, pharmacyId, showToast, returns = [] }) {
+function TargetModule({ users, sales, customers, products, currentUser, pharmacyId, showToast, returns = [], canAdd = true, canEdit = true, canDelete = true }) {
   const [subTab, setSubTab] = useState("target"); // target | incentive
   const [monthKey, setMonthKey] = useState(new Date().toISOString().slice(0, 7));
   const [targets, setTargets] = useState([]); // كل التارجتات لكل الشهور
@@ -21805,6 +21824,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                   return (
                     <button key={cat}
                       onClick={() => {
+                        if (!canEdit) { showToast("❌ لا تملك صلاحية تعديل إعدادات التحفيز", "error"); return; }
                         const next = active
                           ? incentiveConfig.allowedCategories.filter((c) => c !== cat)
                           : [...incentiveConfig.allowedCategories, cat];
@@ -21812,7 +21832,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                       }}
                       style={{
                         background: active ? COLORS.blue : COLORS.surfaceAlt, color: active ? "#fff" : COLORS.textDim,
-                        border: `1px solid ${active ? COLORS.blue : COLORS.border}`, borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: "pointer",
+                        border: `1px solid ${active ? COLORS.blue : COLORS.border}`, borderRadius: 20, padding: "5px 12px", fontSize: 12, cursor: canEdit ? "pointer" : "default",
                       }}>{cat}</button>
                   );
                 })}
@@ -21825,7 +21845,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
           <div style={incentiveCardStyle(COLORS.surfaceAlt)}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ color: COLORS.purple, fontWeight: 700 }}>📶 مستويات العمولة (Tiers)</div>
-              <Btn icon="plus" size="sm" onClick={() => { setTierForm({ threshold: "", rate: "" }); setEditingTierId(null); setShowTierForm(true); }}>Tier جديد</Btn>
+              {canAdd && <Btn icon="plus" size="sm" onClick={() => { setTierForm({ threshold: "", rate: "" }); setEditingTierId(null); setShowTierForm(true); }}>Tier جديد</Btn>}
             </div>
             {tiers.length === 0
               ? <div style={{ color: COLORS.textDim, fontSize: 12 }}>لا توجد مستويات مضافة — أضف Tier عشان يبدأ التحفيز التلقائي يشتغل</div>
@@ -21842,12 +21862,12 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                         </div>
                         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                           <span style={{ color: COLORS.green, fontWeight: 700, fontSize: 13 }}>{t.rate}% عمولة</span>
-                          {isAdmin && (
-                            <>
-                              <button onClick={(e) => { e.stopPropagation(); setTierForm({ threshold: String(t.threshold), rate: String(t.rate) }); setEditingTierId(t.id); setShowTierForm(true); }}
-                                style={{ background: "none", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>✏️</button>
-                              <button onClick={(e) => { e.stopPropagation(); deleteTier(t.id); }} style={{ background: "none", border: "none", color: COLORS.red, fontSize: 12, cursor: "pointer" }}>🗑️</button>
-                            </>
+                          {canEdit && (
+                            <button onClick={(e) => { e.stopPropagation(); setTierForm({ threshold: String(t.threshold), rate: String(t.rate) }); setEditingTierId(t.id); setShowTierForm(true); }}
+                              style={{ background: "none", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>✏️</button>
+                          )}
+                          {canDelete && (
+                            <button onClick={(e) => { e.stopPropagation(); deleteTier(t.id); }} style={{ background: "none", border: "none", color: COLORS.red, fontSize: 12, cursor: "pointer" }}>🗑️</button>
                           )}
                           <span style={{ color: COLORS.textDim, fontSize: 11 }}>{isOpen ? "▲" : "▼"}</span>
                         </div>
@@ -21855,7 +21875,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
 
                       {isOpen && (
                         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", padding: "8px 12px" }}>
-                          {isAdmin && (
+                          {canAdd && (
                             <div style={{ marginBottom: 10 }}>
                               <input
                                 value={tierAddSearch[t.id] || ""}
@@ -21887,15 +21907,19 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                                     <span style={{ color: COLORS.textPrimary, fontSize: 13 }}>{p.name_ar || p.name || p.nameAr}</span>
                                     {manual && <span style={{ color: COLORS.gold, fontSize: 11, marginRight: 6 }}>⭐ يدوي</span>}
                                   </div>
-                                  {isAdmin && (
+                                  {(canEdit || canDelete) && (
                                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      {canEdit && (
                                       <select defaultValue="" onChange={(e) => { if (e.target.value) addIncentiveOverride(p.id, "include", e.target.value); }}
                                         style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textPrimary, fontSize: 11, padding: "3px 6px" }}>
                                         <option value="">↔️ نقل لـ...</option>
                                         {tiers.filter((tt) => tt.id !== t.id).map((tt) => <option key={tt.id} value={tt.id}>{tt.threshold}% → {tt.rate}%</option>)}
                                       </select>
+                                      )}
+                                      {canDelete && (
                                       <button onClick={() => addIncentiveOverride(p.id, "exclude")}
                                         style={{ background: "none", border: "none", color: COLORS.red, fontSize: 12, cursor: "pointer" }}>🗑️ حذف</button>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -21940,15 +21964,19 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                             {margin !== null && <div style={{ color: COLORS.textDim, fontSize: 11 }}>هامش: {margin.toFixed(0)}%</div>}
                           </div>
                           {isExcluded ? (
+                            canEdit && (
                             <button onClick={() => {
                               const ov = incentiveOverrides.find((o) => o.product_id === p.id && o.type === "exclude");
                               if (ov) removeIncentiveOverride(ov.id);
                             }} style={{ background: "none", border: "none", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>↩️ إلغاء الاستثناء</button>
+                            )
                           ) : isAuto ? (
+                            canDelete && (
                             <button onClick={() => addIncentiveOverride(p.id, "exclude")}
                               style={{ background: "none", border: "none", color: COLORS.red, fontSize: 12, cursor: "pointer" }}>🚫 استثناء</button>
+                            )
                           ) : (
-                            tiers.length > 0 && (
+                            canAdd && tiers.length > 0 && (
                               <select onChange={(e) => e.target.value && addIncentiveOverride(p.id, "include", e.target.value)}
                                 defaultValue=""
                                 style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textPrimary, fontSize: 11, padding: "3px 6px" }}>
@@ -21970,8 +21998,10 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
                           <div key={p.id} style={{ background: COLORS.surfaceAlt, border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
                             <span style={{ color: COLORS.textPrimary, fontWeight: 600 }}>{p.name_ar || p.name || p.nameAr}</span>
                             <span style={{ color: COLORS.purple, marginRight: 8, fontWeight: 700 }}>{tier.rate}%{manual ? " ⭐" : ""}</span>
+                            {canDelete && (
                             <button onClick={() => addIncentiveOverride(p.id, "exclude")}
                               style={{ background: "none", border: "none", color: COLORS.red, fontSize: 11, cursor: "pointer", marginRight: 6 }}>✕</button>
+                            )}
                           </div>
                         ))}
                       </div>
