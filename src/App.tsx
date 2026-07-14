@@ -13769,9 +13769,17 @@ function InventoryCount({
   const [selectedLog, setSelectedLog] = useState(null);
   const [repairing, setRepairing] = useState(false);
 
-  const startCount = () => {
-    // كل تشغيلة (صنف + تاريخ صلاحية) بتاخد سطر منفصل في الجرد،
-    // عشان الكمية الفعلية للصنف تقدر تتوزع على أكتر من تاريخ صلاحية.
+  // ==================== 🆕 استيراد الجرد من إكسيل ====================
+  const invExcelInputRef = useRef(null);
+  const [excelImportBusy, setExcelImportBusy] = useState(false);
+  const [excelUnmatched, setExcelUnmatched] = useState([]); // صفوف الملف اللي معندهاش صنف مطابق
+  const [showInvColMapModal, setShowInvColMapModal] = useState(false);
+  const [invColMapDraft, setInvColMapDraft] = useState({ code: "", qty: "" });
+  const [pendingInvRows, setPendingInvRows] = useState(null);
+
+  // بيبني صفوف الجرد الأساسية من حالة المخزون الحالية (نفس منطق startCount)
+  // — دالة منفصلة عشان نقدر نستخدمها في البداية العادية وبرضه كأساس نطبّق عليه الاستيراد
+  const buildBaseCountRows = () => {
     const rows = [];
     products.forEach((p) => {
       const batches = (p.batches || []).filter((b) => b.qty > 0);
@@ -13803,8 +13811,121 @@ function InventoryCount({
         });
       }
     });
-    setCountItems(rows);
+    return rows;
+  };
+
+  const startCount = () => {
+    // كل تشغيلة (صنف + تاريخ صلاحية) بتاخد سطر منفصل في الجرد،
+    // عشان الكمية الفعلية للصنف تقدر تتوزع على أكتر من تاريخ صلاحية.
+    setExcelUnmatched([]);
+    setCountItems(buildBaseCountRows());
     setShowNew(true);
+  };
+
+  // بيدوّر على اسم العمود الصح مهما اختلفت صياغته في ملف الجرد (باركود/كود، كمية)
+  const normalizeInvHeader = (s) =>
+    String(s || "")
+      .replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, "")
+      .replace(/[أإآ]/g, "ا")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  const findInvColumn = (row, candidates) => {
+    const keys = Object.keys(row);
+    for (const cand of candidates) {
+      const normCand = normalizeInvHeader(cand);
+      const hit = keys.find((k) => normalizeInvHeader(k).includes(normCand));
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  // بيطبّق صفوف ملف الجرد (بعد ما اتحدد عمود الباركود/الكود وعمود الكمية) على صفوف
+  // الجرد الأساسية: بيطابق بالباركود (GTIN) زي أي مطابقة تانية في البرنامج، وبيحدّث
+  // الكمية الفعلية للصنف المطابق. الأصناف اللي معندهاش تطابق بتتحط في قائمة "مش موجودة عندك".
+  const applyInventoryExcelRows = (rows, colMap) => {
+    // تجميع صفوف الملف حسب الكود بعد التطبيع، لو نفس الكود اتكرر في أكتر من صف بنجمع الكمية
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const rawCode = row[colMap.code];
+      if (rawCode === "" || rawCode == null) return;
+      const code = normGtin(rawCode);
+      if (!code) return;
+      const qty = Number(row[colMap.qty]) || 0;
+      grouped.set(code, { code, rawCode: String(rawCode).trim(), qty: (grouped.get(code)?.qty || 0) + qty });
+    });
+
+    const baseRows = buildBaseCountRows();
+    const unmatched = [];
+    let matchedCount = 0;
+
+    grouped.forEach((entry) => {
+      const product = products.find(
+        (x) => normGtin(x.barcode) === entry.code || normGtin(x.gtin) === entry.code
+      );
+      if (!product) {
+        unmatched.push(entry);
+        return;
+      }
+      matchedCount++;
+      const productLines = baseRows.filter((r) => r.id === product.id);
+      if (productLines.length === 0) return;
+      // صنف بسطر واحد (الحالة الشائعة، خصوصًا لصيدلية جديدة لسه بتدخل جردها الأول)
+      // → الكمية المستوردة بتتحط عليه مباشرة. لو الصنف عنده أكتر من تاريخ صلاحية،
+      // الكمية كلها بتتحط على أول سطر والباقي بيتصفّر (يقدر يوزعها يدوي على التواريخ بعدين).
+      productLines.forEach((line, idx) => {
+        line.actualQty = idx === 0 ? entry.qty : 0;
+        line.diff = line.actualQty - line.systemQty;
+      });
+    });
+
+    setCountItems(baseRows);
+    setExcelUnmatched(unmatched);
+    setShowNew(true);
+    showToast(
+      `تم تطبيق ${matchedCount} صنف من الملف على الجرد ✓` +
+      (unmatched.length ? ` — و${unmatched.length} كود مش موجود عندك في الأصناف` : "")
+    );
+  };
+
+  const handleInventoryExcelFile = async (file) => {
+    if (!file) return;
+    setExcelImportBusy(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+      if (!rows.length) {
+        showToast("الملف فارغ أو مفيش صفوف بيانات فيه", "error");
+        return;
+      }
+      const colCode = findInvColumn(rows[0], ["باركود", "الباركود", "كود الصنف", "الكود", "كود", "barcode", "gtin", "code"]);
+      const colQty = findInvColumn(rows[0], ["الكمية الفعلية", "الكمية", "الرصيد", "المخزون", "qty", "quantity", "stock"]);
+      if (colCode && colQty) {
+        applyInventoryExcelRows(rows, { code: colCode, qty: colQty });
+      } else {
+        // مقدرناش نكتشف الأعمدة تلقائيًا → نعرض شاشة بسيطة يحدد فيها العمودين بنفسه
+        setInvColMapDraft({ code: colCode || "", qty: colQty || "" });
+        setPendingInvRows(rows);
+        setShowInvColMapModal(true);
+      }
+    } catch (e) {
+      showToast("تعذّرت قراءة الملف: " + (e?.message || e), "error");
+    } finally {
+      setExcelImportBusy(false);
+      if (invExcelInputRef.current) invExcelInputRef.current.value = "";
+    }
+  };
+
+  const confirmInvColumnMapping = () => {
+    if (!invColMapDraft.code || !invColMapDraft.qty) {
+      showToast("لازم تحدد عمود الباركود/الكود وعمود الكمية", "error");
+      return;
+    }
+    setShowInvColMapModal(false);
+    applyInventoryExcelRows(pendingInvRows, invColMapDraft);
+    setPendingInvRows(null);
   };
 
   // إضافة سطر تاريخ صلاحية إضافي لنفس الصنف — للحالة اللي بيتلاقى فيها كمية
@@ -14072,6 +14193,22 @@ function InventoryCount({
           >
             {repairing ? "جارِ الإصلاح..." : "إصلاح تشغيلات المخزون"}
           </Btn>
+          <input
+            ref={invExcelInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            style={{ display: "none" }}
+            onChange={(e) => handleInventoryExcelFile(e.target.files?.[0])}
+          />
+          <Btn
+            variant="ghost"
+            icon="upload"
+            onClick={() => invExcelInputRef.current?.click()}
+            disabled={excelImportBusy}
+            title="ارفع ملف إكسيل فيه عمود باركود/كود وعمود كمية، والبرنامج هيطابقه مع أصنافك ويعبّي الجرد تلقائيًا"
+          >
+            {excelImportBusy ? "جارٍ الاستيراد..." : "📥 استيراد جرد من إكسيل"}
+          </Btn>
           <Btn icon="count" onClick={startCount}>
             بدء جرد جديد
           </Btn>
@@ -14252,6 +14389,34 @@ function InventoryCount({
           onChange={setNotes}
           placeholder="وصف الجرد..."
         />
+        {excelUnmatched.length > 0 && (
+          <div
+            style={{
+              background: "rgba(255,170,0,0.08)",
+              border: `1px solid ${COLORS.gold}`,
+              borderRadius: 8,
+              padding: "10px 12px",
+              marginTop: 12,
+              fontSize: 12.5,
+              color: COLORS.textPrimary,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 6, color: COLORS.gold }}>
+              ⚠️ {excelUnmatched.length} كود من الملف مش موجود عندك في الأصناف (اتجاهله ولم يتحدث):
+            </div>
+            <div style={{ maxHeight: 120, overflowY: "auto" }}>
+              {excelUnmatched.map((u, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: COLORS.textDim }}>
+                  <span>{u.rawCode}</span>
+                  <span>الكمية: {u.qty}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 6, color: COLORS.textDim }}>
+              ضيف الصنف الأول من شاشة "الأصناف" بنفس الباركود، وبعدين استورد الملف تاني.
+            </div>
+          </div>
+        )}
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -14426,6 +14591,53 @@ function InventoryCount({
           <Btn icon="check" onClick={saveCount}>
             حفظ الجرد وتحديث المخزون
           </Btn>
+        </div>
+      </Modal>
+
+      {/* 🆕 Modal تحديد عمود الباركود/الكود وعمود الكمية لما الاكتشاف التلقائي يفشل */}
+      <Modal
+        open={showInvColMapModal}
+        onClose={() => setShowInvColMapModal(false)}
+        title="حدد أعمدة ملف الجرد"
+      >
+        <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 12 }}>
+          مقدرناش نكتشف الأعمدة تلقائيًا. حدد تحت عمود الباركود/الكود وعمود الكمية الفعلية من ملفك:
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4 }}>عمود الباركود / الكود</div>
+          <select
+            value={invColMapDraft.code}
+            onChange={(e) => setInvColMapDraft((p) => ({ ...p, code: e.target.value }))}
+            style={{
+              width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+              borderRadius: 8, padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13,
+            }}
+          >
+            <option value="">— اختر العمود —</option>
+            {pendingInvRows && Object.keys(pendingInvRows[0] || {}).map((k) => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4 }}>عمود الكمية الفعلية</div>
+          <select
+            value={invColMapDraft.qty}
+            onChange={(e) => setInvColMapDraft((p) => ({ ...p, qty: e.target.value }))}
+            style={{
+              width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+              borderRadius: 8, padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13,
+            }}
+          >
+            <option value="">— اختر العمود —</option>
+            {pendingInvRows && Object.keys(pendingInvRows[0] || {}).map((k) => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowInvColMapModal(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={confirmInvColumnMapping}>تأكيد ومتابعة</Btn>
         </div>
       </Modal>
     </div>
