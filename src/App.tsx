@@ -8165,6 +8165,25 @@ const getPharmacySettings = async (pharmacyId) => {
 function PharmacySettings({ showToast, pharmacyId }) {
   const [settings, setSettings] = useState({});
 
+  // 🆕 استنساخ الأصناف الأساسية من صيدلية قالب (Template Pharmacy)
+  const [templateId, setTemplateId] = useState("");
+  const [cloning, setCloning] = useState(false);
+  const [confirmClone, setConfirmClone] = useState(false);
+
+  const cloneFromTemplate = async () => {
+    if (!templateId.trim()) { showToast("يرجى إدخال معرف صيدلية القالب", "error"); return; }
+    if (templateId.trim() === pharmacyId) { showToast("لا يمكن استنساخ الصيدلية من نفسها", "error"); return; }
+    setCloning(true);
+    const { error } = await supabase.rpc("clone_template_pharmacy", {
+      template_id: templateId.trim(),
+      new_id: pharmacyId,
+    });
+    setCloning(false);
+    setConfirmClone(false);
+    if (error) { showToast("خطأ في الاستنساخ: " + error.message, "error"); return; }
+    showToast("تم استنساخ بيانات القالب بنجاح ✓ يُفضّل إعادة تحميل الصفحة لتظهر الأصناف الجديدة");
+  };
+
   useEffect(() => {
     if (!pharmacyId) return;
     supabase
@@ -8405,6 +8424,68 @@ function PharmacySettings({ showToast, pharmacyId }) {
           <Btn icon="check" onClick={save}>حفظ البيانات</Btn>
         </div>
 
+      </div>
+
+      {/* 🆕 استنساخ الأصناف من صيدلية قالب — لصيدلية جديدة فاضية بس */}
+      <div style={{
+        background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+        border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 24, marginTop: 20,
+      }}>
+        <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 800, color: COLORS.textPrimary }}>
+          🧬 استنساخ أصناف من قالب
+        </h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12.5, color: COLORS.textDim, lineHeight: 1.7 }}>
+          بينسخ الشركات المصنّعة والمواد الفعالة والأصناف من صيدلية قالب لصيدليتك الحالية (المخزون هيبدأ بصفر).
+          استخدمه مرة واحدة بس عند تجهيز صيدلية جديدة فاضية — لو نفّذته أكتر من مرة، الأصناف هتتكرر.
+        </p>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+              معرف صيدلية القالب (pharmacy_id)
+            </label>
+            <input
+              value={templateId}
+              onChange={(e) => setTemplateId(e.target.value)}
+              placeholder="مثال: 8f0c1a2e-..."
+              style={{
+                width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                padding: "8px 12px", color: COLORS.textPrimary,
+                fontSize: 13, outline: "none", boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          {!confirmClone ? (
+            <Btn icon="upload" onClick={() => setConfirmClone(true)} disabled={!templateId.trim()}>
+              استنساخ من القالب
+            </Btn>
+          ) : (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn icon="check" onClick={cloneFromTemplate} disabled={cloning}>
+                {cloning ? "جارٍ الاستنساخ..." : "تأكيد الاستنساخ"}
+              </Btn>
+              <button
+                onClick={() => setConfirmClone(false)}
+                disabled={cloning}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, cursor: "pointer",
+                  border: `1px solid ${COLORS.border}`, background: "transparent",
+                  color: COLORS.textDim, fontSize: 13, fontWeight: 600,
+                }}
+              >
+                إلغاء
+              </button>
+            </div>
+          )}
+        </div>
+
+        {confirmClone && (
+          <p style={{ margin: "12px 0 0", fontSize: 12.5, color: COLORS.red, fontWeight: 600 }}>
+            ⚠️ هيتم إضافة كل أصناف القالب لصيدليتك دلوقتي. متأكد إنك مش عامل الاستنساخ ده قبل كده لنفس الصيدلية؟
+          </p>
+        )}
       </div>
     </div>
   );
@@ -14905,7 +14986,7 @@ function ProductFormModal({
 
   useEffect(() => {
     if (!pharmacyId) return;
-    supabase.from("active_ingredients").select("*").order("name_ar")
+    supabase.from("active_ingredients").select("*").eq("pharmacy_id", pharmacyId).order("name_ar")
       .then(({ data }) => { if (data) setAllIngredients(data); });
     supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId).order("name")
       .then(({ data }) => { if (data) setManufacturers(data); });
