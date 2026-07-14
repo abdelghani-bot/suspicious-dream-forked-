@@ -2194,19 +2194,24 @@ export default function PharmacyPro() {
   const [toast, setToast] = useState(null);
 
   // ── صلاحيات الدور الحالي (تتحكم في ظهور الأقسام + ما بداخلها) ──
-  const [rolePermissions, setRolePermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean }> | null>(null);
+  const [rolePermissions, setRolePermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean; can_add: boolean; can_delete: boolean }> | null>(null);
   useEffect(() => {
     if (!pharmacyId || !currentUser?.role) { setRolePermissions(null); return; }
     if (currentUser.role === "admin") { setRolePermissions("admin" as any); return; }
     supabase
       .from("role_permissions")
-      .select("section, sub_section, can_view, can_edit")
+      .select("section, sub_section, can_view, can_edit, can_add, can_delete")
       .eq("pharmacy_id", pharmacyId)
       .eq("role", currentUser.role)
       .then(({ data }) => {
-        const map: Record<string, { can_view: boolean; can_edit: boolean }> = {};
+        const map: Record<string, { can_view: boolean; can_edit: boolean; can_add: boolean; can_delete: boolean }> = {};
         (data || []).forEach((r: any) => {
-          map[permKey(r.section, r.sub_section)] = { can_view: r.can_view, can_edit: r.can_edit };
+          map[permKey(r.section, r.sub_section)] = {
+            can_view: r.can_view,
+            can_edit: r.can_edit,
+            can_add: r.can_add,
+            can_delete: r.can_delete,
+          };
         });
         setRolePermissions(map);
       });
@@ -2220,6 +2225,24 @@ export default function PharmacyPro() {
     // لو مفيش صلاحية محفوظة لعنصر فرعي بالذات، استخدم صلاحية القسم العام كافتراضي
     if (sub) return rolePermissions[permKey(section)]?.can_view ?? true;
     return true;
+  }, [rolePermissions]);
+
+  // ── إضافة عنصر جديد (منتج/مورد/عميل/... حسب القسم) ──
+  const canAdd = useCallback((section: string, sub?: string) => {
+    if (rolePermissions === "admin" || rolePermissions === null) return true;
+    const direct = rolePermissions[permKey(section, sub)];
+    if (direct) return direct.can_add;
+    if (sub) return rolePermissions[permKey(section)]?.can_add ?? false;
+    return false;
+  }, [rolePermissions]);
+
+  // ── حذف عنصر موجود ──
+  const canDelete = useCallback((section: string, sub?: string) => {
+    if (rolePermissions === "admin" || rolePermissions === null) return true;
+    const direct = rolePermissions[permKey(section, sub)];
+    if (direct) return direct.can_delete;
+    if (sub) return rolePermissions[permKey(section)]?.can_delete ?? false;
+    return false;
   }, [rolePermissions]);
 
   const canEdit = useCallback((section: string, sub?: string) => {
@@ -2956,6 +2979,8 @@ if (isLoading) return (
             manualSubtotal={purchManualSubtotal} setManualSubtotal={setPurchManualSubtotal}
             manualTax={purchManualTax} setManualTax={setPurchManualTax}
             showNew={purchShowNew} setShowNew={setPurchShowNew}
+            canAdd={canAdd("purchase")}
+            canEdit={canEdit("purchase")}
           />
         )}
         {tab === "sales_returns" && canView("returns", "sales") && (
@@ -3031,6 +3056,9 @@ if (isLoading) return (
             showToast={showToast}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
+            canAdd={canAdd("products")}
+            canDelete={canDelete("products")}
+            canEdit={canEdit("products")}
           />
         )}
         {tab === "suppliers" && canView("suppliers") && (
@@ -3046,6 +3074,10 @@ if (isLoading) return (
   pharmacyId={pharmacyId}
   currentUser={currentUser}
   setTreasuryEntries={setTreasuryEntries}
+  canAdd={canAdd("suppliers")}
+  canDelete={canDelete("suppliers")}
+  canEdit={canEdit("suppliers")}
+  canEditSub={(sub) => canEdit("suppliers", sub)}
 />
         )}
         {tab === "customers" && canView("customers") && (
@@ -3059,6 +3091,9 @@ if (isLoading) return (
             setCreditPayments={setCreditPayments}
             currentUser={currentUser}
             pharmacyId={pharmacyId}
+            canAdd={canAdd("customers")}
+            canDelete={canDelete("customers")}
+            canEdit={canEdit("customers")}
           />
         )}
         {tab === "reports" && canView("reports") && (
@@ -8505,6 +8540,8 @@ function PurchaseModule({
   manualSubtotal, setManualSubtotal,
   manualTax, setManualTax,
   showNew, setShowNew,
+  canAdd = true,
+  canEdit = true,
 }) {
   // 🆕 نافذة إضافة/تعديل صنف فوق فاتورة الشراء (من غير ما تقفل الفاتورة)
   const [showProductForm, setShowProductForm] = useState(false);
@@ -9484,6 +9521,10 @@ const LABEL_SIZES = [
   const total = subtotal + taxAmt;
 
   const savePurchase = async () => {
+    if (!canAdd) {
+      showToast("ليس لديك صلاحية إضافة فاتورة شراء", "error");
+      return;
+    }
     if (!selSupplier || items.length === 0) {
       showToast("يرجى اختيار المورد وإضافة أصناف", "error");
       return;
@@ -9635,7 +9676,7 @@ const LABEL_SIZES = [
           فواتير الشراء
         </h2>
         <div style={{ display: "flex", gap: 8 }}>
-          {!showNew && items.length > 0 && (
+          {canAdd && !showNew && items.length > 0 && (
             <Btn
               icon="edit"
               variant="secondary"
@@ -9644,21 +9685,23 @@ const LABEL_SIZES = [
               استكمال فاتورة الشراء ({items.length} صنف)
             </Btn>
           )}
-          <Btn
-            icon="plus"
-            onClick={() => {
-              if (items.length > 0) {
-                if (!window.confirm("في فاتورة شراء غير مكتملة، هل تريد إلغاؤها والبدء من جديد؟")) return;
-                setItems([]);
-                setManualSubtotal("");
-                setManualTax("");
-                clearPurchaseDraft();
-              }
-              setShowNew(true);
-            }}
-          >
-            فاتورة شراء جديدة
-          </Btn>
+          {canAdd && (
+            <Btn
+              icon="plus"
+              onClick={() => {
+                if (items.length > 0) {
+                  if (!window.confirm("في فاتورة شراء غير مكتملة، هل تريد إلغاؤها والبدء من جديد؟")) return;
+                  setItems([]);
+                  setManualSubtotal("");
+                  setManualTax("");
+                  clearPurchaseDraft();
+                }
+                setShowNew(true);
+              }}
+            >
+              فاتورة شراء جديدة
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -9674,8 +9717,9 @@ const LABEL_SIZES = [
         ]}
         rows={purchases.map((p) => [
           <span
-            style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer" }}
+            style={{ color: COLORS.blue, fontWeight: canEdit ? 700 : 400, cursor: canEdit ? "pointer" : "default" }}
             onClick={() => {
+              if (!canEdit) return;
               setShowDetail(p);
               setEditItems(
                 p.items.map((i) => ({
@@ -11151,6 +11195,10 @@ const LABEL_SIZES = [
             <Btn
               icon="check"
               onClick={async () => {
+                if (!canEdit) {
+                  showToast("ليس لديك صلاحية تعديل فواتير الشراء", "error");
+                  return;
+                }
                 const editCalcSubtotal = editItems.reduce(
                   (s, i) => s + i.receivedCost * i.qty,
                   0
@@ -11242,6 +11290,15 @@ const LABEL_SIZES = [
                     prev.map((x) => (stockDeltaById[x.id] !== undefined ? { ...x, stock: stockDeltaById[x.id] } : x))
                   );
                 }
+
+                // 🆕 كانت ناقصة: تسجيل التعديل في سجل التدقيق (كان بيتسجل الحذف والإضافة بس، مش التعديل)
+                logAudit({
+                  pharmacyId, userName: currentUser?.name, action: "edit", entityType: "purchase_invoice",
+                  entityId: showDetail.id, entityLabel: `فاتورة شراء ${showDetail.id}`,
+                  oldValue: { supplier: showDetail.supplier_name, total: showDetail.total },
+                  newValue: { supplier: updated.supplier_name, total: updated.total },
+                  description: `تعديل فاتورة الشراء "${showDetail.id}"`,
+                });
 
                 setPurchases((prev) =>
                   prev.map((p) => (p.id === showDetail.id ? updated : p))
@@ -15574,7 +15631,7 @@ function ProductFormModal({
   );
 }
 
-function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId, currentUser }) {
+function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId, currentUser, canAdd = true, canDelete = true, canEdit = true }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -15688,7 +15745,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الأصناف</h2>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn icon="settings" variant="secondary" onClick={() => { setMfrModalFromProductForm(false); setShowMfrModal(true); }}>الشركات المنتجة</Btn>
-          <Btn icon="plus" onClick={openAdd}>إضافة صنف</Btn>
+          {canAdd && <Btn icon="plus" onClick={openAdd}>إضافة صنف</Btn>}
         </div>
       </div>
 
@@ -15741,8 +15798,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                   : <Badge color={COLORS.redSoft} text={COLORS.red}>🚫 غير متوفر</Badge>
               )}
               <div style={{ display: "flex", gap: 5 }}>
-              <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>
-              <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
+              {canEdit && <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>}
+              {canDelete && <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
                 const { error } = await supabase.from("products").delete().eq("id", p.id).eq("pharmacy_id", pharmacyId);
                 if (error) { showToast("خطأ: " + error.message, "error"); return; }
                 logAudit({
@@ -15753,7 +15810,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                 });
                 setProducts((prev) => prev.filter((x) => x.id !== p.id));
                 showToast("تم حذف الصنف");
-              }}>حذف</Btn>
+              }}>حذف</Btn>}
               </div>
             </div>,
           ];
@@ -15783,7 +15840,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                       المتاح: {p.stock ?? 0} / الحد الأدنى: {p.minStock || p.min_stock || 0}
                     </div>
                   </div>
-                  <Btn size="sm" icon="edit" variant="secondary" onClick={() => { setShowLowStock(false); openEdit(p); }}>تعديل</Btn>
+                  {canEdit && <Btn size="sm" icon="edit" variant="secondary" onClick={() => { setShowLowStock(false); openEdit(p); }}>تعديل</Btn>}
                 </div>
               );
             })}
@@ -15853,7 +15910,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
                       "بناءً على معدل البيع الحالي، سينفد هذا الصنف بعد {forecast.daysLeft <= 0 ? "أقل من يوم" : `${forecast.daysLeft} ${forecast.daysLeft === 1 ? "يوم" : "أيام"}`}"
                     </div>
                   </div>
-                  <Btn size="sm" icon="edit" variant="secondary" onClick={() => { setShowStockoutForecast(false); openEdit(p); }}>تعديل</Btn>
+                  {canEdit && <Btn size="sm" icon="edit" variant="secondary" onClick={() => { setShowStockoutForecast(false); openEdit(p); }}>تعديل</Btn>}
                 </div>
               );
             })}
@@ -15913,6 +15970,10 @@ function SuppliersModule({
   pharmacyId,
   currentUser,
   setTreasuryEntries,
+  canAdd = true,
+  canDelete = true,
+  canEdit = true,
+  canEditSub = (_sub) => true,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -16686,7 +16747,7 @@ function SuppliersModule({
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الموردين</h2>
-        <Btn icon="plus" onClick={openAdd}>إضافة مورد</Btn>
+        {canAdd && <Btn icon="plus" onClick={openAdd}>إضافة مورد</Btn>}
       </div>
 
       {/* 🆕 تاب: قائمة الموردين / تحليل الموردين */}
@@ -16922,21 +16983,25 @@ function SuppliersModule({
 
               {/* أزرار — تظل ظاهرة دائماً للوصول السريع */}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: isExpanded ? 0 : 6 }} onClick={(e) => e.stopPropagation()}>
-                <Btn size="sm" icon="purchase" onClick={() => generateOrder(s)} style={{ flex: 1, justifyContent: "center", position: "relative" }} variant={status === "red" ? "danger" : "primary"}>
-                  طلب شراء
-                  {(pendingBySupplier[s.id]?.length > 0) && (
-                    <span style={{
-                      position: "absolute", top: -6, left: -6, background: COLORS.gold, color: "#1a1200",
-                      borderRadius: 99, fontSize: 10, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      {pendingBySupplier[s.id].length}
-                    </span>
-                  )}
-                </Btn>
-                <Btn size="sm" icon="money" onClick={() => { setShowPayForm(s); setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" }); }} variant="success">
-                  سداد
-                </Btn>
+                {canEditSub("purchase_order") && (
+                  <Btn size="sm" icon="purchase" onClick={() => generateOrder(s)} style={{ flex: 1, justifyContent: "center", position: "relative" }} variant={status === "red" ? "danger" : "primary"}>
+                    طلب شراء
+                    {(pendingBySupplier[s.id]?.length > 0) && (
+                      <span style={{
+                        position: "absolute", top: -6, left: -6, background: COLORS.gold, color: "#1a1200",
+                        borderRadius: 99, fontSize: 10, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        {pendingBySupplier[s.id].length}
+                      </span>
+                    )}
+                  </Btn>
+                )}
+                {canEditSub("payment") && (
+                  <Btn size="sm" icon="money" onClick={() => { setShowPayForm(s); setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" }); }} variant="success">
+                    سداد
+                  </Btn>
+                )}
                 <Btn size="sm" icon="chart" onClick={() => setShowDetail(s)} variant="secondary">تفاصيل</Btn>
                 {s.whatsapp && (
                   <button onClick={() => window.open(`https://wa.me/${s.whatsapp}`, "_blank")}
@@ -16944,8 +17009,8 @@ function SuppliersModule({
                     💬
                   </button>
                 )}
-                <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(s)}>تعديل</Btn>
-                <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
+                {canEdit && <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(s)}>تعديل</Btn>}
+                {canDelete && <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
                   const supplierDebt = getSupplierDebt(s.id);
                   if (supplierDebt > 0) {
                     if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف مورد عليه مديونية", "error"); return; }
@@ -16962,7 +17027,7 @@ function SuppliersModule({
                   });
                   setSuppliers((p) => p.filter((x) => x.id !== s.id));
                   showToast("تم حذف المورد");
-                }}>حذف</Btn>
+                }}>حذف</Btn>}
               </div>
             </div>
           );
@@ -17919,6 +17984,9 @@ function CustomersModule({
   setCreditPayments,
   currentUser,
   pharmacyId,
+  canAdd = true,
+  canDelete = true,
+  canEdit = true,
 }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -18343,30 +18411,34 @@ function CustomersModule({
                   🎁 ابعت عرض
                 </button>
               )}
-              <button onClick={() => openEdit(c)}
-                style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "5px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
-                ✏️ تعديل
-              </button>
-              <button onClick={async () => {
-                if (debt > 0) {
-                  if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف عميل عليه مديونية", "error"); return; }
-                  if (!window.confirm(`⚠️ على ${c.name} مديونية ${debt.toFixed(2)} ر.س
+              {canEdit && (
+                <button onClick={() => openEdit(c)}
+                  style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "5px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
+                  ✏️ تعديل
+                </button>
+              )}
+              {canDelete && (
+                <button onClick={async () => {
+                  if (debt > 0) {
+                    if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف عميل عليه مديونية", "error"); return; }
+                    if (!window.confirm(`⚠️ على ${c.name} مديونية ${debt.toFixed(2)} ر.س
 هل أنت متأكد من الحذف؟`)) return;
-                }
-                const { error } = await supabase.from("customers").delete().eq("id", c.id).eq("pharmacy_id", pharmacyId);
-                if (error) { showToast("خطأ في الحذف", "error"); return; }
-                logAudit({
-                  pharmacyId, userName: currentUser?.name, action: "delete", entityType: "customer",
-                  entityId: c.id, entityLabel: c.name,
-                  oldValue: { name: c.name, debt },
-                  description: `حذف العميل "${c.name}"${debt > 0 ? ` (وعليه مديونية ${debt.toFixed(2)} ر.س)` : ""}`,
-                });
-                setCustomers((p) => p.filter((x) => x.id !== c.id));
-                showToast("تم حذف العميل");
-              }}
-                style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>
-                🗑️ حذف
-              </button>
+                  }
+                  const { error } = await supabase.from("customers").delete().eq("id", c.id).eq("pharmacy_id", pharmacyId);
+                  if (error) { showToast("خطأ في الحذف", "error"); return; }
+                  logAudit({
+                    pharmacyId, userName: currentUser?.name, action: "delete", entityType: "customer",
+                    entityId: c.id, entityLabel: c.name,
+                    oldValue: { name: c.name, debt },
+                    description: `حذف العميل "${c.name}"${debt > 0 ? ` (وعليه مديونية ${debt.toFixed(2)} ر.س)` : ""}`,
+                  });
+                  setCustomers((p) => p.filter((x) => x.id !== c.id));
+                  showToast("تم حذف العميل");
+                }}
+                  style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>
+                  🗑️ حذف
+                </button>
+              )}
               {debt > 0 && (
                 <button onClick={() => openCreditModal && openCreditModal(c)}
                   style={{ background: "#2a1a00", border: `1px solid ${tint(COLORS.gold,0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
@@ -18496,9 +18568,11 @@ function CustomersModule({
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
           إدارة العملاء
         </h2>
-        <Btn icon="plus" onClick={openAdd}>
-          إضافة عميل
-        </Btn>
+        {canAdd && (
+          <Btn icon="plus" onClick={openAdd}>
+            إضافة عميل
+          </Btn>
+        )}
       </div>
 
       {/* بطاقات الإحصائيات */}
@@ -27297,17 +27371,10 @@ const SYSTEM_SECTIONS = [
       { id: "sales",     label: "مرتجع المبيعات" },
       { id: "purchases", label: "مرتجع المشتريات" },
     ] },
-  { id: "products",          label: "الأصناف والمخزون",    icon: "💊", subItems: [
-      { id: "add",    label: "إضافة صنف" },
-      { id: "edit",   label: "تعديل" },
-      { id: "delete", label: "حذف" },
-    ] },
+  { id: "products",          label: "الأصناف والمخزون",    icon: "💊" },
   { id: "suppliers",         label: "الموردون",             icon: "🏭", subItems: [
       { id: "purchase_order", label: "طلب شراء" },
       { id: "payment",        label: "سداد" },
-      { id: "edit",           label: "تعديل" },
-      { id: "delete",         label: "حذف" },
-      { id: "add",            label: "إضافة مورد" },
     ] },
   { id: "customers",         label: "العملاء",              icon: "👥" },
   { id: "loyalty",           label: "نقاط الولاء",         icon: "🌟" },
@@ -27371,7 +27438,7 @@ function PermissionsModule({
   currentUser?: any;
 }) {
   const [activeTab, setActiveTab] = useState<"permissions" | "users">("permissions");
-  const [perms, setPerms] = useState<Record<string, Record<string, { can_view: boolean; can_edit: boolean }>>>({});
+  const [perms, setPerms] = useState<Record<string, Record<string, { can_view: boolean; can_edit: boolean; can_add: boolean; can_delete: boolean }>>>({});
   const [roles, setRoles] = useState<string[]>(DEFAULT_ROLES);
   const [selectedRole, setSelectedRole] = useState("pharmacist");
   const [loading, setLoading] = useState(true);
@@ -27396,13 +27463,18 @@ function PermissionsModule({
     const load = async () => {
       setLoading(true);
       const { data } = await supabase.from("role_permissions").select("*").eq("pharmacy_id", pharmacyId);
-      const map: Record<string, Record<string, { can_view: boolean; can_edit: boolean }>> = {};
+      const map: Record<string, Record<string, { can_view: boolean; can_edit: boolean; can_add: boolean; can_delete: boolean }>> = {};
       const foundRoles = new Set<string>(DEFAULT_ROLES);
       if (data) {
         data.forEach((r: any) => {
           foundRoles.add(r.role);
           if (!map[r.role]) map[r.role] = {};
-          map[r.role][permKey(r.section, r.sub_section)] = { can_view: r.can_view, can_edit: r.can_edit };
+          map[r.role][permKey(r.section, r.sub_section)] = {
+            can_view: r.can_view,
+            can_edit: r.can_edit,
+            can_add: r.can_add ?? r.can_edit,
+            can_delete: r.can_delete ?? r.can_edit,
+          };
         });
       }
       [...foundRoles].forEach((role) => {
@@ -27411,11 +27483,19 @@ function PermissionsModule({
         // وميشوفش المبيعات/العملاء/الخزنة/التقارير المالية أصلاً.
         const WAREHOUSE_SECTIONS = ["purchase", "products", "suppliers", "returns", "inventory_count", "expiry_report"];
         SYSTEM_SECTIONS.forEach((sec) => {
-          const defaultPerm = role === "cashier"
-            ? { can_view: sec.id === "pos", can_edit: sec.id === "pos" }
+          const canEditDefault = role === "cashier"
+            ? sec.id === "pos"
             : role === "warehouse"
-              ? { can_view: WAREHOUSE_SECTIONS.includes(sec.id), can_edit: WAREHOUSE_SECTIONS.includes(sec.id) }
-              : { can_view: true, can_edit: sec.id !== "pharmacy_settings" && sec.id !== "rasd_settings" };
+              ? WAREHOUSE_SECTIONS.includes(sec.id)
+              : sec.id !== "pharmacy_settings" && sec.id !== "rasd_settings";
+          const canViewDefault = role === "cashier"
+            ? sec.id === "pos"
+            : role === "warehouse"
+              ? WAREHOUSE_SECTIONS.includes(sec.id)
+              : true;
+          // ── can_add/can_delete تتبع نفس افتراض can_edit، بنفس المنطق اللي كان
+          //    مطبّق ضمنيًا قبل ما تتفصل الصلاحيات لأربعة ──
+          const defaultPerm = { can_view: canViewDefault, can_edit: canEditDefault, can_add: canEditDefault, can_delete: canEditDefault };
           if (!map[role][permKey(sec.id)]) map[role][permKey(sec.id)] = defaultPerm;
           (sec.subItems || []).forEach((sub) => {
             if (!map[role][permKey(sec.id, sub.id)]) map[role][permKey(sec.id, sub.id)] = { ...defaultPerm };
@@ -27441,17 +27521,24 @@ function PermissionsModule({
     load();
   }, [pharmacyId, activeTab]);
 
-  const togglePerm = (section: string, type: "can_view" | "can_edit") => {
+  const togglePerm = (section: string, type: "can_view" | "can_edit" | "can_add" | "can_delete") => {
     setPerms((prev) => {
       const rolePerms = { ...(prev[selectedRole] || {}) };
-      const current = rolePerms[section] || { can_view: false, can_edit: false };
+      const current = rolePerms[section] || { can_view: false, can_edit: false, can_add: false, can_delete: false };
       let updated = { ...current };
       if (type === "can_view") {
         updated.can_view = !current.can_view;
-        if (!updated.can_view) updated.can_edit = false;
-      } else {
+        // ── إلغاء العرض يلغي كل الصلاحيات التانية معاه، لأنها كلها محتاجة تشوف القسم الأول ──
+        if (!updated.can_view) { updated.can_edit = false; updated.can_add = false; updated.can_delete = false; }
+      } else if (type === "can_edit") {
         updated.can_edit = !current.can_edit;
         if (updated.can_edit) updated.can_view = true;
+      } else if (type === "can_add") {
+        updated.can_add = !current.can_add;
+        if (updated.can_add) updated.can_view = true;
+      } else {
+        updated.can_delete = !current.can_delete;
+        if (updated.can_delete) updated.can_view = true;
       }
       return { ...prev, [selectedRole]: { ...rolePerms, [section]: updated } };
     });
@@ -27464,9 +27551,13 @@ function PermissionsModule({
       SYSTEM_SECTIONS.forEach((sec) => {
         const keys = [permKey(sec.id), ...(sec.subItems || []).map((sub) => permKey(sec.id, sub.id))];
         keys.forEach((k) => {
-          if (type === "view_all") rolePerms[k] = { can_view: true, can_edit: rolePerms[k]?.can_edit ?? false };
-          else if (type === "edit_all") rolePerms[k] = { can_view: true, can_edit: true };
-          else rolePerms[k] = { can_view: false, can_edit: false };
+          if (type === "view_all") {
+            rolePerms[k] = { can_view: true, can_edit: rolePerms[k]?.can_edit ?? false, can_add: rolePerms[k]?.can_add ?? false, can_delete: rolePerms[k]?.can_delete ?? false };
+          } else if (type === "edit_all") {
+            rolePerms[k] = { can_view: true, can_edit: true, can_add: true, can_delete: true };
+          } else {
+            rolePerms[k] = { can_view: false, can_edit: false, can_add: false, can_delete: false };
+          }
         });
       });
       return { ...prev, [selectedRole]: rolePerms };
@@ -27485,6 +27576,8 @@ function PermissionsModule({
         sub_section: "",
         can_view: perms[selectedRole]?.[permKey(sec.id)]?.can_view ?? true,
         can_edit: perms[selectedRole]?.[permKey(sec.id)]?.can_edit ?? false,
+        can_add: perms[selectedRole]?.[permKey(sec.id)]?.can_add ?? false,
+        can_delete: perms[selectedRole]?.[permKey(sec.id)]?.can_delete ?? false,
         updated_at: new Date().toISOString(),
       });
       (sec.subItems || []).forEach((sub) => {
@@ -27495,6 +27588,8 @@ function PermissionsModule({
           sub_section: sub.id,
           can_view: perms[selectedRole]?.[permKey(sec.id, sub.id)]?.can_view ?? true,
           can_edit: perms[selectedRole]?.[permKey(sec.id, sub.id)]?.can_edit ?? false,
+          can_add: perms[selectedRole]?.[permKey(sec.id, sub.id)]?.can_add ?? false,
+          can_delete: perms[selectedRole]?.[permKey(sec.id, sub.id)]?.can_delete ?? false,
           updated_at: new Date().toISOString(),
         });
       });
@@ -27510,10 +27605,10 @@ function PermissionsModule({
     const name = newRoleName.trim();
     if (!name) return;
     if (roles.includes(name)) return showToast("الدور موجود بالفعل", "warn");
-    const defaultPerms: Record<string, { can_view: boolean; can_edit: boolean }> = {};
+    const defaultPerms: Record<string, { can_view: boolean; can_edit: boolean; can_add: boolean; can_delete: boolean }> = {};
     SYSTEM_SECTIONS.forEach((sec) => {
-      defaultPerms[permKey(sec.id)] = { can_view: true, can_edit: false };
-      (sec.subItems || []).forEach((sub) => { defaultPerms[permKey(sec.id, sub.id)] = { can_view: true, can_edit: false }; });
+      defaultPerms[permKey(sec.id)] = { can_view: true, can_edit: false, can_add: false, can_delete: false };
+      (sec.subItems || []).forEach((sub) => { defaultPerms[permKey(sec.id, sub.id)] = { can_view: true, can_edit: false, can_add: false, can_delete: false }; });
     });
     setRoles((p) => [...p, name]);
     setPerms((p) => ({ ...p, [name]: defaultPerms }));
@@ -27591,6 +27686,8 @@ function PermissionsModule({
   const currentRolePerms = perms[selectedRole] || {};
   const viewCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_view).length;
   const editCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_edit).length;
+  const addCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_add).length;
+  const deleteCount = SYSTEM_SECTIONS.filter((s) => currentRolePerms[s.id]?.can_delete).length;
 
   // حراسة إضافية (طبقة دفاع ثانية): لو وصل لغير أدمن للموديول ده بأي طريقة، يتمنع فورًا
   if (currentUser?.role !== "admin") {
@@ -27666,11 +27763,13 @@ function PermissionsModule({
             </div>
 
             <div style={{ flex: 1 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
                 {[
                   { val: viewCount, label: "قسم مرئي", color: VAR.accent },
-                  { val: editCount, label: "قسم قابل للتعديل", color: COLORS.green },
-                  { val: SYSTEM_SECTIONS.length - viewCount, label: "قسم مخفي", color: COLORS.red },
+                  { val: editCount, label: "قابل للتعديل", color: COLORS.green },
+                  { val: addCount, label: "قابل للإضافة", color: COLORS.blue },
+                  { val: deleteCount, label: "قابل للحذف", color: COLORS.red },
+                  { val: SYSTEM_SECTIONS.length - viewCount, label: "قسم مخفي", color: VAR.muted },
                 ].map((s, i) => (
                   <div key={i} style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 10, padding: "12px 16px" }}>
                     <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.val}</div>
@@ -27686,19 +27785,21 @@ function PermissionsModule({
               </div>
 
               <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "12px 20px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 90px 90px", padding: "12px 20px", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700 }}>القسم</div>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>عرض 👁️</div>
                   <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>تعديل ✏️</div>
+                  <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>إضافة ➕</div>
+                  <div style={{ fontSize: 12, color: VAR.muted, fontWeight: 700, textAlign: "center" }}>حذف 🗑️</div>
                 </div>
                 {SYSTEM_SECTIONS.map((sec, i) => {
-                  const p = currentRolePerms[permKey(sec.id)] || { can_view: false, can_edit: false };
+                  const p = currentRolePerms[permKey(sec.id)] || { can_view: false, can_edit: false, can_add: false, can_delete: false };
                   const hasSubItems = (sec.subItems || []).length > 0;
                   const isExpanded = !!expandedSections[sec.id];
                   return (
                     <div key={sec.id}>
                       <div style={{
-                        display: "grid", gridTemplateColumns: "1fr 120px 120px",
+                        display: "grid", gridTemplateColumns: "1fr 90px 90px 90px 90px",
                         padding: "13px 20px", alignItems: "center",
                         borderBottom: (i < SYSTEM_SECTIONS.length - 1 || (hasSubItems && isExpanded)) ? `1px solid ${COLORS.border}` : "none",
                         background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
@@ -27715,13 +27816,23 @@ function PermissionsModule({
                           )}
                         </div>
                         <div style={{ display: "flex", justifyContent: "center" }}>
-                          <button onClick={() => togglePerm(permKey(sec.id), "can_view")} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_view ? COLORS.greenSoft : COLORS.redSoft, cursor: "pointer", position: "relative" }}>
-                            <div style={{ position: "absolute", top: 3, right: p.can_view ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_view")} style={{ width: 40, height: 24, borderRadius: 12, border: "none", background: p.can_view ? COLORS.greenSoft : COLORS.redSoft, cursor: "pointer", position: "relative" }}>
+                            <div style={{ position: "absolute", top: 3, right: p.can_view ? 3 : 19, width: 18, height: 18, borderRadius: "50%", background: p.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
                           </button>
                         </div>
                         <div style={{ display: "flex", justifyContent: "center" }}>
-                          <button onClick={() => togglePerm(permKey(sec.id), "can_edit")} disabled={!p.can_view} style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: p.can_edit ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
-                            <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 22, width: 20, height: 20, borderRadius: "50%", background: p.can_edit ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_edit")} disabled={!p.can_view} style={{ width: 40, height: 24, borderRadius: 12, border: "none", background: p.can_edit ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
+                            <div style={{ position: "absolute", top: 3, right: p.can_edit ? 3 : 19, width: 18, height: 18, borderRadius: "50%", background: p.can_edit ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
+                          </button>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_add")} disabled={!p.can_view} style={{ width: 40, height: 24, borderRadius: 12, border: "none", background: p.can_add ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
+                            <div style={{ position: "absolute", top: 3, right: p.can_add ? 3 : 19, width: 18, height: 18, borderRadius: "50%", background: p.can_add ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
+                          </button>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <button onClick={() => togglePerm(permKey(sec.id), "can_delete")} disabled={!p.can_view} style={{ width: 40, height: 24, borderRadius: 12, border: "none", background: p.can_delete ? COLORS.redSoft : COLORS.surfaceAlt, cursor: p.can_view ? "pointer" : "not-allowed", position: "relative", opacity: p.can_view ? 1 : 0.4 }}>
+                            <div style={{ position: "absolute", top: 3, right: p.can_delete ? 3 : 19, width: 18, height: 18, borderRadius: "50%", background: p.can_delete ? COLORS.red : COLORS.border, transition: "right 0.2s" }} />
                           </button>
                         </div>
                       </div>
@@ -27730,10 +27841,10 @@ function PermissionsModule({
                       {hasSubItems && isExpanded && (
                         <div style={{ background: COLORS.surfaceAlt }}>
                           {sec.subItems.map((sub, si) => {
-                            const sp = currentRolePerms[permKey(sec.id, sub.id)] || { can_view: false, can_edit: false };
+                            const sp = currentRolePerms[permKey(sec.id, sub.id)] || { can_view: false, can_edit: false, can_add: false, can_delete: false };
                             return (
                               <div key={sub.id} style={{
-                                display: "grid", gridTemplateColumns: "1fr 120px 120px",
+                                display: "grid", gridTemplateColumns: "1fr 90px 90px 90px 90px",
                                 padding: "10px 20px 10px 20px", paddingRight: 44, alignItems: "center",
                                 borderBottom: (si < sec.subItems.length - 1 || i < SYSTEM_SECTIONS.length - 1) ? `1px solid ${COLORS.border}` : "none",
                                 opacity: !sp.can_view ? 0.55 : 1,
@@ -27743,13 +27854,23 @@ function PermissionsModule({
                                   <span style={{ fontSize: 12.5, color: sp.can_view ? VAR.text : VAR.muted }}>{sub.label}</span>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "center" }}>
-                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_view")} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_view ? COLORS.greenSoft : COLORS.redSoft, cursor: "pointer", position: "relative" }}>
-                                    <div style={{ position: "absolute", top: 2, right: sp.can_view ? 2 : 19, width: 18, height: 18, borderRadius: "50%", background: sp.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_view")} style={{ width: 36, height: 20, borderRadius: 10, border: "none", background: sp.can_view ? COLORS.greenSoft : COLORS.redSoft, cursor: "pointer", position: "relative" }}>
+                                    <div style={{ position: "absolute", top: 2, right: sp.can_view ? 2 : 17, width: 16, height: 16, borderRadius: "50%", background: sp.can_view ? COLORS.green : COLORS.red, transition: "right 0.2s" }} />
                                   </button>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "center" }}>
-                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_edit")} disabled={!sp.can_view} style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: sp.can_edit ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: sp.can_view ? "pointer" : "not-allowed", position: "relative", opacity: sp.can_view ? 1 : 0.4 }}>
-                                    <div style={{ position: "absolute", top: 2, right: sp.can_edit ? 2 : 19, width: 18, height: 18, borderRadius: "50%", background: sp.can_edit ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_edit")} disabled={!sp.can_view} style={{ width: 36, height: 20, borderRadius: 10, border: "none", background: sp.can_edit ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: sp.can_view ? "pointer" : "not-allowed", position: "relative", opacity: sp.can_view ? 1 : 0.4 }}>
+                                    <div style={{ position: "absolute", top: 2, right: sp.can_edit ? 2 : 17, width: 16, height: 16, borderRadius: "50%", background: sp.can_edit ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
+                                  </button>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "center" }}>
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_add")} disabled={!sp.can_view} style={{ width: 36, height: 20, borderRadius: 10, border: "none", background: sp.can_add ? COLORS.blueSoft : COLORS.surfaceAlt, cursor: sp.can_view ? "pointer" : "not-allowed", position: "relative", opacity: sp.can_view ? 1 : 0.4 }}>
+                                    <div style={{ position: "absolute", top: 2, right: sp.can_add ? 2 : 17, width: 16, height: 16, borderRadius: "50%", background: sp.can_add ? COLORS.blue : COLORS.border, transition: "right 0.2s" }} />
+                                  </button>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "center" }}>
+                                  <button onClick={() => togglePerm(permKey(sec.id, sub.id), "can_delete")} disabled={!sp.can_view} style={{ width: 36, height: 20, borderRadius: 10, border: "none", background: sp.can_delete ? COLORS.redSoft : COLORS.surfaceAlt, cursor: sp.can_view ? "pointer" : "not-allowed", position: "relative", opacity: sp.can_view ? 1 : 0.4 }}>
+                                    <div style={{ position: "absolute", top: 2, right: sp.can_delete ? 2 : 17, width: 16, height: 16, borderRadius: "50%", background: sp.can_delete ? COLORS.red : COLORS.border, transition: "right 0.2s" }} />
                                   </button>
                                 </div>
                               </div>
