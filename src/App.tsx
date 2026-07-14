@@ -2385,7 +2385,7 @@ export default function PharmacyPro() {
       .then(({ data }) => { if (data) setPosPromos(data); });
     supabase.from("promo_rules").select("*").eq("pharmacy_id", pharmacyId).order("days")
       .then(({ data }) => { if (data && data.length > 0) setPosDiscountRules(data); });
-    supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).single()
+    supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).maybeSingle()
       .then(({ data }) => { if (data?.auto_config) setPosAutoPromoConfig((prev) => ({ ...prev, ...data.auto_config })); });
   }, [pharmacyId]);
   const [isLoading, setIsLoading] = useState(false);
@@ -18155,6 +18155,7 @@ function CustomersModule({
   });
 
   // ===== عملاء اليوم =====
+  const now = new Date();
   const todayKey = now.toISOString().slice(0, 10);
   const todayIds = [
     ...new Set(
@@ -19713,7 +19714,7 @@ function PromotionsModule({
       // ── الشركات المنتجة مفلترة بالصيدلية ──
       supabase.from("manufacturers").select("id, name").eq("pharmacy_id", pharmacyId).order("name"),
       // ── إعدادات الإضافة التلقائية المحفوظة ──
-      supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).single(),
+      supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).maybeSingle(),
       // ── سجل طباعة العروض (لإعادة الطباعة لاحقًا) ──
       supabase.from("promo_print_log")
         .select("*")
