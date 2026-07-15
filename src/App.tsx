@@ -1782,7 +1782,7 @@ const RasdQueue = {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(queue));
   },
 
-  // type: "sale" | "saleCancel" | "return" | "accept" | "acceptByBatch" | "returnByBatch" | "transferByBatch" | "transferCancelByBatch"
+  // type: "sale" | "saleCancel" | "return" | "accept" | "acceptByBatch" | "returnByBatch" | "transferByBatch" | "transferCancelByBatch" | "deactivate"
   enqueue(type, payload) {
     const queue = this._load();
     queue.push({
@@ -1817,6 +1817,8 @@ const RasdQueue = {
         return RasdService.notifyPharmacySaleCancel(item.payload);
       case "return":
         return RasdService.notifyReturn(item.payload);
+      case "deactivate":
+        return RasdService.notifyDeactivate(item.payload);
       default:
         return { success: false, error: "نوع عملية غير معروف: " + item.type };
     }
@@ -2393,6 +2395,113 @@ export default function PharmacyPro() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // إخراج الأصناف منتهية الصلاحية من المخزون الفعلي (يستخدمها تقرير الصلاحيات)
+  // بيشيل بس التشغيلات (batches) المنتهية المحددة من كل صنف، وبيحدّث الكمية
+  // الإجمالية للصنف تبعًا لذلك، وبيسجّل العملية في سجل العمليات (audit log).
+  const handleRemoveExpiredStock = useCallback(
+    async (expiredItems) => {
+      if (!expiredItems || expiredItems.length === 0) return;
+      const totalQty = expiredItems.reduce((s, i) => s + (i.stock || 0), 0);
+      const confirmed = window.confirm(
+        `هيتم إخراج ${expiredItems.length} تشغيلة منتهية الصلاحية (إجمالي ${totalQty} وحدة) من المخزون نهائيًا. هل تريد المتابعة؟`
+      );
+      if (!confirmed) return;
+
+      // تجميع التشغيلات المنتهية حسب الصنف
+      const byProduct = {};
+      expiredItems.forEach((i) => {
+        if (!byProduct[i.productId]) byProduct[i.productId] = [];
+        byProduct[i.productId].push(i);
+      });
+
+      const updates = Object.keys(byProduct).map((productId) => {
+        const prod = products.find((x) => x.id === productId);
+        const toRemove = byProduct[productId];
+        const remainingBatches = (prod?.batches || []).filter(
+          (b) =>
+            !toRemove.some(
+              (r) =>
+                (r.expiry || "") === (b.expiry_date || "") &&
+                (r.batchNumber || null) === (b.batch_number || null)
+            )
+        );
+        const newStock = remainingBatches.reduce((s, b) => s + (b.qty || 0), 0);
+        return { productId, prod, remainingBatches, newStock, removedQty: toRemove.reduce((s, r) => s + (r.stock || 0), 0) };
+      });
+
+      try {
+        await Promise.all(
+          updates.map((u) =>
+            supabase
+              .from("products")
+              .update({ stock: u.newStock, batches: u.remainingBatches })
+              .eq("id", u.productId)
+              .eq("pharmacy_id", pharmacyId)
+          )
+        );
+
+        setProducts((prev) =>
+          prev.map((x) => {
+            const u = updates.find((uu) => uu.productId === x.id);
+            return u ? { ...x, stock: u.newStock, batches: u.remainingBatches } : x;
+          })
+        );
+
+        await Promise.all(
+          updates.map((u) =>
+            logAudit({
+              pharmacyId,
+              userName: currentUser?.name,
+              action: "update",
+              entityType: "product",
+              entityId: u.productId,
+              entityLabel: u.prod?.name,
+              description: `إخراج ${u.removedQty} وحدة منتهية الصلاحية من المخزون (تقرير الصلاحيات)`,
+              oldValue: { stock: u.prod?.stock, batches: u.prod?.batches },
+              newValue: { stock: u.newStock, batches: u.remainingBatches },
+            })
+          )
+        );
+
+        // إبلاغ رصد (SFDA) بإخراج الأصناف المنتهية — عن طريق نفس طابور رصد المستخدم
+        // في باقي العمليات (بيع/إرجاع)، عشان لو رصد واقع أو مفيش نت دلوقتي، العملية
+        // هتترفع تلقائيًا أول ما الاتصال يرجع، من غير ما توقف إخراج المخزون المحلي.
+        let rasdQueued = false;
+        try {
+          const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+          if (rasdConfig.enabled) {
+            const rasdItems = expiredItems
+              .map((i) => {
+                const prod = products.find((x) => x.id === i.productId);
+                const gtin = prod?.gtin || prod?.barcode;
+                if (!gtin) return null;
+                return { gtin, quantity: i.stock, batch: i.batchNumber || undefined, expiry: i.expiry };
+              })
+              .filter(Boolean);
+            if (rasdItems.length > 0) {
+              RasdQueue.enqueue("deactivate", {
+                dr: "20", // سحب بسبب انتهاء الصلاحية
+                explanation: "إخراج تلقائي من تقرير الصلاحيات",
+                items: rasdItems,
+              });
+              rasdQueued = true;
+            }
+          }
+        } catch (e) {
+          console.error("rasd deactivate enqueue failed:", e);
+        }
+
+        showToast(
+          `✓ تم إخراج ${totalQty} وحدة منتهية الصلاحية من المخزون` +
+            (rasdQueued ? " — وتم إرسال إشعار الإخراج لرصد" : "")
+        );
+      } catch (e) {
+        showToast("❌ حصل خطأ أثناء إخراج الأصناف المنتهية: " + (e?.message || ""), "error");
+      }
+    },
+    [products, pharmacyId, currentUser, showToast]
+  );
 
   // تشغيل الرفع التلقائي الدوري لعمليات رصد المتراكمة (Queue)
   useEffect(() => {
@@ -3033,7 +3142,7 @@ if (isLoading) return (
         {tab === "audit_log" && currentUser?.role === "admin" && (
           <AuditLogModule pharmacyId={pharmacyId} showToast={showToast} />
         )}
-        {tab === "expiry_report" && canView("expiry_report") && <ExpiryReport purchases={purchases} />}
+        {tab === "expiry_report" && canView("expiry_report") && <ExpiryReport products={products} onRemoveExpired={handleRemoveExpiredStock} />}
         {tab === "inventory_count" && canView("inventory_count") && (
           <InventoryCount
             products={products}
@@ -13500,26 +13609,30 @@ function RasdSettings({ showToast, products, pharmacyId }) {
   );
 }
 // ======================== Expiry Report ==========================
-function ExpiryReport({ purchases, onRemoveExpired }) {
+function ExpiryReport({ products, onRemoveExpired }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const [expandedMonth, setExpandedMonth] = useState(null);
   const [showExpiredDetail, setShowExpiredDetail] = useState(false);
+  const [customMonth, setCustomMonth] = useState(""); // "YYYY-MM" - أي شهر يختاره المستخدم
 
-  // ===== flatten الأصناف مع batches =====
-  const allItems = (purchases ?? []).flatMap((po) =>
-    (po.items ?? [])
-      .filter((i) => i.expiry_date)
-      .map((i) => ({
-        id: i.id,
-        name: i.name,
-        barcode: i.barcode ?? "-",
-        expiry: i.expiry_date,
-        stock: (i.qty ?? 0) + (i.bonusQty ?? 0),
-        cost: i.cost ?? 0,
-        price: i.salePrice ?? 0,
-        invoiceId: po.id,
+  // ===== flatten الأصناف مع batches — من المخزون الحالي الفعلي (وقت البحث) =====
+  // بنبني القايمة من products[].batches بدل فواتير الشراء، عشان لو الصنف اتباع
+  // (والكمية في التشغيلة بقت صفر) ميفضلش ظاهر في التقرير غلط.
+  const allItems = (products ?? []).flatMap((p) =>
+    (p.batches ?? [])
+      .filter((b) => b.expiry_date && (b.qty ?? 0) > 0)
+      .map((b, idx) => ({
+        id: `${p.id}::${b.batch_number || idx}::${b.expiry_date}`,
+        productId: p.id,
+        name: p.name,
+        barcode: p.barcode ?? "-",
+        expiry: b.expiry_date,
+        stock: b.qty ?? 0,
+        cost: b.cost ?? p.cost ?? 0,
+        price: b.salePrice ?? p.price ?? 0,
+        batchNumber: b.batch_number || null,
       }))
   );
 
@@ -13528,7 +13641,7 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
     (p) => p.expiry && new Date(p.expiry) < today
   );
 
-  // ===== 6 أشهر قادمة =====
+  // ===== 6 أشهر قادمة (اختصار سريع) =====
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
@@ -13542,12 +13655,18 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
     return { key, label };
   });
 
+  // بيرجع أصناف أي شهر (ماضي أو مستقبل) حسب المخزون الحالي وقت البحث
   const getMonthItems = (key) =>
-    allItems.filter((p) => {
-      if (!p.expiry) return false;
-      if (new Date(p.expiry) < today) return false;
-      return p.expiry.startsWith(key);
+    allItems.filter((p) => p.expiry && p.expiry.startsWith(key));
+
+  const formatMonthLabel = (key) => {
+    if (!key) return "";
+    const [y, m] = key.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("ar-EG", {
+      month: "long",
+      year: "numeric",
     });
+  };
 
   const calcTotals = (items) => ({
     count: items.length,
@@ -13748,6 +13867,77 @@ function ExpiryReport({ purchases, onRemoveExpired }) {
           <ItemsTable items={expired} />
         )}
       </div>
+
+      {/* ===== بحث بأي شهر ===== */}
+      <div style={{ ...card(COLORS.border), marginBottom: 24, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700, fontSize: 14, color: COLORS.textPrimary }}>
+          🔍 بحث بشهر معيّن
+        </span>
+        <input
+          type="month"
+          value={customMonth}
+          onChange={(e) => setCustomMonth(e.target.value)}
+          style={{
+            background: COLORS.surfaceAlt,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: 8,
+            padding: "7px 10px",
+            color: COLORS.textPrimary,
+            fontSize: 13,
+          }}
+        />
+        {customMonth && (
+          <button style={btn(COLORS.border)} onClick={() => setCustomMonth("")}>
+            ✖ مسح
+          </button>
+        )}
+        <span style={{ color: COLORS.textDim, fontSize: 12 }}>
+          النتيجة بتتحسب من المخزون الحالي وقت البحث (مش من فواتير الشراء)
+        </span>
+      </div>
+
+      {customMonth &&
+        (() => {
+          const items = getMonthItems(customMonth);
+          const { costTotal, sellTotal } = calcTotals(items);
+          const label = formatMonthLabel(customMonth);
+          return (
+            <div style={{ ...card(COLORS.blueSoft), marginBottom: 24 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
+                <h4 style={{ margin: 0, color: COLORS.textPrimary, fontSize: 14 }}>
+                  📋 أصناف {label} ({items.length} صنف)
+                </h4>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700 }}>
+                    تكلفة: {costTotal.toFixed(2)}
+                  </span>
+                  <span style={{ color: COLORS.green, fontSize: 12, fontWeight: 700 }}>
+                    بيع: {sellTotal.toFixed(2)}
+                  </span>
+                  {items.length > 0 && (
+                    <button style={btn("#1a3a7a")} onClick={() => handlePrint(label, items)}>
+                      🖨️ طباعة
+                    </button>
+                  )}
+                </div>
+              </div>
+              {items.length > 0 ? (
+                <ItemsTable items={items} />
+              ) : (
+                <div style={{ color: COLORS.textDim, fontSize: 13, marginTop: 8 }}>
+                  لا يوجد أصناف بمخزون حالي منتهية الصلاحية في هذا الشهر
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {/* ===== 6 أشهر ===== */}
       <h3
