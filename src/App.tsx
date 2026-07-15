@@ -22275,6 +22275,8 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const [showFixedForm, setShowFixedForm] = useState(false);
   const [showLicenseForm, setShowLicenseForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
+  const [hideBalances, setHideBalances] = useState(false); // 🆕 إخفاء/إظهار أرقام الكروت العلوية للخزنة
+  const [licensePayAmount, setLicensePayAmount] = useState({}); // 🆕 مبلغ السداد القابل للتعديل لكل ترخيص { [licenseId]: "value" }
   const printRef = useRef(null);
 
   // 🆕 بيانات الصيدلية (اسم/عنوان/رقم ضريبي) لعرضها في رأس تقرير التقفيل المطبوع
@@ -22866,19 +22868,29 @@ useEffect(() => {
 
       {/* ── رصيد الخزنة اللحظي ── */}
       {canViewOverview && (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
-        {[
-          { label: "💵 نقدي", value: balanceCash, color: COLORS.green },
-          { label: "💳 بطاقة", value: balanceCard, color: COLORS.blue },
-          { label: "🏦 تحويل", value: balanceTransfer, color: COLORS.purple },
-          { label: "📦 الإجمالي", value: balanceTotal, color: COLORS.gold },
-        ].map((b) => (
-          <div key={b.label} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14, textAlign: "center" }}>
-            <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>{b.label}</div>
-            <div style={{ color: b.value < 0 ? COLORS.red : b.color, fontWeight: 900, fontSize: 18 }}>{b.value.toFixed(2)}</div>
-            <div style={{ color: COLORS.border, fontSize: 10 }}>ر.س</div>
-          </div>
-        ))}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <button
+            onClick={() => setHideBalances((v) => !v)}
+            title={hideBalances ? "إظهار الأرقام" : "إخفاء الأرقام"}
+            style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+            {hideBalances ? "👁️ إظهار الأرقام" : "🙈 إخفاء الأرقام"}
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+          {[
+            { label: "💵 نقدي", value: balanceCash, color: COLORS.green },
+            { label: "💳 بطاقة", value: balanceCard, color: COLORS.blue },
+            { label: "🏦 تحويل", value: balanceTransfer, color: COLORS.purple },
+            { label: "📦 الإجمالي", value: balanceTotal, color: COLORS.gold },
+          ].map((b) => (
+            <div key={b.label} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14, textAlign: "center" }}>
+              <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>{b.label}</div>
+              <div style={{ color: b.value < 0 ? COLORS.red : b.color, fontWeight: 900, fontSize: 18 }}>{hideBalances ? "••••" : b.value.toFixed(2)}</div>
+              <div style={{ color: COLORS.border, fontSize: 10 }}>{hideBalances ? "" : "ر.س"}</div>
+            </div>
+          ))}
+        </div>
       </div>
       )}
 
@@ -23445,6 +23457,7 @@ useEffect(() => {
             : licenses.map((l) => {
                 const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
                 const urgent = days <= 14; const soon = days <= 60;
+                const payAmount = licensePayAmount[l.id] !== undefined ? licensePayAmount[l.id] : String(l.amount || "");
                 return (
                   <div key={l.id} style={cardStyle(urgent ? "#4a0000" : soon ? COLORS.goldSoft : COLORS.border)}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -23461,6 +23474,34 @@ useEffect(() => {
                         <div style={{ color: COLORS.purple, fontWeight: 700 }}>{l.amount} ر.س</div>
                       </div>
                     </div>
+                    {canEditOverview && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
+                        <span style={{ color: COLORS.textDim, fontSize: 11 }}>مبلغ السداد:</span>
+                        <input
+                          type="number"
+                          value={payAmount}
+                          onChange={(e) => setLicensePayAmount((p) => ({ ...p, [l.id]: e.target.value }))}
+                          style={{ width: 100, boxSizing: "border-box", padding: "6px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, fontSize: 12 }}
+                        />
+                        <span style={{ color: COLORS.textDim, fontSize: 11 }}>ر.س</span>
+                        <button
+                          onClick={async () => {
+                            const amt = +payAmount || 0;
+                            if (amt <= 0) { showToast("أدخل مبلغ سداد صحيح", "error"); return; }
+                            const { error } = await supabase.from("treasury_entries").insert([{
+                              type: "expense", sub_type: "license", method: "نقدي",
+                              amount: amt, note: l.name, date: today,
+                              pharmacy_id: pharmacyId, created_by: currentUser.name
+                            }]);
+                            if (error) { showToast("خطأ: " + error.message, "error"); return; }
+                            setEntries((p) => [...p, { type: "expense", sub_type: "license", method: "نقدي", amount: amt, note: l.name, date: today }]);
+                            showToast(`تم سداد ${l.name} ✓`);
+                          }}
+                          style={{ marginRight: "auto", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                          💳 سداد
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })
