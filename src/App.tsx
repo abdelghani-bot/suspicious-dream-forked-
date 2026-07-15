@@ -2033,6 +2033,23 @@ function parseCustomExpiryBarcode(raw) {
   return { code, expiry, batch: batch || null };
 }
 
+// 🆕 بنفس منطق سكانر نقطة البيع: أي نص متسح (زي QR الدواء اللي فيه GS1 AIs كتير) بنرجّع
+// منه الباركود الأساسي بس (GTIN أو كود الصنف) عشان البحث يطابقه بسرعة، بدل ما نقارن
+// النص الخام الطويل كله (اللي معاه تشغيلة/صلاحية/سيريال) بباركود الصنف المسجل فيفشل التطابق.
+function extractPrimaryBarcode(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return trimmed;
+  const isGS1 = trimmed.includes("(01)") || trimmed.includes(")01(") || /^01\d{14}/.test(trimmed);
+  if (isGS1) {
+    const parsed = parseGS1Barcode(trimmed);
+    if (parsed.gtin) return parsed.gtin;
+  } else {
+    const custom = parseCustomExpiryBarcode(trimmed);
+    if (custom) return custom.code;
+  }
+  return trimmed;
+}
+
 // نقطة دخول موحّدة للطباعة: يجرب GS1 الرسمي الأول (لو الباركود GTIN أرقام حقيقي)،
 // وبعدين الشكل البديل (لأي كود تاني زي P006)، وبعدين يرجع للباركود العادي من غير صلاحية
 // 🆕 السعر المطبوع على الملصق لازم يكون شامل الضريبة (ده اللي العميل بيدفعه فعليًا على الرف)،
@@ -15859,19 +15876,16 @@ function ProductFormModal({
           display: "flex", gap: 8, alignItems: "center",
         }}>
           <span style={{ fontSize: 18 }}>📷</span>
-          <input
-            ref={gs1Ref}
-            value={gs1ScanVal}
-            onChange={(e) => setGs1ScanVal(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleGs1Scan(gs1ScanVal); }}
-            placeholder="امسح QR/باركود الدواء هنا — هيتوزع تلقائياً ↵"
-            style={{
-              flex: 1, background: "transparent", border: "none", outline: "none",
-              color: COLORS.textPrimary, fontSize: 13, fontFamily: "inherit",
-            }}
-            autoComplete="off"
-          />
-          <Btn size="sm" onClick={() => handleGs1Scan(gs1ScanVal)}>استخراج</Btn>
+          {/* 🆕 بنستخدم نفس مكوّن سكانر نقطة البيع (BarcodeScanner) هنا عشان يشتغل بنفس
+              الخاصية: بيقرأ event.code بدل event.key، فمينفعش لغة الإدخال (عربي/إنجليزي)
+              تلخبط القيمة المتسحوحة زي ما كان بيحصل مع input عادي بيعتمد على لغة النظام. */}
+          <div style={{ flex: 1 }}>
+            <BarcodeScanner
+              ref={gs1Ref}
+              onScan={(scan) => handleGs1Scan(scan.raw || scan.code || "")}
+              placeholder="امسح QR/باركود الدواء هنا — هيتوزع تلقائياً ↵"
+            />
+          </div>
         </div>
         {barcodes.map((b, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
@@ -15920,10 +15934,16 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   const filtered = products.filter((p) => {
     const s = search.toLowerCase();
     const str = (v) => (v == null ? "" : String(v));
+    // 🆕 لو النص المكتوب/المتسحوح ده باركود GS1 (QR فيه AIs زي (01).. (17).. (10)..) أو
+    // الشكل البديل CODE*YYMMDD، بنستخرج منه الباركود الأساسي بس (زي منطق سكانر نقطة
+    // البيع) عشان نقدر نطابقه بسرعة مع باركود الصنف، بدل ما نقارن النص الخام الطويل كله.
+    const primaryBarcode = extractPrimaryBarcode(search);
     return (
       str(p.nameAr || p.name).includes(search) ||
       str(p.nameEn).toLowerCase().includes(s) ||
       str(p.barcode).includes(search) ||
+      (primaryBarcode && primaryBarcode !== search &&
+        (normGtin(str(p.barcode)) === normGtin(primaryBarcode) || str(p.barcode).includes(primaryBarcode))) ||
       str(p.id).includes(search) ||
       str(p.mainCategory || p.category).includes(search) ||
       str(p.search_keywords).toLowerCase().includes(s)
