@@ -3044,6 +3044,8 @@ if (isLoading) return (
             showToast={showToast}
             pharmacyId={pharmacyId}
             purchases={purchases}
+            canAddSub={(sub) => canAdd("inventory_count", sub)}
+            canEditSub={(sub) => canEdit("inventory_count", sub)}
           />
         )}
         {tab === "products" && canView("products") && (
@@ -13905,6 +13907,8 @@ function InventoryCount({
   showToast,
   pharmacyId,
   purchases,
+  canAddSub = (_sub) => true,
+  canEditSub = (_sub) => true,
 }) {
   const [showNew, setShowNew] = useState(false);
   const [countItems, setCountItems] = useState([]);
@@ -14328,6 +14332,7 @@ function InventoryCount({
       >
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>نظام الجرد</h2>
         <div style={{ display: "flex", gap: 8 }}>
+          {canEditSub("fix_stock") && (
           <Btn
             variant="ghost"
             icon="tools"
@@ -14337,6 +14342,9 @@ function InventoryCount({
           >
             {repairing ? "جارِ الإصلاح..." : "إصلاح تشغيلات المخزون"}
           </Btn>
+          )}
+          {canAddSub("new_count") && (
+          <>
           <input
             ref={invExcelInputRef}
             type="file"
@@ -14356,6 +14364,8 @@ function InventoryCount({
           <Btn icon="count" onClick={startCount}>
             بدء جرد جديد
           </Btn>
+          </>
+          )}
         </div>
       </div>
 
