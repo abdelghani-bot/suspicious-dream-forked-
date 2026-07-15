@@ -13737,11 +13737,15 @@ function ExpiryReport({ products, onRemoveExpired }) {
   };
 
   // ===== Styles =====
+  // ملحوظة: الكروت كانت شفافة (backdropFilter blur) على افتراض خلفية غامقة —
+  // مع الثيم الفاتح الحالي الخلفية والسطح قريبين جدًا في اللون فبقت الكروت
+  // شبه مختفية. استبدلناها بخلفية صريحة + ظل، زي باقي شاشات البرنامج.
   const card = (borderColor = COLORS.border) => ({
-    background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+    background: COLORS.surface,
     border: `1px solid ${borderColor}`,
     borderRadius: 14,
     padding: 16,
+    boxShadow: SHADOW.card,
   });
 
   const btn = (bg = COLORS.border) => ({
@@ -13822,7 +13826,7 @@ function ExpiryReport({ products, onRemoveExpired }) {
       </h2>
 
       {/* ===== قسم المنتهية ===== */}
-      <div style={{ ...card("#3a1010"), marginBottom: 24 }}>
+      <div style={{ ...card(COLORS.red), marginBottom: 24 }}>
         <div
           style={{
             display: "flex",
@@ -13902,7 +13906,7 @@ function ExpiryReport({ products, onRemoveExpired }) {
           const { costTotal, sellTotal } = calcTotals(items);
           const label = formatMonthLabel(customMonth);
           return (
-            <div style={{ ...card(COLORS.blueSoft), marginBottom: 24 }}>
+            <div style={{ ...card(COLORS.blue), marginBottom: 24 }}>
               <div
                 style={{
                   display: "flex",
@@ -13973,7 +13977,7 @@ function ExpiryReport({ products, onRemoveExpired }) {
               }
               style={{
                 ...card(
-                  isExpanded ? COLORS.blueSoft : hasItems ? tint(COLORS.blue,0.15) : COLORS.surfaceAlt
+                  isExpanded ? COLORS.blue : hasItems ? COLORS.borderStrong : COLORS.border
                 ),
                 cursor: hasItems ? "pointer" : "default",
                 opacity: hasItems ? 1 : 0.45,
@@ -14052,7 +14056,7 @@ function ExpiryReport({ products, onRemoveExpired }) {
           const { costTotal, sellTotal } = calcTotals(items);
           const monthLabel = months.find((m) => m.key === expandedMonth)?.label;
           return (
-            <div style={card(COLORS.blueSoft)}>
+            <div style={card(COLORS.blue)}>
               <div
                 style={{
                   display: "flex",
