@@ -3178,6 +3178,8 @@ if (isLoading) return (
             returns={returnsData}
             canViewSub={(sub) => canView("treasury", sub)}
             canEditSub={(sub) => canEdit("treasury", sub)}
+            canAddSub={(sub) => canAdd("treasury", sub)}
+            canDeleteSub={(sub) => canDelete("treasury", sub)}
           />
         )}
         {tab === "shift" && canView("shift") && (
@@ -22264,11 +22266,18 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   );
 }
 // ==================== TREASURY MODULE ====================
-function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, returns = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true }) {
+function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, returns = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
   const canViewDayClosing = canViewSub("day_closing");
   const canEditDayClosing = canEditSub("day_closing");
   const canViewOverview   = canViewSub("overview");
   const canEditOverview   = canEditSub("overview");
+  // 🆕 صلاحيات دقيقة على زر إظهار/إخفاء أرقام الكروت العلوية، وعلى المصاريف الثابتة والتراخيص
+  const canToggleBalances     = canViewSub("balance_visibility");
+  const canAddFixedExpense    = canAddSub("fixed_expenses");
+  const canPayFixedExpense    = canEditSub("fixed_expenses");
+  const canDeleteFixedExpense = canDeleteSub("fixed_expenses");
+  const canAddLicense         = canAddSub("licenses");
+  const canPayLicense         = canEditSub("licenses");
   const [activeTab, setActiveTab] = useState(canViewDayClosing ? "today" : canViewOverview ? "shifts" : "today");
   const [fixedExpenses, setFixedExpenses] = useState([]);
   const [licenses, setLicenses] = useState([]);
@@ -22867,15 +22876,20 @@ useEffect(() => {
       })()}
 
       {/* ── رصيد الخزنة اللحظي ── */}
-      {canViewOverview && (
+      {canViewOverview && (() => {
+        // 🆕 لو الدور مالوش صلاحية زر إظهار/إخفاء الأرقام، تفضل الأرقام مخفية إجباريًا وبدون إمكانية إظهارها
+        const effectiveHide = canToggleBalances ? hideBalances : true;
+        return (
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          {canToggleBalances && (
           <button
             onClick={() => setHideBalances((v) => !v)}
             title={hideBalances ? "إظهار الأرقام" : "إخفاء الأرقام"}
             style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
             {hideBalances ? "👁️ إظهار الأرقام" : "🙈 إخفاء الأرقام"}
           </button>
+          )}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
           {[
@@ -22886,13 +22900,14 @@ useEffect(() => {
           ].map((b) => (
             <div key={b.label} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14, textAlign: "center" }}>
               <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>{b.label}</div>
-              <div style={{ color: b.value < 0 ? COLORS.red : b.color, fontWeight: 900, fontSize: 18 }}>{hideBalances ? "••••" : b.value.toFixed(2)}</div>
-              <div style={{ color: COLORS.border, fontSize: 10 }}>{hideBalances ? "" : "ر.س"}</div>
+              <div style={{ color: b.value < 0 ? COLORS.red : b.color, fontWeight: 900, fontSize: 18 }}>{effectiveHide ? "••••" : b.value.toFixed(2)}</div>
+              <div style={{ color: COLORS.border, fontSize: 10 }}>{effectiveHide ? "" : "ر.س"}</div>
             </div>
           ))}
         </div>
       </div>
-      )}
+        );
+      })()}
 
       {/* تنبيهات */}
       {canViewOverview && (dueFixed.length > 0 || upcomingLicenses.length > 0) && (
@@ -23376,7 +23391,7 @@ useEffect(() => {
       {activeTab === "fixed" && canViewOverview && (
         <div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            {canEditOverview && <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>}
+            {canAddFixedExpense && <Btn icon="plus" onClick={() => setShowFixedForm(true)}>إضافة مصروف ثابت</Btn>}
           </div>
           {fixedExpenses.length === 0
             ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد مصاريف ثابتة</div>
@@ -23412,6 +23427,7 @@ useEffect(() => {
               <div style={{ color: COLORS.textDim, fontSize: 10 }}>≈ {monthlyShare(f).toFixed(2)} ر.س / شهر</div>
             )}
           </div>
+          {canPayFixedExpense && (
           <button
             onClick={async () => {
               const { error } = await supabase.from("treasury_entries").insert([{
@@ -23426,6 +23442,8 @@ useEffect(() => {
             style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
             💳 سداد
           </button>
+          )}
+          {canDeleteFixedExpense && (
           <button
             onClick={async () => {
               if (!confirm(`حذف "${f.name}"؟`)) return;
@@ -23436,6 +23454,7 @@ useEffect(() => {
             style={{ background: COLORS.redSoft, border: "none", borderRadius: 8, padding: "6px 10px", color: COLORS.red, cursor: "pointer", fontSize: 14 }}>
             🗑
           </button>
+          )}
         </div>
       </div>
     </div>
@@ -23450,7 +23469,7 @@ useEffect(() => {
       {activeTab === "licenses" && canViewOverview && (
         <div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            {canEditOverview && <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>}
+            {canAddLicense && <Btn icon="plus" onClick={() => setShowLicenseForm(true)}>إضافة ترخيص</Btn>}
           </div>
           {licenses.length === 0
             ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد تراخيص</div>
@@ -23474,7 +23493,7 @@ useEffect(() => {
                         <div style={{ color: COLORS.purple, fontWeight: 700 }}>{l.amount} ر.س</div>
                       </div>
                     </div>
-                    {canEditOverview && (
+                    {canPayLicense && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
                         <span style={{ color: COLORS.textDim, fontSize: 11 }}>مبلغ السداد:</span>
                         <input
@@ -27476,11 +27495,12 @@ const SYSTEM_SECTIONS = [
     ] },
   { id: "promotions",        label: "العروض والخصومات",    icon: "🏷️" },
   { id: "treasury",          label: "الخزنة",              icon: "💰", subItems: [
-      { id: "day_closing",    label: "تقفيل اليوم" },
-      { id: "shifts",         label: "الشفتات" },
-      { id: "log",            label: "السجل" },
-      { id: "fixed_expenses", label: "مصاريف ثابتة" },
-      { id: "licenses",       label: "التراخيص" },
+      { id: "day_closing",        label: "تقفيل اليوم" },
+      { id: "shifts",             label: "الشفتات" },
+      { id: "log",                label: "السجل" },
+      { id: "fixed_expenses",     label: "مصاريف ثابتة" },
+      { id: "licenses",           label: "التراخيص" },
+      { id: "balance_visibility", label: "زر إظهار/إخفاء أرقام الكروت" },
     ] },
   { id: "shift",             label: "الشفتات",             icon: "🕐" },
   { id: "target",            label: "تارجت المبيعات والتحفيز",      icon: "🎯" },
