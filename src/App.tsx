@@ -15499,6 +15499,18 @@ function ProductFormModal({
     }
 
     showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
+    // 🐛 تصليح: لازم نصفّر الفورم فورًا بعد نجاح "الإضافة" (مش التعديل) قبل الإغلاق.
+    // السبب: الكومبوننت ده فاضل mounted طول الوقت (بيتفتح/يتقفل بس بـ open prop)،
+    // فلو سبنا form زي ما هي (لسه فيها بيانات الصنف اللي اتحفظ) وبعدين المستخدم فتح
+    // "إضافة صنف جديد" تاني، الـ useEffect بتاع حفظ المسودة كان بيشتغل بـ form القديمة
+    // *قبل* ما الـ useEffect بتاع تحميل الفورم يلحق يصفّرها، فيعيد كتابة المسودة القديمة
+    // في localStorage من جديد (بعد ما احنا مسحناها فوق بـ clearProductDraft)، وبعدين
+    // نفس الفتحة بتقرا المسودة اللي هي كتبتها لتوها وتظهر رسالة "تم استرجاع مسودة" غلط.
+    if (!editing) {
+      setForm({ ...blank, id: "P" + Date.now() });
+      setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
+      setSelectedIngredients([]);
+    }
     if (onSaved) onSaved({ ...p, id: productId });
     onClose();
   };
