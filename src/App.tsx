@@ -2528,7 +2528,7 @@ export default function PharmacyPro() {
   setIsLoading(true);
   
   try {
-    const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow] = await Promise.all([
+    const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng] = await Promise.all([
       supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
@@ -2539,7 +2539,17 @@ export default function PharmacyPro() {
       supabase.from("inventory_logs").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
       supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("pharmacy_settings").select("rasd_config").eq("pharmacy_id", pharmacyId).maybeSingle(),
+      // 🆕 كل صفوف تركيبة الأصناف (مش بس المادة الأولى) عشان البحث والعرض يشملوا التركيبة كاملة
+      supabase.from("product_ingredients").select("product_id, concentration, active_ingredients(name_ar, name_en)").eq("pharmacy_id", pharmacyId),
     ]);
+    // 🆕 نبني خريطة: product_id → قائمة كل المواد الفعالة (مش بس أول واحدة زي الحقل القديم products.active_ingredient)
+    const ingredientsByProduct = {};
+    (allProdIng.data ?? []).forEach((row) => {
+      const nm = row.active_ingredients?.name_ar || row.active_ingredients?.name_en || "";
+      if (!nm) return;
+      const label = row.concentration ? `${nm} ${row.concentration}` : nm;
+      (ingredientsByProduct[row.product_id] ||= []).push(label);
+    });
     // 🆕 مرآة إعدادات رصد من السوبابيز (مصدر الحقيقة) لـ localStorage عشان كل الأماكن
     // اللي بتقرا الإعداد بشكل sync (طابور رصد، حفظ الفواتير، ...) تشتغل بأحدث نسخة
     // من غير ما تحتاج تتحول كلها لـ async.
@@ -2555,6 +2565,9 @@ export default function PharmacyPro() {
         saleUnits: row.sale_units || row.unit_division || null,
         packageType: row.package_type || row.unit || "",
         dosageForm: row.dosage_form || "",
+        // 🆕 التركيبة كاملة (كل المواد الفعالة)، مع رجوع للحقل القديم لو الصنف لسه مسجل بالطريقة القديمة بس
+        full_ingredients: ingredientsByProduct[row.id] || (row.active_ingredient ? [`${row.active_ingredient}${row.concentration ? " " + row.concentration : ""}`] : []),
+        full_ingredients_text: (ingredientsByProduct[row.id] || (row.active_ingredient ? [`${row.active_ingredient}${row.concentration ? " " + row.concentration : ""}`] : [])).join(" + "),
       }))
     );
     setSuppliers(s.data ?? []);
@@ -5768,7 +5781,8 @@ function POS({
     const nameEn = (p.nameEn || p.name_en || "").toLowerCase();
     const barcode = (p.barcode || "").toLowerCase();
     const id = (p.id || "").toLowerCase();
-    const ingredient = (p.active_ingredient || p.activeIngredient || "").toLowerCase();
+    // 🆕 بنبحث في كل مواد التركيبة (full_ingredients_text)، مش بس أول مادة زي قبل كده
+    const ingredient = (p.full_ingredients_text || p.active_ingredient || p.activeIngredient || "").toLowerCase();
     const keywords = (p.search_keywords || "").toLowerCase();
     return (
       name.includes(searchLower) ||
@@ -5784,7 +5798,7 @@ function POS({
   const isIngredientMatch = (p) => {
     const name = (p.nameAr || p.name || "").toLowerCase();
     const nameEn = (p.nameEn || p.name_en || "").toLowerCase();
-    const ingredient = (p.active_ingredient || p.activeIngredient || "").toLowerCase();
+    const ingredient = (p.full_ingredients_text || p.active_ingredient || p.activeIngredient || "").toLowerCase();
     return (
       searchLower &&
       ingredient.includes(searchLower) &&
@@ -6581,9 +6595,9 @@ function POS({
                                 ÷{p.saleUnits}
                               </span>
                             )}
-                            {(p.active_ingredient || p.activeIngredient) && (
+                            {(p.full_ingredients_text || p.active_ingredient || p.activeIngredient) && (
                               <span style={{ color: isIngredientMatch(p) ? COLORS.blue : COLORS.textDim, fontWeight: isIngredientMatch(p) ? 700 : 400 }}>
-                                {" "}· {p.active_ingredient || p.activeIngredient}
+                                {" "}· {p.full_ingredients_text || p.active_ingredient || p.activeIngredient}
                               </span>
                             )}
                           </div>
@@ -10662,7 +10676,7 @@ const LABEL_SIZES = [
               ["الرمز", showProductCard.id],
               ["الباركود", showProductCard.barcode],
               ["الفئة", showProductCard.category],
-              ["المادة الفعالة", showProductCard.active_ingredient || showProductCard.activeIngredient],
+              ["المادة الفعالة", showProductCard.full_ingredients_text || showProductCard.active_ingredient || showProductCard.activeIngredient],
               ["التركيز", showProductCard.concentration],
               ["المخزون الحالي", showProductCard.stock],
               ["سعر البيع الحالي", showProductCard.price + " ر.س"],
@@ -15387,8 +15401,19 @@ function ProductFormModal({
   };
 
   const addNewIngredient = async () => {
-    if (!ingredientSearch.trim()) return;
-    const { data, error } = await supabase.from("active_ingredients").insert({ name_ar: ingredientSearch.trim(), pharmacy_id: pharmacyId }).select().single();
+    const text = ingredientSearch.trim();
+    if (!text) return;
+    // 🆕 لو المادة موجودة بالفعل (بغض النظر عن حالة الحروف)، بنستخدمها بدل ما نضيف صف مكرر
+    const existing = allIngredients.find(
+      (a) => (a.name_ar || "").trim().toLowerCase() === text.toLowerCase() || (a.name_en || "").trim().toLowerCase() === text.toLowerCase()
+    );
+    if (existing) { addIngredient(existing); return; }
+    // 🆕 المواد الفعالة كلها متسجلة بالإنجليزي في العمود name_en، فأي نص مكتوب بحروف لاتينية
+    // (زي "hydrochlorthiazide") لازم يروح على name_en مش name_ar، عشان ميبقاش فيه مادتين
+    // بنفس الاسم موزعين على عمودين مختلفين.
+    const isArabic = /[\u0600-\u06FF]/.test(text);
+    const payload = isArabic ? { name_ar: text, pharmacy_id: pharmacyId } : { name_en: text, pharmacy_id: pharmacyId };
+    const { data, error } = await supabase.from("active_ingredients").insert(payload).select().single();
     if (error) { showToast("خطأ في إضافة المادة الفعالة: " + error.message, "error"); return; }
     setAllIngredients((prev) => [...prev, data]);
     addIngredient(data);
@@ -15412,6 +15437,20 @@ function ProductFormModal({
   // ── حفظ ──
   const save = async () => {
     if (!form.nameAr || !form.price) { showToast("يرجى ملء الحقول المطلوبة", "error"); return; }
+    // 🆕 منع تكرار الأصناف: بنتحقق بس وقت "إضافة" صنف جديد (مش تعديل صنف موجود)
+    if (!editingId) {
+      const dupCode = products.find((x) => x.id === form.id);
+      if (dupCode) { showToast(`⚠️ رمز الصنف "${form.id}" مستخدم بالفعل لصنف آخر — غيّر الرمز`, "error"); return; }
+      const gtin = form.gtin.trim();
+      const dupBarcode = gtin && products.find((x) => (x.barcode || "").trim() === gtin);
+      if (dupBarcode) { showToast(`⚠️ الباركود (GTIN) ده مسجل بالفعل على الصنف "${dupBarcode.name_ar || dupBarcode.name}"`, "error"); return; }
+      // تطابق الاسم بس (من غير كود/باركود) ممكن يكون طبيعي (تحديث سعر مورد جديد مثلاً)، فبنحذّر ونسيب القرار للصيدلي
+      const dupName = products.find((x) => (x.name_ar || x.name || "").trim() === form.nameAr.trim());
+      if (dupName) {
+        const confirmMsg = `⚠️ في صنف بنفس الاسم "${form.nameAr}" موجود بالفعل (رمز ${dupName.id}).\nتقدر تعدّل السعر في الصنف الموجود بدل ما تضيف نسخة تانية.\nعايز تكمل وتضيفه كصنف منفصل؟`;
+        if (!window.confirm(confirmMsg)) return;
+      }
+    }
     const p = {
       id: form.id,
       name: form.nameAr, name_ar: form.nameAr, name_en: form.nameEn,
@@ -16004,7 +16043,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
             <div>
               <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>{p.nameAr || p.name}</div>
               {p.nameEn && <div style={{ fontSize: 11, color: COLORS.textDim }}>{p.nameEn}</div>}
-              <div style={{ fontSize: 10, color: COLORS.border }}>{p.active_ingredient} {p.concentration}</div>
+              <div style={{ fontSize: 10, color: COLORS.border }}>{p.full_ingredients_text || `${p.active_ingredient || ""} ${p.concentration || ""}`.trim()}</div>
             </div>,
             mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
             <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: "monospace" }}>{p.barcode}</span>,
