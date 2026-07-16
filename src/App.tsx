@@ -1188,10 +1188,7 @@ const BarcodeScanner = forwardRef(({
     const trimmed = raw.trim();
     if (!trimmed) return;
 
-    const isGS1 =
-      trimmed.includes("(01)") ||
-      trimmed.includes(")01(") ||
-      /^01\d{14}/.test(trimmed);
+    const isGS1 = isGS1Formatted(trimmed);
 
     if (isGS1) {
       const parsed = parseGS1Barcode(trimmed);
@@ -1879,6 +1876,15 @@ const RasdQueue = {
 
 // ==================== RASSD BARCODE PARSER ====================
 
+// 🆕 فحص موحّد: الباركود ده فعلاً GS1 (له أقواس AI زي (01).. أو بادئة GS1-128 بدون أقواس)
+// ولا باركود خطي عادي (EAN-13/UPC وغيره)؟ لازم يتنادى قبل أي استخدام لـ parseGS1Barcode،
+// لأن الفولباك جوه parseGS1Barcode بيدور على أنماط AI في أي مكان جوه الرقم، وده بيدي نتيجة
+// غلط لو اتنادى على باركود خطي عادي مش GS1 أصلاً (زي ما حصل مع باركود كوزمتيك خطي).
+function isGS1Formatted(raw) {
+  const s = String(raw || "");
+  return s.includes("(01)") || s.includes(")01(") || /^01\d{14}/.test(s);
+}
+
 function parseGS1Barcode(raw) {
   const result = {
     gtin: null,
@@ -2039,7 +2045,7 @@ function parseCustomExpiryBarcode(raw) {
 function extractPrimaryBarcode(raw) {
   const trimmed = String(raw || "").trim();
   if (!trimmed) return trimmed;
-  const isGS1 = trimmed.includes("(01)") || trimmed.includes(")01(") || /^01\d{14}/.test(trimmed);
+  const isGS1 = isGS1Formatted(trimmed);
   if (isGS1) {
     const parsed = parseGS1Barcode(trimmed);
     if (parsed.gtin) return parsed.gtin;
@@ -16154,7 +16160,11 @@ function ProductFormModal({
   const handleGs1Scan = (raw) => {
     const trimmed = raw.trim();
     if (!trimmed) return;
-    const parsed = parseGS1Barcode(trimmed);
+    // 🆕 مهم: منديش parseGS1Barcode غير لو الباركود فعلاً GS1 (أقواس AI أو بادئة GS1-128).
+    // الفولباك جوه parseGS1Barcode بيدور على أنماط AI ("01"،"17"..) في أي مكان جوه الرقم،
+    // فلو اتنادى على باركود خطي عادي (EAN-13/UPC، زي أغلب الكوزمتك وبعض الأدوية) ممكن يقتطع
+    // جزء غلط من الرقم ويحطه في GTIN غلط (زي ما حصل: باركود 13 رقم اتحول لـ 5 أرقام بس).
+    const parsed = isGS1Formatted(trimmed) ? parseGS1Barcode(trimmed) : { gtin: null };
     if (parsed.gtin) {
       // 🆕 الـ GTIN من السكان بيروح مباشرة لخانة GTIN الثابتة، مش لصفوف الدفعات
       F("gtin", parsed.gtin);
