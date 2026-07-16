@@ -18,6 +18,22 @@ import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImper
 // - تسجيل حضور/انصراف بعد نص الليل بيتسجل على تاريخ اليوم اللي فات
 // الدالة دي بتستخدم دوال الـ Date المحلية (getFullYear/getMonth/getDate) اللي بتاخد
 // توقيت جهاز المستخدم نفسه (الصيدلية) بدل UTC.
+// 🆕 تشابه الأسماء (Dice coefficient على ثنائيات الحروف) — بيتستخدم لاقتراح ربط صنف
+// جوكر قديم بصنف حقيقي جديد قريب منه في الاسم، حتى لو مش نفس الحروف بالظبط
+function nameSimilarity(a: string, b: string): number {
+  const norm = (s: string) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const s1 = norm(a), s2 = norm(b);
+  if (!s1 || !s2) return 0;
+  if (s1 === s2) return 1;
+  const bigrams = (s: string) => { const arr = []; for (let i = 0; i < s.length - 1; i++) arr.push(s.substr(i, 2)); return arr; };
+  const b1 = bigrams(s1), b2 = bigrams(s2);
+  if (b1.length === 0 || b2.length === 0) return s1.includes(s2) || s2.includes(s1) ? 0.9 : 0;
+  const b2copy = [...b2];
+  let matches = 0;
+  b1.forEach((bg) => { const idx = b2copy.indexOf(bg); if (idx !== -1) { matches++; b2copy.splice(idx, 1); } });
+  return (2 * matches) / (b1.length + b2.length);
+}
+
 function todayLocal(d: Date = new Date()): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -2146,6 +2162,9 @@ export default function PharmacyPro() {
   const [customers, setCustomers] = useStorage("ph_customers", INIT_CUSTOMERS);
   const [sales, setSales] = useStorage("ph_sales", INIT_SALES);
   const [purchases, setPurchases] = useStorage("ph_purchases", INIT_PURCHASES);
+  // 🆕 أصناف الجوكر المعلقة — كل صنف جوكر اتسجل في فاتورة بيع بفئته الرئيسية، بيفضل هنا لحد ما يدخل
+  // طلب شراء تلقائي لمورد نفس الفئة، أو يتربط بصنف حقيقي بعد إضافته في شاشة الأصناف
+  const [jokerPendingItems, setJokerPendingItems] = useStorage("ph_joker_pending", []);
   const [creditPayments, setCreditPayments] = useState([]);
 
   // 🆕 تصنيف العملاء (VIP/نمط الشراء/الاتجاه) محسوب مرة واحدة هنا، ومتبعت لأي موديول محتاجه
@@ -2548,10 +2567,11 @@ export default function PharmacyPro() {
   setCreditPayments([]);
   setInventoryLogs([]);
   setManufacturers([]);  
+  setJokerPendingItems([]);
   setIsLoading(true);
   
   try {
-    const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng] = await Promise.all([
+    const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng, jkp] = await Promise.all([
       supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
@@ -2564,6 +2584,8 @@ export default function PharmacyPro() {
       supabase.from("pharmacy_settings").select("rasd_config").eq("pharmacy_id", pharmacyId).maybeSingle(),
       // 🆕 كل صفوف تركيبة الأصناف (مش بس المادة الأولى) عشان البحث والعرض يشملوا التركيبة كاملة
       supabase.from("product_ingredients").select("product_id, concentration, active_ingredients(name_ar, name_en)").eq("pharmacy_id", pharmacyId),
+      // 🆕 أصناف الجوكر المعلقة (لسه محتاجة تدخل طلب شراء أو تترربط بصنف حقيقي)
+      supabase.from("joker_pending_items").select("*").eq("pharmacy_id", pharmacyId),
     ]);
     // 🆕 نبني خريطة: product_id → قائمة كل المواد الفعالة (مش بس أول واحدة زي الحقل القديم products.active_ingredient)
     const ingredientsByProduct = {};
@@ -2605,6 +2627,7 @@ export default function PharmacyPro() {
     setCreditPayments(cp.data ?? []);
     setInventoryLogs(inv.data ?? []);
     setManufacturers(mfr.data ?? []);
+    setJokerPendingItems(jkp.data ?? []);
     setPurchases(
       (pu.data ?? []).map((item) => ({
         ...item,
@@ -3104,6 +3127,8 @@ if (isLoading) return (
             activeTab={posActiveTab}
             setActiveTab={setPosActiveTab}
             pharmacyId={pharmacyId}
+            jokerPendingItems={jokerPendingItems}
+            setJokerPendingItems={setJokerPendingItems}
             promos={posPromos}
             discountRules={posDiscountRules}
             productEarliestExpiry={posProductEarliestExpiry}
@@ -3127,6 +3152,8 @@ if (isLoading) return (
             showNew={purchShowNew} setShowNew={setPurchShowNew}
             canAdd={canAdd("purchase")}
             canEdit={canEdit("purchase")}
+            jokerPendingItems={jokerPendingItems}
+            setJokerPendingItems={setJokerPendingItems}
           />
         )}
         {tab === "sales_returns" && canView("returns", "sales") && (
@@ -3217,6 +3244,8 @@ if (isLoading) return (
             canAdd={canAdd("products")}
             canDelete={canDelete("products")}
             canEdit={canEdit("products")}
+            jokerPendingItems={jokerPendingItems}
+            setJokerPendingItems={setJokerPendingItems}
           />
         )}
         {tab === "suppliers" && canView("suppliers") && (
@@ -3236,6 +3265,8 @@ if (isLoading) return (
   canDelete={canDelete("suppliers")}
   canEdit={canEdit("suppliers")}
   canEditSub={(sub) => canEdit("suppliers", sub)}
+  jokerPendingItems={jokerPendingItems}
+  setJokerPendingItems={setJokerPendingItems}
 />
         )}
         {tab === "customers" && canView("customers") && (
@@ -4916,6 +4947,7 @@ const emptyInvoice = () => ({
   showJoker: false,
   jokerName: "",
   jokerPrice: "",
+  jokerCategory: "",
   openedAt: Date.now(),
 });
 
@@ -5200,6 +5232,8 @@ function POS({
   activeTab,
   setActiveTab,
   pharmacyId,
+  jokerPendingItems,
+  setJokerPendingItems,
   promos,
   discountRules,
   productEarliestExpiry,
@@ -6214,6 +6248,41 @@ function POS({
       await supabase.from("missed_sales").insert(missedRecords);
     }
 
+    // 🆕 كل صنف جوكر (بفئته اللي اتحددت) بيتسجل كسطر معلّق في طلبات الشراء —
+    // لو نفس الجوكر (نفس الاسم والفئة) اتسجل قبل كده وبردو لسه معلّق (pending)، بنجمع الكمية على نفس الصف
+    // بدل ما نكرر صف جديد كل مرة — عشان جدول المراجعة يفضل نضيف وميتكررش فيه نفس الصنف عشرات المرات
+    const jokerItems = inv.cart.filter((i) => i.isJoker);
+    if (jokerItems.length > 0) {
+      const normName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+      let workingJokerList = [...jokerPendingItems];
+      for (const i of jokerItems) {
+        const name = i.nameAr || i.name;
+        const cat = i.jokerCategory || null;
+        const existing = workingJokerList.find(
+          (j) => j.status === "pending" && j.pharmacy_id === pharmacyId && normName(j.name) === normName(name) && (j.category || null) === cat
+        );
+        if (existing) {
+          const newQty = (+existing.qty || 0) + (+i.qty || 1);
+          await supabase.from("joker_pending_items").update({ qty: newQty }).eq("id", existing.id);
+          workingJokerList = workingJokerList.map((j) => (j.id === existing.id ? { ...j, qty: newQty } : j));
+        } else {
+          const record = {
+            id: "JK-" + Date.now() + "-" + i.id,
+            pharmacy_id: pharmacyId,
+            name,
+            category: cat,
+            qty: i.qty || 1,
+            price: i.price || 0,
+            status: "pending",
+            created_at: new Date().toISOString(),
+          };
+          const { error: jokerErr } = await supabase.from("joker_pending_items").insert(record);
+          if (!jokerErr) workingJokerList = [...workingJokerList, record];
+        }
+      }
+      setJokerPendingItems(workingJokerList);
+    }
+
     setInv({ ...emptyInvoice(), success: true });
     setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
     setShowPrint({ ...invoice, customer_phone: inv.selCustomer?.phone || null });
@@ -6492,10 +6561,34 @@ function POS({
                     marginBottom: 10,
                   }}
                 />
+                <select
+                  value={inv.jokerCategory}
+                  onChange={(e) =>
+                    setInv((p) => ({ ...p, jokerCategory: e.target.value }))
+                  }
+                  style={{
+                    width: "100%",
+                    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                    border: `1px solid ${COLORS.border}`,
+                    borderRadius: 7,
+                    padding: "7px 10px",
+                    color: COLORS.textPrimary,
+                    fontSize: 13,
+                    outline: "none",
+                    boxSizing: "border-box",
+                    marginBottom: 10,
+                  }}
+                >
+                  <option value="">اختر الفئة الرئيسية...</option>
+                  {Object.keys(MAIN_CATEGORIES).map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     onClick={() => {
                       if (!inv.jokerName || !inv.jokerPrice) return;
+                      if (!inv.jokerCategory) { showToast("لازم تحدد الفئة الرئيسية للصنف الجوكر عشان يدخل طلب الشراء الصح", "error"); return; }
                       addToCart({
                         id: "JOKER-" + Date.now(),
                         name: inv.jokerName,
@@ -6507,12 +6600,14 @@ function POS({
                         isJoker: true,
                         qty: 1,
                         category: "جوكر",
+                        jokerCategory: inv.jokerCategory,
                       });
                       setInv((p) => ({
                         ...p,
                         showJoker: false,
                         jokerName: "",
                         jokerPrice: "",
+                        jokerCategory: "",
                       }));
                     }}
                     style={{
@@ -8714,6 +8809,8 @@ function PurchaseModule({
   showNew, setShowNew,
   canAdd = true,
   canEdit = true,
+  jokerPendingItems = [],
+  setJokerPendingItems = () => {},
 }) {
   // 🆕 نافذة إضافة/تعديل صنف فوق فاتورة الشراء (من غير ما تقفل الفاتورة)
   const [showProductForm, setShowProductForm] = useState(false);
@@ -10688,6 +10785,8 @@ const LABEL_SIZES = [
         pharmacyId={pharmacyId}
         currentUser={currentUser}
         prefillName={productFormPrefillName}
+        jokerPendingItems={jokerPendingItems}
+        setJokerPendingItems={setJokerPendingItems}
         onSaved={(saved) => {
           // 🆕 لو الصنف ده أُضيف من مراجعة استيراد فاتورة مورد، اربطه بنفس الصف بدل الإضافة العادية
           if (reviewNewProductIdx != null && saved?.id) {
@@ -16201,6 +16300,8 @@ function ProductFormModal({
   onRequestAddManufacturer, // اختياري: فتح شاشة إدارة الشركات المنتجة الكاملة
   pendingManufacturer, // 🆕 {id, name, ts} — بيوصل من الأب لما يتم إضافة شركة جديدة من جوه فورم الصنف نفسه، عشان نختارها تلقائيًا بدل ما "تضيع"
   prefillName = "",    // 🆕 اسم مبدئي يتحط في الفورم (مثلاً من صف فاتورة مورد لسه محتاج يتربط بصنف)
+  jokerPendingItems = [],       // 🆕 أصناف الجوكر المعلقة — لاقتراح ربطها بالصنف الجديد
+  setJokerPendingItems = () => {},
 }) {
   const [manufacturers, setManufacturers] = useState([]);
   const [allIngredients, setAllIngredients] = useState([]);
@@ -16211,6 +16312,9 @@ function ProductFormModal({
   const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
   const [selectedIngredients, setSelectedIngredients] = useState([]);
   const [barcodes, setBarcodes] = useState([]);
+  // 🆕 اقتراح ربط الصنف الجديد بصنف جوكر قديم قريب منه في الاسم
+  const [jokerLinkChoice, setJokerLinkChoice] = useState(null); // id الجوكر اللي المستخدم وافق يربطه، أو null
+  const [dismissedJokerSuggestion, setDismissedJokerSuggestion] = useState(false);
 
   const blank = {
     id: "", nameAr: "", nameEn: "",
@@ -16237,6 +16341,21 @@ function ProductFormModal({
   // 🆕 نبّهني إن اسم الصنف اللي بيتكتب دلوقتي شكله عرض من المورد (مش صنف منفصل حقيقي)
   const offerPattern = useMemo(() => detectSupplierOfferPattern(form.nameAr), [form.nameAr]);
   const [offerNudgeDismissed, setOfferNudgeDismissed] = useState(false);
+  // 🆕 لو الاسم اللي بيتكتب دلوقتي (وإحنا بنضيف صنف جديد) قريب من اسم صنف جوكر معلّق قديم، نقترح ربطهم
+  const jokerSuggestionMatch = useMemo(() => {
+    if (editingId || dismissedJokerSuggestion || jokerLinkChoice) return null;
+    const name = (form.nameAr || "").trim();
+    if (name.length < 3) return null;
+    // 🆕 لازم الفئة الرئيسية تتطابق كمان (مش بس تشابه الاسم) — بيمنع اقتراحات غلط زي
+    // ربط "بندول" بجوكر "بندول اكسترا" لو كانا مسجلين بفئتين مختلفتين
+    const candidates = (jokerPendingItems || []).filter((j) => j.status !== "linked" && (j.category || null) === (form.mainCategory || null));
+    let best = null, bestScore = 0;
+    candidates.forEach((j) => {
+      const score = nameSimilarity(name, j.name || "");
+      if (score > bestScore) { bestScore = score; best = j; }
+    });
+    return bestScore >= 0.55 ? best : null;
+  }, [form.nameAr, form.mainCategory, editingId, dismissedJokerSuggestion, jokerLinkChoice, jokerPendingItems]);
   const [offerLinkSearch, setOfferLinkSearch] = useState("");
   const [showOfferLinkDropdown, setShowOfferLinkDropdown] = useState(false);
   const linkedProduct = useMemo(
@@ -16576,6 +16695,13 @@ function ProductFormModal({
       await supabase.from("product_ingredients").insert(selectedIngredients.map((x) => ({ product_id: productId, ingredient_id: x.ingredient_id, concentration: x.concentration, pharmacy_id: pharmacyId })));
     }
 
+    // 🆕 لو الصيدلي وافق يربط الصنف الجديد بجوكر معلّق قديم — نقفل الجوكر ونربطه بالصنف الجديد،
+    // عشان الاسم السريع القديم يتجاهل ويعتمد الاسم الجديد الكامل من هنا وبعده
+    if (jokerLinkChoice) {
+      await supabase.from("joker_pending_items").update({ status: "linked", linked_product_id: productId }).eq("id", jokerLinkChoice);
+      setJokerPendingItems((prev) => prev.map((j) => (j.id === jokerLinkChoice ? { ...j, status: "linked", linked_product_id: productId } : j)));
+    }
+
     showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
     // لازم نصفّر الفورم فورًا بعد نجاح "الإضافة" (مش التعديل) قبل الإغلاق، لأن الكومبوننت
     // ده فاضل mounted طول الوقت (بيتفتح/يتقفل بس بـ open prop).
@@ -16583,6 +16709,8 @@ function ProductFormModal({
       setForm({ ...blank, id: "P" + Date.now() });
       setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
       setSelectedIngredients([]);
+      setJokerLinkChoice(null);
+      setDismissedJokerSuggestion(false);
     }
     if (onSaved) onSaved({ ...p, id: productId });
     onClose();
@@ -16709,6 +16837,28 @@ function ProductFormModal({
           <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 8, background: COLORS.greenSoft, borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
             🔗 مرتبط بـ: <b>{linkedProduct?.name_ar || linkedProduct?.name || "..."}</b>
             <span onClick={() => F("linkedProductId", "")} style={{ cursor: "pointer", color: COLORS.red, marginRight: "auto", fontSize: 12 }}>إلغاء الربط ✕</span>
+          </div>
+        )}
+        {jokerSuggestionMatch && (
+          <div style={{ gridColumn: "1 / -1", background: COLORS.goldSoft, border: `1px dashed ${COLORS.gold}`, borderRadius: 10, padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, justifyContent: "space-between" }}>
+              <div style={{ fontSize: 13, color: COLORS.textPrimary, fontWeight: 700 }}>
+                🔔 ده يشبه صنف جوكر اتسجل قبل كده باسم "{jokerSuggestionMatch.name}" ({jokerSuggestionMatch.qty} وحدة مطلوبة). تحب تربطهم؟
+              </div>
+              <span onClick={() => setDismissedJokerSuggestion(true)} style={{ cursor: "pointer", color: COLORS.textDim, fontSize: 12, whiteSpace: "nowrap" }}>تجاهل ✕</span>
+            </div>
+            <button
+              onClick={() => { setJokerLinkChoice(jokerSuggestionMatch.id); setDismissedJokerSuggestion(true); }}
+              style={{ marginTop: 8, background: COLORS.gold, color: "#1a1a1a", border: "none", borderRadius: 7, padding: "6px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
+            >
+              ✓ نعم، اربطهم — هيتم اعتماد اسم الصنف الجديد بدل الاسم السريع
+            </button>
+          </div>
+        )}
+        {jokerLinkChoice && (
+          <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 8, background: COLORS.greenSoft, borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+            🔗 هيتم ربط الصنف ده بالجوكر المعلّق المطابق عند الحفظ
+            <span onClick={() => setJokerLinkChoice(null)} style={{ cursor: "pointer", color: COLORS.red, marginRight: "auto", fontSize: 12 }}>إلغاء الربط ✕</span>
           </div>
         )}
 
@@ -16925,7 +17075,7 @@ function ProductFormModal({
   );
 }
 
-function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId, currentUser, canAdd = true, canDelete = true, canEdit = true }) {
+function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId, currentUser, canAdd = true, canDelete = true, canEdit = true, jokerPendingItems = [], setJokerPendingItems = () => {} }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -17252,6 +17402,8 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
         currentUser={currentUser}
         pendingManufacturer={pendingManufacturerForForm}
         onRequestAddManufacturer={() => { setMfrModalFromProductForm(true); setShowMfrModal(true); }}
+        jokerPendingItems={jokerPendingItems}
+        setJokerPendingItems={setJokerPendingItems}
         onSaved={() => {}}
       />
     </div>
@@ -17274,6 +17426,8 @@ function SuppliersModule({
   canDelete = true,
   canEdit = true,
   canEditSub = (_sub) => true,
+  jokerPendingItems = [],
+  setJokerPendingItems = () => {},
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -17284,6 +17438,9 @@ function SuppliersModule({
   const [categoryFilter, setCategoryFilter] = useState(null); // فئة توريد محددة من "تحليل الموردين"
   const [analysisMonths, setAnalysisMonths] = useState(12); // 🆕 مدى شارت المشتريات/السداد الشهري
   const [analysisSupplierIds, setAnalysisSupplierIds] = useState([]); // 🆕 موردين محددين للمقارنة (فاضي = كل الموردين)
+  // 🆕 شاشة مراجعة أصناف الجوكر المعلّقة — مراجعة يدوية قبل ما تدخل أي طلب شراء
+  const [showJokerReview, setShowJokerReview] = useState(false);
+  const [jokerReviewSupplier, setJokerReviewSupplier] = useState({}); // { [groupKey]: supplierId }
   const [payments, setPayments] = useState([]);
   const [orders, setOrders] = useState([]);
   const [showDetail, setShowDetail] = useState(null);
@@ -17767,7 +17924,7 @@ function SuppliersModule({
   };
 
   // ========== توليد أوردر تلقائي ==========
-  const generateOrder = (supplier) => {
+  const generateOrder = (supplier, extraItems = []) => {
     const status = getSupplierStatus(supplier);
     let targetSupplier = supplier;
     if (status === "red") {
@@ -17803,7 +17960,9 @@ function SuppliersModule({
       .sort((a, b) => ["fast","regular","normal","slow","very_slow"].indexOf(a.movement.class) - ["fast","regular","normal","slow","very_slow"].indexOf(b.movement.class));
     // ضمّ أي أصناف كانت اتنقلت لهذا المورد لأنه الأرخص، وامسحها من قائمة الانتظار
     const pending = pendingBySupplier[targetSupplier.id] || [];
-    const merged = [...items, ...pending.filter((pi) => !items.some((i) => i.id === pi.id))];
+    // 🆕 extraItems: أي أصناف جوكر اختارها الصيدلي يدويًا من شاشة "أصناف جوكر معلّقة" وحب يضيفهم لطلب المورد ده —
+    // مفيش حقن تلقائي صامت هنا، الإضافة بتحصل فقط لما الصيدلي يختارها بنفسه
+    const merged = [...items, ...extraItems, ...pending.filter((pi) => !items.some((i) => i.id === pi.id))];
     if (pending.length) {
       setPendingBySupplier((prev) => { const p = { ...prev }; delete p[targetSupplier.id]; return p; });
     }
@@ -17865,6 +18024,12 @@ function SuppliersModule({
     const { error } = await supabase.from("orders").insert(order);
     if (error) { showToast("فشل حفظ الأوردر: " + error.message, "error"); return; }
     setOrders((p) => [order, ...p]);
+    // 🆕 أي صنف جوكر معلّق دخل ضمن الأوردر ده، نقفله عشان ميتكررش في طلبات تانية
+    const jokerIdsUsed = orderItems.filter((i) => i.isJokerPending).flatMap((i) => i.jokerIds || []);
+    if (jokerIdsUsed.length > 0) {
+      await supabase.from("joker_pending_items").update({ status: "ordered" }).in("id", jokerIdsUsed);
+      setJokerPendingItems((prev) => prev.map((j) => (jokerIdsUsed.includes(j.id) ? { ...j, status: "ordered" } : j)));
+    }
     setShowOrderForm(null);
     setOrderItems([]);
     showToast("تم حفظ الأوردر ✓");
@@ -17872,6 +18037,57 @@ function SuppliersModule({
       const msg = `طلب شراء - ${order.date}\n` + orderItems.map((i) => `• ${i.name}: ${i.orderQty} وحدة`).join("\n");
       window.open(`https://wa.me/${showOrderForm.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
     }
+  };
+
+  // 🆕 ========== أصناف الجوكر المعلّقة (مراجعة يدوية) ==========
+  // بتتجمع حسب الاسم + الفئة (احتياطًا لو حصل تكرار قديم قبل تفعيل الدمج عند الفاتورة)
+  const jokerPendingGroups = useMemo(() => {
+    const normName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const groups = {};
+    (jokerPendingItems || []).filter((j) => j.status === "pending").forEach((j) => {
+      const key = normName(j.name) + "||" + (j.category || "");
+      if (!groups[key]) groups[key] = { key, name: j.name, category: j.category || null, qty: 0, price: j.price || 0, ids: [], occurrences: 0 };
+      groups[key].qty += (+j.qty || 1);
+      groups[key].occurrences += 1;
+      groups[key].ids.push(j.id);
+    });
+    return Object.values(groups);
+  }, [jokerPendingItems]);
+
+  // حذف مجموعة جوكر معلّقة بالكامل (الصيدلي قرر إنه مش هيطلبها، أو غلط في التسجيل)
+  const deleteJokerGroup = async (group) => {
+    if (!window.confirm(`تأكيد حذف "${group.name}" من قائمة الجوكر المعلّقة؟`)) return;
+    const { error } = await supabase.from("joker_pending_items").delete().in("id", group.ids);
+    if (error) { showToast("خطأ في الحذف: " + error.message, "error"); return; }
+    setJokerPendingItems((prev) => prev.filter((j) => !group.ids.includes(j.id)));
+    showToast("تم الحذف ✓");
+  };
+
+  // إضافة مجموعة جوكر لطلب شراء مورد معيّن — يدويًا وبقرار صريح من الصيدلي، مفيش حقن تلقائي
+  const addJokerGroupToSupplierOrder = (group, supplierId) => {
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    if (!supplier) { showToast("اختر المورد الأول", "error"); return; }
+    const jokerOrderItem = {
+      id: "JOKER-ORDER-" + group.ids.join("-"),
+      name: group.name,
+      currentStock: 0,
+      minStock: 0,
+      orderQty: group.qty,
+      cost: group.price,
+      movement: { class: "joker", label: "⚠ جوكر (فرصة ضائعة)", color: COLORS.gold },
+      editable: true,
+      isJokerPending: true,
+      jokerIds: group.ids,
+    };
+    if (showOrderForm && showOrderForm.id === supplier.id) {
+      // فيه طلب مفتوح بالفعل لنفس المورد — نضيف عليه بس
+      setOrderItems((prev) => (prev.some((i) => i.id === jokerOrderItem.id) ? prev : [...prev, jokerOrderItem]));
+    } else {
+      // مفيش طلب مفتوح لهذا المورد — نفتحله طلب جديد ونحط الجوكر جواه على طول
+      generateOrder(supplier, [jokerOrderItem]);
+    }
+    setShowJokerReview(false);
+    showToast(`تمت إضافة "${group.name}" لطلب ${supplier.name} ✓`);
   };
 
   // ========== تقييم المورد ==========
@@ -17949,6 +18165,14 @@ function SuppliersModule({
   const openAdd = () => {
     setEditing(null);
     setForm({ ...blank, id: "S" + Date.now() });
+    setShowForm(true);
+  };
+
+  // 🆕 لو مفيش مورد مناسب لفئة صنف الجوكر، بنفتح فورم إضافة مورد جديد مع تعبئة الفئة تلقائيًا —
+  // مودال المراجعة بيفضل مفتوح في الخلفية، وبعد ما يحفظ المورد الجديد هيلاقيه ظاهر في القائمة على طول
+  const openAddWithCategory = (cat) => {
+    setEditing(null);
+    setForm({ ...blank, id: "S" + Date.now(), supply_categories: cat ? [cat] : [] });
     setShowForm(true);
   };
 
@@ -18047,7 +18271,19 @@ function SuppliersModule({
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>إدارة الموردين</h2>
-        {canAdd && <Btn icon="plus" onClick={openAdd}>إضافة مورد</Btn>}
+        <div style={{ display: "flex", gap: 8 }}>
+          {jokerPendingGroups.length > 0 && (
+            <Btn icon="alert" variant="secondary" onClick={() => setShowJokerReview(true)} style={{ position: "relative" }}>
+              ⚠ أصناف جوكر معلّقة
+              <span style={{
+                position: "absolute", top: -6, left: -6, background: COLORS.gold, color: "#1a1200",
+                borderRadius: 99, fontSize: 10, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>{jokerPendingGroups.length}</span>
+            </Btn>
+          )}
+          {canAdd && <Btn icon="plus" onClick={openAdd}>إضافة مورد</Btn>}
+        </div>
       </div>
 
       {/* 🆕 تاب: قائمة الموردين / تحليل الموردين */}
@@ -18735,7 +18971,75 @@ function SuppliersModule({
         </Modal>
       )}
 
-      {/* ===== Modal السداد ===== */}
+      {/* ===== 🆕 Modal مراجعة أصناف الجوكر المعلّقة ===== */}
+      {showJokerReview && (
+        <Modal open title="⚠ أصناف جوكر معلّقة" onClose={() => setShowJokerReview(false)} wide>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 12.5, color: COLORS.textDim }}>
+              دي أصناف اتباعت للعملاء كـ"جوكر" ولسه معندهاش صنف حقيقي مسجّل. راجعها واختار المورد المناسب لإضافتها لطلب شراء، أو احذفها لو مش محتاجها.
+            </div>
+            {jokerPendingGroups.length === 0 ? (
+              <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>لا توجد أصناف جوكر معلّقة 🎉</div>
+            ) : (
+              jokerPendingGroups.map((group) => {
+                const matchingSuppliers = suppliers.filter((s) => !group.category || (s.supply_categories || []).length === 0 || (s.supply_categories || []).includes(group.category));
+                const otherSuppliers = suppliers.filter((s) => !matchingSuppliers.some((m) => m.id === s.id));
+                return (
+                  <div key={group.key} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary }}>{group.name}</div>
+                        <div style={{ fontSize: 11.5, color: COLORS.textDim, marginTop: 2 }}>
+                          {group.category ? `الفئة: ${group.category}` : "بدون فئة محددة"} · إجمالي الكمية المطلوبة: <b style={{ color: COLORS.gold }}>{group.qty}</b>
+                          {group.occurrences > 1 && ` (اتكررت ${group.occurrences} مرة)`}
+                        </div>
+                      </div>
+                      <button onClick={() => deleteJokerGroup(group)} style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}>
+                        <IC n="trash" s={14} />
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <select
+                        value={jokerReviewSupplier[group.key] || ""}
+                        onChange={(e) => setJokerReviewSupplier((p) => ({ ...p, [group.key]: e.target.value }))}
+                        style={{ flex: 1, minWidth: 180, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 13 }}
+                      >
+                        <option value="">اختر المورد...</option>
+                        {matchingSuppliers.length > 0 && (
+                          <optgroup label="موردين بيوفروا نفس الفئة">
+                            {matchingSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </optgroup>
+                        )}
+                        {otherSuppliers.length > 0 && (
+                          <optgroup label="موردين آخرين">
+                            {otherSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </optgroup>
+                        )}
+                      </select>
+                      <Btn
+                        size="sm"
+                        icon="purchase"
+                        onClick={() => addJokerGroupToSupplierOrder(group, jokerReviewSupplier[group.key])}
+                      >
+                        ➕ أضف لطلب المورد
+                      </Btn>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: COLORS.textDim }}>
+                      مش عارف مين المورد بتاعه؟ سيبه هنا لحد ما تتأكد — مش هيتحذف أو يدخل أي طلب لحد ما تختار بنفسك.{" "}
+                      {matchingSuppliers.length === 0 && group.category && (
+                        <span onClick={() => openAddWithCategory(group.category)} style={{ color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>
+                          مفيش مورد بيوفر فئة "{group.category}"؟ أضف مورد جديد لها ↗
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </Modal>
+      )}
+
       {showPayForm && (
         <Modal open title={`تسجيل دفعة — ${showPayForm.name}`} onClose={() => setShowPayForm(null)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
