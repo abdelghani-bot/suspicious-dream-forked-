@@ -2748,6 +2748,7 @@ if (isLoading) return (
   { id: "suppliers",       label: "الموردون",        icon: "suppliers" },
   { id: "purchase_returns", label: "مرتجع المشتريات", icon: "returns" },
   { id: "inventory_count", label: "الجرد",           icon: "count" },
+  { id: "inventory_statement", label: "كشف المخزون", icon: "inventory" },
 
   // ── التقارير ──
   { id: "expiry_report", label: "تقرير تواريخ الصلاحية", icon: "alert" },
@@ -2883,7 +2884,7 @@ if (isLoading) return (
     { label: null,               color: GROUP_COLORS.main,    ids: ["dashboard"] },
     { label: "الفريق والالتزام", color: GROUP_COLORS.team,    ids: ["shift", "attendance"] },
     { label: "العملاء والمبيعات",color: GROUP_COLORS.sales,   ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
-    { label: "المخزون والموردين",color: GROUP_COLORS.stock,   ids: ["purchase", "products", "suppliers", "purchase_returns", "inventory_count"] },
+    { label: "المخزون والموردين",color: GROUP_COLORS.stock,   ids: ["purchase", "products", "suppliers", "purchase_returns", "inventory_count", "inventory_statement"] },
     { label: "التقارير",         color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "financial_health", "treasury"] },
     { label: "الإدارة",          color: GROUP_COLORS.admin,   ids: ["pharmacy_settings", "permissions", "rasd_settings", "audit_log"] },
   ];
@@ -3173,6 +3174,16 @@ if (isLoading) return (
           <AuditLogModule pharmacyId={pharmacyId} showToast={showToast} />
         )}
         {tab === "expiry_report" && canView("expiry_report") && <ExpiryReport products={products} onRemoveExpired={handleRemoveExpiredStock} />}
+        {tab === "inventory_statement" && canView("inventory_statement") && (
+          <InventoryStatement
+            products={products}
+            setProducts={setProducts}
+            showToast={showToast}
+            pharmacyId={pharmacyId}
+            currentUser={currentUser}
+            canEdit={canEdit("inventory_statement")}
+          />
+        )}
         {tab === "inventory_count" && canView("inventory_count") && (
           <InventoryCount
             products={products}
@@ -14125,6 +14136,387 @@ function ExpiryReport({ products, onRemoveExpired }) {
     </div>
   );
 }
+// ==================== كشف المخزون (Inventory Statement) ====================
+// تقرير سريع بكل الأصناف والتشغيلات الموجودة فعليًا بالمخزون (كمية + تاريخ صلاحية +
+// سعر تكلفة + سعر بيع)، بالإضافة لإمكانية عمل "تسوية سريعة" لكمية/صلاحية صنف واحد
+// من غير المرور بدورة جرد كاملة. مختلف عن "الجرد" اللي بيغطي كل الأصناف بشكل منهجي
+// دوري، هنا التركيز على عرض سريع + تصحيح فردي لصنف بعينه.
+function InventoryStatement({
+  products,
+  setProducts,
+  showToast,
+  pharmacyId,
+  currentUser,
+  canEdit = true,
+}) {
+  const [search, setSearch] = useState("");
+  const [editingRow, setEditingRow] = useState(null); // الصف اللي بيتعمله تسوية دلوقتي
+  const [adjQty, setAdjQty] = useState("");
+  const [adjExpiry, setAdjExpiry] = useState("");
+  const [adjNote, setAdjNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // ===== بناء صفوف الكشف من batches كل صنف (أو من stock لو الصنف من غير تشغيلات) =====
+  const allRows = (products ?? []).flatMap((p) => {
+    const batches = (p.batches || []).filter((b) => (b.qty ?? 0) > 0);
+    if (batches.length > 0) {
+      return batches.map((b) => {
+        const batchIndex = (p.batches || []).indexOf(b);
+        return {
+          key: `${p.id}::${batchIndex}`,
+          productId: p.id,
+          batchIndex,
+          name: p.name,
+          barcode: p.barcode ?? "-",
+          expiry: b.expiry_date || null,
+          stock: b.qty ?? 0,
+          cost: b.cost ?? p.cost ?? 0,
+          price: b.salePrice ?? p.price ?? 0,
+          batchNumber: b.batch_number || null,
+        };
+      });
+    }
+    if ((p.stock ?? 0) > 0) {
+      return [{
+        key: `${p.id}::none`,
+        productId: p.id,
+        batchIndex: null,
+        name: p.name,
+        barcode: p.barcode ?? "-",
+        expiry: null,
+        stock: p.stock ?? 0,
+        cost: p.cost ?? 0,
+        price: p.price ?? 0,
+        batchNumber: null,
+      }];
+    }
+    return [];
+  });
+
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? allRows.filter(
+        (r) =>
+          (r.name || "").toLowerCase().includes(q) ||
+          (r.barcode || "").toLowerCase().includes(q)
+      )
+    : allRows;
+
+  const totals = filtered.reduce(
+    (acc, r) => {
+      acc.qty += r.stock;
+      acc.cost += (r.cost || 0) * (r.stock || 0);
+      acc.sell += (r.price || 0) * (r.stock || 0);
+      return acc;
+    },
+    { qty: 0, cost: 0, sell: 0 }
+  );
+
+  // ===== طباعة =====
+  const handlePrint = () => {
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>كشف المخزون</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+  h2 { text-align: center; margin-bottom: 4px; }
+  .sub { text-align: center; color: #666; font-size: 13px; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: right; font-size: 13px; }
+  th { background: #f0f0f0; font-weight: 700; }
+  tr:nth-child(even) { background: #fafafa; }
+  .totals { margin-top: 16px; display: flex; gap: 16px; justify-content: flex-end; }
+  .tot { background: #f0f4ff; border-radius: 8px; padding: 8px 16px; font-weight: 700; font-size: 14px; }
+  @media print { * { -webkit-print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<h2>كشف المخزون</h2>
+<div class="sub">${todayLocal()} — ${filtered.length} سطر</div>
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>اسم الصنف</th><th>الباركود</th>
+      <th>تاريخ الانتهاء</th><th>الكمية</th>
+      <th>سعر التكلفة</th><th>سعر البيع</th>
+      <th>إجمالي التكلفة</th><th>إجمالي البيع</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${filtered
+      .map(
+        (p, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${p.name || "-"}</td>
+        <td>${p.barcode || "-"}</td>
+        <td>${p.expiry || "-"}</td>
+        <td>${p.stock || 0}</td>
+        <td>${(p.cost || 0).toFixed(2)}</td>
+        <td>${(p.price || 0).toFixed(2)}</td>
+        <td>${((p.cost || 0) * (p.stock || 0)).toFixed(2)}</td>
+        <td>${((p.price || 0) * (p.stock || 0)).toFixed(2)}</td>
+      </tr>`
+      )
+      .join("")}
+  </tbody>
+</table>
+<div class="totals">
+  <div class="tot">إجمالي الكمية: ${totals.qty}</div>
+  <div class="tot">إجمالي التكلفة: ${totals.cost.toFixed(2)}</div>
+  <div class="tot">إجمالي البيع: ${totals.sell.toFixed(2)}</div>
+</div>
+<script>window.onload = () => window.print();</script>
+</body></html>`);
+    win.document.close();
+  };
+
+  // ===== فتح مودال التسوية =====
+  const openAdjust = (row) => {
+    setEditingRow(row);
+    setAdjQty(String(row.stock));
+    setAdjExpiry(row.expiry || "");
+    setAdjNote("");
+  };
+
+  // ===== حفظ التسوية =====
+  const saveAdjustment = async () => {
+    if (!editingRow) return;
+    const newQty = Number(adjQty);
+    if (Number.isNaN(newQty) || newQty < 0) {
+      showToast("❌ اكتب كمية صحيحة", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const prod = products.find((p) => p.id === editingRow.productId);
+      if (!prod) throw new Error("الصنف غير موجود");
+
+      const currentBatches = [...(prod.batches || [])];
+      let updatedBatches;
+      if (editingRow.batchIndex != null && currentBatches[editingRow.batchIndex]) {
+        updatedBatches = currentBatches.map((b, idx) =>
+          idx === editingRow.batchIndex
+            ? { ...b, qty: newQty, expiry_date: adjExpiry || null }
+            : b
+        );
+      } else {
+        updatedBatches = [
+          ...currentBatches,
+          {
+            qty: newQty,
+            cost: prod.cost || 0,
+            salePrice: prod.price || 0,
+            expiry_date: adjExpiry || null,
+            date: todayLocal(),
+          },
+        ];
+      }
+      updatedBatches = updatedBatches.filter((b) => (b.qty ?? 0) > 0);
+      const newStock = updatedBatches.reduce((s, b) => s + (b.qty || 0), 0);
+
+      const { error } = await supabase
+        .from("products")
+        .update({ stock: newStock, batches: updatedBatches })
+        .eq("id", prod.id)
+        .eq("pharmacy_id", pharmacyId);
+      if (error) throw error;
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === prod.id ? { ...p, stock: newStock, batches: updatedBatches } : p
+        )
+      );
+
+      const diff = newQty - editingRow.stock;
+      const logData = {
+        id: "INV-ADJ-" + Date.now(),
+        date: todayLocal(),
+        type: "تسوية سريعة",
+        items: [
+          {
+            id: prod.id,
+            name: prod.name,
+            expiry: adjExpiry || null,
+            systemQty: editingRow.stock,
+            actualQty: newQty,
+            diff,
+          },
+        ],
+        notes: adjNote || null,
+        by: currentUser?.name,
+        pharmacy_id: pharmacyId,
+      };
+      await supabase.from("inventory_logs").insert([logData]);
+      if (diff !== 0) {
+        await supabase.from("inventory_adjustments").insert([{
+          inventory_log_id: logData.id,
+          product_id: prod.id,
+          quantity: diff,
+          date: logData.date,
+          created_by: currentUser?.name,
+          pharmacy_id: pharmacyId,
+        }]);
+      }
+
+      logAudit({
+        pharmacyId,
+        userName: currentUser?.name,
+        action: "update",
+        entityType: "product",
+        entityId: prod.id,
+        entityLabel: prod.name,
+        oldValue: { qty: editingRow.stock, expiry: editingRow.expiry },
+        newValue: { qty: newQty, expiry: adjExpiry || null },
+        description:
+          `تسوية سريعة من كشف المخزون: ${prod.name} — الكمية من ${editingRow.stock} إلى ${newQty}` +
+          (editingRow.expiry !== (adjExpiry || null)
+            ? `، الصلاحية من ${editingRow.expiry || "-"} إلى ${adjExpiry || "-"}`
+            : "") +
+          (adjNote ? ` — ملاحظة: ${adjNote}` : ""),
+      });
+
+      showToast("✅ تم حفظ التسوية وتحديث المخزون");
+      setEditingRow(null);
+    } catch (e: any) {
+      showToast("❌ خطأ في حفظ التسوية: " + (e?.message || e), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const card = {
+    background: COLORS.surface,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 14,
+    padding: 16,
+    boxShadow: SHADOW.card,
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>كشف المخزون</h2>
+        <button
+          onClick={handlePrint}
+          style={{
+            background: COLORS.accent, color: COLORS.accentText, border: "none",
+            borderRadius: 10, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13,
+          }}
+        >
+          🖨️ طباعة الكشف
+        </button>
+      </div>
+
+      <div style={{ ...card, display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 12 }}>عدد الأسطر</div>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>{filtered.length}</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 12 }}>إجمالي الكمية</div>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>{totals.qty}</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 12 }}>إجمالي قيمة التكلفة</div>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>{totals.cost.toFixed(0)} ر.س</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 12 }}>إجمالي قيمة البيع</div>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>{totals.sell.toFixed(0)} ر.س</div>
+        </div>
+      </div>
+
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="بحث باسم الصنف أو الباركود..."
+        style={{
+          padding: "10px 14px", borderRadius: 10, border: `1px solid ${COLORS.border}`,
+          background: COLORS.surface, color: COLORS.textPrimary, fontSize: 14,
+        }}
+      />
+
+      <Table
+        headers={["الصنف", "الباركود", "رقم التشغيلة", "تاريخ الانتهاء", "الكمية", "سعر التكلفة", "سعر البيع", "إجراءات"]}
+        rows={filtered.map((r) => [
+          r.name,
+          r.barcode,
+          r.batchNumber || "-",
+          r.expiry || "-",
+          r.stock,
+          (r.cost || 0).toFixed(2),
+          (r.price || 0).toFixed(2),
+          canEdit ? (
+            <button
+              key={r.key}
+              onClick={() => openAdjust(r)}
+              style={{
+                background: COLORS.goldSoft, color: COLORS.gold, border: "none",
+                borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700,
+              }}
+            >
+              ⚖️ تسوية
+            </button>
+          ) : "-",
+        ])}
+        emptyMsg="لا توجد أصناف بالمخزون"
+      />
+
+      {/* ✅ Modal تسوية سريعة لكمية/صلاحية صنف */}
+      <Modal open={!!editingRow} onClose={() => setEditingRow(null)} title={`تسوية — ${editingRow?.name || ""}`}>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 13, color: COLORS.textDim }}>
+            الكمية الحالية بالنظام: <b>{editingRow?.stock}</b>
+            {editingRow?.expiry ? ` — صلاحية: ${editingRow.expiry}` : ""}
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>الكمية الفعلية</label>
+            <input
+              type="number"
+              value={adjQty}
+              onChange={(e) => setAdjQty(e.target.value)}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>تاريخ الصلاحية</label>
+            <input
+              type="date"
+              value={adjExpiry}
+              onChange={(e) => setAdjExpiry(e.target.value)}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>ملاحظة (اختياري)</label>
+            <input
+              value={adjNote}
+              onChange={(e) => setAdjNote(e.target.value)}
+              placeholder="سبب التسوية..."
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }}
+            />
+          </div>
+          <button
+            onClick={saveAdjustment}
+            disabled={saving}
+            style={{
+              background: COLORS.accent, color: COLORS.accentText, border: "none",
+              borderRadius: 10, padding: "12px", fontWeight: 800, cursor: saving ? "default" : "pointer",
+              opacity: saving ? 0.6 : 1, fontSize: 14,
+            }}
+          >
+            {saving ? "جارٍ الحفظ..." : "حفظ التسوية"}
+          </button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 function InventoryCount({
   products,
   setProducts,
@@ -15199,26 +15591,7 @@ function ProductFormModal({
       .slice(0, 8);
   }, [products, offerLinkSearch, editingId]);
 
-  // ═══════════════════════════════════════════════════
-  // 🆕 مسودة "إضافة صنف جديد": عشان لو الصيدلي بدأ يدخّل بيانات صنف واحتاج
-  // يسيب الشاشة (يروح نقطة البيع مثلاً) وبعدين يرجع، ميضيعش اللي كتبه.
-  // بتتفعّل بس في حالة "إضافة" (مش تعديل صنف موجود) عشان منلخبطش بيانات صنف حقيقي.
-  // ═══════════════════════════════════════════════════
-  const productDraftKey = `pharmacypro_product_draft_${pharmacyId}`;
-
-  useEffect(() => {
-    if (!open || editingId || !pharmacyId) return;
-    try {
-      if (form.nameAr?.trim() || form.brandName?.trim()) {
-        localStorage.setItem(productDraftKey, JSON.stringify(form));
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, open, editingId, pharmacyId]);
-
-  const clearProductDraft = () => {
-    try { localStorage.removeItem(productDraftKey); } catch {}
-  };
+  // 🆕 خاصية "استرجاع مسودة الصنف" اتشالت بناءً على طلب المستخدم.
 
   // 🆕 لما نضيف شركة منتجة جديدة من جوه فورم الصنف (نافذة "إدارة الشركات" اللي بتفتح فوقه)،
   // الأب بيبعتها هنا بمجرد ما تتحفظ — نضيفها لقائمتنا المحلية ونختارها تلقائيًا،
@@ -15354,21 +15727,7 @@ function ProductFormModal({
         });
       setSimilarSearch(""); setSimilarProductId("");
     } else {
-      let restored = false;
-      try {
-        const raw = localStorage.getItem(productDraftKey);
-        if (raw) {
-          const draft = JSON.parse(raw);
-          if (draft && (draft.nameAr?.trim() || draft.brandName?.trim())) {
-            setForm({ ...blank, ...draft, id: draft.id || "P" + Date.now() });
-            showToast("↩️ تم استرجاع مسودة صنف لم يكتمل إدخالها");
-            restored = true;
-          }
-        }
-      } catch {}
-      if (!restored) {
-        setForm({ ...blank, id: "P" + Date.now(), nameAr: prefillName || "" });
-      }
+      setForm({ ...blank, id: "P" + Date.now(), nameAr: prefillName || "" });
       setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
       setSelectedIngredients([]);
       setSimilarSearch(""); setSimilarProductId("");
@@ -15527,7 +15886,6 @@ function ProductFormModal({
       if (error) { showToast("خطأ في الإضافة: " + error.message, "error"); return; }
       productId = data[0].id;
       setProducts((prev) => [...prev, data[0]]);
-      clearProductDraft();
       logAudit({
         pharmacyId, userName: currentUser?.name, action: "create", entityType: "product",
         entityId: productId, entityLabel: p.name,
@@ -15555,13 +15913,8 @@ function ProductFormModal({
     }
 
     showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
-    // 🐛 تصليح: لازم نصفّر الفورم فورًا بعد نجاح "الإضافة" (مش التعديل) قبل الإغلاق.
-    // السبب: الكومبوننت ده فاضل mounted طول الوقت (بيتفتح/يتقفل بس بـ open prop)،
-    // فلو سبنا form زي ما هي (لسه فيها بيانات الصنف اللي اتحفظ) وبعدين المستخدم فتح
-    // "إضافة صنف جديد" تاني، الـ useEffect بتاع حفظ المسودة كان بيشتغل بـ form القديمة
-    // *قبل* ما الـ useEffect بتاع تحميل الفورم يلحق يصفّرها، فيعيد كتابة المسودة القديمة
-    // في localStorage من جديد (بعد ما احنا مسحناها فوق بـ clearProductDraft)، وبعدين
-    // نفس الفتحة بتقرا المسودة اللي هي كتبتها لتوها وتظهر رسالة "تم استرجاع مسودة" غلط.
+    // لازم نصفّر الفورم فورًا بعد نجاح "الإضافة" (مش التعديل) قبل الإغلاق، لأن الكومبوننت
+    // ده فاضل mounted طول الوقت (بيتفتح/يتقفل بس بـ open prop).
     if (!editing) {
       setForm({ ...blank, id: "P" + Date.now() });
       setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
@@ -27774,6 +28127,7 @@ const SYSTEM_SECTIONS = [
       { id: "fix_stock", label: "إصلاح تشغيلات المخزون" },
     ] },
   { id: "expiry_report",     label: "تقرير الصلاحيات",    icon: "⚠️" },
+  { id: "inventory_statement", label: "كشف المخزون",      icon: "📦" },
   { id: "attendance",        label: "الحضور والانصراف",   icon: "⏱️", subItems: [
       { id: "checkin",        label: "الحضور" },
       { id: "schedule",       label: "جدول الدوام" },
@@ -27848,7 +28202,7 @@ function PermissionsModule({
         if (!map[role]) map[role] = {};
         // 🆕 دور "مخزن": يشوف ويعدّل بس في الشراء والأصناف والموردين والجرد،
         // وميشوفش المبيعات/العملاء/الخزنة/التقارير المالية أصلاً.
-        const WAREHOUSE_SECTIONS = ["purchase", "products", "suppliers", "returns", "inventory_count", "expiry_report"];
+        const WAREHOUSE_SECTIONS = ["purchase", "products", "suppliers", "returns", "inventory_count", "expiry_report", "inventory_statement"];
         SYSTEM_SECTIONS.forEach((sec) => {
           const canEditDefault = role === "cashier"
             ? sec.id === "pos"
