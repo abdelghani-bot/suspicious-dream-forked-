@@ -14147,6 +14147,52 @@ function ExpiryReport({ products, onRemoveExpired }) {
     </div>
   );
 }
+
+// ===== 🆕 بطاقة مجموعة أصناف مكررة (نفس الباركود) — اختيار الصنف المحتفظ به وتنفيذ الدمج =====
+function MergeGroupCard({ group, saving, onMerge }) {
+  const [keepId, setKeepId] = useState(
+    // افتراضيًا نقترح الصنف صاحب أكبر كمية (غالبًا الأقدم/الأكتر استخدامًا)
+    group.products.reduce((best, p) => ((p.stock || 0) > (best.stock || 0) ? p : best), group.products[0]).id
+  );
+  const totalQty = group.products.reduce((s, p) => s + (p.stock || 0), 0);
+
+  return (
+    <div style={{ background: COLORS.goldSoft, borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 12.5, color: COLORS.textDim }}>
+        باركود <b>{group.barcode}</b> — {group.products.length} سجل، إجمالي الكمية بعد الدمج: <b>{totalQty}</b>
+      </div>
+      {group.products.map((p) => (
+        <label
+          key={p.id}
+          style={{
+            display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+            borderRadius: 8, background: keepId === p.id ? "#eaf7ee" : COLORS.surface,
+            border: `1px solid ${keepId === p.id ? COLORS.green : COLORS.border}`, cursor: "pointer",
+          }}
+        >
+          <input type="radio" name={`merge-${group.barcode}`} checked={keepId === p.id} onChange={() => setKeepId(p.id)} />
+          <div style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>{p.name}</div>
+          <div style={{ fontSize: 12, color: COLORS.textDim }}>
+            الكمية: {p.stock || 0} — {(p.batches || []).length > 0 ? `${p.batches.length} تشغيلة` : "بدون تشغيلات"}
+          </div>
+          {keepId === p.id && <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.green }}>✓ هيتم الاحتفاظ به</span>}
+        </label>
+      ))}
+      <button
+        onClick={() => onMerge(keepId, group.products.filter((p) => p.id !== keepId).map((p) => p.id))}
+        disabled={saving}
+        style={{
+          alignSelf: "flex-start", background: COLORS.accent, color: COLORS.accentText, border: "none",
+          borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: saving ? "default" : "pointer",
+          opacity: saving ? 0.6 : 1, fontSize: 12.5,
+        }}
+      >
+        {saving ? "جارٍ الدمج..." : "🔗 دمج هذه المجموعة"}
+      </button>
+    </div>
+  );
+}
+
 // ==================== كشف المخزون (Inventory Statement) ====================
 // تقرير سريع بكل الأصناف والتشغيلات الموجودة فعليًا بالمخزون (كمية + تاريخ صلاحية +
 // سعر تكلفة + سعر بيع)، بالإضافة لإمكانية عمل "تسوية سريعة" لكمية/صلاحية صنف واحد
@@ -14270,6 +14316,25 @@ function InventoryStatement({
     }
     return groups;
   }, [filtered]);
+
+  // ===== 🆕 كشف الأصناف المكررة (نفس الباركود، أصناف مختلفة في قاعدة البيانات) =====
+  // بيحصل لما فاتورة شراء تتسجل ومتلقاش تطابق بالباركود مع الصنف الموجود، فتعمل صنف
+  // جديد بدل ما تضيف تشغيلة للصنف القديم. النتيجة: نفس الدواء ظاهر في أكتر من سطر
+  // حتى في وضع "حسب الصنف"، لأنهم فعليًا Product IDs مختلفة مش تشغيلات لصنف واحد.
+  const duplicateGroups = useMemo(() => {
+    const map = new Map();
+    for (const p of products ?? []) {
+      const bc = (p.barcode || "").trim();
+      if (!bc) continue; // من غير باركود مفيش أساس نجمع عليه
+      if (!map.has(bc)) map.set(bc, []);
+      map.get(bc).push(p);
+    }
+    return Array.from(map.entries())
+      .filter(([, list]) => list.length > 1)
+      .map(([barcode, list]) => ({ barcode, products: list }));
+  }, [products]);
+
+  const [showMergeTool, setShowMergeTool] = useState(false);
 
   // ===== طباعة =====
   const handlePrint = () => {
@@ -14637,6 +14702,99 @@ function InventoryStatement({
     }
   };
 
+  // ===== 🆕 دمج أصناف مكررة (نفس الباركود) في صنف واحد =====
+  // keepId: الصنف اللي هيفضل موجود، duplicateIds: الأصناف اللي هتتحذف بعد نقل تشغيلاتها.
+  // - بندمج التشغيلات (batches) لكل الأصناف في صنف واحد (وبندمج التشغيلات اللي بنفس الصلاحية مع بعضها).
+  // - بننقل أي سجلات مرتبطة بالـ product_id القديم (باركودات إضافية، مكونات فعالة، أكواد موردين،
+  //   مبيعات مفقودة، سيريالات مباعة، منتجات حافز) للصنف الباقي، عشان متتيتمش.
+  // - سجلات المبيعات/المشتريات/المرتجعات القديمة بتخزن الصنف كـ JSON مدمج جوه الفاتورة نفسها
+  //   (اسم + سعر وقت البيع) مش رابط منفصل، فمش محتاجة تحديث — بتفضل تتعرض صح زي ما كانت.
+  const mergeDuplicateProducts = async (keepId, duplicateIds) => {
+    const keepProduct = products.find((p) => p.id === keepId);
+    const dupProducts = products.filter((p) => duplicateIds.includes(p.id));
+    if (!keepProduct || dupProducts.length === 0) return;
+
+    const confirmed = window.confirm(
+      `هيتم دمج ${dupProducts.length} صنف مكرر داخل "${keepProduct.name}" ونقل كل تشغيلاتهم، وحذف السجلات المكررة نهائيًا. متأكد؟`
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    try {
+      // ===== دمج التشغيلات كلها (الصنف الباقي + كل الأصناف المكررة) في مصفوفة واحدة، بدمج نفس الصلاحية =====
+      const allSources = [keepProduct, ...dupProducts];
+      const mergedMap = new Map(); // key: الصلاحية (أو "" لبلا صلاحية)
+      for (const src of allSources) {
+        const srcBatches = (src.batches || []).length > 0
+          ? src.batches
+          : (src.stock ?? 0) > 0
+            ? [{ qty: src.stock, cost: src.cost || 0, salePrice: src.price || 0, expiry_date: null, date: todayLocal() }]
+            : [];
+        for (const b of srcBatches) {
+          const q = Number(b.qty) || 0;
+          if (q <= 0) continue;
+          const key = b.expiry_date || "";
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, {
+              qty: 0, cost: b.cost ?? src.cost ?? 0, salePrice: b.salePrice ?? src.price ?? 0,
+              batch_number: b.batch_number ?? null, expiry_date: b.expiry_date || null, date: b.date || todayLocal(),
+            });
+          }
+          mergedMap.get(key).qty += q;
+        }
+      }
+      const mergedBatches = Array.from(mergedMap.values()).filter((b) => b.qty > 0);
+      const mergedStock = mergedBatches.reduce((s, b) => s + b.qty, 0);
+
+      const { error: updErr } = await supabase
+        .from("products")
+        .update({ stock: mergedStock, batches: mergedBatches })
+        .eq("id", keepId)
+        .eq("pharmacy_id", pharmacyId);
+      if (updErr) throw updErr;
+
+      // ===== نقل السجلات المرتبطة بالـ product_id القديم للصنف الباقي =====
+      const linkedTables = ["product_barcodes", "product_ingredients", "supplier_product_codes", "missed_sales", "sold_serials", "incentive_products"];
+      for (const dupId of duplicateIds) {
+        for (const table of linkedTables) {
+          await supabase.from(table).update({ product_id: keepId }).eq("product_id", dupId).eq("pharmacy_id", pharmacyId);
+        }
+      }
+
+      // ===== حذف سجلات الأصناف المكررة =====
+      const { error: delErr } = await supabase
+        .from("products")
+        .delete()
+        .in("id", duplicateIds)
+        .eq("pharmacy_id", pharmacyId);
+      if (delErr) throw delErr;
+
+      setProducts((prev) =>
+        prev
+          .filter((p) => !duplicateIds.includes(p.id))
+          .map((p) => (p.id === keepId ? { ...p, stock: mergedStock, batches: mergedBatches } : p))
+      );
+
+      logAudit({
+        pharmacyId,
+        userName: currentUser?.name,
+        action: "update",
+        entityType: "product",
+        entityId: keepId,
+        entityLabel: keepProduct.name,
+        oldValue: { qty: keepProduct.stock },
+        newValue: { qty: mergedStock },
+        description: `دمج ${dupProducts.length} صنف مكرر (نفس الباركود ${keepProduct.barcode}) داخل "${keepProduct.name}" — الكمية الإجمالية بعد الدمج: ${mergedStock}`,
+      });
+
+      showToast(`✅ تم دمج ${dupProducts.length} صنف مكرر بنجاح`);
+    } catch (e: any) {
+      showToast("❌ خطأ في الدمج: " + (e?.message || e), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const card = {
     background: COLORS.surface,
     border: `1px solid ${COLORS.border}`,
@@ -14673,6 +14831,17 @@ function InventoryStatement({
               حسب الصنف
             </button>
           </div>
+          {canEdit && duplicateGroups.length > 0 && (
+            <button
+              onClick={() => setShowMergeTool(true)}
+              style={{
+                background: "#fdecea", color: COLORS.red, border: `1px solid ${COLORS.red}`,
+                borderRadius: 10, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13,
+              }}
+            >
+              🔗 دمج {duplicateGroups.length} صنف مكرر
+            </button>
+          )}
           <button
             onClick={handlePrint}
             style={{
@@ -14769,7 +14938,14 @@ function InventoryStatement({
                     <div style={{ flex: "2 1 200px", fontWeight: 700, fontSize: 14 }}>{g.name}</div>
                     <div style={{ flex: "1 1 120px", fontSize: 12, color: COLORS.textDim }}>{g.barcode}</div>
                     <div style={{ flex: "1 1 90px", fontSize: 12, color: COLORS.textDim }}>
-                      {hasMultiple ? `${g.batches.length} تشغيلة` : (g.batches[0]?.expiry || "بلا صلاحية")}
+                      {hasMultiple ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <span>{g.batches.length} تشغيلة</span>
+                          <span>{new Set(g.batches.map((b) => b.expiry || "")).size} تاريخ صلاحية</span>
+                        </div>
+                      ) : (
+                        g.batches[0]?.expiry || "بلا صلاحية"
+                      )}
                     </div>
                     <div style={{ flex: "0 1 90px", fontWeight: 800, fontSize: 15 }}>{g.totalQty}</div>
                     <div style={{ flex: "0 1 110px", fontSize: 12, color: COLORS.textDim }}>
@@ -14971,6 +15147,30 @@ function InventoryStatement({
           >
             {saving ? "جارٍ الحفظ..." : "حفظ تسوية الصنف"}
           </button>
+        </div>
+      </Modal>
+
+      {/* ✅ 🆕 Modal دمج الأصناف المكررة (نفس الباركود) */}
+      <Modal open={showMergeTool} onClose={() => setShowMergeTool(false)} title="🔗 دمج الأصناف المكررة" wide>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 12.5, color: COLORS.textDim }}>
+            الأصناف دي عندها نفس الباركود بس متسجلة كسجلات منفصلة في قاعدة البيانات (مش تشغيلات لصنف واحد).
+            اختار الصنف اللي عايز تحتفظ بيه من كل مجموعة، وباقي الأصناف هتتحذف بعد ما تشغيلاتها تتنقل تلقائيًا للصنف المحتفظ به.
+          </div>
+          {duplicateGroups.length === 0 ? (
+            <div style={{ ...card, textAlign: "center", color: COLORS.textDim, padding: 24 }}>
+              مفيش أصناف مكررة حاليًا ✅
+            </div>
+          ) : (
+            duplicateGroups.map((grp) => (
+              <MergeGroupCard
+                key={grp.barcode}
+                group={grp}
+                saving={saving}
+                onMerge={mergeDuplicateProducts}
+              />
+            ))
+          )}
         </div>
       </Modal>
     </div>
