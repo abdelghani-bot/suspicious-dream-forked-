@@ -14173,10 +14173,12 @@ function InventoryStatement({
 
   // ===== 🆕 تسوية على مستوى الصنف كامل (وضع التجميع) =====
   const [settlingProduct, setSettlingProduct] = useState(null); // group اللي بيتعمله تسوية دلوقتي
-  const [itemAdjQty, setItemAdjQty] = useState("");
+  const [itemAdjQty, setItemAdjQty] = useState(""); // بيتستخدم بس للأصناف اللي من غير تشغيلات (رقم واحد)
   const [itemAdjNote, setItemAdjNote] = useState("");
-  const [increaseTargetKey, setIncreaseTargetKey] = useState(""); // مفتاح التشغيلة اللي هتضاف عليها الزيادة، أو "__new__"
-  const [increaseNewExpiry, setIncreaseNewExpiry] = useState("");
+  // 🆕 بدل الـ dropdown القديم (اختيار تشغيلة واحدة تتحط عليها الزيادة): سطر كمية+صلاحية قابل للتعديل لكل تشغيلة موجودة،
+  // بالظبط زي ما المستخدم شايف العلب الفعلية قدامه — كل تشغيلة بكميتها وتاريخها الحقيقيين، بدل ما يدخل رقم إجمالي واحد.
+  // كل سطر: { key, batchIndex (null لو سطر جديد), expiry, qty }
+  const [itemBatchRows, setItemBatchRows] = useState([]);
 
   // ===== بناء صفوف الكشف من batches كل صنف (أو من stock لو الصنف من غير تشغيلات) =====
   const allRows = (products ?? []).flatMap((p) => {
@@ -14446,83 +14448,127 @@ function InventoryStatement({
   };
 
   // ===== 🆕 فتح مودال التسوية على مستوى الصنف كامل (وضع التجميع) =====
+  // بدل رقم إجمالي واحد: بنجهّز سطر مستقل لكل تشغيلة موجودة (كمية + صلاحية) عشان المستخدم
+  // يعدّل كل تشغيلة بالكمية الفعلية اللي عدّها، بالظبط زي ما هو شايف العلب قدامه.
   const openItemSettle = (group) => {
     setSettlingProduct(group);
-    setItemAdjQty(String(group.totalQty));
+    const hasBatches = group.batches.some((b) => b.batchIndex != null);
+    if (hasBatches) {
+      setItemBatchRows(
+        group.batches
+          .filter((b) => b.batchIndex != null)
+          .map((b) => ({ key: b.key, batchIndex: b.batchIndex, expiry: b.expiry || "", qty: String(b.stock) }))
+      );
+    } else {
+      setItemAdjQty(String(group.totalQty)); // صنف من غير تشغيلات — رقم واحد زي الأول
+      setItemBatchRows([]);
+    }
     setItemAdjNote("");
-    // افتراضيًا لو حصلت زيادة، هتتحط على أقرب تشغيلة لتاريخ الانتهاء (زي ما ظاهرة فوق)
-    const firstBatched = group.batches.find((b) => b.batchIndex != null);
-    setIncreaseTargetKey(firstBatched ? firstBatched.key : "__new__");
-    setIncreaseNewExpiry("");
+  };
+
+  // 🆕 إضافة سطر تشغيلة/صلاحية جديدة فاضي (للكمية الزيادة اللي مالهاش تشغيلة موجودة أصلاً)
+  const addItemBatchRow = () => {
+    setItemBatchRows((prev) => [...prev, { key: "new-" + Date.now(), batchIndex: null, expiry: "", qty: "" }]);
+  };
+  const updateItemBatchRow = (key, field, value) => {
+    setItemBatchRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  };
+  // حذف سطر (بيتصفّر — التصفير بيشيله فعليًا وقت الحفظ)
+  const removeItemBatchRow = (key) => {
+    setItemBatchRows((prev) => prev.filter((r) => r.key !== key));
   };
 
   // ===== 🆕 حفظ التسوية على مستوى الصنف كامل =====
-  // - لو الفرق نقص: يتخصم تلقائيًا من الأقرب لتاريخ الانتهاء الأول (نفس منطق البيع FIFO على الصلاحية).
-  // - لو الفرق زيادة: تتحط على التشغيلة اللي المستخدم يختارها (أو تشغيلة/صلاحية جديدة).
+  // نفس مبدأ التعامل مع النقص اتطبّق على الزيادة كمان: مفيش تخمين ولا اختيار من قائمة —
+  // المستخدم بيكتب الكمية الفعلية وتاريخ الصلاحية اللي شايفهم قدامه لكل تشغيلة (سواء كانت موجودة
+  // أو جديدة كليًا). لو الصلاحية اللي كتبها تطابق تشغيلة موجودة، الفرق (زيادة أو نقص) يتحط عليها
+  // مباشرة. لو الصلاحية جديدة تمامًا، يتفتح لها سطر تشغيلة جديد بالكمية والتاريخ زي ما دخلهم.
   const saveItemSettlement = async () => {
     if (!settlingProduct) return;
-    const newTotal = Number(itemAdjQty);
-    if (Number.isNaN(newTotal) || newTotal < 0) {
-      showToast("❌ اكتب كمية صحيحة", "error");
-      return;
-    }
-    const diff = newTotal - settlingProduct.totalQty;
     const hasBatches = settlingProduct.batches.some((b) => b.batchIndex != null);
-
-    if (diff > 0 && hasBatches && increaseTargetKey === "__new__" && !increaseNewExpiry) {
-      showToast("❌ حدد تاريخ الصلاحية للتشغيلة الجديدة", "error");
-      return;
-    }
 
     setSaving(true);
     try {
       const prod = products.find((p) => p.id === settlingProduct.productId);
       if (!prod) throw new Error("الصنف غير موجود");
 
-      let updatedBatches = [...(prod.batches || [])];
-      const batchChanges = []; // لتسجيلها في اللوج (تفاصيل التوزيع)
+      let updatedBatches;
+      let newTotal;
+      const batchChanges = []; // لتسجيلها في اللوج (تفاصيل التغيير لكل صلاحية)
 
       if (!hasBatches) {
-        // صنف من غير تشغيلات — نفس التعامل القديم، تعديل مباشر على stock
-      } else if (diff < 0) {
-        // ===== نقص: يتخصم من الأقرب لتاريخ الانتهاء الأول =====
-        let remaining = -diff;
-        for (const row of settlingProduct.batches) {
-          if (remaining <= 0) break;
-          if (row.batchIndex == null || !updatedBatches[row.batchIndex]) continue;
-          const currentQty = updatedBatches[row.batchIndex].qty ?? 0;
-          const take = Math.min(currentQty, remaining);
-          if (take > 0) {
-            updatedBatches[row.batchIndex] = { ...updatedBatches[row.batchIndex], qty: currentQty - take };
-            batchChanges.push({ expiry: row.expiry, from: currentQty, to: currentQty - take });
-            remaining -= take;
+        // ===== صنف من غير تشغيلات — نفس التعامل القديم، رقم واحد مباشر =====
+        newTotal = Number(itemAdjQty);
+        if (Number.isNaN(newTotal) || newTotal < 0) {
+          showToast("❌ اكتب كمية صحيحة", "error");
+          setSaving(false);
+          return;
+        }
+        updatedBatches = prod.batches || [];
+      } else {
+        // ===== التحقق: كل سطر بيه كمية لازم رقم صحيح =====
+        for (const row of itemBatchRows) {
+          const q = Number(row.qty);
+          if (row.qty !== "" && (Number.isNaN(q) || q < 0)) {
+            showToast("❌ فيه كمية غير صحيحة في أحد السطور", "error");
+            setSaving(false);
+            return;
           }
         }
-      } else if (diff > 0) {
-        // ===== زيادة: تتحط على التشغيلة المختارة أو تشغيلة جديدة =====
-        if (increaseTargetKey === "__new__") {
-          updatedBatches.push({
-            qty: diff,
-            cost: prod.cost || 0,
-            salePrice: prod.price || 0,
-            expiry_date: increaseNewExpiry || null,
-            date: todayLocal(),
-          });
-          batchChanges.push({ expiry: increaseNewExpiry, from: 0, to: diff, isNew: true });
-        } else {
-          const targetRow = settlingProduct.batches.find((b) => b.key === increaseTargetKey);
-          if (targetRow && targetRow.batchIndex != null && updatedBatches[targetRow.batchIndex]) {
-            const currentQty = updatedBatches[targetRow.batchIndex].qty ?? 0;
-            updatedBatches[targetRow.batchIndex] = { ...updatedBatches[targetRow.batchIndex], qty: currentQty + diff };
-            batchChanges.push({ expiry: targetRow.expiry, from: currentQty, to: currentQty + diff });
+
+        // دمج السطور اللي بنفس الصلاحية (لو المستخدم غيّر صلاحية سطر موجود لتطابق سطر تاني، أو ضاف سطر جديد بصلاحية موجودة أصلاً)
+        const mergedMap = new Map(); // key: الصلاحية (أو "" لبلا صلاحية) → { expiry, qty, cost, salePrice, batch_number, date }
+        for (const row of itemBatchRows) {
+          const q = Number(row.qty) || 0;
+          if (q <= 0) continue; // سطر فاضي أو اتصفّر — بيتشال فعليًا
+          const key = row.expiry || "";
+          const template = row.batchIndex != null ? prod.batches?.[row.batchIndex] : null;
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, {
+              expiry: row.expiry || null,
+              qty: 0,
+              cost: template?.cost ?? prod.cost ?? 0,
+              salePrice: template?.salePrice ?? prod.price ?? 0,
+              batch_number: template?.batch_number ?? null,
+              date: template?.date ?? todayLocal(),
+            });
+          }
+          mergedMap.get(key).qty += q;
+        }
+
+        // التشغيلات اللي مالهاش دخل بالصنف ده أصلاً (نظريًا مفيش، لكن للأمان لو فيه تشغيلات صفرية قديمة في الداتا)
+        const groupIndices = new Set(
+          settlingProduct.batches.filter((b) => b.batchIndex != null).map((b) => b.batchIndex)
+        );
+        const untouchedBatches = (prod.batches || []).filter((b, idx) => !groupIndices.has(idx));
+
+        const newBatchesForGroup = Array.from(mergedMap.values()).map((m) => ({
+          qty: m.qty, cost: m.cost, salePrice: m.salePrice, batch_number: m.batch_number,
+          expiry_date: m.expiry, date: m.date,
+        }));
+
+        updatedBatches = [...untouchedBatches, ...newBatchesForGroup].filter((b) => (b.qty ?? 0) > 0);
+        newTotal = updatedBatches.reduce((s, b) => s + (b.qty || 0), 0);
+
+        // ===== بناء تفاصيل التغيير لكل صلاحية (لملف اللوج) — مقارنة القديم بالجديد لكل مفتاح صلاحية =====
+        const oldByExpiry = new Map();
+        for (const b of settlingProduct.batches) {
+          if (b.batchIndex == null) continue;
+          const key = b.expiry || "";
+          oldByExpiry.set(key, (oldByExpiry.get(key) || 0) + (b.stock || 0));
+        }
+        const allKeys = new Set([...oldByExpiry.keys(), ...mergedMap.keys()]);
+        for (const key of allKeys) {
+          const from = oldByExpiry.get(key) || 0;
+          const to = mergedMap.has(key) ? mergedMap.get(key).qty : 0;
+          if (from !== to) {
+            batchChanges.push({ expiry: key || null, from, to, isNew: !oldByExpiry.has(key) });
           }
         }
       }
 
-      updatedBatches = updatedBatches.filter((b) => (b.qty ?? 0) > 0);
-      const newStock = hasBatches
-        ? updatedBatches.reduce((s, b) => s + (b.qty || 0), 0)
-        : newTotal;
+      const diff = newTotal - settlingProduct.totalQty;
+      const newStock = newTotal;
 
       const { error } = await supabase
         .from("products")
@@ -14578,7 +14624,7 @@ function InventoryStatement({
         newValue: { qty: newTotal },
         description:
           `تسوية صنف كامل من كشف المخزون: ${prod.name} — الكمية الإجمالية من ${settlingProduct.totalQty} إلى ${newTotal}` +
-          (diff < 0 ? " (النقص اتخصم من الأقرب لتاريخ الانتهاء)" : diff > 0 ? " (الزيادة اتحطت على التشغيلة المحددة)" : "") +
+          (batchChanges.length ? ` — تفاصيل: ${batchChanges.map((c) => `${c.expiry || "بلا صلاحية"} من ${c.from} إلى ${c.to}`).join("، ")}` : "") +
           (itemAdjNote ? ` — ملاحظة: ${itemAdjNote}` : ""),
       });
 
@@ -14834,78 +14880,76 @@ function InventoryStatement({
             {settlingProduct?.batches?.length > 1 ? ` — موزّعة على ${settlingProduct.batches.length} تشغيلة` : ""}
           </div>
 
-          {settlingProduct?.batches?.length > 1 && (
-            <div style={{ background: COLORS.goldSoft, borderRadius: 10, padding: 10, fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-              {settlingProduct.batches.map((b) => (
-                <div key={b.key} style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>{b.expiry ? `صلاحية ${b.expiry}` : "بلا صلاحية"}{b.batchNumber ? ` — تشغيلة ${b.batchNumber}` : ""}</span>
-                  <b>{b.stock}</b>
-                </div>
-              ))}
+          {settlingProduct?.batches?.some((b) => b.batchIndex != null) ? (
+            // ===== 🆕 صنف بتشغيلات: سطر كمية+صلاحية قابل للتعديل لكل تشغيلة — بدل رقم إجمالي واحد =====
+            // نفس المبدأ في النقص والزيادة: بتكتب الكمية الفعلية والتاريخ اللي شايفهم على العلبة قدامك.
+            // لو الصلاحية اتكتبت زي تشغيلة موجودة، الفرق يتحط عليها. لو صلاحية جديدة، بتتحسب كتشغيلة جديدة تلقائيًا وقت الحفظ.
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <label style={{ fontSize: 13, color: COLORS.textDim }}>الكمية الفعلية لكل تشغيلة (اللي عديتها فعليًا)</label>
+              {itemBatchRows.map((row) => {
+                const original = settlingProduct.batches.find((b) => b.batchIndex === row.batchIndex);
+                const rowDiff = row.qty === "" ? 0 : Number(row.qty) - (original?.stock ?? 0);
+                return (
+                  <div key={row.key} style={{ display: "flex", gap: 8, alignItems: "center", background: COLORS.goldSoft, borderRadius: 10, padding: 8 }}>
+                    <input
+                      type="date"
+                      value={row.expiry}
+                      onChange={(e) => updateItemBatchRow(row.key, "expiry", e.target.value)}
+                      style={{ flex: 1.2, padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}
+                    />
+                    <input
+                      type="number"
+                      value={row.qty}
+                      onChange={(e) => updateItemBatchRow(row.key, "qty", e.target.value)}
+                      style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}
+                    />
+                    {rowDiff !== 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: rowDiff > 0 ? COLORS.green : COLORS.red, minWidth: 36, textAlign: "center" }}>
+                        {rowDiff > 0 ? `+${rowDiff}` : rowDiff}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => removeItemBatchRow(row.key)}
+                      title="حذف السطر (يخصم التشغيلة دي بالكامل)"
+                      style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", fontSize: 15, padding: 4 }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={addItemBatchRow}
+                style={{
+                  background: "transparent", border: `1px dashed ${COLORS.border}`, color: COLORS.textDim,
+                  borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontSize: 12.5, fontWeight: 700,
+                }}
+              >
+                + إضافة تشغيلة/صلاحية جديدة (لكمية زيادة مالهاش تشغيلة موجودة)
+              </button>
+              {(() => {
+                const newTotal = itemBatchRows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+                const diff = newTotal - (settlingProduct?.totalQty ?? 0);
+                if (diff === 0) return null;
+                return (
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: diff > 0 ? COLORS.green : COLORS.red, textAlign: "left" }}>
+                    الإجمالي الجديد: {newTotal} ({diff > 0 ? `+${diff}` : diff})
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            // ===== صنف من غير تشغيلات — نفس التعامل القديم برقم واحد =====
+            <div>
+              <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>الكمية الفعلية (اللي عديتها) للصنف ككل</label>
+              <input
+                type="number"
+                value={itemAdjQty}
+                onChange={(e) => setItemAdjQty(e.target.value)}
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }}
+              />
             </div>
           )}
-
-          <div>
-            <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>الكمية الفعلية (اللي عديتها) للصنف ككل</label>
-            <input
-              type="number"
-              value={itemAdjQty}
-              onChange={(e) => setItemAdjQty(e.target.value)}
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }}
-            />
-          </div>
-
-          {(() => {
-            const diff = Number(itemAdjQty) - (settlingProduct?.totalQty ?? 0);
-            const hasBatches = settlingProduct?.batches?.some((b) => b.batchIndex != null);
-            if (!itemAdjQty || Number.isNaN(diff) || diff === 0) return null;
-
-            if (diff < 0) {
-              // ===== نقص: عرض توضيحي فقط — التوزيع تلقائي على الأقرب لتاريخ الانتهاء =====
-              return (
-                <div style={{ fontSize: 12.5, color: COLORS.textDim, background: "#fdecea", borderRadius: 10, padding: 10 }}>
-                  ⬇️ فيه نقص قدره <b>{Math.abs(diff)}</b> — هيتخصم تلقائيًا من الأقرب لتاريخ الانتهاء أولًا (نفس منطق البيع).
-                </div>
-              );
-            }
-
-            // ===== زيادة: لازم تحديد التشغيلة اللي هتتحط عليها =====
-            return (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "#eaf7ee", borderRadius: 10, padding: 10 }}>
-                <div style={{ fontSize: 12.5, color: COLORS.textDim }}>
-                  ⬆️ فيه زيادة قدرها <b>{diff}</b> — حدد تتحط على أنهي تشغيلة/صلاحية:
-                </div>
-                {hasBatches ? (
-                  <>
-                    <select
-                      value={increaseTargetKey}
-                      onChange={(e) => setIncreaseTargetKey(e.target.value)}
-                      style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}
-                    >
-                      {settlingProduct.batches
-                        .filter((b) => b.batchIndex != null)
-                        .map((b) => (
-                          <option key={b.key} value={b.key}>
-                            {b.expiry ? `صلاحية ${b.expiry}` : "بلا صلاحية"}{b.batchNumber ? ` — تشغيلة ${b.batchNumber}` : ""} (الحالي: {b.stock})
-                          </option>
-                        ))}
-                      <option value="__new__">+ تشغيلة/صلاحية جديدة</option>
-                    </select>
-                    {increaseTargetKey === "__new__" && (
-                      <input
-                        type="date"
-                        value={increaseNewExpiry}
-                        onChange={(e) => setIncreaseNewExpiry(e.target.value)}
-                        style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <div style={{ fontSize: 12, color: COLORS.textDim }}>الصنف ده مسجل من غير تشغيلات — الزيادة هتتضاف على الكمية العامة مباشرة.</div>
-                )}
-              </div>
-            );
-          })()}
 
           <div>
             <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>ملاحظة (اختياري)</label>
