@@ -3496,7 +3496,7 @@ function Dashboard({
     const fetchMissed = async () => {
       const { data: todayData } = await supabase
         .from("missed_sales")
-        .select("id, product_name, price, qty, reason, notes, cashier, date, created_at")
+        .select("id, product_name, price, qty, reason, notes, cashier, date, created_at, customer_id, customer_name")
         .gte("created_at", new Date(todayStartTs).toISOString())
         .eq("pharmacy_id", pharmacyId)
         .order("id", { ascending: false });
@@ -3506,7 +3506,7 @@ function Dashboard({
       }
       const { data: monthData } = await supabase
         .from("missed_sales")
-        .select("id, product_name, price, qty, reason, notes, cashier, date")
+        .select("id, product_name, price, qty, reason, notes, cashier, date, customer_id, customer_name")
         .gte("date", monthKey + "-01").lte("date", monthKey + "-31")
         .eq("pharmacy_id", pharmacyId)
         .order("date", { ascending: false });
@@ -4204,6 +4204,9 @@ const [myTarget, setMyTarget] = useState(null);
                         {item.cashier ? ` · ${item.cashier}` : ""}
                         {salesTab === "month" && item.date ? ` · ${item.date}` : ""}
                       </div>
+                      {item.customer_name && (
+                        <div style={{ fontSize: 11, color: VAR.accent, marginTop: 3, fontWeight: 600 }}>{S(`👤 العميل: ${item.customer_name}`)}</div>
+                      )}
                       {item.notes && (
                         <div style={{ fontSize: 11, color: VAR.muted, marginTop: 3 }}>{S(`ملاحظة: ${item.notes}`)}</div>
                       )}
@@ -6199,6 +6202,8 @@ function POS({
         shift: currentShift?.id,
         cashier: currentUser?.name,
         pharmacy_id: pharmacyId,
+        customer_id: inv.selCustomer?.id || null,
+        customer_name: inv.selCustomer?.name || null,
       }));
       await supabase.from("missed_sales").insert(missedRecords);
     }
@@ -14150,11 +14155,22 @@ function InventoryStatement({
   canEdit = true,
 }) {
   const [search, setSearch] = useState("");
-  const [editingRow, setEditingRow] = useState(null); // الصف اللي بيتعمله تسوية دلوقتي
+  const [editingRow, setEditingRow] = useState(null); // الصف اللي بيتعمله تسوية دلوقتي (وضع التشغيلة)
   const [adjQty, setAdjQty] = useState("");
   const [adjExpiry, setAdjExpiry] = useState("");
   const [adjNote, setAdjNote] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // ===== 🆕 وضع العرض: حسب التشغيلة (الأصلي) أو حسب الصنف (تجميعي) =====
+  const [viewMode, setViewMode] = useState("batch"); // "batch" | "grouped"
+  const [expandedProducts, setExpandedProducts] = useState({}); // {productId: bool} — فتح/قفل تفاصيل التشغيلات تحت كل صنف
+
+  // ===== 🆕 تسوية على مستوى الصنف كامل (وضع التجميع) =====
+  const [settlingProduct, setSettlingProduct] = useState(null); // group اللي بيتعمله تسوية دلوقتي
+  const [itemAdjQty, setItemAdjQty] = useState("");
+  const [itemAdjNote, setItemAdjNote] = useState("");
+  const [increaseTargetKey, setIncreaseTargetKey] = useState(""); // مفتاح التشغيلة اللي هتضاف عليها الزيادة، أو "__new__"
+  const [increaseNewExpiry, setIncreaseNewExpiry] = useState("");
 
   // ===== بناء صفوف الكشف من batches كل صنف (أو من stock لو الصنف من غير تشغيلات) =====
   const allRows = (products ?? []).flatMap((p) => {
@@ -14211,6 +14227,41 @@ function InventoryStatement({
     },
     { qty: 0, cost: 0, sell: 0 }
   );
+
+  // ===== 🆕 تجميع الصفوف حسب الصنف (وضع "حسب الصنف") =====
+  // كل صنف بيبقى ليه سطر واحد بالكمية الإجمالية، وتحته تفاصيل التشغيلات (لو أكتر من واحدة)
+  // مرتبة بالأقرب لتاريخ الانتهاء الأول (نفس منطق البيع FIFO على الصلاحية).
+  const groupedRows = useMemo(() => {
+    const map = new Map();
+    for (const r of filtered) {
+      if (!map.has(r.productId)) {
+        map.set(r.productId, {
+          productId: r.productId,
+          name: r.name,
+          barcode: r.barcode,
+          batches: [],
+          totalQty: 0,
+          totalCost: 0,
+          totalSell: 0,
+        });
+      }
+      const g = map.get(r.productId);
+      g.batches.push(r);
+      g.totalQty += r.stock || 0;
+      g.totalCost += (r.cost || 0) * (r.stock || 0);
+      g.totalSell += (r.price || 0) * (r.stock || 0);
+    }
+    const groups = Array.from(map.values());
+    for (const g of groups) {
+      g.batches.sort((a, b) => {
+        if (!a.expiry && !b.expiry) return 0;
+        if (!a.expiry) return 1; // من غير صلاحية آخر الترتيب
+        if (!b.expiry) return -1;
+        return a.expiry.localeCompare(b.expiry); // الأقرب انتهاء الأول
+      });
+    }
+    return groups;
+  }, [filtered]);
 
   // ===== طباعة =====
   const handlePrint = () => {
@@ -14388,6 +14439,152 @@ function InventoryStatement({
     }
   };
 
+  // ===== 🆕 فتح مودال التسوية على مستوى الصنف كامل (وضع التجميع) =====
+  const openItemSettle = (group) => {
+    setSettlingProduct(group);
+    setItemAdjQty(String(group.totalQty));
+    setItemAdjNote("");
+    // افتراضيًا لو حصلت زيادة، هتتحط على أقرب تشغيلة لتاريخ الانتهاء (زي ما ظاهرة فوق)
+    const firstBatched = group.batches.find((b) => b.batchIndex != null);
+    setIncreaseTargetKey(firstBatched ? firstBatched.key : "__new__");
+    setIncreaseNewExpiry("");
+  };
+
+  // ===== 🆕 حفظ التسوية على مستوى الصنف كامل =====
+  // - لو الفرق نقص: يتخصم تلقائيًا من الأقرب لتاريخ الانتهاء الأول (نفس منطق البيع FIFO على الصلاحية).
+  // - لو الفرق زيادة: تتحط على التشغيلة اللي المستخدم يختارها (أو تشغيلة/صلاحية جديدة).
+  const saveItemSettlement = async () => {
+    if (!settlingProduct) return;
+    const newTotal = Number(itemAdjQty);
+    if (Number.isNaN(newTotal) || newTotal < 0) {
+      showToast("❌ اكتب كمية صحيحة", "error");
+      return;
+    }
+    const diff = newTotal - settlingProduct.totalQty;
+    const hasBatches = settlingProduct.batches.some((b) => b.batchIndex != null);
+
+    if (diff > 0 && hasBatches && increaseTargetKey === "__new__" && !increaseNewExpiry) {
+      showToast("❌ حدد تاريخ الصلاحية للتشغيلة الجديدة", "error");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const prod = products.find((p) => p.id === settlingProduct.productId);
+      if (!prod) throw new Error("الصنف غير موجود");
+
+      let updatedBatches = [...(prod.batches || [])];
+      const batchChanges = []; // لتسجيلها في اللوج (تفاصيل التوزيع)
+
+      if (!hasBatches) {
+        // صنف من غير تشغيلات — نفس التعامل القديم، تعديل مباشر على stock
+      } else if (diff < 0) {
+        // ===== نقص: يتخصم من الأقرب لتاريخ الانتهاء الأول =====
+        let remaining = -diff;
+        for (const row of settlingProduct.batches) {
+          if (remaining <= 0) break;
+          if (row.batchIndex == null || !updatedBatches[row.batchIndex]) continue;
+          const currentQty = updatedBatches[row.batchIndex].qty ?? 0;
+          const take = Math.min(currentQty, remaining);
+          if (take > 0) {
+            updatedBatches[row.batchIndex] = { ...updatedBatches[row.batchIndex], qty: currentQty - take };
+            batchChanges.push({ expiry: row.expiry, from: currentQty, to: currentQty - take });
+            remaining -= take;
+          }
+        }
+      } else if (diff > 0) {
+        // ===== زيادة: تتحط على التشغيلة المختارة أو تشغيلة جديدة =====
+        if (increaseTargetKey === "__new__") {
+          updatedBatches.push({
+            qty: diff,
+            cost: prod.cost || 0,
+            salePrice: prod.price || 0,
+            expiry_date: increaseNewExpiry || null,
+            date: todayLocal(),
+          });
+          batchChanges.push({ expiry: increaseNewExpiry, from: 0, to: diff, isNew: true });
+        } else {
+          const targetRow = settlingProduct.batches.find((b) => b.key === increaseTargetKey);
+          if (targetRow && targetRow.batchIndex != null && updatedBatches[targetRow.batchIndex]) {
+            const currentQty = updatedBatches[targetRow.batchIndex].qty ?? 0;
+            updatedBatches[targetRow.batchIndex] = { ...updatedBatches[targetRow.batchIndex], qty: currentQty + diff };
+            batchChanges.push({ expiry: targetRow.expiry, from: currentQty, to: currentQty + diff });
+          }
+        }
+      }
+
+      updatedBatches = updatedBatches.filter((b) => (b.qty ?? 0) > 0);
+      const newStock = hasBatches
+        ? updatedBatches.reduce((s, b) => s + (b.qty || 0), 0)
+        : newTotal;
+
+      const { error } = await supabase
+        .from("products")
+        .update({ stock: newStock, batches: updatedBatches })
+        .eq("id", prod.id)
+        .eq("pharmacy_id", pharmacyId);
+      if (error) throw error;
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === prod.id ? { ...p, stock: newStock, batches: updatedBatches } : p
+        )
+      );
+
+      const logData = {
+        id: "INV-ADJ-" + Date.now(),
+        date: todayLocal(),
+        type: "تسوية سريعة (صنف كامل)",
+        items: [
+          {
+            id: prod.id,
+            name: prod.name,
+            systemQty: settlingProduct.totalQty,
+            actualQty: newTotal,
+            diff,
+            batchChanges,
+          },
+        ],
+        notes: itemAdjNote || null,
+        by: currentUser?.name,
+        pharmacy_id: pharmacyId,
+      };
+      await supabase.from("inventory_logs").insert([logData]);
+      if (diff !== 0) {
+        await supabase.from("inventory_adjustments").insert([{
+          inventory_log_id: logData.id,
+          product_id: prod.id,
+          quantity: diff,
+          date: logData.date,
+          created_by: currentUser?.name,
+          pharmacy_id: pharmacyId,
+        }]);
+      }
+
+      logAudit({
+        pharmacyId,
+        userName: currentUser?.name,
+        action: "update",
+        entityType: "product",
+        entityId: prod.id,
+        entityLabel: prod.name,
+        oldValue: { qty: settlingProduct.totalQty },
+        newValue: { qty: newTotal },
+        description:
+          `تسوية صنف كامل من كشف المخزون: ${prod.name} — الكمية الإجمالية من ${settlingProduct.totalQty} إلى ${newTotal}` +
+          (diff < 0 ? " (النقص اتخصم من الأقرب لتاريخ الانتهاء)" : diff > 0 ? " (الزيادة اتحطت على التشغيلة المحددة)" : "") +
+          (itemAdjNote ? ` — ملاحظة: ${itemAdjNote}` : ""),
+      });
+
+      showToast("✅ تم حفظ تسوية الصنف وتحديث المخزون");
+      setSettlingProduct(null);
+    } catch (e: any) {
+      showToast("❌ خطأ في حفظ التسوية: " + (e?.message || e), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const card = {
     background: COLORS.surface,
     border: `1px solid ${COLORS.border}`,
@@ -14400,15 +14597,40 @@ function InventoryStatement({
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>كشف المخزون</h2>
-        <button
-          onClick={handlePrint}
-          style={{
-            background: COLORS.accent, color: COLORS.accentText, border: "none",
-            borderRadius: 10, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13,
-          }}
-        >
-          🖨️ طباعة الكشف
-        </button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {/* 🆕 تبديل وضع العرض */}
+          <div style={{ display: "flex", border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
+            <button
+              onClick={() => setViewMode("batch")}
+              style={{
+                background: viewMode === "batch" ? COLORS.accent : "transparent",
+                color: viewMode === "batch" ? COLORS.accentText : COLORS.textPrimary,
+                border: "none", padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              حسب التشغيلة
+            </button>
+            <button
+              onClick={() => setViewMode("grouped")}
+              style={{
+                background: viewMode === "grouped" ? COLORS.accent : "transparent",
+                color: viewMode === "grouped" ? COLORS.accentText : COLORS.textPrimary,
+                border: "none", padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              حسب الصنف
+            </button>
+          </div>
+          <button
+            onClick={handlePrint}
+            style={{
+              background: COLORS.accent, color: COLORS.accentText, border: "none",
+              borderRadius: 10, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13,
+            }}
+          >
+            🖨️ طباعة الكشف
+          </button>
+        </div>
       </div>
 
       <div style={{ ...card, display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -14440,31 +14662,115 @@ function InventoryStatement({
         }}
       />
 
-      <Table
-        headers={["الصنف", "الباركود", "رقم التشغيلة", "تاريخ الانتهاء", "الكمية", "سعر التكلفة", "سعر البيع", "إجراءات"]}
-        rows={filtered.map((r) => [
-          r.name,
-          r.barcode,
-          r.batchNumber || "-",
-          r.expiry || "-",
-          r.stock,
-          (r.cost || 0).toFixed(2),
-          (r.price || 0).toFixed(2),
-          canEdit ? (
-            <button
-              key={r.key}
-              onClick={() => openAdjust(r)}
-              style={{
-                background: COLORS.goldSoft, color: COLORS.gold, border: "none",
-                borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700,
-              }}
-            >
-              ⚖️ تسوية
-            </button>
-          ) : "-",
-        ])}
-        emptyMsg="لا توجد أصناف بالمخزون"
-      />
+      {viewMode === "batch" ? (
+        <Table
+          headers={["الصنف", "الباركود", "رقم التشغيلة", "تاريخ الانتهاء", "الكمية", "سعر التكلفة", "سعر البيع", "إجراءات"]}
+          rows={filtered.map((r) => [
+            r.name,
+            r.barcode,
+            r.batchNumber || "-",
+            r.expiry || "-",
+            r.stock,
+            (r.cost || 0).toFixed(2),
+            (r.price || 0).toFixed(2),
+            canEdit ? (
+              <button
+                key={r.key}
+                onClick={() => openAdjust(r)}
+                style={{
+                  background: COLORS.goldSoft, color: COLORS.gold, border: "none",
+                  borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700,
+                }}
+              >
+                ⚖️ تسوية
+              </button>
+            ) : "-",
+          ])}
+          emptyMsg="لا توجد أصناف بالمخزون"
+        />
+      ) : (
+        // ===== 🆕 وضع "حسب الصنف": سطر واحد لكل صنف بالكمية الإجمالية + تفاصيل تشغيلات قابلة للطي =====
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {groupedRows.length === 0 ? (
+            <div style={{ ...card, textAlign: "center", color: COLORS.textDim, padding: 24 }}>
+              لا توجد أصناف بالمخزون
+            </div>
+          ) : (
+            groupedRows.map((g) => {
+              const isExpanded = !!expandedProducts[g.productId];
+              const hasMultiple = g.batches.length > 1;
+              return (
+                <div key={g.productId} style={{ ...card, padding: 0, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "12px 14px",
+                      flexWrap: "wrap", cursor: hasMultiple ? "pointer" : "default",
+                    }}
+                    onClick={() => {
+                      if (!hasMultiple) return;
+                      setExpandedProducts((prev) => ({ ...prev, [g.productId]: !prev[g.productId] }));
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: COLORS.textDim, width: 16, textAlign: "center" }}>
+                      {hasMultiple ? (isExpanded ? "▾" : "▸") : ""}
+                    </span>
+                    <div style={{ flex: "2 1 200px", fontWeight: 700, fontSize: 14 }}>{g.name}</div>
+                    <div style={{ flex: "1 1 120px", fontSize: 12, color: COLORS.textDim }}>{g.barcode}</div>
+                    <div style={{ flex: "1 1 90px", fontSize: 12, color: COLORS.textDim }}>
+                      {hasMultiple ? `${g.batches.length} تشغيلة` : (g.batches[0]?.expiry || "بلا صلاحية")}
+                    </div>
+                    <div style={{ flex: "0 1 90px", fontWeight: 800, fontSize: 15 }}>{g.totalQty}</div>
+                    <div style={{ flex: "0 1 110px", fontSize: 12, color: COLORS.textDim }}>
+                      {g.totalCost.toFixed(2)} تكلفة
+                    </div>
+                    {canEdit && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openItemSettle(g); }}
+                        style={{
+                          background: COLORS.goldSoft, color: COLORS.gold, border: "none",
+                          borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700,
+                        }}
+                      >
+                        ⚖️ تسوية الصنف
+                      </button>
+                    )}
+                  </div>
+                  {hasMultiple && isExpanded && (
+                    <div style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                      {g.batches.map((b) => (
+                        <div
+                          key={b.key}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 10, padding: "8px 14px 8px 40px",
+                            fontSize: 12.5, borderBottom: `1px dashed ${COLORS.border}`, background: COLORS.bg || "transparent",
+                          }}
+                        >
+                          <div style={{ flex: "1 1 110px", color: COLORS.textDim }}>
+                            {b.batchNumber ? `تشغيلة ${b.batchNumber}` : "بدون رقم تشغيلة"}
+                          </div>
+                          <div style={{ flex: "1 1 100px" }}>{b.expiry ? `صلاحية ${b.expiry}` : "بلا صلاحية"}</div>
+                          <div style={{ flex: "0 1 80px", fontWeight: 700 }}>{b.stock}</div>
+                          {canEdit && (
+                            <button
+                              onClick={() => openAdjust(b)}
+                              style={{
+                                background: "transparent", color: COLORS.gold, border: `1px solid ${COLORS.gold}`,
+                                borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                              }}
+                            >
+                              تسوية هذه التشغيلة
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       {/* ✅ Modal تسوية سريعة لكمية/صلاحية صنف */}
       <Modal open={!!editingRow} onClose={() => setEditingRow(null)} title={`تسوية — ${editingRow?.name || ""}`}>
@@ -14510,6 +14816,110 @@ function InventoryStatement({
             }}
           >
             {saving ? "جارٍ الحفظ..." : "حفظ التسوية"}
+          </button>
+        </div>
+      </Modal>
+
+      {/* ✅ 🆕 Modal تسوية على مستوى الصنف كامل (وضع "حسب الصنف") */}
+      <Modal open={!!settlingProduct} onClose={() => setSettlingProduct(null)} title={`تسوية صنف — ${settlingProduct?.name || ""}`}>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 13, color: COLORS.textDim }}>
+            الكمية الإجمالية الحالية بالنظام: <b>{settlingProduct?.totalQty}</b>
+            {settlingProduct?.batches?.length > 1 ? ` — موزّعة على ${settlingProduct.batches.length} تشغيلة` : ""}
+          </div>
+
+          {settlingProduct?.batches?.length > 1 && (
+            <div style={{ background: COLORS.goldSoft, borderRadius: 10, padding: 10, fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+              {settlingProduct.batches.map((b) => (
+                <div key={b.key} style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span>{b.expiry ? `صلاحية ${b.expiry}` : "بلا صلاحية"}{b.batchNumber ? ` — تشغيلة ${b.batchNumber}` : ""}</span>
+                  <b>{b.stock}</b>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div>
+            <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>الكمية الفعلية (اللي عديتها) للصنف ككل</label>
+            <input
+              type="number"
+              value={itemAdjQty}
+              onChange={(e) => setItemAdjQty(e.target.value)}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }}
+            />
+          </div>
+
+          {(() => {
+            const diff = Number(itemAdjQty) - (settlingProduct?.totalQty ?? 0);
+            const hasBatches = settlingProduct?.batches?.some((b) => b.batchIndex != null);
+            if (!itemAdjQty || Number.isNaN(diff) || diff === 0) return null;
+
+            if (diff < 0) {
+              // ===== نقص: عرض توضيحي فقط — التوزيع تلقائي على الأقرب لتاريخ الانتهاء =====
+              return (
+                <div style={{ fontSize: 12.5, color: COLORS.textDim, background: "#fdecea", borderRadius: 10, padding: 10 }}>
+                  ⬇️ فيه نقص قدره <b>{Math.abs(diff)}</b> — هيتخصم تلقائيًا من الأقرب لتاريخ الانتهاء أولًا (نفس منطق البيع).
+                </div>
+              );
+            }
+
+            // ===== زيادة: لازم تحديد التشغيلة اللي هتتحط عليها =====
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "#eaf7ee", borderRadius: 10, padding: 10 }}>
+                <div style={{ fontSize: 12.5, color: COLORS.textDim }}>
+                  ⬆️ فيه زيادة قدرها <b>{diff}</b> — حدد تتحط على أنهي تشغيلة/صلاحية:
+                </div>
+                {hasBatches ? (
+                  <>
+                    <select
+                      value={increaseTargetKey}
+                      onChange={(e) => setIncreaseTargetKey(e.target.value)}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}
+                    >
+                      {settlingProduct.batches
+                        .filter((b) => b.batchIndex != null)
+                        .map((b) => (
+                          <option key={b.key} value={b.key}>
+                            {b.expiry ? `صلاحية ${b.expiry}` : "بلا صلاحية"}{b.batchNumber ? ` — تشغيلة ${b.batchNumber}` : ""} (الحالي: {b.stock})
+                          </option>
+                        ))}
+                      <option value="__new__">+ تشغيلة/صلاحية جديدة</option>
+                    </select>
+                    {increaseTargetKey === "__new__" && (
+                      <input
+                        type="date"
+                        value={increaseNewExpiry}
+                        onChange={(e) => setIncreaseNewExpiry(e.target.value)}
+                        style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12, color: COLORS.textDim }}>الصنف ده مسجل من غير تشغيلات — الزيادة هتتضاف على الكمية العامة مباشرة.</div>
+                )}
+              </div>
+            );
+          })()}
+
+          <div>
+            <label style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4, display: "block" }}>ملاحظة (اختياري)</label>
+            <input
+              value={itemAdjNote}
+              onChange={(e) => setItemAdjNote(e.target.value)}
+              placeholder="سبب التسوية..."
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }}
+            />
+          </div>
+          <button
+            onClick={saveItemSettlement}
+            disabled={saving}
+            style={{
+              background: COLORS.accent, color: COLORS.accentText, border: "none",
+              borderRadius: 10, padding: "12px", fontWeight: 800, cursor: saving ? "default" : "pointer",
+              opacity: saving ? 0.6 : 1, fontSize: 14,
+            }}
+          >
+            {saving ? "جارٍ الحفظ..." : "حفظ تسوية الصنف"}
           </button>
         </div>
       </Modal>
