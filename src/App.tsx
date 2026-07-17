@@ -5885,7 +5885,7 @@ function POS({
   // ── سطور مؤهلة لكسب نقاط الولاء: بنستبعد أي صنف عليه خصم أو عرض (نسبة/BOGO/كمية/باقة) أو هدية ──
   const isPromoLine = (i) => !!(i.discountPct > 0 || i.promoType || i.isGift);
   const pointsEligibleSubtotal = inv.cart
-    .filter((i) => !i.isMissed && !isPromoLine(i))
+    .filter((i) => !i.isMissed && !i.isJoker && !isPromoLine(i))
     .reduce((s, i) => s + i.price * i.qty, 0);
 
   const taxAmount = inv.cart
@@ -6011,7 +6011,7 @@ function POS({
           newFifoResults[i.lineId]?.soldBatches?.[0]?.expiry_date ||
           null,
         category: i.main_category || i.mainCategory || i.category || "أخرى",
-        excluded_from_points: isPromoLine(i),
+        excluded_from_points: isPromoLine(i) || !!i.isJoker || !!i.isMissed,
       })),
       subtotal,
       tax_amount: taxAmount,
