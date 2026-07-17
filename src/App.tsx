@@ -26353,14 +26353,18 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   const currentShift = shifts.find(
   (s) => !s.end_time && s.user === currentUser?.name
 );
-  // 🆕 نفس منطق تاب الشفتات في الخزنة: نستبعد الفواتير اللي رجعت بالكامل (returned=true)،
-  // ونخصم قيمة المرتجعات الجزئية (جدول returns) من إجمالي مبيعات الشفت
+  // 🆕 نفس تصحيح تاب الشفتات في الخزنة: النقدي/البطاقة/التحويل ما بتُستبعدش هنا حتى لو اترجعت
+  // بالكامل — قيمتها الأصلية لازم تفضل، والمرتجع يتخصم مرة واحدة بس تحت من shiftReturnsTotal.
+  // لو استبعدناها هنا برضه بيبقى فيه خصم مزدوج (الفاتورة تتشال بالكامل + قيمتها تتخصم تاني من المرتجعات).
+  // الآجل مختلف: مفيش حركة كاش فعلية عند مرتجعه (مديونيته بترجع صفر مباشرة)، فبيفضل مستبعد.
   const shiftSalesRaw = currentShift
-    ? sales.filter((s) => s.shift === currentShift.id && !s.returned)
+    ? sales.filter((s) => s.shift === currentShift.id && (s.payment === "آجل" ? !s.returned : true))
     : [];
   const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
+  // 🆕 refund_method بيبقى null لمرتجعات فواتير الآجل — نستبعدها هنا برضه لنفس السبب
+  // (الفاتورة الآجل المرتجعة أصلاً مستبعدة فوق، فمفيش داعي نخصم قيمتها تاني هنا).
   const shiftPartialReturns = currentShift
-    ? (returns || []).filter((r) => r.type === "sales" && salesById[r.invoice_id]?.shift === currentShift.id)
+    ? (returns || []).filter((r) => r.type === "sales" && r.refund_method !== null && salesById[r.invoice_id]?.shift === currentShift.id)
     : [];
   const shiftReturnsTotal = shiftPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
   // ═══════════════════════════════════════════════════
@@ -26385,6 +26389,11 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   const expectedCloseCash = (currentShift?.open_cash || 0) + shiftCashSales - shiftCashRefundsPaidNow;
   const shiftSales = shiftSalesRaw; // 🆕 تبقى للاستخدام في عدد الفواتير كما كانت
   const shiftRevenue = shiftSalesRaw.reduce((a, s) => a + s.total, 0) - shiftReturnsTotal;
+  // 🆕 تفصيل طرق الدفع لعرضها في شاشة تسليم الشفت — عشان الصيدلي يقدر يتأكد من مبيعات
+  // البطاقة/التحويل مقابل جهاز الشبكة قبل التسليم، بدل ما يشوف رقم واحد مجمّع بس
+  const shiftCardSales = shiftSalesRaw.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
+  const shiftTransferSales = shiftSalesRaw.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
+  const shiftAjilSales = shiftSalesRaw.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
 
  const openShift = async () => {
   if (currentShift) {
@@ -26696,6 +26705,23 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               🔄 مرتجعات: {shiftReturnsTotal.toFixed(2)} ر.س (مخصومة من مبيعات الشفت)
             </div>
           )}
+          {/* 🆕 تفصيل طرق الدفع — عشان الصيدلي يتأكد من البطاقة/التحويل مقابل جهاز الشبكة قبل التسليم */}
+          <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 12, marginBottom: 14 }}>
+            <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 8 }}>تفصيل مبيعات الشفت</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
+              {[
+                { l: "💵 نقدي", v: shiftCashSales, c: COLORS.green },
+                { l: "💳 بطاقة", v: shiftCardSales, c: COLORS.blue },
+                { l: "🏦 تحويل", v: shiftTransferSales, c: COLORS.purple },
+                { l: "📋 آجل", v: shiftAjilSales, c: COLORS.red },
+              ].map((x) => x.v > 0 && (
+                <div key={x.l} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ color: COLORS.textDim }}>{x.l}</span>
+                  <span style={{ color: x.c, fontWeight: 700 }}>{x.v.toFixed(2)} ر.س</span>
+                </div>
+              ))}
+            </div>
+          </div>
           <Input
             label="النقد الفعلي عند الإغلاق (ر.س)"
             value={closeCash}
