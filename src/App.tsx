@@ -3609,6 +3609,18 @@ const [myTarget, setMyTarget] = useState(null);
   // مبيعات الكاش الصافية لعرض منفصل عن الشبكة في كارت خزنة اليوم (todayRev يبقى الإجمالي الشامل ويُستخدم في "صافي اليوم")
   const todayCashOnlySales = todayRev - todayNetworkSales;
 
+  // 🆕 نسخة خاصة بكارت "خزنة اليوم" بس (تحسب الكاش الفعلي): ما بتستبعدش الفاتورة اللي اترجعت
+  // بالكامل زي todaySales فوق — عشان لو استبعدناها هنا هي كمان، المرتجع هيتخصم مرتين (تشال بالكامل
+  // من هنا + قيمتها تتخصم تاني من todayReturnsForDash). المرتجع الصحيح مصدره الوحيد todayReturnsForDash.
+  const todayCashSalesForTreasury = sales.filter((s) => isTodayRecord(s) && s.payment !== "آجل" && s.payment !== "تحصيل آجل");
+  const todayRevForTreasury = todayCashSalesForTreasury.reduce((a, s) => a + s.total, 0);
+  const todayNetworkSalesForTreasury = todayCashSalesForTreasury.reduce((a, s) => {
+    if (s.payment === "بطاقة") return a + (s.total || 0);
+    if (s.payment === "مختلط" && s.payment_split) return a + (s.payment_split.card || 0);
+    return a;
+  }, 0);
+  const todayCashOnlySalesForTreasury = todayRevForTreasury - todayNetworkSalesForTreasury;
+
   // ── النثريات المسجّلة اليوم من سجل الخزنة ──
   const todayPettyExpenses = (treasuryEntries || [])
     .filter((e) => isTodayRecord(e) && e.type === "expense" && e.sub_type === "petty")
@@ -4745,11 +4757,11 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 8) خزنة اليوم */}
-        <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
           <div style={{ padding: 16 }}>
             {[
-              { label: "مبيعات كاش",    val: todayCashOnlySales.toFixed(0), type: "in" },
-              { label: "شبكة / صراف",   val: todayNetworkSales.toFixed(0),  type: "in" },
+              { label: "مبيعات كاش",    val: todayCashOnlySalesForTreasury.toFixed(0), type: "in" },
+              { label: "شبكة / صراف",   val: todayNetworkSalesForTreasury.toFixed(0),  type: "in" },
               { label: "سداد الآجل",    val: todayCreditPaid.toFixed(0),    type: "in" },
               { label: "مصاريف نثرية",  val: todayPettyExpenses.toFixed(0), type: "out" },
               { label: "مرتجعات",       val: todayReturnsForDash.toFixed(0), type: "out" },
@@ -4764,7 +4776,7 @@ const [myTarget, setMyTarget] = useState(null);
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
               <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
               <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
-                + {S((todayRev + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0))}
+                + {S((todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0))}
               </span>
             </div>
           </div>
@@ -23981,35 +23993,34 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     .filter((e) => e.pharmacy_id === pharmacyId && e.date === today && e.sub_type === "closing_adjustment" && e.created_at)
     .reduce((max, e) => Math.max(max, new Date(e.created_at).getTime()), 0);
   const postClosingCursor = closingCreatedAt ? Math.max(closingCreatedAt, lastAdjustmentAt) : null;
+  // 🆕 المبيعات الجديدة بعد التقفيل: من غير استبعاد المرتجعة بالكامل (!s.returned) — لو فاتورة
+  // اتباعت وترجعت كلها في نفس الفترة اللي بعد التقفيل، لازم قيمتها الأصلية تفضل هنا، والمرتجع
+  // يتخصم مرة واحدة بس تحت من postClosingReturns (بتوقيت المرتجع نفسه مش الفاتورة).
   const postClosingSales = postClosingCursor
     ? (sales || []).filter(
-        (s) => s.date === today && !s.returned && s.created_at && new Date(s.created_at).getTime() > postClosingCursor
+        (s) => s.date === today && s.created_at && new Date(s.created_at).getTime() > postClosingCursor
       )
     : [];
+  // 🆕 المرتجعات (كامل + جزئي) بعد التقفيل: بنستخدم جدول returns بتوقيت المرتجع نفسه (r.created_at)
+  // مش تاريخ إنشاء الفاتورة الأصلية — كانت المشكلة قبل كده إن الكود بيفحص s.created_at (وقت البيع)
+  // بدل وقت المرتجع الفعلي، فكان بيحصل خصم مزدوج (فاتورة اتباعت واترجعت بعد التقفيل تتشال من
+  // postClosingSales بالكامل + تتحسب تاني بقيمتها الكاملة في postClosingReturns) أو العكس (مرتجع
+  // لفاتورة قديمة قبل التقفيل مكانش بيتلحق خالص لأن وقت الفاتورة نفسه قبل الكيرسر).
+  // بنستبعد: رجاعة الشبكة (بطاقة) لأنها مالهاش دخل بفلوس التقفيل المعلّقة، ومرتجع الآجل (refund_method=null)
+  // لأنه بيترد كمديونية مباشرة من غير حركة كاش، ومرتجع النقد الافتتاحي لشفت جديد (محسوب على شفته هو).
   const postClosingReturns = postClosingCursor
-    ? (sales || []).filter(
-        (s) => s.date === today && s.returned && s.returnDate === today &&
-          s.created_at && new Date(s.created_at).getTime() > postClosingCursor
-      )
-    : [];
-  // 🆕 مرتجعات جزئية بعد التقفيل (من جدول returns — sales.returned بيفضل false في المرتجع الجزئي فمكانتش بتتلحق قبل كده)
-  // 🆕 بنستثني المرتجعات اللي مصدرها "النقد الافتتاحي لشفت جديد" (refund_source === "shift") —
-  // دي بالفعل بتتحسب على الشفت نفسه، ومفيش داعي تتخصم كمان من فلوس التقفيل المعلّقة تسليمها.
-  const postClosingPartialReturns = postClosingCursor
     ? (returns || []).filter(
         (r) => r.type === "sales" && r.date === today && r.refund_source !== "shift" &&
-          (r.refund_method || "نقدي") !== "بطاقة" && // 🆕 رجاعة شبكة مفيش فيها كاش، فمالها دخل بفلوس التقفيل المعلّقة
+          r.refund_method && r.refund_method !== "بطاقة" &&
           r.created_at && new Date(r.created_at).getTime() > postClosingCursor
       )
     : [];
   const postClosingSalesTotal = postClosingSales
     .filter((s) => s.payment !== "آجل")
     .reduce((a, s) => a + (s.total || 0), 0);
-  const postClosingReturnsTotal =
-    postClosingReturns.filter((s) => s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0) +
-    postClosingPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
+  const postClosingReturnsTotal = postClosingReturns.reduce((a, r) => a + (r.total || 0), 0);
   const postClosingNet = postClosingSalesTotal - postClosingReturnsTotal;
-  const hasPostClosingActivity = postClosingSales.length > 0 || postClosingReturns.length > 0 || postClosingPartialReturns.length > 0;
+  const hasPostClosingActivity = postClosingSales.length > 0 || postClosingReturns.length > 0;
 
   const [addingAdjustment, setAddingAdjustment] = useState(false);
   const addingAdjustmentRef = useRef(false); // 🆕 حماية فورية من الضغط المتكرر (state وحده مش كفاية لأن التحديث async)
@@ -24028,8 +24039,7 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     }
     addingAdjustmentRef.current = true;
     setAddingAdjustment(true);
-    const invoiceIds = [...postClosingSales, ...postClosingReturns].map((s) => s.id)
-      .concat(postClosingPartialReturns.map((r) => r.invoice_id || r.id))
+    const invoiceIds = [...postClosingSales.map((s) => s.id), ...postClosingReturns.map((r) => r.invoice_id || r.id)]
       .join("، ");
     const payload = {
       type: postClosingNet > 0 ? "income" : "expense",
@@ -24081,7 +24091,12 @@ useEffect(() => {
   }, [pharmacyId]);
 
   // ── حسابات المبيعات مقسمة ──
-  const todaySales = sales.filter((s) => s.date === today && !s.returned);
+  // 🆕 النقدي/البطاقة/التحويل ما بتُستبعدش هنا حتى لو اترجعت بالكامل — قيمتها الأصلية لازم تفضل
+  // في الإجمالي، والمرتجع بيتخصم مرة واحدة بس تحت (todayReturns من treasury_entries). لو استبعدناها
+  // هنا كمان بيبقى فيه خصم مزدوج (الفاتورة تتشال بالكامل + قيمتها تتخصم تاني من المرتجعات).
+  // الآجل مختلف: مفيش حركة خزنة فعلية عند مرتجعه (مديونيته بترجع صفر مباشرة عبر credit_payments)،
+  // فبيفضل مستبعد زي ما كان عشان مايفضلش ظاهر كمديونية مستحقة وهو أصلاً اترجع.
+  const todaySales = sales.filter((s) => s.date === today && (s.payment === "آجل" ? !s.returned : true));
   const todayCash = todaySales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0);
   const todayCard = todaySales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
   const todayTransfer = todaySales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
@@ -24095,8 +24110,9 @@ useEffect(() => {
   // ── رصيد الخزنة اللحظي من كل السجلات ──
   const calcBalance = (method) => {
     const safe = (entries || []).filter(Boolean);
-    // دخل من المبيعات
-    const salesIncome = sales.filter((s) => !s.returned && s.payment === method).reduce((a, s) => a + s.total, 0);
+    // دخل من المبيعات — 🆕 من غير استبعاد المرتجع بالكامل (calcBalance بتتنادى بس لنقدي/بطاقة/تحويل،
+    // والمرتجع بيتخصم مرة واحدة تحت من entryOut، فاستبعاده هنا كمان كان بيعمل خصم مزدوج)
+    const salesIncome = sales.filter((s) => s.payment === method).reduce((a, s) => a + s.total, 0);
     // سداد آجل (كاش دايماً)
     const creditIn = method === "نقدي" ? creditPayments.reduce((a, p) => a + p.amount, 0) : 0;
     // من سجل الخزنة (يشمل المصروفات العادية ومدفوعات الموردين سوا — type === "expense")
@@ -24116,7 +24132,9 @@ useEffect(() => {
 
   // 🆕 مرتجعات كل شفت — بنربط كل سطر في جدول returns بالفاتورة الأصلية (invoice_id) عشان نعرف شفتها
   const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
-  const todayReturnsSales = (returns || []).filter((r) => r.type === "sales" && r.date === today);
+  // 🆕 refund_method بيبقى null لمرتجعات فواتير الآجل (مفيش رجّاعة كاش/بطاقة فعلية، بيترد كمديونية
+  // مباشرة) — نستبعدها هنا عشان ماتخصمش غلط من إجمالي الكاش/البطاقة/التحويل لكل شفت.
+  const todayReturnsSales = (returns || []).filter((r) => r.type === "sales" && r.date === today && r.refund_method !== null);
   // 🆕 إجمالي مرتجعات اليوم (كامل + جزئي) عشان يتخصم من "إجمالي اليوم" في الخزنة، بنفس منطق كل شفت
   const todayReturnsSalesTotal = todayReturnsSales.reduce((a, r) => a + (r.total || 0), 0);
   const getShiftReturns = (shiftId) =>
