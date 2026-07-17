@@ -23933,6 +23933,58 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const [showLicenseForm, setShowLicenseForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [hideBalances, setHideBalances] = useState(false); // 🆕 إخفاء/إظهار أرقام الكروت العلوية للخزنة
+  // 🆕 رصيد أول المدة للخزنة (نقدي/بطاقة/تحويل) — بيتسجل كقيد دخل عادي في treasury_entries
+  const canAddOpeningBalance = canAddSub("opening_balance");
+  const [showOpeningBalanceForm, setShowOpeningBalanceForm] = useState(false);
+  const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
+  const [openingBalanceForm, setOpeningBalanceForm] = useState({
+    method: "نقدي",
+    amount: "",
+    source: "تمويل",
+    source_other: "",
+    note: "",
+    date: todayLocal(),
+    proof: null,
+  });
+  const openingBalanceHistory = (entries || [])
+    .filter((e) => e.pharmacy_id === pharmacyId && e.sub_type === "opening_balance")
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  const saveOpeningBalance = async () => {
+    const amount = +openingBalanceForm.amount;
+    if (!amount || amount <= 0) { showToast("يرجى إدخال مبلغ صحيح", "error"); return; }
+    setSavingOpeningBalance(true);
+    let proofUrl = "";
+    if (openingBalanceForm.proof) {
+      const fileName = `opening_balance/${pharmacyId}_${Date.now()}_${openingBalanceForm.proof.name}`;
+      const { error: uploadError } = await supabase.storage.from("payment_reports").upload(fileName, openingBalanceForm.proof);
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage.from("payment_reports").getPublicUrl(fileName);
+        proofUrl = urlData.publicUrl;
+      }
+    }
+    const sourceLabel = openingBalanceForm.source === "أخرى" ? (openingBalanceForm.source_other || "أخرى") : openingBalanceForm.source;
+    const payload = {
+      type: "income",
+      sub_type: "opening_balance",
+      method: openingBalanceForm.method,
+      amount,
+      note: `رصيد أول المدة — المصدر: ${sourceLabel}${openingBalanceForm.note ? " — " + openingBalanceForm.note : ""}`,
+      date: openingBalanceForm.date || todayLocal(),
+      pharmacy_id: pharmacyId,
+      created_by: currentUser?.name || "",
+      attachment_url: proofUrl || null,
+    };
+    const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+    setSavingOpeningBalance(false);
+    if (error) {
+      showToast("❌ فشل حفظ رصيد أول المدة: " + error.message, "error");
+      return;
+    }
+    if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
+    setShowOpeningBalanceForm(false);
+    setOpeningBalanceForm({ method: "نقدي", amount: "", source: "تمويل", source_other: "", note: "", date: todayLocal(), proof: null });
+    showToast(`✅ تم تسجيل رصيد أول المدة — ${amount.toFixed(2)} ر.س`);
+  };
   const [licensePayAmount, setLicensePayAmount] = useState({}); // 🆕 مبلغ السداد القابل للتعديل لكل ترخيص { [licenseId]: "value" }
   const printRef = useRef(null);
 
@@ -24470,7 +24522,63 @@ useEffect(() => {
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
           <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>{today}</div>
         </div>
+        {canAddOpeningBalance && (
+          <button
+            onClick={() => setShowOpeningBalanceForm(true)}
+            style={{ background: COLORS.goldSoft, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 8, padding: "8px 14px", color: COLORS.gold, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+            ➕ رصيد أول المدة
+          </button>
+        )}
       </div>
+
+      {/* ── 🆕 Modal إضافة رصيد أول المدة للخزنة ── */}
+      {showOpeningBalanceForm && (
+        <Modal open title="➕ إضافة رصيد أول المدة للخزنة" onClose={() => !savingOpeningBalance && setShowOpeningBalanceForm(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 12, color: COLORS.textDim, lineHeight: 1.6 }}>
+              استخدم هذا لتسجيل رصيد الخزنة الموجود فعليًا قبل بدء استخدام النظام (مثلاً عند إضافة صيدلية شغالة بالفعل)، أو أي إضافة تمويل/قرض للخزنة لاحقًا.
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>شكل الإضافة</div>
+              <select value={openingBalanceForm.method}
+                onChange={(e) => setOpeningBalanceForm((p) => ({ ...p, method: e.target.value }))}
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+                <option value="نقدي">💵 نقدي</option>
+                <option value="بطاقة">💳 بطاقة</option>
+                <option value="تحويل">🏦 تحويل بنكي</option>
+              </select>
+            </div>
+            <Input label="المبلغ (ر.س) *" value={openingBalanceForm.amount} onChange={(v) => setOpeningBalanceForm((p) => ({ ...p, amount: v }))} placeholder="0.00" />
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>مصدر الإضافة</div>
+              <select value={openingBalanceForm.source}
+                onChange={(e) => setOpeningBalanceForm((p) => ({ ...p, source: e.target.value }))}
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+                <option value="رصيد سابق">رصيد سابق (صيدلية شغالة بالفعل)</option>
+                <option value="تمويل">تمويل</option>
+                <option value="قرض">قرض</option>
+                <option value="أخرى">أخرى</option>
+              </select>
+            </div>
+            {openingBalanceForm.source === "أخرى" && (
+              <Input label="حدد المصدر" value={openingBalanceForm.source_other} onChange={(v) => setOpeningBalanceForm((p) => ({ ...p, source_other: v }))} placeholder="اكتب المصدر" />
+            )}
+            <Input label="التاريخ" type="date" value={openingBalanceForm.date} onChange={(v) => setOpeningBalanceForm((p) => ({ ...p, date: v }))} />
+            <Input label="ملاحظة" value={openingBalanceForm.note} onChange={(v) => setOpeningBalanceForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
+            <div>
+              <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>صورة مستند إثبات (اختياري)</label>
+              <input type="file" accept="image/*,application/pdf"
+                onChange={(e) => { const file = e.target.files[0]; if (file) setOpeningBalanceForm((p) => ({ ...p, proof: file })); }}
+                style={{ color: COLORS.textPrimary, fontSize: 12 }} />
+              {openingBalanceForm.proof && <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4 }}>✓ {openingBalanceForm.proof.name}</div>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowOpeningBalanceForm(false)} disabled={savingOpeningBalance}>إلغاء</Btn>
+            <Btn icon="check" onClick={saveOpeningBalance} disabled={savingOpeningBalance}>{savingOpeningBalance ? "جاري الحفظ..." : "تأكيد الإضافة"}</Btn>
+          </div>
+        </Modal>
+      )}
 
       {/* ── 🆕 تنبيه: أيام سابقة فيها مبيعات من غير تقفيل (زي شفت عدّى نص الليل) ── */}
       {canEditDayClosing && missingClosingDays.length > 0 && (
@@ -24562,6 +24670,25 @@ useEffect(() => {
       </div>
         );
       })()}
+
+      {/* ── 🆕 سجل رصيد أول المدة / الإضافات ── */}
+      {canViewOverview && openingBalanceHistory.length > 0 && (
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: COLORS.textPrimary, marginBottom: 8 }}>📜 سجل رصيد أول المدة والإضافات</div>
+          {openingBalanceHistory.map((e) => (
+            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.textPrimary }}>{e.note}</div>
+                <div style={{ fontSize: 11, color: COLORS.textDim }}>{e.date} — {e.method}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.green }}>{(e.amount || 0).toFixed(2)} ر.س</span>
+                {e.attachment_url && <a href={e.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: COLORS.blue }}>📎 مستند</a>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* تنبيهات */}
       {canViewOverview && (dueFixed.length > 0 || upcomingLicenses.length > 0) && (
@@ -29181,6 +29308,7 @@ const SYSTEM_SECTIONS = [
       { id: "fixed_expenses",     label: "مصاريف ثابتة" },
       { id: "licenses",           label: "التراخيص" },
       { id: "balance_visibility", label: "زر إظهار/إخفاء أرقام الكروت" },
+      { id: "opening_balance",    label: "رصيد أول المدة" },
     ] },
   { id: "shift",             label: "الشفتات",             icon: "🕐" },
   { id: "target",            label: "تارجت المبيعات والتحفيز",      icon: "🎯" },
