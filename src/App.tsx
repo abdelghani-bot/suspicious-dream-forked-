@@ -9879,6 +9879,8 @@ const LABEL_SIZES = [
           price: ci.newSalePrice,
           batches: newBatchesByProduct[ci.id],
           not_available_market: false,
+          // 🆕 دخول الصنف في فاتورة شراء حقيقية = تفعيل تلقائي لحسابه ضمن طلبات الشراء التلقائية مستقبلًا
+          auto_order: true,
         })
         .eq("id", ci.id)
         .eq("pharmacy_id", pharmacyId);
@@ -9898,6 +9900,7 @@ const LABEL_SIZES = [
           price: ci.newSalePrice,
           batches: newBatchesByProduct[x.id] ?? x.batches,
           not_available_market: false,
+          auto_order: true,
         };
       })
     );
@@ -16334,6 +16337,10 @@ function ProductFormModal({
     variantEn: "", // 🆕 نفس التمييز بس بالإنجليزي — الجزء الوحيد اللي محتاج ترجمة يدوية لأنه نص حر
     searchKeywords: "", // 🆕 مرادفات/كلمات بحث إضافية (مفصولة بفواصل) — بتساعد البحث من غير ما تأثر على الاسم المعروض
     linkedProductId: "", // 🆕 لو الصنف ده كارت عرض منفصل من المورد (مثلاً "Closeup 3+1")، ده id الصنف الأصلي (Closeup 75ml العادي)
+    // 🆕 هل الصنف ده يدخل في حساب طلبات الشراء التلقائية؟ افتراضيًا false للأصناف الجديدة —
+    // عشان تقدر تبني قاعدة بيانات الأصناف من غير ما كل صنف يظهر في طلب شراء فورًا.
+    // بيتفعّل تلقائيًا أول ما الصنف يدخل فاتورة شراء حقيقية.
+    autoOrder: false,
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -16486,6 +16493,7 @@ function ProductFormModal({
         variant: p.variant || "",
         searchKeywords: p.search_keywords || "",
         linkedProductId: p.linked_product_id || "",
+        autoOrder: p.auto_order ?? p.autoOrder ?? false,
       });
       // ── جدول product_barcodes بقى غرضه بس تتبع الدفعات (batch/serial/expiry) — الـ GTIN نفسه بقى منفصل في form.gtin أعلاه ──
       supabase.from("product_barcodes").select("*").eq("product_id", p.id)
@@ -16637,6 +16645,9 @@ function ProductFormModal({
       variant: isNonDrug ? (form.variant || null) : null,
       search_keywords: form.searchKeywords.trim() || null,
       linked_product_id: form.linkedProductId || null, // 🆕 لو الصنف ده كارت عرض من المورد، مربوط بالصنف الأصلي
+      // 🆕 هل الصنف ده يدخل في حساب طلبات الشراء التلقائية؟ الأصناف الجديدة بتتسجل false افتراضيًا،
+      // وبتتفعّل تلقائيًا أول ما تدخل فاتورة شراء حقيقية (شوف كود حفظ فاتورة الشراء)
+      auto_order: editingId ? form.autoOrder : false,
     };
 
     let productId = form.id;
@@ -16924,6 +16935,21 @@ function ProductFormModal({
         {form.notAvailableMarket && (
           <div style={{ gridColumn: "1 / -1" }}>
             <Input label="رابط بلاغ عدم التوفر (منصة رصد مثلاً)" value={form.shortageReportUrl} onChange={(v) => F("shortageReportUrl", v)} placeholder="https://..." />
+          </div>
+        )}
+        {/* 🆕 التحكم اليدوي في دخول الصنف لحساب الطلب التلقائي — بيظهر بس وقت التعديل، لأن الصنف الجديد
+            بيتسجل false افتراضيًا ويتفعّل لوحده أول ما يدخل فاتورة شراء حقيقية */}
+        {editingId && (
+          <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, padding: "8px 0", background: form.autoOrder ? "transparent" : COLORS.goldSoft, borderRadius: 8, paddingRight: form.autoOrder ? 0 : 10 }}>
+            <label style={{ color: form.autoOrder ? COLORS.green : COLORS.gold, fontSize: 13, fontWeight: 600 }}>
+              📦 يدخل حساب طلبات الشراء التلقائية{!form.autoOrder && " — متجاهَل حاليًا"}
+            </label>
+            <input type="checkbox" checked={form.autoOrder} onChange={(e) => F("autoOrder", e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer" }} />
+          </div>
+        )}
+        {!editingId && (
+          <div style={{ gridColumn: "1 / -1", fontSize: 11.5, color: COLORS.textDim, background: COLORS.surfaceAlt, borderRadius: 8, padding: "6px 10px" }}>
+            ℹ️ الصنف الجديد ده مش هيدخل حساب طلبات الشراء التلقائية إلا بعد ما يتسجل في فاتورة شراء فعلية.
           </div>
         )}
       </div>
@@ -17933,6 +17959,9 @@ function SuppliersModule({
     }
     const supplierCategories = targetSupplier.supply_categories || [];
     const lowStock = (products || []).filter((p) => {
+      // 🆕 الصنف المستبعد يدويًا (auto_order === false) ميدخلش حساب الطلب التلقائي خالص —
+      // سواء لسه ما اتشرالوش أبدًا، أو الصيدلي قرر يتجاهله من الطلبات
+      if (p.auto_order === false) return false;
       const belowMin = p.stock <= (p.min_stock || p.minStock || 0);
       if (!belowMin) return false;
       if (supplierCategories.length === 0) return true;
@@ -18037,6 +18066,16 @@ function SuppliersModule({
       const msg = `طلب شراء - ${order.date}\n` + orderItems.map((i) => `• ${i.name}: ${i.orderQty} وحدة`).join("\n");
       window.open(`https://wa.me/${showOrderForm.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
     }
+  };
+
+  // 🆕 تجاهل صنف نهائيًا من حساب الطلبات التلقائية (auto_order = false) — بيفضل يظهر في شاشة الصنف نفسه
+  // كـ checkbox لو حبيت ترجّعه تاني في أي وقت
+  const dismissFromAutoOrder = async (item) => {
+    const { error } = await supabase.from("products").update({ auto_order: false }).eq("id", item.id).eq("pharmacy_id", pharmacyId);
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, auto_order: false } : p)));
+    setOrderItems((prev) => prev.filter((i) => i.id !== item.id));
+    showToast(`تم تجاهل "${item.name}" من الطلبات التلقائية — تقدر ترجعه من شاشة الصنف`, "success");
   };
 
   // 🆕 ========== أصناف الجوكر المعلّقة (مراجعة يدوية) ==========
@@ -18934,10 +18973,21 @@ function SuppliersModule({
                       {((+item.cost || 0) * (+item.orderQty || 0)).toFixed(2)} ر.س
                     </td>
                     <td style={{ padding: "8px 10px" }}>
-                      <button onClick={() => setOrderItems((p) => p.filter((_, j) => j !== i))}
-                        style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}>
-                        <IC n="trash" s={14} />
-                      </button>
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        {!item.isJokerPending && (
+                          <button
+                            onClick={() => dismissFromAutoOrder(item)}
+                            title="تجاهل هذا الصنف نهائيًا من الطلبات التلقائية"
+                            style={{ background: "transparent", border: "none", color: COLORS.gold, cursor: "pointer", fontSize: 13 }}
+                          >
+                            🔕
+                          </button>
+                        )}
+                        <button onClick={() => setOrderItems((p) => p.filter((_, j) => j !== i))}
+                          style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer" }}>
+                          <IC n="trash" s={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );
