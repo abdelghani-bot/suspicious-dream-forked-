@@ -27131,12 +27131,13 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
 
   const totalSalesRev = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + s.total, 0);
   const totalSalesTax = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + (s.taxAmount || s.tax_amount || 0), 0);
-  const returnedCount = filteredSales.filter((s) => s.returned).length;
+  // 🆕 عدد المرتجعات (returnedCount) اتنقل تحت بعد تعريف returnsSales — راجع الشرح هناك
   const totalPurchase = filteredPurchases.reduce((a, p) => a + p.total, 0);
   const totalPurchaseTax = filteredPurchases.reduce((a, p) => a + p.taxAmount, 0);
 
   const returnsSales = filteredReturns.filter((r) => r.type === "sales");
   const returnsPurchases = filteredReturns.filter((r) => r.type === "purchases");
+  const returnedCount = returnsSales.length; // 🆕 نفس مصدر تبويب "تقرير مرتجع المبيعات" (كامل + جزئي)
   const totalReturnsSales = returnsSales.reduce((a, r) => a + (r.total || 0), 0);
   const totalReturnsPurchases = returnsPurchases.reduce((a, r) => a + (r.total || 0), 0);
   const returnsSalesTax = returnsSales.reduce((a, r) => a + (r.tax || 0), 0);
