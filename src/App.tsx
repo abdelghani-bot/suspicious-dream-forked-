@@ -3389,6 +3389,7 @@ if (isLoading) return (
   shifts={shifts}
   setShifts={setShifts}
   currentUser={currentUser}
+  users={users}
   showToast={showToast}
   canViewSub={(sub) => canView("attendance", sub)}
   canEditSub={(sub) => canEdit("attendance", sub)}
@@ -3541,9 +3542,10 @@ function calcLateMinutesForSalary(pharmacistName, shiftNum, checkInTime, ctx) {
   return Math.max(0, diff - grace);
 }
 // 🆕 إحصائيات حضور موظف خلال شهر: إجمالي دقائق التأخير + عدد أيام الجمعة اللي حضر فيها فعليًا (يوم 5 = الجمعة)
-function computeMonthlyAttendanceStats(pharmacistName, monthKey, ctx) {
+function computeMonthlyAttendanceStats(pharmacistName, monthKey, ctx, staffUserId) {
   const { attendanceLogs = [] } = ctx || {};
-  const myLogs = attendanceLogs.filter((l) => l.pharmacist_name === pharmacistName && l.date && l.date.startsWith(monthKey) && l.check_in);
+  const logMatchesStaff = (l) => staffUserId ? l.pharmacist_user_id === staffUserId : l.pharmacist_name === pharmacistName;
+  const myLogs = attendanceLogs.filter((l) => logMatchesStaff(l) && l.date && l.date.startsWith(monthKey) && l.check_in);
   let lateMinutes = 0;
   let fridaysWorked = 0;
   const countedFridayDates = new Set();
@@ -24507,7 +24509,7 @@ useEffect(() => {
     // 🆕 إحصائيات الحضور: عدد أيام الجمعة المشتغلة + إجمالي دقائق التأخير خلال الشهر المختار
     const attendanceStats = computeMonthlyAttendanceStats(emp.name, payMonth, {
       attendanceLogs: attendanceLogsForSalary, workSchedules: workSchedulesForSalary, rotationSchedules: rotationSchedulesForSalary,
-    });
+    }, emp.user_id || null);
     const fridayRate = +emp.friday_allowance_rate || 0;
     const fridayAllowance = fridayRate * attendanceStats.fridaysWorked;
     // خصم التأخير: بمعدل ساعي تقديري = (الأساسي + البدلات) ÷ 30 يوم ÷ 8 ساعات — قيمة قابلة للتعديل يدويًا
@@ -27397,6 +27399,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     .insert({
       pharmacy_id: pharmacyId,
       pharmacist_name: currentUser.name,
+      pharmacist_user_id: currentUser.id || null,
       date: today,
       shift_id: sh.id,
       check_in: new Date().toISOString(),
@@ -28626,11 +28629,12 @@ function HolidaysTab({ officialHolidays, pharmacyId, C, onSaved, globalToast, re
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToast: globalToast, canViewSub = (_sub) => true, canEditSub = (_sub) => true }: {
+function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, users = [], showToast: globalToast, canViewSub = (_sub) => true, canEditSub = (_sub) => true }: {
   pharmacyId: string;
   shifts: any[];
   setShifts: (fn: any) => void;
   currentUser: any;
+  users?: any[];
   showToast: (msg: string, type?: string) => void;
   canViewSub?: (sub: string) => boolean;
   canEditSub?: (sub: string) => boolean;
@@ -28928,6 +28932,7 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     const { error } = await supabase.from("attendance_logs").insert({
       pharmacy_id: pharmacyId,
       pharmacist_name: pharmacistName,
+      pharmacist_user_id: users.find((u) => u.name === pharmacistName)?.id || null,
       date: today,
       check_in: new Date().toISOString(),
       shift_id: openShift?.id || null,
