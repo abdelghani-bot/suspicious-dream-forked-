@@ -3510,6 +3510,68 @@ function calcGosi(wageBasis, nationality) {
   };
 }
 
+// 🆕 نسخة top-level من منطق "أي شفت متوقع لموظف في يوم معيّن" — نفس منطق getExpectedShift جوّه AttendanceModule
+// (تناوب أول فالأول، بعدين رمضان لو فعّال، بعدين الجدول العادي) عشان نقدر نحسب التأخير والجُمع وقت صرف الراتب
+function getExpectedShiftForSalary(pharmacistName, dow, shiftNumber, dateStr, { workSchedules, rotationSchedules }) {
+  // ⚠️ ملحوظة: النسخة دي بتعتمد على الجدول الثابت (work_schedules) + رمضان بس، ومبتاخدش في الاعتبار
+  // شفتات التناوب الدوري (rotation_schedules) لأن منطق تحديد "صاحب الدور" مرتبط بحالة داخلية في
+  // موديول الحضور. لو عندك صيادلة شغالين بنظام تناوب، تأخيرهم المحسوب هنا ممكن يبقى غير دقيق —
+  // راجعه يدويًا في فورم الصرف قبل التأكيد.
+  const ramadanActive = isRamadan();
+  if (ramadanActive) {
+    const ramadanMatch = (workSchedules || []).find(
+      (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off && s.is_ramadan
+    );
+    if (ramadanMatch) return ramadanMatch;
+  }
+  return (workSchedules || []).find(
+    (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off && !s.is_ramadan
+  );
+}
+function calcLateMinutesForSalary(pharmacistName, shiftNum, checkInTime, ctx) {
+  const schedule = getExpectedShiftForSalary(pharmacistName, new Date(checkInTime).getDay(), shiftNum, checkInTime.slice(0, 10), ctx);
+  if (!schedule) return 0;
+  const [expH, expM] = schedule.shift_start.split(":").map(Number);
+  const expected = new Date(checkInTime);
+  expected.setHours(expH, expM, 0, 0);
+  const actual = new Date(checkInTime);
+  const diff = Math.round((actual.getTime() - expected.getTime()) / 60000);
+  const grace = +schedule.grace_minutes || 0;
+  return Math.max(0, diff - grace);
+}
+// 🆕 إحصائيات حضور موظف خلال شهر: إجمالي دقائق التأخير + عدد أيام الجمعة اللي حضر فيها فعليًا (يوم 5 = الجمعة)
+function computeMonthlyAttendanceStats(pharmacistName, monthKey, ctx) {
+  const { attendanceLogs = [] } = ctx || {};
+  const myLogs = attendanceLogs.filter((l) => l.pharmacist_name === pharmacistName && l.date && l.date.startsWith(monthKey) && l.check_in);
+  let lateMinutes = 0;
+  let fridaysWorked = 0;
+  const countedFridayDates = new Set();
+  for (const log of myLogs) {
+    lateMinutes += calcLateMinutesForSalary(pharmacistName, log.shift_number || 1, log.check_in, ctx);
+    const dow = new Date(log.check_in).getDay(); // 5 = الجمعة
+    if (dow === 5 && log.check_out && !countedFridayDates.has(log.date)) {
+      countedFridayDates.add(log.date);
+      fridaysWorked += 1;
+    }
+  }
+  return { lateMinutes, fridaysWorked, daysWorked: myLogs.filter((l) => l.check_out).length };
+}
+
+// 🆕 إجمالي ساعات الدوام الأسبوعية المجدولة لموظف من work_schedules — بيُستخدم لحساب معدل الأجر
+// الساعي الفعلي بدل افتراض ثابت (8 ساعات)، عشان موظف شفته 6 ساعات ميتحاسبش بمعدل موظف شفته 9 ساعات
+function calcWeeklyScheduledHours(pharmacistName, workSchedules) {
+  const ramadanActive = isRamadan();
+  const rows = (workSchedules || []).filter(
+    (s) => s.pharmacist_name === pharmacistName && !s.is_off && !!s.is_ramadan === ramadanActive
+  );
+  return rows.reduce((sum, s) => {
+    if (!s.shift_start || !s.shift_end) return sum;
+    const [sh, sm] = s.shift_start.split(":").map(Number);
+    const [eh, em] = s.shift_end.split(":").map(Number);
+    return sum + Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 60);
+  }, 0);
+}
+
 // 🆕 حساب عمولة التحفيز الشهرية لموظف واحد بالاسم — نفس منطق تاب "التارجت" (نسخة مبسطة لموظف واحد
 // بدل كل الموظفين، عشان تُستخدم في شاشة صرف الراتب لسحب العمولة تلقائيًا من غير تكرار الحساب الكامل).
 function computeStaffCommissionForMonth(staffName, monthKey, ctx) {
@@ -24292,6 +24354,10 @@ useEffect(() => {
   const [eosSettlements, setEosSettlements] = useState([]);
   // بيانات التحفيز/التارجت — بنسحبها هنا كمان (بشكل خفيف) عشان نحسب عمولة كل صيدلي شهريًا تلقائيًا
   const [incentiveDataForSalary, setIncentiveDataForSalary] = useState({ tiers: [], tierThresholdHistory: [], incentiveOverrides: [], incentiveList: [], allowedCategories: [] });
+  // 🆕 بيانات الحضور/الجدولة/التناوب — لحساب دقائق التأخير وعدد أيام الجمعة اللي اتشغّلت خلال الشهر تلقائيًا وقت صرف الراتب
+  const [workSchedulesForSalary, setWorkSchedulesForSalary] = useState([]);
+  const [rotationSchedulesForSalary, setRotationSchedulesForSalary] = useState([]);
+  const [attendanceLogsForSalary, setAttendanceLogsForSalary] = useState([]);
 
   useEffect(() => {
     if (!pharmacyId) return;
@@ -24305,7 +24371,9 @@ useEffect(() => {
       supabase.from("incentive_overrides").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("incentive_products").select("*").eq("pharmacy_id", pharmacyId),
       supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).maybeSingle(),
-    ]).then(([emp, pay, leave, eos, tiersR, historyR, overridesR, prodsR, configR]) => {
+      supabase.from("work_schedules").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("rotation_schedules").select("*").eq("pharmacy_id", pharmacyId),
+    ]).then(([emp, pay, leave, eos, tiersR, historyR, overridesR, prodsR, configR, schedR, rotR]) => {
       if (emp.data) setEmployees(emp.data);
       if (pay.data) setSalaryPayments(pay.data);
       if (leave.data) setLeaveLedger(leave.data);
@@ -24317,6 +24385,8 @@ useEffect(() => {
         incentiveList: prodsR.data || [],
         allowedCategories: configR.data?.allowed_categories || [],
       });
+      if (schedR.data) setWorkSchedulesForSalary(schedR.data);
+      if (rotR.data) setRotationSchedulesForSalary(rotR.data);
     });
   }, [pharmacyId]);
 
@@ -24324,11 +24394,20 @@ useEffect(() => {
   const [editingEmployee, setEditingEmployee] = useState(null); // null = إضافة جديد، وإلا الموظف الجاري تعديله
   const [employeeForm, setEmployeeForm] = useState({
     name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "",
-    percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true,
+    percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "",
   });
   const employeeRoleLabel = { "صيدلي": "💊 صيدلي", "محاسب": "🧮 محاسب", "عامل": "🧰 عامل", "كاشير": "🧾 كاشير", "مخزن": "📦 مخزن", "أخرى": "👤 أخرى" };
 
   const [payMonth, setPayMonth] = useState(todayLocal().slice(0, 7));
+  // 🆕 نجيب سجلات الحضور بتاعة الشهر المختار بس (عشان الجدول ده ممكن يبقى كبير)
+  useEffect(() => {
+    if (!pharmacyId || !payMonth) return;
+    supabase.from("attendance_logs").select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .gte("date", payMonth + "-01")
+      .lte("date", payMonth + "-31")
+      .then(({ data }) => { if (data) setAttendanceLogsForSalary(data); });
+  }, [pharmacyId, payMonth]);
   const [showPayForm, setShowPayForm] = useState(null); // employee object
   const [savingSalary, setSavingSalary] = useState(false);
   const [payForm, setPayForm] = useState({
@@ -24336,7 +24415,9 @@ useEffect(() => {
     other_addition: "", deduction_advance: "", deduction_advance_note: "",
     deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
     gosi_employee_deduction: "", gosi_employer_contribution: "",
+    friday_count: "", friday_allowance: "", late_minutes: "", deduction_lateness: "",
   });
+  const [commissionSalesBasis, setCommissionSalesBasis] = useState(0); // 🆕 إجمالي مبيعات الصيدلي اللي احتُسبت عليها العمولة (للعرض فقط)
 
   const [showLeaveForm, setShowLeaveForm] = useState(null); // employee object
   const [leaveForm, setLeaveForm] = useState({ days: "", amount: "", note: "", type: "cashout" });
@@ -24360,6 +24441,7 @@ useEffect(() => {
       base_salary: +employeeForm.base_salary || 0, allowances: +employeeForm.allowances || 0, allowances_note: employeeForm.allowances_note,
       percentage_rate: +employeeForm.percentage_rate || 0, leave_days_per_year: +employeeForm.leave_days_per_year || 21,
       note: employeeForm.note, active: true, nationality: employeeForm.nationality || "سعودي", gosi_enabled: !!employeeForm.gosi_enabled,
+      friday_allowance_rate: +employeeForm.friday_allowance_rate || 0,
     };
     if (editingEmployee) {
       const { data, error } = await supabase.from("employees").update(payload).eq("id", editingEmployee.id).eq("pharmacy_id", pharmacyId).select();
@@ -24374,7 +24456,7 @@ useEffect(() => {
     }
     setShowEmployeeForm(false);
     setEditingEmployee(null);
-    setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true });
+    setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "" });
   };
   const deleteEmployee = async (emp) => {
     if (!confirm(`حذف الموظف "${emp.name}"؟ (السجل التاريخي للرواتب هيفضل موجود)`)) return;
@@ -24386,9 +24468,9 @@ useEffect(() => {
 
   // ── فتح فورم صرف الراتب: تعبئة تلقائية بالراتب الأساسي والبدلات وعمولة التحفيز (لو صيدلي) ──
   const openPayForm = (emp) => {
-    let autoCommission = 0;
+    let autoCommission = 0, salesBasis = 0;
     if (emp.role === "صيدلي") {
-      const { commission } = computeStaffCommissionForMonth(emp.name, payMonth, {
+      const { commission, total } = computeStaffCommissionForMonth(emp.name, payMonth, {
         sales, returns, products,
         tiers: incentiveDataForSalary.tiers,
         tierThresholdHistory: incentiveDataForSalary.tierThresholdHistory,
@@ -24397,26 +24479,43 @@ useEffect(() => {
         allowedCategories: incentiveDataForSalary.allowedCategories,
       });
       autoCommission = Math.max(0, commission);
+      salesBasis = total;
     }
+    setCommissionSalesBasis(salesBasis);
     let gosiEmployee = "", gosiEmployer = "";
     if (emp.gosi_enabled !== false) {
       const gosi = calcGosi((+emp.base_salary || 0) + (+emp.allowances || 0), emp.nationality || "سعودي");
       gosiEmployee = gosi.employeeDeduction ? gosi.employeeDeduction.toFixed(2) : "0";
       gosiEmployer = gosi.employerContribution ? gosi.employerContribution.toFixed(2) : "0";
     }
+    // 🆕 إحصائيات الحضور: عدد أيام الجمعة المشتغلة + إجمالي دقائق التأخير خلال الشهر المختار
+    const attendanceStats = computeMonthlyAttendanceStats(emp.name, payMonth, {
+      attendanceLogs: attendanceLogsForSalary, workSchedules: workSchedulesForSalary, rotationSchedules: rotationSchedulesForSalary,
+    });
+    const fridayRate = +emp.friday_allowance_rate || 0;
+    const fridayAllowance = fridayRate * attendanceStats.fridaysWorked;
+    // خصم التأخير: بمعدل ساعي تقديري = (الأساسي + البدلات) ÷ 30 يوم ÷ 8 ساعات — قيمة قابلة للتعديل يدويًا
+    // خصم التأخير: بمعدل ساعي فعلي = (الأساسي + البدلات) ÷ (ساعات الأسبوع المجدولة × 4.345 أسبوع/شهر)
+    // بدل افتراض ثابت 8 ساعات يومية، عشان يفرق مع اختلاف طول الشفتات بين الموظفين
+    const weeklyHours = calcWeeklyScheduledHours(emp.name, workSchedulesForSalary);
+    const monthlyHours = weeklyHours > 0 ? weeklyHours * 4.345 : 26 * 8; // fallback لو مفيش جدول محفوظ للموظف
+    const hourlyRate = ((+emp.base_salary || 0) + (+emp.allowances || 0)) / monthlyHours;
+    const latenessDeduction = (attendanceStats.lateMinutes / 60) * hourlyRate;
     setPayForm({
       base_salary: String(emp.base_salary || 0), allowances: String(emp.allowances || 0),
       percentage_amount: "", target_commission: autoCommission ? autoCommission.toFixed(2) : "",
       other_addition: "", deduction_advance: "", deduction_advance_note: "",
       deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
       gosi_employee_deduction: gosiEmployee, gosi_employer_contribution: gosiEmployer,
+      friday_count: String(attendanceStats.fridaysWorked), friday_allowance: fridayAllowance ? fridayAllowance.toFixed(2) : "0",
+      late_minutes: String(attendanceStats.lateMinutes), deduction_lateness: latenessDeduction ? latenessDeduction.toFixed(2) : "0",
     });
     setShowPayForm(emp);
   };
 
   const payNetTotal = () => {
-    const add = (+payForm.base_salary || 0) + (+payForm.allowances || 0) + (+payForm.percentage_amount || 0) + (+payForm.target_commission || 0) + (+payForm.other_addition || 0);
-    const ded = (+payForm.deduction_advance || 0) + (+payForm.deduction_absence || 0) + (+payForm.gosi_employee_deduction || 0);
+    const add = (+payForm.base_salary || 0) + (+payForm.allowances || 0) + (+payForm.percentage_amount || 0) + (+payForm.target_commission || 0) + (+payForm.other_addition || 0) + (+payForm.friday_allowance || 0);
+    const ded = (+payForm.deduction_advance || 0) + (+payForm.deduction_absence || 0) + (+payForm.gosi_employee_deduction || 0) + (+payForm.deduction_lateness || 0);
     return add - ded;
   };
 
@@ -24438,15 +24537,19 @@ useEffect(() => {
       deduction_advance: +payForm.deduction_advance || 0, deduction_advance_note: payForm.deduction_advance_note,
       deduction_absence: +payForm.deduction_absence || 0, deduction_absence_note: payForm.deduction_absence_note,
       gosi_employee_deduction: +payForm.gosi_employee_deduction || 0, gosi_employer_contribution: +payForm.gosi_employer_contribution || 0,
+      friday_count: +payForm.friday_count || 0, friday_allowance: +payForm.friday_allowance || 0,
+      late_minutes: +payForm.late_minutes || 0, deduction_lateness: +payForm.deduction_lateness || 0,
       net_amount: net, method: payForm.method, note: payForm.note, attachment_url: proofUrl || null,
       date: todayLocal(), created_by: currentUser?.name || "",
     };
     const { data, error } = await supabase.from("salary_payments").insert(payload).select();
     if (error) { setSavingSalary(false); showToast("❌ فشل حفظ الراتب: " + error.message, "error"); return; }
     const gosiNote = (+payForm.gosi_employee_deduction || 0) > 0 ? ` (بعد خصم تأمينات ${(+payForm.gosi_employee_deduction).toFixed(2)} ر.س)` : "";
+    const fridayNote = (+payForm.friday_allowance || 0) > 0 ? ` + بدل ${payForm.friday_count} جمعة` : "";
+    const latenessNote = (+payForm.deduction_lateness || 0) > 0 ? ` - خصم تأخير ${payForm.late_minutes} دقيقة` : "";
     const trPayload = {
       type: "expense", sub_type: "salary", method: payForm.method, amount: net,
-      note: `راتب ${emp.name} (${emp.role}) — شهر ${payMonth}${gosiNote}`,
+      note: `راتب ${emp.name} (${emp.role}) — شهر ${payMonth}${gosiNote}${fridayNote}${latenessNote}`,
       date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
     };
     const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
@@ -25718,7 +25821,7 @@ useEffect(() => {
               <input type="month" value={payMonth} onChange={(e) => setPayMonth(e.target.value)}
                 style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12 }} />
             </div>
-            {canAddEmployee && <Btn icon="plus" onClick={() => { setEditingEmployee(null); setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true }); setShowEmployeeForm(true); }}>إضافة موظف</Btn>}
+            {canAddEmployee && <Btn icon="plus" onClick={() => { setEditingEmployee(null); setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "" }); setShowEmployeeForm(true); }}>إضافة موظف</Btn>}
           </div>
 
           <div style={{ ...cardStyle(COLORS.goldSoft), display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -25768,7 +25871,7 @@ useEffect(() => {
                           <button onClick={() => { setLeaveForm({ days: "", amount: "", note: "", type: "cashout" }); setShowLeaveForm(emp); }} style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.blue, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏖️ إجازة</button>
                         )}
                         {emp.active !== false && canEditEmployee && (
-                          <button onClick={() => { setEditingEmployee(emp); setEmployeeForm({ name: emp.name, role: emp.role, hire_date: emp.hire_date, base_salary: String(emp.base_salary || ""), allowances: String(emp.allowances || ""), allowances_note: emp.allowances_note || "", percentage_rate: String(emp.percentage_rate || ""), leave_days_per_year: String(emp.leave_days_per_year || 21), note: emp.note || "", nationality: emp.nationality || "سعودي", gosi_enabled: emp.gosi_enabled !== false }); setShowEmployeeForm(true); }} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✏️ تعديل</button>
+                          <button onClick={() => { setEditingEmployee(emp); setEmployeeForm({ name: emp.name, role: emp.role, hire_date: emp.hire_date, base_salary: String(emp.base_salary || ""), allowances: String(emp.allowances || ""), allowances_note: emp.allowances_note || "", percentage_rate: String(emp.percentage_rate || ""), leave_days_per_year: String(emp.leave_days_per_year || 21), note: emp.note || "", nationality: emp.nationality || "سعودي", gosi_enabled: emp.gosi_enabled !== false, friday_allowance_rate: String(emp.friday_allowance_rate || "") }); setShowEmployeeForm(true); }} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✏️ تعديل</button>
                         )}
                         {emp.active !== false && canDeleteEmployee && (
                           <button onClick={() => { setEosForm({ termination_date: todayLocal(), termination_type: "normal", other_addition: "", other_deduction: "", other_deduction_note: "", method: "نقدي", note: "", proof: null }); setShowEosForm(emp); }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.red, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏁 إنهاء خدمة</button>
@@ -25831,6 +25934,7 @@ useEffect(() => {
             <input type="checkbox" checked={employeeForm.gosi_enabled} onChange={(e) => setEmployeeForm((p) => ({ ...p, gosi_enabled: e.target.checked }))} style={{ width: 16, height: 16, cursor: "pointer" }} />
             <span style={{ fontSize: 12, color: COLORS.textPrimary }}>احسب اشتراكات التأمينات (GOSI) لهذا الموظف تلقائيًا</span>
           </div>
+          <Input label="بدل الجمعة الواحدة (ر.س) — لو بيشتغل جمع" value={employeeForm.friday_allowance_rate} onChange={(v) => setEmployeeForm((p) => ({ ...p, friday_allowance_rate: v }))} type="number" placeholder="0" />
         </div>
         <div style={{ marginTop: 12 }}>
           <Input label="ملاحظات" value={employeeForm.note} onChange={(v) => setEmployeeForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
@@ -25856,6 +25960,11 @@ useEffect(() => {
             <Input label="عمولة تحفيز (تارجت)" value={payForm.target_commission} onChange={(v) => setPayForm((p) => ({ ...p, target_commission: v }))} type="number" />
             <Input label="إضافات أخرى" value={payForm.other_addition} onChange={(v) => setPayForm((p) => ({ ...p, other_addition: v }))} type="number" />
           </div>
+          {showPayForm.role === "صيدلي" && (
+            <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 8 }}>
+              💊 إجمالي مبيعات {showPayForm.name} خلال {payMonth} اللي احتُسبت عليها العمولة: <strong style={{ color: COLORS.textPrimary }}>{commissionSalesBasis.toFixed(2)} ر.س</strong>
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
             <Input label="خصم سلفة" value={payForm.deduction_advance} onChange={(v) => setPayForm((p) => ({ ...p, deduction_advance: v }))} type="number" />
             <Input label="سبب السلفة" value={payForm.deduction_advance_note} onChange={(v) => setPayForm((p) => ({ ...p, deduction_advance_note: v }))} placeholder="اختياري" />
@@ -25870,6 +25979,18 @@ useEffect(() => {
             </div>
             <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 8, lineHeight: 1.5 }}>
               ⚠️ نسب تقديرية للتأكد راجع بوابة GOSI. حصة صاحب العمل هنا للتوثيق فقط، وبتتحول شهريًا لمنصة GOSI مجمّعة وليست جزء من صافي الراتب.
+            </div>
+          </div>
+          <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: COLORS.textDim, fontWeight: 700, marginBottom: 8 }}>⏱️ الحضور والانصراف — {payMonth}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="عدد أيام الجمعة اللي اشتغلها" value={payForm.friday_count} onChange={(v) => setPayForm((p) => ({ ...p, friday_count: v }))} type="number" />
+              <Input label="بدل الجُمع (ر.س)" value={payForm.friday_allowance} onChange={(v) => setPayForm((p) => ({ ...p, friday_allowance: v }))} type="number" />
+              <Input label="إجمالي دقائق التأخير" value={payForm.late_minutes} onChange={(v) => setPayForm((p) => ({ ...p, late_minutes: v }))} type="number" />
+              <Input label="خصم التأخير (ر.س)" value={payForm.deduction_lateness} onChange={(v) => setPayForm((p) => ({ ...p, deduction_lateness: v }))} type="number" />
+            </div>
+            <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 8, lineHeight: 1.5 }}>
+              💡 محسوبين تلقائيًا من سجلات الحضور وبدل الجمعة المسجّل في بيانات الموظف. خصم التأخير بمعدل ساعي فعلي (الراتب ÷ ساعات الجدول الأسبوعي المحفوظ للموظف)، وبعد استبعاد فترة السماح المسجّلة في جدول الدوام. راجع الرقمين وعدّلهم يدويًا لو محتاج.
             </div>
           </div>
           <div style={{ marginTop: 12 }}>
@@ -27826,8 +27947,8 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
       day_of_week: dow,
       is_off: dow === 6, // السبت إجازة افتراضياً
       shifts: [
-        { shift_number: 1, shift_start: "09:00", shift_end: "21:00", enabled: true, overtime_minutes: 0 },
-        { shift_number: 2, shift_start: "15:00", shift_end: "21:00", enabled: false, overtime_minutes: 0 },
+        { shift_number: 1, shift_start: "09:00", shift_end: "21:00", enabled: true, overtime_minutes: 0, grace_minutes: 10 },
+        { shift_number: 2, shift_start: "15:00", shift_end: "21:00", enabled: false, overtime_minutes: 0, grace_minutes: 10 },
       ],
     }));
 
@@ -27851,8 +27972,8 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
         ...day,
         is_off: isOff,
         shifts: [
-          { shift_number: 1, shift_start: sh1?.shift_start || "09:00", shift_end: sh1?.shift_end || "21:00", enabled: !!sh1 && !isOff, overtime_minutes: sh1?.overtime_minutes || 0 },
-          { shift_number: 2, shift_start: sh2?.shift_start || "15:00", shift_end: sh2?.shift_end || "21:00", enabled: !!sh2 && !isOff, overtime_minutes: sh2?.overtime_minutes || 0 },
+          { shift_number: 1, shift_start: sh1?.shift_start || "09:00", shift_end: sh1?.shift_end || "21:00", enabled: !!sh1 && !isOff, overtime_minutes: sh1?.overtime_minutes || 0, grace_minutes: sh1?.grace_minutes ?? 10 },
+          { shift_number: 2, shift_start: sh2?.shift_start || "15:00", shift_end: sh2?.shift_end || "21:00", enabled: !!sh2 && !isOff, overtime_minutes: sh2?.overtime_minutes || 0, grace_minutes: sh2?.grace_minutes ?? 10 },
         ],
       };
     });
@@ -27911,6 +28032,7 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
             shift_end: sh.shift_end,
             is_off: false,
             overtime_minutes: +sh.overtime_minutes || 0,
+            grace_minutes: +sh.grace_minutes || 0,
             is_ramadan: isRamadanMode,
           });
         });
@@ -28076,6 +28198,17 @@ function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, 
                               onChange={(e) => updateShift(day.day_of_week, sh.shift_number, "overtime_minutes", e.target.value)}
                               style={{ ...inputStyle, width: 60 }}
                               title="دقائق أوفر تايم معتمدة تُحتسب لو داوم فيها فعلاً — أي وقت زيادة غيرها لا يُحسب"
+                            />
+                            <span style={{ fontSize: 10, color: C.muted }}>د</span>
+                            <span style={{ fontSize: 11, color: C.muted, marginRight: 4 }}>| سماح تأخير</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={5}
+                              value={sh.grace_minutes ?? 10}
+                              onChange={(e) => updateShift(day.day_of_week, sh.shift_number, "grace_minutes", e.target.value)}
+                              style={{ ...inputStyle, width: 55 }}
+                              title="عدد الدقائق المسموحة بعد ميعاد الشفت من غير ما تُحسب تأخير"
                             />
                             <span style={{ fontSize: 10, color: C.muted }}>د</span>
                           </>
@@ -28743,7 +28876,8 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, showToas
     expected.setHours(expH, expM, 0, 0);
     const actual = new Date(checkInTime);
     const diff = Math.round((actual.getTime() - expected.getTime()) / 60000);
-    return Math.max(0, diff);
+    const grace = +schedule.grace_minutes || 0;
+    return Math.max(0, diff - grace);
   }
 
   // ── حضور (مرتبط بالشفت) ──
