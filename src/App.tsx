@@ -3314,6 +3314,8 @@ if (isLoading) return (
   pharmacyId={pharmacyId}
   currentUser={currentUser}
   setTreasuryEntries={setTreasuryEntries}
+  treasuryEntries={treasuryEntries}
+  creditPayments={creditPayments}
   canAdd={canAdd("suppliers")}
   canDelete={canDelete("suppliers")}
   canEdit={canEdit("suppliers")}
@@ -5410,6 +5412,21 @@ function recalcCartLinePrice(item, newQty) {
   }
   const base = item.originalPrice ?? item.price;
   return +(calcPromoLineTotal(item.promo, base, newQty) / newQty).toFixed(4);
+}
+
+// ==================== رصيد الخزنة الفعلي لطريقة دفع معينة ====================
+// نفس منطق حساب "رصيد الخزنة اللحظي" المستخدم في تبويب الخزنة (TreasuryModule)، مستخرج هنا
+// كدالة مشتركة عشان أي شاشة تانية فيها زر سداد (الموردين، المصاريف الثابتة، التراخيص، الرواتب)
+// تقدر تتحقق قبل ما تسمح بالسداد إن رصيد الخزنة فعلاً يكفي المبلغ، بدل ما يفضل يسمح ويطلع
+// الرصيد بالسالب. method لازم يكون واحدة من "نقدي"/"بطاقة"/"تحويل".
+function computeTreasuryBalance(method, { sales = [], creditPayments = [], entries = [] } = {}) {
+  const safe = (entries || []).filter(Boolean);
+  const salesIncome = (sales || []).filter((s) => s.payment === method).reduce((a, s) => a + s.total, 0);
+  // سداد آجل (كاش دايماً)
+  const creditIn = method === "نقدي" ? (creditPayments || []).reduce((a, p) => a + p.amount, 0) : 0;
+  const entryIn = safe.filter((e) => e.type === "income" && e.method === method && e.sub_type !== "daily_sales").reduce((a, e) => a + e.amount, 0);
+  const entryOut = safe.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
+  return salesIncome + creditIn + entryIn - entryOut;
 }
 
 // ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
@@ -17776,6 +17793,8 @@ function SuppliersModule({
   pharmacyId,
   currentUser,
   setTreasuryEntries,
+  treasuryEntries = [], // 🆕 لحساب رصيد الخزنة الفعلي قبل السماح بالسداد
+  creditPayments = [], // 🆕 نفس السبب
   canAdd = true,
   canDelete = true,
   canEdit = true,
@@ -18167,6 +18186,14 @@ function SuppliersModule({
   const savePayment = async (supplier) => {
     const amount = +payForm.amount;
     if (!amount || amount <= 0) { showToast("يرجى إدخال مبلغ صحيح", "error"); return; }
+
+    // 🆕 قيد: لازم رصيد الخزنة بطريقة الدفع المختارة يكفي مبلغ السداد
+    const payMethod = payForm.method || "نقدي";
+    const availableForPayment = computeTreasuryBalance(payMethod, { sales, creditPayments, entries: treasuryEntries });
+    if (amount > availableForPayment) {
+      showToast(`❌ رصيد الخزنة (${payMethod}) لا يكفي — المتاح ${availableForPayment.toFixed(2)} ر.س والمطلوب ${amount.toFixed(2)} ر.س`, "error");
+      return;
+    }
 
     let receiptUrl = "";
     if (payForm.receipt) {
@@ -24736,6 +24763,13 @@ useEffect(() => {
   const saveSalaryPayment = async (emp) => {
     const net = payActualAmount();
     if (net <= 0) { showToast("المبلغ المصروف لازم يكون أكبر من صفر", "error"); return; }
+    // 🆕 قيد: لازم رصيد الخزنة بطريقة الدفع المختارة يكفي المبلغ قبل ما نأكد الصرف
+    const salaryMethod = payForm.method || "نقدي";
+    const availableForSalary = calcBalance(salaryMethod);
+    if (net > availableForSalary) {
+      showToast(`❌ رصيد الخزنة (${salaryMethod}) لا يكفي — المتاح ${availableForSalary.toFixed(2)} ر.س والمطلوب ${net.toFixed(2)} ر.س`, "error");
+      return;
+    }
     setSavingSalary(true);
     let proofUrl = "";
     if (payForm.proof) {
@@ -24876,19 +24910,9 @@ useEffect(() => {
   const todaySalesIncome = todayCash + todayCard + todayTransfer + todayCreditIncome - todayReturns;
 
   // ── رصيد الخزنة اللحظي من كل السجلات ──
-  const calcBalance = (method) => {
-    const safe = (entries || []).filter(Boolean);
-    // دخل من المبيعات — 🆕 من غير استبعاد المرتجع بالكامل (calcBalance بتتنادى بس لنقدي/بطاقة/تحويل،
-    // والمرتجع بيتخصم مرة واحدة تحت من entryOut، فاستبعاده هنا كمان كان بيعمل خصم مزدوج)
-    const salesIncome = sales.filter((s) => s.payment === method).reduce((a, s) => a + s.total, 0);
-    // سداد آجل (كاش دايماً)
-    const creditIn = method === "نقدي" ? creditPayments.reduce((a, p) => a + p.amount, 0) : 0;
-    // من سجل الخزنة (يشمل المصروفات العادية ومدفوعات الموردين سوا — type === "expense")
-    // 🆕 sub_type "daily_sales" مستبعد هنا عشان دخل المبيعات محسوب فعلاً من جدول sales (salesIncome فوق) — القيد ده للعرض في السجل بس
-    const entryIn = safe.filter((e) => e.type === "income" && e.method === method && e.sub_type !== "daily_sales").reduce((a, e) => a + e.amount, 0);
-    const entryOut = safe.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
-    return salesIncome + creditIn + entryIn - entryOut;
-  };
+  // 🆕 نفس الحساب دلوقتي مستخرج في computeTreasuryBalance (دالة مشتركة) عشان شاشات تانية
+  // (زي سداد الموردين) تقدر تتحقق منه كمان قبل ما تسمح بالسداد.
+  const calcBalance = (method) => computeTreasuryBalance(method, { sales, creditPayments, entries });
 
   const balanceCash = calcBalance("نقدي");
   const balanceCard = calcBalance("بطاقة");
@@ -25928,6 +25952,11 @@ useEffect(() => {
           {canPayFixedExpense && (
           <button
             onClick={async () => {
+              // 🆕 قيد: لازم رصيد الخزنة النقدي يكفي قبل السداد
+              if (f.amount > balanceCash) {
+                showToast(`❌ رصيد الخزنة النقدي لا يكفي لسداد "${f.name}" — المتاح ${balanceCash.toFixed(2)} ر.س والمطلوب ${f.amount} ر.س`, "error");
+                return;
+              }
               const { error } = await supabase.from("treasury_entries").insert([{
                 type: "expense", sub_type: "fixed", method: "نقدي",
                 amount: f.amount, note: f.name, date: today,
@@ -26005,6 +26034,11 @@ useEffect(() => {
                           onClick={async () => {
                             const amt = +payAmount || 0;
                             if (amt <= 0) { showToast("أدخل مبلغ سداد صحيح", "error"); return; }
+                            // 🆕 قيد: لازم رصيد الخزنة النقدي يكفي قبل السداد
+                            if (amt > balanceCash) {
+                              showToast(`❌ رصيد الخزنة النقدي لا يكفي لسداد "${l.name}" — المتاح ${balanceCash.toFixed(2)} ر.س والمطلوب ${amt.toFixed(2)} ر.س`, "error");
+                              return;
+                            }
                             const { error } = await supabase.from("treasury_entries").insert([{
                               type: "expense", sub_type: "license", method: "نقدي",
                               amount: amt, note: l.name, date: today,
