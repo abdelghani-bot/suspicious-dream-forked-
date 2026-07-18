@@ -4409,14 +4409,20 @@ const [myTarget, setMyTarget] = useState(null);
   })();
 
   // ── حالة طي/فتح الكروت الكبيرة ──
-  const [openCard, setOpenCard] = useState(null); // مفتاح الكارت المفتوح حالياً أو null لو كله مقفول
+  const [openCard, setOpenCard] = useState("sales"); // 🆕 كارت "المبيعات والفرص" مفتوح افتراضيًا عشان أهم رقم يبان أول ما تدخل الصفحة
   const toggleCard = (key) => setOpenCard((prev) => (prev === key ? null : key));
 
   // غلاف كارت قابل للطي: عنوان + أيقونة + شارة عدد (اختياري) + سهم، والمحتوى يظهر فقط لو الكارت مفتوح
-  const CollapsibleCard = ({ cardKey, icon, title, badge, badgeColor, children }) => {
+  // 🆕 urgent: بوردر/توهج أحمر لما يكون الكارت فيه حاجة تحتاج انتباه فوري (زي وجود تنبيهات فعلية)
+  // 🆕 wide: الكارت ياخد عرض عمودين حتى وهو مقفول (لأهم كارت في الداشبورد)
+  const CollapsibleCard = ({ cardKey, icon, title, badge, badgeColor, children, urgent = false, wide = false }) => {
     const isOpen = openCard === cardKey;
     return (
-      <div style={{ ...card, display: "flex", flexDirection: "column", gridColumn: isOpen ? "1 / -1" : "auto" }}>
+      <div style={{
+        ...card, display: "flex", flexDirection: "column",
+        gridColumn: isOpen ? "1 / -1" : (wide ? "span 2" : "auto"),
+        ...(urgent ? { border: `1px solid ${tint(VAR.danger, 0.5)}`, boxShadow: `0 0 16px ${tint(VAR.danger, 0.18)}` } : {}),
+      }}>
         <div
           onClick={() => toggleCard(cardKey)}
           style={{
@@ -4429,8 +4435,8 @@ const [myTarget, setMyTarget] = useState(null);
           <span style={{ fontSize: 13, fontWeight: 700, color: VAR.text, flex: 1 }}>{title}</span>
           {badge !== undefined && badge !== null && (
             <span style={{
-              background: badgeColor ? `${badgeColor}26` : VAR.surface2,
-              color: badgeColor || VAR.muted,
+              background: urgent ? `${VAR.danger}26` : (badgeColor ? `${badgeColor}26` : VAR.surface2),
+              color: urgent ? VAR.danger : (badgeColor || VAR.muted),
               borderRadius: 99, fontSize: 11, padding: "2px 9px", fontWeight: 700, fontFamily: "monospace",
             }}>
               {badge}
@@ -4442,6 +4448,7 @@ const [myTarget, setMyTarget] = useState(null);
       </div>
     );
   };
+
 
   return (
     <div style={{ fontFamily: "'Cairo', sans-serif" }}>
@@ -4473,6 +4480,40 @@ const [myTarget, setMyTarget] = useState(null);
         </div>
       )}
 
+      {/* ── Hero Strip: أهم الأرقام بارزة وظاهرة دايمًا من غير ما تفتح أي كارت ── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: 12,
+        marginBottom: 20,
+        maxWidth: 1100,
+        marginLeft: "auto",
+        marginRight: "auto",
+      }}>
+        {[
+          { label: "مبيعات اليوم", value: todayRev, color: VAR.accent, icon: "📊" },
+          { label: "ربح اليوم", value: deptStatsToday.totalProfit, color: COLORS.green, icon: "💹" },
+          { label: "خزنة اليوم", value: todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses, color: VAR.accent2, icon: "💵" },
+          { label: "تنبيهات تحتاج تدخل", value: totalAlertsCount, isCount: true, color: totalAlertsCount > 0 ? VAR.danger : VAR.muted, icon: "🔔" },
+        ].map((m) => (
+          <div
+            key={m.label}
+            onClick={() => m.label === "تنبيهات تحتاج تدخل" ? setOpenCard("alerts") : setOpenCard("sales")}
+            style={{
+              ...card, padding: "14px 16px", cursor: "pointer",
+              borderColor: tint(m.color, 0.3),
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: VAR.muted, fontWeight: 600, marginBottom: 6 }}>
+              <span>{m.icon}</span>{m.label}
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: m.color, fontFamily: "monospace" }}>
+              {S(m.isCount ? m.value : `${m.value.toFixed(0)} ر.س`)}
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* ── الكروت الرئيسية: مضغوطة وتتفتح بالضغط ── */}
       <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12 }}>
         نظرة عامة
@@ -4488,7 +4529,7 @@ const [myTarget, setMyTarget] = useState(null);
       }}>
 
         {/* 1) المبيعات والفرص */}
-        <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent}>
+        <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent} wide>
           <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
             {SALES_TABS.map((t) => (
               <button
@@ -4801,7 +4842,7 @@ const [myTarget, setMyTarget] = useState(null);
         </CollapsibleCard>
 
         {/* 3) مركز التنبيهات */}
-        <CollapsibleCard cardKey="alerts" icon="🔔" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger}>
+        <CollapsibleCard cardKey="alerts" icon="🔔" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger} urgent={totalAlertsCount > 0}>
           <div>
             {totalAlertsCount === 0 && (
               <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
