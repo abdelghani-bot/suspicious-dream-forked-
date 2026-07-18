@@ -24448,6 +24448,67 @@ useEffect(() => {
     calcLeaveBalanceDays(emp.hire_date, emp.leave_days_per_year, getEmployeeLeaveLedger(emp.id), asOfDate);
   const getEmployeeSalaryPayments = (employeeId) => salaryPayments.filter((p) => p.employee_id === employeeId);
   const isPaidThisMonth = (employeeId, month) => salaryPayments.some((p) => p.employee_id === employeeId && p.month === month);
+  // 🆕 إجمالي اللي اتصرف فعليًا للموظف ده في الشهر ده (ممكن يكون على أكتر من دفعة)
+  const getPaidSumsThisMonth = (employeeId, month) => {
+    const rows = salaryPayments.filter((p) => p.employee_id === employeeId && p.month === month);
+    const sum = (key) => rows.reduce((s, r) => s + (+r[key] || 0), 0);
+    return {
+      base_salary: sum("base_salary"), allowances: sum("allowances"),
+      target_commission: sum("target_commission"), friday_count: sum("friday_count"),
+      friday_allowance: sum("friday_allowance"), late_minutes: sum("late_minutes"),
+      deduction_lateness: sum("deduction_lateness"), gosi_employee_deduction: sum("gosi_employee_deduction"),
+      gosi_employer_contribution: sum("gosi_employer_contribution"), net_amount: sum("net_amount"),
+    };
+  };
+  // 🆕 إجمالي "المستحق" الكامل للموظف عن الشهر ده — نفس منطق فورم الصرف، لكن مستقل عنه عشان نقدر
+  // نستخدمه في حساب "المتبقي" وفي بادج حالة الصرف في قائمة الموظفين من غير ما نفتح الفورم.
+  const computeFullMonthlyDue = (emp) => {
+    let autoCommission = 0, salesBasis = 0;
+    if (emp.role === "صيدلي") {
+      const { commission, total } = computeStaffCommissionForMonth(emp.name, payMonth, {
+        sales, returns, products,
+        tiers: incentiveDataForSalary.tiers,
+        tierThresholdHistory: incentiveDataForSalary.tierThresholdHistory,
+        incentiveOverrides: incentiveDataForSalary.incentiveOverrides,
+        incentiveList: incentiveDataForSalary.incentiveList,
+        allowedCategories: incentiveDataForSalary.allowedCategories,
+      }, emp.user_id || null);
+      autoCommission = Math.max(0, commission);
+      salesBasis = total;
+    }
+    let gosiEmployee = 0, gosiEmployer = 0;
+    if (emp.gosi_enabled !== false) {
+      const gosi = calcGosi((+emp.base_salary || 0) + (+emp.allowances || 0), emp.nationality || "سعودي");
+      gosiEmployee = gosi.employeeDeduction || 0;
+      gosiEmployer = gosi.employerContribution || 0;
+    }
+    const attendanceStats = computeMonthlyAttendanceStats(emp.name, payMonth, {
+      attendanceLogs: attendanceLogsForSalary, workSchedules: workSchedulesForSalary, rotationSchedules: rotationSchedulesForSalary,
+    }, emp.user_id || null);
+    const fridayRate = +emp.friday_allowance_rate || 0;
+    const fridayAllowance = fridayRate * attendanceStats.fridaysWorked;
+    const weeklyHours = calcWeeklyScheduledHours(emp.name, workSchedulesForSalary);
+    const monthlyHours = weeklyHours > 0 ? weeklyHours * 4.345 : 26 * 8;
+    const hourlyRate = ((+emp.base_salary || 0) + (+emp.allowances || 0)) / monthlyHours;
+    const latenessDeduction = (attendanceStats.lateMinutes / 60) * hourlyRate;
+    const base_salary = +emp.base_salary || 0, allowances = +emp.allowances || 0;
+    const net_due = base_salary + allowances + autoCommission + fridayAllowance - gosiEmployee - latenessDeduction;
+    return {
+      base_salary, allowances, target_commission: autoCommission, salesBasis,
+      friday_count: attendanceStats.fridaysWorked, friday_allowance: fridayAllowance,
+      late_minutes: attendanceStats.lateMinutes, deduction_lateness: latenessDeduction,
+      gosi_employee_deduction: gosiEmployee, gosi_employer_contribution: gosiEmployer,
+      net_due,
+    };
+  };
+  // 🆕 حالة صرف راتب الموظف عن الشهر المختار: لسه/جزئي/مكتمل + المتبقي
+  const getEmployeeMonthPayStatus = (emp) => {
+    const due = computeFullMonthlyDue(emp).net_due;
+    const paid = getPaidSumsThisMonth(emp.id, payMonth).net_amount;
+    const remaining = Math.max(0, +(due - paid).toFixed(2));
+    const status = paid <= 0 ? "unpaid" : remaining <= 0.5 ? "full" : "partial"; // هامش 0.5 ر.س لفروق التقريب
+    return { due, paid, remaining, status };
+  };
 
   // ── حفظ/تعديل موظف ──
   const saveEmployee = async () => {
@@ -24488,49 +24549,20 @@ useEffect(() => {
     showToast("تم حذف الموظف");
   };
 
-  // ── فتح فورم صرف الراتب: تعبئة تلقائية بالراتب الأساسي والبدلات وعمولة التحفيز (لو صيدلي) ──
+  // ── فتح فورم صرف الراتب: تعبئة تلقائية بالمتبقي (المستحق الكامل ناقص أي دفعات سابقة هذا الشهر) ──
   const openPayForm = (emp) => {
-    let autoCommission = 0, salesBasis = 0;
-    if (emp.role === "صيدلي") {
-      const { commission, total } = computeStaffCommissionForMonth(emp.name, payMonth, {
-        sales, returns, products,
-        tiers: incentiveDataForSalary.tiers,
-        tierThresholdHistory: incentiveDataForSalary.tierThresholdHistory,
-        incentiveOverrides: incentiveDataForSalary.incentiveOverrides,
-        incentiveList: incentiveDataForSalary.incentiveList,
-        allowedCategories: incentiveDataForSalary.allowedCategories,
-      }, emp.user_id || null);
-      autoCommission = Math.max(0, commission);
-      salesBasis = total;
-    }
-    setCommissionSalesBasis(salesBasis);
-    let gosiEmployee = "", gosiEmployer = "";
-    if (emp.gosi_enabled !== false) {
-      const gosi = calcGosi((+emp.base_salary || 0) + (+emp.allowances || 0), emp.nationality || "سعودي");
-      gosiEmployee = gosi.employeeDeduction ? gosi.employeeDeduction.toFixed(2) : "0";
-      gosiEmployer = gosi.employerContribution ? gosi.employerContribution.toFixed(2) : "0";
-    }
-    // 🆕 إحصائيات الحضور: عدد أيام الجمعة المشتغلة + إجمالي دقائق التأخير خلال الشهر المختار
-    const attendanceStats = computeMonthlyAttendanceStats(emp.name, payMonth, {
-      attendanceLogs: attendanceLogsForSalary, workSchedules: workSchedulesForSalary, rotationSchedules: rotationSchedulesForSalary,
-    }, emp.user_id || null);
-    const fridayRate = +emp.friday_allowance_rate || 0;
-    const fridayAllowance = fridayRate * attendanceStats.fridaysWorked;
-    // خصم التأخير: بمعدل ساعي تقديري = (الأساسي + البدلات) ÷ 30 يوم ÷ 8 ساعات — قيمة قابلة للتعديل يدويًا
-    // خصم التأخير: بمعدل ساعي فعلي = (الأساسي + البدلات) ÷ (ساعات الأسبوع المجدولة × 4.345 أسبوع/شهر)
-    // بدل افتراض ثابت 8 ساعات يومية، عشان يفرق مع اختلاف طول الشفتات بين الموظفين
-    const weeklyHours = calcWeeklyScheduledHours(emp.name, workSchedulesForSalary);
-    const monthlyHours = weeklyHours > 0 ? weeklyHours * 4.345 : 26 * 8; // fallback لو مفيش جدول محفوظ للموظف
-    const hourlyRate = ((+emp.base_salary || 0) + (+emp.allowances || 0)) / monthlyHours;
-    const latenessDeduction = (attendanceStats.lateMinutes / 60) * hourlyRate;
+    const full = computeFullMonthlyDue(emp);
+    setCommissionSalesBasis(full.salesBasis);
+    const paidSoFar = getPaidSumsThisMonth(emp.id, payMonth);
+    const remain = (key) => Math.max(0, full[key] - (paidSoFar[key] || 0));
     setPayForm({
-      base_salary: String(emp.base_salary || 0), allowances: String(emp.allowances || 0),
-      percentage_amount: "", target_commission: autoCommission ? autoCommission.toFixed(2) : "",
+      base_salary: remain("base_salary").toFixed(2), allowances: remain("allowances").toFixed(2),
+      percentage_amount: "", target_commission: remain("target_commission").toFixed(2),
       other_addition: "", deduction_advance: "", deduction_advance_note: "",
       deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
-      gosi_employee_deduction: gosiEmployee, gosi_employer_contribution: gosiEmployer,
-      friday_count: String(attendanceStats.fridaysWorked), friday_allowance: fridayAllowance ? fridayAllowance.toFixed(2) : "0",
-      late_minutes: String(attendanceStats.lateMinutes), deduction_lateness: latenessDeduction ? latenessDeduction.toFixed(2) : "0",
+      gosi_employee_deduction: remain("gosi_employee_deduction").toFixed(2), gosi_employer_contribution: remain("gosi_employer_contribution").toFixed(2),
+      friday_count: String(Math.max(0, full.friday_count - (paidSoFar.friday_count || 0))), friday_allowance: remain("friday_allowance").toFixed(2),
+      late_minutes: String(Math.max(0, full.late_minutes - (paidSoFar.late_minutes || 0))), deduction_lateness: remain("deduction_lateness").toFixed(2),
     });
     setShowPayForm(emp);
   };
@@ -24539,6 +24571,54 @@ useEffect(() => {
     const add = (+payForm.base_salary || 0) + (+payForm.allowances || 0) + (+payForm.percentage_amount || 0) + (+payForm.target_commission || 0) + (+payForm.other_addition || 0) + (+payForm.friday_allowance || 0);
     const ded = (+payForm.deduction_advance || 0) + (+payForm.deduction_absence || 0) + (+payForm.gosi_employee_deduction || 0) + (+payForm.deduction_lateness || 0);
     return add - ded;
+  };
+
+  // 🆕 طباعة إيصال صرف الراتب — يتطبع، الموظف يمضي عليه ورقيًا، وبعدين يتصور ويترفع في خانة "إثبات الصرف"
+  const printSalaryReceipt = (emp) => {
+    const net = payNetTotal();
+    const rows = [
+      ["الراتب الأساسي", payForm.base_salary],
+      ["البدلات", payForm.allowances],
+      ["مبلغ النسبة (%)", payForm.percentage_amount],
+      ["عمولة تحفيز (تارجت)", payForm.target_commission],
+      ["بدل الجُمع", payForm.friday_allowance],
+      ["إضافات أخرى", payForm.other_addition],
+      ["خصم سلفة" + (payForm.deduction_advance_note ? ` (${payForm.deduction_advance_note})` : ""), payForm.deduction_advance ? "-" + payForm.deduction_advance : ""],
+      ["خصم غياب" + (payForm.deduction_absence_note ? ` (${payForm.deduction_absence_note})` : ""), payForm.deduction_absence ? "-" + payForm.deduction_absence : ""],
+      ["خصم تأخير (" + (payForm.late_minutes || 0) + " دقيقة)", payForm.deduction_lateness ? "-" + payForm.deduction_lateness : ""],
+      ["خصم التأمينات (GOSI)", payForm.gosi_employee_deduction ? "-" + payForm.gosi_employee_deduction : ""],
+    ].filter((r) => +String(r[1]).replace("-", "") > 0);
+    const html = `
+      <html dir="rtl" lang="ar"><head><meta charset="utf-8" />
+      <title>إيصال صرف راتب — ${emp.name}</title>
+      <style>
+        body { font-family: Tahoma, Arial, sans-serif; padding: 24px; color: #111; }
+        h1 { font-size: 18px; margin: 0 0 4px; }
+        .sub { color: #555; font-size: 12px; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        td { padding: 6px 4px; border-bottom: 1px solid #ddd; font-size: 13px; }
+        .net { display: flex; justify-content: space-between; margin-top: 14px; padding: 10px; background: #f4f4f4; border-radius: 6px; font-weight: bold; font-size: 15px; }
+        .sign { display: flex; justify-content: space-between; margin-top: 60px; }
+        .sign div { width: 45%; border-top: 1px solid #333; padding-top: 6px; font-size: 12px; text-align: center; }
+        @media print { @page { margin: 16mm; } }
+      </style></head>
+      <body>
+        <h1>إيصال صرف راتب</h1>
+        <div class="sub">الموظف: ${emp.name} (${emp.role}) &nbsp;|&nbsp; الشهر: ${payMonth} &nbsp;|&nbsp; تاريخ الصرف: ${todayLocal()} &nbsp;|&nbsp; طريقة الصرف: ${payForm.method}</div>
+        <table>${rows.map(([label, val]) => `<tr><td>${label}</td><td style="text-align:left">${val} ر.س</td></tr>`).join("")}</table>
+        <div class="net"><span>صافي المبلغ المستلم</span><span>${net.toFixed(2)} ر.س</span></div>
+        ${payForm.note ? `<div class="sub" style="margin-top:10px">ملاحظة: ${payForm.note}</div>` : ""}
+        <div class="sign">
+          <div>توقيع المستلم (${emp.name})</div>
+          <div>توقيع المسؤول</div>
+        </div>
+      </body></html>`;
+    const w = window.open("", "_blank", "width=480,height=640");
+    if (!w) { showToast("امنع المتصفح النافذة المنبثقة — اسمح بها وجرّب تاني", "error"); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 300);
   };
 
   const saveSalaryPayment = async (emp) => {
@@ -24663,7 +24743,7 @@ useEffect(() => {
 
   // ── حسابات مساعدة ──
   const activeEmployees = employees.filter((e) => e.active !== false);
-  const unpaidThisMonth = activeEmployees.filter((e) => !isPaidThisMonth(e.id, payMonth));
+  const unpaidThisMonth = activeEmployees.filter((e) => getEmployeeMonthPayStatus(e).status !== "full");
   const monthSalaryTotal = salaryPayments.filter((p) => p.month === payMonth).reduce((a, p) => a + (p.net_amount || 0), 0);
 
   // ── حسابات المبيعات مقسمة ──
@@ -25863,11 +25943,12 @@ useEffect(() => {
           {employees.length === 0
             ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا يوجد موظفين مسجلين</div>
             : employees.map((emp) => {
-                const paid = isPaidThisMonth(emp.id, payMonth);
+                const payStatus = getEmployeeMonthPayStatus(emp);
+                const paid = payStatus.status === "full";
                 const leaveBalance = getEmployeeLeaveBalance(emp);
                 const empPayments = getEmployeeSalaryPayments(emp.id).slice(0, 3);
                 return (
-                  <div key={emp.id} style={cardStyle(emp.active === false ? COLORS.border : (paid ? tint(COLORS.green, 0.35) : COLORS.border))}>
+                  <div key={emp.id} style={cardStyle(emp.active === false ? COLORS.border : (paid ? tint(COLORS.green, 0.35) : payStatus.status === "partial" ? tint(COLORS.gold, 0.35) : COLORS.border))}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -25875,6 +25956,7 @@ useEffect(() => {
                           <span style={{ fontSize: 10, color: COLORS.textDim, background: COLORS.surfaceAlt, padding: "2px 6px", borderRadius: 5 }}>{employeeRoleLabel[emp.role] || emp.role}</span>
                           {emp.active === false && <span style={{ fontSize: 10, color: COLORS.red, background: COLORS.redSoft, padding: "2px 6px", borderRadius: 5 }}>منتهي الخدمة</span>}
                           {paid && emp.active !== false && <span style={{ fontSize: 10, color: COLORS.green, background: COLORS.greenSoft, padding: "2px 6px", borderRadius: 5 }}>✓ اتصرف {payMonth}</span>}
+                          {payStatus.status === "partial" && emp.active !== false && <span title={`المستحق ${payStatus.due.toFixed(2)} ر.س — المصروف ${payStatus.paid.toFixed(2)} ر.س`} style={{ fontSize: 10, color: COLORS.gold, background: COLORS.goldSoft, padding: "2px 6px", borderRadius: 5 }}>🟡 مدفوع جزئيًا — متبقي {payStatus.remaining.toFixed(2)} ر.س</span>}
                           {getLinkedUser(emp)
                             ? <span style={{ fontSize: 10, color: COLORS.blue, background: COLORS.blueSoft, padding: "2px 6px", borderRadius: 5 }}>🔗 مرتبط بحساب {getLinkedUser(emp).name}</span>
                             : emp.active !== false && <span title="من غير ربط، حساب الراتب بيعتمد على تطابق الاسم في الحضور/المبيعات، وده عرضة للأخطاء" style={{ fontSize: 10, color: COLORS.gold, background: COLORS.goldSoft, padding: "2px 6px", borderRadius: 5 }}>⚠️ غير مرتبط بحساب</span>
@@ -25891,7 +25973,7 @@ useEffect(() => {
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
                         {emp.active !== false && canPaySalary && (
-                          <button onClick={() => openPayForm(emp)} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.green, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>💵 صرف راتب</button>
+                          <button onClick={() => openPayForm(emp)} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.green, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>{payStatus.status === "partial" ? "💵 صرف الباقي" : "💵 صرف راتب"}</button>
                         )}
                         {emp.active !== false && canPaySalary && (
                           <button onClick={() => { setLeaveForm({ days: "", amount: "", note: "", type: "cashout" }); setShowLeaveForm(emp); }} style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.blue, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏖️ إجازة</button>
@@ -25992,6 +26074,17 @@ useEffect(() => {
       {/* Modal صرف راتب */}
       {showPayForm && (
         <Modal open title={`💵 صرف راتب — ${showPayForm.name} (${payMonth})`} onClose={() => !savingSalary && setShowPayForm(null)} wide>
+          {(() => {
+            const st = getEmployeeMonthPayStatus(showPayForm);
+            if (st.status === "unpaid") return null;
+            return (
+              <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}><span style={{ color: COLORS.textDim }}>إجمالي المستحق عن {payMonth}</span><strong>{st.due.toFixed(2)} ر.س</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}><span style={{ color: COLORS.textDim }}>اتصرف سابقًا (دفعات قبل كده)</span><strong style={{ color: COLORS.green }}>{st.paid.toFixed(2)} ر.س</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: COLORS.gold, fontWeight: 700 }}>المتبقي (اتعبّى تلقائيًا تحت)</span><strong style={{ color: COLORS.gold }}>{st.remaining.toFixed(2)} ر.س</strong></div>
+              </div>
+            );
+          })()}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Input label="الراتب الأساسي" value={payForm.base_salary} onChange={(v) => setPayForm((p) => ({ ...p, base_salary: v }))} type="number" />
             <Input label="البدلات" value={payForm.allowances} onChange={(v) => setPayForm((p) => ({ ...p, allowances: v }))} type="number" />
@@ -26043,6 +26136,10 @@ useEffect(() => {
           </div>
           <div style={{ marginTop: 12 }}>
             <Input label="ملاحظة" value={payForm.note} onChange={(v) => setPayForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <Btn variant="ghost" icon="printer" onClick={() => printSalaryReceipt(showPayForm)}>🖨️ طباعة إيصال الاستلام</Btn>
+            <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 4 }}>اطبع الإيصال، خلي {showPayForm.name} يمضي عليه ورقيًا، بعدين صوّر الإيصال الممضي وارفعه في "إثبات الصرف" تحت قبل ما تأكد.</div>
           </div>
           <div style={{ marginTop: 12 }}>
             <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>إثبات الصرف (اختياري)</label>
