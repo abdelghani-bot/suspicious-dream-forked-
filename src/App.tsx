@@ -94,6 +94,10 @@ function AuditLogModule({ pharmacyId, showToast }: { pharmacyId: string; showToa
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [search, setSearch] = useState("");
+  // 🆕 Pagination — سجل العمليات ممكن يبقى فيه مئات السطور، فبنعرضه صفحة صفحة بدل كله دفعة واحدة.
+  const AUDIT_PAGE_SIZE = 25;
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [filterUser, filterAction, filterEntity, fromDate, toDate, search]);
 
   const loadLogs = useCallback(async () => {
     if (!pharmacyId) return;
@@ -193,24 +197,27 @@ function AuditLogModule({ pharmacyId, showToast }: { pharmacyId: string; showToa
       {loading ? (
         <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim }}>جارٍ التحميل...</div>
       ) : (
-        <Table
-          headers={["الوقت", "المستخدم", "العملية", "النوع", "التفاصيل"]}
-          emptyMsg="لا توجد عمليات مسجّلة"
-          rows={filtered.map((log) => {
-            const actionInfo = AUDIT_ACTION_LABELS[log.action] || { label: log.action, color: COLORS.textDim, bg: COLORS.surfaceAlt };
-            return [
-              <span style={{ fontSize: 12, color: COLORS.textDim, whiteSpace: "nowrap" }}>{fmtDT(log.created_at)}</span>,
-              <span style={{ fontWeight: 700 }}>{log.user_name}</span>,
-              <Badge color={actionInfo.bg} text={actionInfo.color}>{actionInfo.label}</Badge>,
-              <span style={{ fontSize: 12, color: COLORS.textDim }}>{AUDIT_ENTITY_LABELS[log.entity_type] || log.entity_type}</span>,
-              <div>
-                <div style={{ fontWeight: 600 }}>{log.entity_label || "—"}</div>
-                {log.description && <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>{log.description}</div>}
-                {renderDiff(log)}
-              </div>,
-            ];
-          })}
-        />
+        <>
+          <Table
+            headers={["الوقت", "المستخدم", "العملية", "النوع", "التفاصيل"]}
+            emptyMsg="لا توجد عمليات مسجّلة"
+            rows={filtered.slice((page - 1) * AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE).map((log) => {
+              const actionInfo = AUDIT_ACTION_LABELS[log.action] || { label: log.action, color: COLORS.textDim, bg: COLORS.surfaceAlt };
+              return [
+                <span style={{ fontSize: 12, color: COLORS.textDim, whiteSpace: "nowrap" }}>{fmtDT(log.created_at)}</span>,
+                <span style={{ fontWeight: 700 }}>{log.user_name}</span>,
+                <Badge color={actionInfo.bg} text={actionInfo.color}>{actionInfo.label}</Badge>,
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>{AUDIT_ENTITY_LABELS[log.entity_type] || log.entity_type}</span>,
+                <div>
+                  <div style={{ fontWeight: 600 }}>{log.entity_label || "—"}</div>
+                  {log.description && <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>{log.description}</div>}
+                  {renderDiff(log)}
+                </div>,
+              ];
+            })}
+          />
+          <Pagination page={page} onPageChange={setPage} totalItems={filtered.length} pageSize={AUDIT_PAGE_SIZE} />
+        </>
       )}
     </div>
   );
@@ -9139,6 +9146,11 @@ function PurchaseModule({
   const [editSupplier, setEditSupplier] = useState("");
   const [editManualSubtotal, setEditManualSubtotal] = useState("");
   const [editManualTax, setEditManualTax] = useState("");
+  // 🆕 بحث وPagination لجدول فواتير الشراء — كان بيعرض كل الفواتير دفعة واحدة من غير أي وسيلة بحث.
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const PURCHASE_PAGE_SIZE = 25;
+  const [purchasePage, setPurchasePage] = useState(1);
+  useEffect(() => { setPurchasePage(1); }, [invoiceSearch]);
 
   // ===== رصد: قبول شحنة Dispatch كاملة دفعة واحدة =====
   // (تم نقل ميزة "القبول برقم التشغيلة" الصحيحة إلى شاشة إعدادات رصد — راجع RasdSettings)
@@ -10246,52 +10258,79 @@ const LABEL_SIZES = [
         </div>
       </div>
 
-      <Table
-        headers={[
-          "رقم الفاتورة",
-          "التاريخ",
-          "المورد",
-          "قبل الضريبة",
-          "الضريبة",
-          "الإجمالي",
-          "الحالة",
-        ]}
-        rows={purchases.map((p) => [
-          <span
-            style={{ color: COLORS.blue, fontWeight: canEdit ? 700 : 400, cursor: canEdit ? "pointer" : "default" }}
-            onClick={() => {
-              if (!canEdit) return;
-              setShowDetail(p);
-              setEditItems(
-                p.items.map((i) => ({
-                  ...i,
-                  receivedCost: i.cost,
-                  newSalePrice: i.salePrice,
-                  discount1: i.discount1 || 0,
-                  discount2: i.discount2 || 0,
-                  bonusQty: i.bonusQty || 0,
-                  expiry_date: i.expiry_date || "",
-                }))
-              );
-              setEditSupplier(p.supplier);
-              setEditManualSubtotal("");
-              setEditManualTax("");
-            }}
-          >
-            {p.id}
-          </span>,
-          p.date,
-          p.supplierName || p.supplier_name,
-          (p.subtotal || 0).toFixed(2) + " ر.س",
-          (p.taxAmount ?? p.tax_amount ?? 0).toFixed(2) + " ر.س",
-          <span style={{ color: COLORS.green, fontWeight: 700 }}>
-            {(p.total || 0).toFixed(2)} ر.س
-          </span>,
-          <Badge color={COLORS.greenSoft} text={COLORS.green}>
-            {p.status}
-          </Badge>,
-        ])}
-      />
+      <div style={{ marginBottom: 14 }}>
+        <input
+          value={invoiceSearch}
+          onChange={(e) => setInvoiceSearch(e.target.value)}
+          placeholder="🔍 بحث برقم الفاتورة أو اسم المورد..."
+          style={{
+            width: 320, maxWidth: "100%", padding: "9px 14px", borderRadius: 8,
+            border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt,
+            color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box",
+          }}
+        />
+      </div>
+
+      {(() => {
+        const filteredPurchasesList = purchases.filter((p) => {
+          if (!invoiceSearch.trim()) return true;
+          const q = invoiceSearch.trim().toLowerCase();
+          const inId = (p.id || "").toLowerCase().includes(q);
+          const inSupplier = (p.supplierName || p.supplier_name || "").toLowerCase().includes(q);
+          return inId || inSupplier;
+        });
+        return (
+          <>
+            <Table
+              headers={[
+                "رقم الفاتورة",
+                "التاريخ",
+                "المورد",
+                "قبل الضريبة",
+                "الضريبة",
+                "الإجمالي",
+                "الحالة",
+              ]}
+              rows={filteredPurchasesList.slice((purchasePage - 1) * PURCHASE_PAGE_SIZE, purchasePage * PURCHASE_PAGE_SIZE).map((p) => [
+                <span
+                  style={{ color: COLORS.blue, fontWeight: canEdit ? 700 : 400, cursor: canEdit ? "pointer" : "default" }}
+                  onClick={() => {
+                    if (!canEdit) return;
+                    setShowDetail(p);
+                    setEditItems(
+                      p.items.map((i) => ({
+                        ...i,
+                        receivedCost: i.cost,
+                        newSalePrice: i.salePrice,
+                        discount1: i.discount1 || 0,
+                        discount2: i.discount2 || 0,
+                        bonusQty: i.bonusQty || 0,
+                        expiry_date: i.expiry_date || "",
+                      }))
+                    );
+                    setEditSupplier(p.supplier);
+                    setEditManualSubtotal("");
+                    setEditManualTax("");
+                  }}
+                >
+                  {p.id}
+                </span>,
+                p.date,
+                p.supplierName || p.supplier_name,
+                (p.subtotal || 0).toFixed(2) + " ر.س",
+                (p.taxAmount ?? p.tax_amount ?? 0).toFixed(2) + " ر.س",
+                <span style={{ color: COLORS.green, fontWeight: 700 }}>
+                  {(p.total || 0).toFixed(2)} ر.س
+                </span>,
+                <Badge color={COLORS.greenSoft} text={COLORS.green}>
+                  {p.status}
+                </Badge>,
+              ])}
+            />
+            <Pagination page={purchasePage} onPageChange={setPurchasePage} totalItems={filteredPurchasesList.length} pageSize={PURCHASE_PAGE_SIZE} />
+          </>
+        );
+      })()}
 
       <Modal
         open={showNew}
@@ -17377,6 +17416,10 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
   const [showLowStock, setShowLowStock] = useState(false);
   const [showSlowProducts, setShowSlowProducts] = useState(false);
   const [showStockoutForecast, setShowStockoutForecast] = useState(false);
+  // 🆕 Pagination — قايمة الأصناف ممكن توصل لمئات/آلاف الصفوف، فبنعرضها صفحة صفحة.
+  const PRODUCTS_PAGE_SIZE = 25;
+  const [productsPage, setProductsPage] = useState(1);
+  useEffect(() => { setProductsPage(1); }, [search]);
 
   // ── الشركات المنتجة (لعرض الجدول وشاشة الإدارة) ──
   const [manufacturers, setManufacturers] = useState([]);
@@ -17518,7 +17561,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
       {/* ── Table ── */}
       <Table
         headers={["رمز", "الصنف", "الشركة المنتجة", "الباركود", "الفئة", "سعر البيع", "التكلفة", "أساسي", "إجراءات"]}
-        rows={filtered.map((p) => {
+        rows={filtered.slice((productsPage - 1) * PRODUCTS_PAGE_SIZE, productsPage * PRODUCTS_PAGE_SIZE).map((p) => {
           const mfr = manufacturers.find((m) => m.id === p.manufacturer_id);
           return [
             <span style={{ color: COLORS.textDim, fontSize: 11 }}>{p.id}</span>,
@@ -17561,6 +17604,7 @@ function ProductsModule({ products, setProducts, suppliers, sales, purchases, sh
           ];
         })}
       />
+      <Pagination page={productsPage} onPageChange={setProductsPage} totalItems={filtered.length} pageSize={PRODUCTS_PAGE_SIZE} />
 
       {/* ── Modal المخزون المنخفض ── */}
       <Modal open={showLowStock} onClose={() => setShowLowStock(false)} title="⚠️ الأصناف ذات المخزون المنخفض">
@@ -27934,6 +27978,9 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   const [forceCloseCash, setForceCloseCash] = useState("");
   const [forceCloseNotes, setForceCloseNotes] = useState("");
   const [forceClosing, setForceClosing] = useState(false);
+  // 🆕 Pagination — سجل الشفتات (فتح/قفل كل الموظفين تاريخيًا) بيكبر مع الوقت، فبنعرضه صفحة صفحة.
+  const SHIFTS_PAGE_SIZE = 25;
+  const [shiftsPage, setShiftsPage] = useState(1);
 
   const currentShift = shifts.find(
   (s) => !s.end_time && s.user === currentUser?.name
@@ -28432,7 +28479,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
           "النقد الختامي",
           "الحالة",
         ]}
-        rows={[...shifts].reverse().map((s) => [
+        rows={[...shifts].reverse().slice((shiftsPage - 1) * SHIFTS_PAGE_SIZE, shiftsPage * SHIFTS_PAGE_SIZE).map((s) => [
           <span style={{ color: COLORS.blue, fontWeight: 700 }}>{s.id}</span>,
           s.user,
           s.start_time,
@@ -28453,6 +28500,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
           ),
         ])}
       />
+      <Pagination page={shiftsPage} onPageChange={setShiftsPage} totalItems={shifts.length} pageSize={SHIFTS_PAGE_SIZE} />
     </div>
   );
 }
@@ -30190,6 +30238,10 @@ function LoyaltyModule({
   const [adjustModal, setAdjustModal] = useState<any>(null);
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustNote, setAdjustNote] = useState("");
+  // 🆕 Pagination — تاب العملاء وتاب السجل ممكن يبقى فيهم مئات الصفوف، فبنعرضهم صفحة صفحة.
+  const LOYALTY_PAGE_SIZE = 25;
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [tab, search]);
 
   // ── Load ──
   useEffect(() => {
@@ -30452,7 +30504,7 @@ await supabase.from("treasury_entries").insert({
               <tbody>
                 {filtered.length === 0 ? (
                   <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: COLORS.textDim }}>لا يوجد عملاء</td></tr>
-                ) : filtered.map((c, i) => {
+                ) : filtered.slice((page - 1) * LOYALTY_PAGE_SIZE, page * LOYALTY_PAGE_SIZE).map((c, i) => {
                   const lp = loyaltyMap[c.id] || { points: 0, total_earned: 0, total_redeemed: 0 };
                   return (
                     <tr key={c.id} style={{ borderBottom: `1px solid ${COLORS.border}`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
@@ -30503,49 +30555,53 @@ await supabase.from("treasury_entries").insert({
               </tbody>
             </table>
           </div>
+          <Pagination page={page} onPageChange={setPage} totalItems={filtered.length} pageSize={LOYALTY_PAGE_SIZE} />
         </div>
       )}
 
       {/* ════ TAB: TRANSACTIONS ════ */}
       {tab === "transactions" && (
-        <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
-                {["التاريخ", "العميل", "النوع", "المبلغ (ر.س)", "ملاحظة"].map((h, i) => (
-                  <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.length === 0 ? (
-                <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: COLORS.textDim }}>لا يوجد سجلات</td></tr>
-              ) : transactions.slice(0, 100).map((t, i) => {
-                const customer = customers.find((c) => c.id === t.customer_id);
-                const tl = typeLabel[t.type] || { label: t.type, color: VAR.muted };
-                return (
-                  <tr key={t.id} style={{ borderBottom: `1px solid ${COLORS.border}`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
-                    <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>
-                      {t.created_at ? new Date(t.created_at).toLocaleString("ar-SA") : "-"}
-                    </td>
-                    <td style={{ padding: "10px 16px", color: VAR.text, fontSize: 13, fontWeight: 600 }}>
-                      {customer?.name || t.customer_id}
-                    </td>
-                    <td style={{ padding: "10px 16px" }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: tl.color + "22", color: tl.color }}>
-                        {tl.label}
-                      </span>
-                    </td>
-                    <td style={{ padding: "10px 16px", fontSize: 14, fontWeight: 800, color: t.amount > 0 ? COLORS.green : COLORS.red }}>
-                      {t.amount > 0 ? "+" : ""}{(t.amount || 0).toFixed(2)}
-                    </td>
-                    <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>{t.note || "-"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
+                  {["التاريخ", "العميل", "النوع", "المبلغ (ر.س)", "ملاحظة"].map((h, i) => (
+                    <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: COLORS.textDim }}>لا يوجد سجلات</td></tr>
+                ) : transactions.slice((page - 1) * LOYALTY_PAGE_SIZE, page * LOYALTY_PAGE_SIZE).map((t, i) => {
+                  const customer = customers.find((c) => c.id === t.customer_id);
+                  const tl = typeLabel[t.type] || { label: t.type, color: VAR.muted };
+                  return (
+                    <tr key={t.id} style={{ borderBottom: `1px solid ${COLORS.border}`, background: i % 2 === 0 ? "transparent" : COLORS.surfaceAlt }}>
+                      <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>
+                        {t.created_at ? new Date(t.created_at).toLocaleString("ar-SA") : "-"}
+                      </td>
+                      <td style={{ padding: "10px 16px", color: VAR.text, fontSize: 13, fontWeight: 600 }}>
+                        {customer?.name || t.customer_id}
+                      </td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: tl.color + "22", color: tl.color }}>
+                          {tl.label}
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px 16px", fontSize: 14, fontWeight: 800, color: t.amount > 0 ? COLORS.green : COLORS.red }}>
+                        {t.amount > 0 ? "+" : ""}{(t.amount || 0).toFixed(2)}
+                      </td>
+                      <td style={{ padding: "10px 16px", color: VAR.muted, fontSize: 12 }}>{t.note || "-"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={page} onPageChange={setPage} totalItems={transactions.length} pageSize={LOYALTY_PAGE_SIZE} />
+        </>
       )}
 
       {/* ════ TAB: SETTINGS ════ */}
