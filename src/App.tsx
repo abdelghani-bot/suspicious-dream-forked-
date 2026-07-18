@@ -3295,6 +3295,8 @@ if (isLoading) return (
             returns={returnsData}
             manufacturers={manufacturers}
             pharmacyId={pharmacyId}
+            treasuryEntries={treasuryEntries}
+            creditPayments={creditPayments}
           />
         )}
         {tab === "tax_report" && canView("tax_report") && (
@@ -27058,7 +27060,7 @@ function FinThresholdsEditor({ thresholds, onSave }) {
 
 
 // ==================== REPORTS ====================
-function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId }) {
+function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId, treasuryEntries = [], creditPayments = [] }) {
   const [type, setType] = useState("sales");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(todayLocal());
@@ -27068,6 +27070,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   const [search, setSearch] = useState("");
   const [showInvoiceDetail, setShowInvoiceDetail] = useState(null);
   const [showPrint, setShowPrint] = useState(null);
+  const [selectedPaymentGroup, setSelectedPaymentGroup] = useState(null); // 🆕 فلتر تفاعلي لجدول تقرير السداد والمصروفات
 
   // helper: منتجات الشركة المنتجة المختارة
   const mfrProductIds = filterManufacturer
@@ -27185,12 +27188,93 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   // فلتر الشركة يظهر في: product, purchase, مرتجع المبيعات، مرتجع المشتريات
   const showMfrFilter = ["product", "purchase", "sales_returns", "purchase_returns"].includes(type);
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🆕 تقرير السداد والمصروفات — عشان أحمد يعرف صرف إيه في الفترة
+  // ويقدر يطابقه مع "دخل" تقرير المبيعات لمعرفة صافي أثر الفترة على الخزنة.
+  // بيستبعد عمدًا أي رصيد مُضاف من خارج الدورة (تمويل/رصيد أول مدة) لأنه مش دخل تشغيلي.
+  // ═══════════════════════════════════════════════════════════════
+  const inDateRange = (d) => {
+    if (!d) return false;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  };
+
+  // كل قيود "المصروفات/السداد" الفعلية من سجل الخزنة في الفترة — مرتجعات المبيعات (sales_return)
+  // مستبعدة هنا عمدًا لأنها متخصومة أصلًا جوه "الداخل الفعلي" تحت، وتضمينها هنا كان هيعمل خصم مزدوج.
+  const paymentEntries = (treasuryEntries || []).filter(
+    (e) => e && e.type === "expense" && e.sub_type !== "sales_return" && inDateRange(e.date)
+  );
+
+  const PAYMENT_GROUPS = [
+    { key: "suppliers", label: "سداد الموردين", icon: "purchase", color: COLORS.coral, subs: ["supplier_payment"] },
+    { key: "salaries", label: "الرواتب والمستحقات", icon: "customers", color: COLORS.blue, subs: ["salary", "leave_cashout", "end_of_service"] },
+    { key: "daily", label: "مصروفات يومية / نثريات", icon: "money", color: COLORS.gold, subs: ["petty", "variable"] },
+    { key: "fixed", label: "مصاريف ثابتة وتراخيص", icon: "settings", color: COLORS.purple, subs: ["fixed", "license"] },
+    { key: "other", label: "أخرى (تسويات / نقاط ولاء)", icon: "reports", color: COLORS.textDim, subs: ["adjustment", "closing_adjustment", "loyalty_redeem", "other"] },
+  ];
+  const paymentGroupTotals = PAYMENT_GROUPS.map((g) => {
+    const groupEntries = paymentEntries.filter((e) => g.subs.includes(e.sub_type));
+    return { ...g, total: groupEntries.reduce((a, e) => a + (e.amount || 0), 0), entries: groupEntries };
+  });
+  const totalPayments = paymentGroupTotals.reduce((a, g) => a + g.total, 0);
+
+  // 🆕 الدخل الفعلي للخزنة للفترة (مش المبيعات المحاسبية اللي فيها آجل) — مقسّم حسب الطريقة عشان
+  // يتقارن بكل درج/محفظة لوحده: مبيعات نقدي/بطاقة/تحويل (مش آجل) ناقص مرتجعاتها + دخل إضافي مُسجّل
+  // يدويًا عند التقفيل (نثريات/فلوس زيادة اتلاقت في الدرج). تحصيلات الآجل بتتحسب "نقدي" دايمًا،
+  // نفس الافتراض المستخدم في حساب رصيد الخزنة بتاب "الخزنة".
+  const cashSalesInRange = (sales || []).filter((s) => inDateRange(s.date) && !s.returned && s.payment !== "آجل");
+  const cashReturnsInRange = (returns || []).filter(
+    (r) => r.type === "sales" && inDateRange(r.date) && r.refund_method &&
+      !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id))
+  );
+  const otherIncomeInRange = (treasuryEntries || []).filter(
+    (e) => e && e.type === "income" && e.sub_type === "other" && inDateRange(e.date)
+  );
+  const METHODS = ["نقدي", "بطاقة", "تحويل"];
+  const methodBreakdown = METHODS.map((m) => {
+    const salesTotal = cashSalesInRange.filter((s) => s.payment === m).reduce((a, s) => a + (s.total || 0), 0);
+    const returnsTotal = cashReturnsInRange.filter((r) => r.refund_method === m).reduce((a, r) => a + (r.total || 0), 0);
+    const otherTotal = otherIncomeInRange.filter((e) => (e.method || "نقدي") === m).reduce((a, e) => a + (e.amount || 0), 0);
+    const creditTotal = m === "نقدي" ? (creditPayments || []).filter((p) => inDateRange(p.date)).reduce((a, p) => a + (p.amount || 0), 0) : 0;
+    const paidTotal = paymentEntries.filter((e) => (e.method || "نقدي") === m).reduce((a, e) => a + (e.amount || 0), 0);
+    return { method: m, income: salesTotal - returnsTotal + otherTotal + creditTotal, paid: paidTotal };
+  });
+  const cashSalesTotal = cashSalesInRange.reduce((a, s) => a + (s.total || 0), 0);
+  const cashReturnsTotal = cashReturnsInRange.reduce((a, r) => a + (r.total || 0), 0);
+  const creditCollectedInRange = (creditPayments || []).filter((p) => inDateRange(p.date)).reduce((a, p) => a + (p.amount || 0), 0);
+  const otherIncomeTotal = otherIncomeInRange.reduce((a, e) => a + (e.amount || 0), 0);
+  const cashBasisIncome = cashSalesTotal - cashReturnsTotal + creditCollectedInRange + otherIncomeTotal;
+
+  // 🆕 أي رصيد اتضاف للخزنة من "خارج الدورة" (تمويل / رصيد أول مدة) — بيتعرض للعلم بس ومش
+  // بيدخل في حساب الدخل ولا في صافي الفرق المتوقع تحت.
+  const externalFundingInRange = (treasuryEntries || []).filter(
+    (e) => e && e.type === "income" && e.sub_type === "opening_balance" && inDateRange(e.date)
+  );
+  const totalExternalFunding = externalFundingInRange.reduce((a, e) => a + (e.amount || 0), 0);
+
+  const expectedNetChange = cashBasisIncome - totalPayments;
+
+  // 🔍 مطابقة مع سجل تقفيل الخزنة: نفس الفكرة محسوبة من قيود treasury_entries المسجّلة فعليًا
+  // (daily_sales + other + closing_adjustment كدخل، ومصروفات + مرتجعات كخروج) بدل الجداول الخام.
+  // لو الرقمين مش متطابقين، غالبًا فيه أيام في الفترة لسه ما اتقفلتش (تقفيل يومي متأخر/منسي).
+  const recordedIncomeInRange = (treasuryEntries || []).filter(
+    (e) => e && e.type === "income" && e.sub_type !== "opening_balance" && inDateRange(e.date)
+  ).reduce((a, e) => a + (e.amount || 0), 0);
+  const recordedSalesReturnExpense = (treasuryEntries || []).filter(
+    (e) => e && e.type === "expense" && e.sub_type === "sales_return" && inDateRange(e.date)
+  ).reduce((a, e) => a + (e.amount || 0), 0);
+  const recordedNetChangeInRange = recordedIncomeInRange - totalPayments - recordedSalesReturnExpense;
+  const reconciliationVariance = expectedNetChange - recordedNetChangeInRange;
+
+
+
   return (
     <div>
       <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>التقارير والإحصائيات</h2>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
-        {["sales", "purchase", "product", "monthly", "sales_returns", "purchase_returns"].map((t) => (
+        {["sales", "purchase", "product", "monthly", "sales_returns", "purchase_returns", "payments"].map((t) => (
           <button key={t} onClick={() => setType(t)} style={{
             padding: "8px 18px", borderRadius: 8, border: "1px solid",
             borderColor: type === t ? COLORS.blue : COLORS.border,
@@ -27198,7 +27282,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
             color: type === t ? COLORS.blue : COLORS.textDim,
             fontWeight: type === t ? 700 : 400, cursor: "pointer", fontSize: 13,
           }}>
-            {t === "sales" ? "تقرير المبيعات" : t === "purchase" ? "تقرير المشتريات" : t === "product" ? "تقرير الأصناف" : t === "monthly" ? "تقرير شهري" : t === "sales_returns" ? "تقرير مرتجع المبيعات" : "تقرير مرتجع المشتريات"}
+            {t === "sales" ? "تقرير المبيعات" : t === "purchase" ? "تقرير المشتريات" : t === "product" ? "تقرير الأصناف" : t === "monthly" ? "تقرير شهري" : t === "sales_returns" ? "تقرير مرتجع المبيعات" : t === "purchase_returns" ? "تقرير مرتجع المشتريات" : "تقرير السداد والمصروفات"}
           </button>
         ))}
 
@@ -27400,6 +27484,106 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
             ])}
           />
           {returnsPurchases.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مرتجعات مشتريات في هذه الفترة</div>}
+        </>
+      )}
+
+      {/* تقرير السداد والمصروفات */}
+      {type === "payments" && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
+            <StatCard label="💵 الداخل الفعلي للخزنة (نقدي/بطاقة/تحويل + تحصيل آجل + دخل إضافي)" value={cashBasisIncome.toFixed(2) + " ر.س"} icon="money" color={COLORS.green} />
+            <StatCard label="📤 إجمالي السداد والمصروفات" value={totalPayments.toFixed(2) + " ر.س"} icon="purchase" color={COLORS.coral} />
+            <StatCard label="⚖️ صافي الفرق المتوقع في الخزنة" value={expectedNetChange.toFixed(2) + " ر.س"} icon="tax" color={expectedNetChange >= 0 ? COLORS.blue : COLORS.red} />
+          </div>
+
+          <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: COLORS.blue, lineHeight: 1.9 }}>
+            ⚖️ <strong>صافي الفرق المتوقع</strong> = الداخل الفعلي للخزنة − إجمالي السداد والمصروفات، وده المفروض يطابق (زيادة/نقصان) رصيد الخزنة الفعلي في نفس الفترة.
+            <br />
+            🚫 مرتجعات المبيعات النقدية متخصومة أصلًا ضمن "الداخل الفعلي"، فمش متضمنة تاني هنا لتفادي الخصم المزدوج.
+            {totalExternalFunding > 0 && (
+              <>
+                <br />
+                💰 تنبيه: تم تسجيل <strong>{totalExternalFunding.toFixed(2)} ر.س</strong> كـ"رصيد أول مدة / تمويل" مُضاف للخزنة من خارج الدورة التشغيلية في هذه الفترة — <strong>هذا المبلغ غير محسوب</strong> ضمن الداخل الفعلي ولا ضمن صافي الفرق أعلاه عمدًا، لأنه مش دخل تشغيلي.
+              </>
+            )}
+          </div>
+
+          {/* 🆕 تكسير حسب طريقة الدفع — لمطابقة كل درج/محفظة لوحده */}
+          <div style={{ marginBottom: 16 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", color: COLORS.textPrimary }}>💳 تكسير حسب طريقة الدفع</h3>
+            <Table
+              headers={["الطريقة", "الداخل", "السداد/المصروفات", "الصافي"]}
+              rows={methodBreakdown.map((m) => [
+                m.method,
+                <span style={{ color: COLORS.green }}>{m.income.toFixed(2)} ر.س</span>,
+                <span style={{ color: COLORS.coral }}>{m.paid.toFixed(2)} ر.س</span>,
+                <span style={{ fontWeight: 700, color: (m.income - m.paid) >= 0 ? COLORS.blue : COLORS.red }}>{(m.income - m.paid).toFixed(2)} ر.س</span>,
+              ])}
+            />
+          </div>
+
+          {/* 🆕 مطابقة مع سجل تقفيل الخزنة — بيكشف الأيام اللي ما اتقفلتش لسه في الفترة */}
+          <div style={{
+            background: Math.abs(reconciliationVariance) < 0.01 ? COLORS.greenSoft : COLORS.redSoft,
+            border: `1px solid ${tint(Math.abs(reconciliationVariance) < 0.01 ? COLORS.green : COLORS.red, 0.35)}`,
+            borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12,
+            color: Math.abs(reconciliationVariance) < 0.01 ? COLORS.green : COLORS.red, lineHeight: 1.9,
+          }}>
+            {Math.abs(reconciliationVariance) < 0.01 ? (
+              <>✅ <strong>مطابق:</strong> نفس الرقم اتحسب من سجل تقفيل الخزنة الفعلي، يعني كل أيام الفترة دي مُقفّلة وموثّقة صح.</>
+            ) : (
+              <>
+                ⚠️ <strong>فيه فرق {reconciliationVariance.toFixed(2)} ر.س</strong> بين "الصافي المحسوب من فواتير/مرتجعات الفترة" وبين "الصافي المسجّل فعليًا في سجل تقفيل الخزنة" لنفس الفترة.
+                <br />
+                السبب الأرجح: فيه يوم أو أكتر في الفترة دي لسه ما اتقفلش (تقفيل الخزنة اليومي)، فقيود الدخل الخاصة بيه لسه ماتسجلتش. راجع أيام التقفيل الناقصة في تبويب "الخزنة".
+              </>
+            )}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 10 }}>
+            {paymentGroupTotals.map((g) => (
+              <div key={g.key} onClick={() => setSelectedPaymentGroup((p) => (p === g.key ? null : g.key))} style={{ cursor: "pointer" }}>
+                <StatCard
+                  label={g.label + (selectedPaymentGroup === g.key ? " ✓" : "")}
+                  value={g.total.toFixed(2) + " ر.س"}
+                  icon={g.icon}
+                  color={g.color}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: COLORS.textDim }}>💡 اضغط على أي فئة فوق لتصفية الجدول بيها</div>
+            {selectedPaymentGroup && (
+              <button onClick={() => setSelectedPaymentGroup(null)} style={{ border: "none", background: "transparent", color: COLORS.blue, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                إلغاء التصفية (عرض الكل)
+              </button>
+            )}
+          </div>
+
+          <Table
+            headers={["التاريخ", "الفئة", "التفاصيل", "الطريقة", "المبلغ", "بواسطة"]}
+            rows={paymentEntries
+              .filter((e) => {
+                if (!selectedPaymentGroup) return true;
+                const grp = PAYMENT_GROUPS.find((g) => g.key === selectedPaymentGroup);
+                return grp ? grp.subs.includes(e.sub_type) : true;
+              })
+              .slice()
+              .sort((a, b) => new Date(b.date) - new Date(a.date))
+              .map((e) => {
+                const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
+                return [
+                  e.date,
+                  <Badge color={COLORS.blueSoft} text={COLORS.blue}>{grp ? grp.label : e.sub_type}</Badge>,
+                  e.note || "—",
+                  e.method || "—",
+                  <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(e.amount || 0).toFixed(2)} ر.س</span>,
+                  e.created_by || "—",
+                ];
+              })}
+          />
+          {paymentEntries.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مصروفات أو مدفوعات مسجّلة في هذه الفترة</div>}
         </>
       )}
 
