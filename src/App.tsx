@@ -3363,6 +3363,7 @@ if (isLoading) return (
             entries={treasuryEntries}
             setEntries={setTreasuryEntries}
             returns={returnsData}
+            products={products}
             canViewSub={(sub) => canView("treasury", sub)}
             canEditSub={(sub) => canEdit("treasury", sub)}
             canAddSub={(sub) => canAdd("treasury", sub)}
@@ -3446,6 +3447,121 @@ function computeStockoutForecast(sales, productId, currentStock, windowDays = 30
   const daysLeft = currentStock / avgDailyQty;
   return { avgDailyQty, daysLeft: Math.floor(daysLeft) };
 }
+// ========== نظام الرواتب — دوال مساعدة مشتركة ==========
+// 🆕 حساب مكافأة نهاية الخدمة حسب نظام العمل السعودي (المادة 84/85):
+// - نص شهر أجر عن كل سنة من أول 5 سنين خدمة
+// - شهر كامل أجر عن كل سنة بعد أول 5 سنين
+// - تُحسب على "الأجر الأساسي + البدلات الثابتة" (مش العمولة/النسبة المتغيرة) وقت انتهاء الخدمة
+// - في حالة الاستقالة: النظام يقلل الاستحقاق حسب مدة الخدمة (مادة 85) — بيتفعّل لو terminationType = "resignation"
+// ⚠️ هذا حساب تقديري عام حسب القواعد المعلنة، وليس استشارة قانونية؛ يُفضّل مراجعة مختص عند التسوية الفعلية.
+function calcServiceYears(hireDate, endDate) {
+  const start = new Date(hireDate);
+  const end = new Date(endDate);
+  if (isNaN(start) || isNaN(end) || end <= start) return 0;
+  return (end - start) / (1000 * 60 * 60 * 24 * 365.25);
+}
+function calcEndOfServiceBenefit(hireDate, endDate, monthlyWage, terminationType = "normal") {
+  const years = calcServiceYears(hireDate, endDate);
+  const wage = +monthlyWage || 0;
+  if (years <= 0 || wage <= 0) return { years: 0, grossAmount: 0, factor: 1, netAmount: 0 };
+  const firstFiveYears = Math.min(years, 5);
+  const remainingYears = Math.max(0, years - 5);
+  const grossAmount = (firstFiveYears * (wage / 2)) + (remainingYears * wage);
+  // نسبة الاستحقاق عند الاستقالة (مادة 85): أقل من سنتين = صفر، من 2 لـ5 = الثلث، من 5 لـ10 = الثلثين، أكتر من 10 = كامل
+  let factor = 1;
+  if (terminationType === "resignation") {
+    if (years < 2) factor = 0;
+    else if (years < 5) factor = 1 / 3;
+    else if (years < 10) factor = 2 / 3;
+    else factor = 1;
+  }
+  const netAmount = grossAmount * factor;
+  return { years, grossAmount, factor, netAmount };
+}
+// 🆕 رصيد أيام الإجازة السنوية المتراكم لحد النهاردة (أو لحد تاريخ انتهاء الخدمة)
+// = (عدد أيام الإجازة سنويًا ÷ 12) × عدد الشهور من تاريخ التعيين، مطروح منه أي أيام مصروفة/متصرفة فعلاً من السجل
+function calcLeaveBalanceDays(hireDate, leaveDaysPerYear, ledgerEntries, asOfDate) {
+  const start = new Date(hireDate);
+  const asOf = asOfDate ? new Date(asOfDate) : new Date();
+  if (isNaN(start) || asOf <= start) return 0;
+  const monthsElapsed = (asOf.getFullYear() - start.getFullYear()) * 12 + (asOf.getMonth() - start.getMonth()) + (asOf.getDate() >= start.getDate() ? 0 : -1);
+  const accrued = Math.max(0, monthsElapsed) * ((+leaveDaysPerYear || 21) / 12);
+  const used = (ledgerEntries || []).reduce((a, e) => a + (+e.days || 0), 0);
+  return Math.max(0, accrued - used);
+}
+
+// 🆕 حساب عمولة التحفيز الشهرية لموظف واحد بالاسم — نفس منطق تاب "التارجت" (نسخة مبسطة لموظف واحد
+// بدل كل الموظفين، عشان تُستخدم في شاشة صرف الراتب لسحب العمولة تلقائيًا من غير تكرار الحساب الكامل).
+function computeStaffCommissionForMonth(staffName, monthKey, ctx) {
+  const { sales = [], returns = [], products = [], tiers = [], tierThresholdHistory = [], incentiveOverrides = [], incentiveList = [], allowedCategories = [] } = ctx || {};
+  const matchTierForMargin = (margin, category, atTime) => {
+    if (margin === null) return null;
+    if (allowedCategories.length > 0 && !allowedCategories.includes(category)) return null;
+    let best = null;
+    for (const t of tiers) {
+      const effectiveThreshold = tierThresholdHistory.length > 0
+        ? (tierThresholdHistory.filter((h) => h.tier_id === t.id && h.effective_from <= atTime).at(-1)?.threshold ?? t.threshold)
+        : t.threshold;
+      if (margin >= effectiveThreshold && (!best || effectiveThreshold > best.threshold)) {
+        best = { ...t, threshold: effectiveThreshold };
+      }
+    }
+    return best;
+  };
+  const matchTierForSaleItem = (item, atTime) => {
+    const price = item.price || 0, cost = item.cost || 0;
+    if (!cost || !price) return null;
+    const margin = ((price - cost) / price) * 100;
+    const category = item.category || products.find((p) => p.id === item.id)?.main_category || products.find((p) => p.id === item.id)?.category || "";
+    return matchTierForMargin(margin, category, atTime);
+  };
+  const excludedIds = new Set(incentiveOverrides.filter((o) => o.type === "exclude").map((o) => o.product_id));
+  const includedOverrides = incentiveOverrides.filter((o) => o.type === "include");
+  const commissionForItem = (item, saleDateTime, qty) => {
+    const amt = (item.price || 0) * qty;
+    const manualEntry = incentiveList.find((i) => i.product_id === item.id);
+    if (manualEntry) return manualEntry.rate ? amt * manualEntry.rate / 100 : (+manualEntry.fixed_amount || 0) * qty;
+    if (excludedIds.has(item.id)) return 0;
+    let tier = matchTierForSaleItem(item, saleDateTime);
+    if (!tier) {
+      const inc = includedOverrides.find((o) => o.product_id === item.id);
+      if (inc) tier = tiers.find((t) => t.id === inc.tier_id);
+    }
+    return tier ? amt * tier.rate / 100 : 0;
+  };
+  const salesById = {};
+  sales.forEach((s) => { salesById[s.id] = s; });
+  let commission = 0, total = 0;
+  sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned && (s.cashier_name || "غير محدد") === staffName)
+    .forEach((s) => {
+      const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
+      const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
+      items.forEach((item) => {
+        const qty = item.qty || 1;
+        const c = commissionForItem(item, saleDateTime, qty);
+        if (c <= 0) return;
+        total += (item.price || 0) * qty;
+        commission += c;
+      });
+    });
+  (returns || []).filter((r) => r.type === "sales" && r.date?.startsWith(monthKey)).forEach((r) => {
+    const originalSale = salesById[r.invoice_id];
+    if (!originalSale || originalSale.returned) return;
+    if ((originalSale.cashier_name || "غير محدد") !== staffName) return;
+    const saleDateTime = originalSale.created_at || (originalSale.date + "T00:00:00.000Z");
+    const items = typeof r.items === "string" ? JSON.parse(r.items) : r.items || [];
+    items.forEach((ri) => {
+      const qty = ri.returnQty || 0;
+      if (qty <= 0) return;
+      const c = commissionForItem(ri, saleDateTime, qty);
+      if (c <= 0) return;
+      total -= (ri.price || 0) * qty;
+      commission -= c;
+    });
+  });
+  return { total, commission };
+}
+
 function useEssentialAlerts(products) {
   const [alerts, setAlerts] = useState([]);
 
@@ -23914,7 +24030,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   );
 }
 // ==================== TREASURY MODULE ====================
-function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, returns = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
+function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, returns = [], products = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
   const canViewDayClosing = canViewSub("day_closing");
   const canEditDayClosing = canEditSub("day_closing");
   const canViewOverview   = canViewSub("overview");
@@ -24141,6 +24257,259 @@ useEffect(() => {
       if (l.data) setLicenses(l.data);
     });
   }, [pharmacyId]);
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 نظام الرواتب — الموظفين، الدفعات الشهرية، رصيد الإجازات، وتسويات نهاية الخدمة
+  // ═══════════════════════════════════════════════════
+  const canAddEmployee    = canAddSub("salaries");
+  const canEditEmployee   = canEditSub("salaries");
+  const canDeleteEmployee = canDeleteSub("salaries");
+  const canPaySalary      = canEditSub("salaries") || canAddSub("salaries");
+
+  const [employees, setEmployees] = useState([]);
+  const [salaryPayments, setSalaryPayments] = useState([]);
+  const [leaveLedger, setLeaveLedger] = useState([]);
+  const [eosSettlements, setEosSettlements] = useState([]);
+  // بيانات التحفيز/التارجت — بنسحبها هنا كمان (بشكل خفيف) عشان نحسب عمولة كل صيدلي شهريًا تلقائيًا
+  const [incentiveDataForSalary, setIncentiveDataForSalary] = useState({ tiers: [], tierThresholdHistory: [], incentiveOverrides: [], incentiveList: [], allowedCategories: [] });
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    Promise.all([
+      supabase.from("employees").select("*").eq("pharmacy_id", pharmacyId).order("created_at"),
+      supabase.from("salary_payments").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
+      supabase.from("leave_ledger").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
+      supabase.from("end_of_service_settlements").select("*").eq("pharmacy_id", pharmacyId).order("date", { ascending: false }),
+      supabase.from("incentive_tiers").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("incentive_tier_threshold_history").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("incentive_overrides").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("incentive_products").select("*").eq("pharmacy_id", pharmacyId),
+      supabase.from("incentive_config").select("*").eq("pharmacy_id", pharmacyId).maybeSingle(),
+    ]).then(([emp, pay, leave, eos, tiersR, historyR, overridesR, prodsR, configR]) => {
+      if (emp.data) setEmployees(emp.data);
+      if (pay.data) setSalaryPayments(pay.data);
+      if (leave.data) setLeaveLedger(leave.data);
+      if (eos.data) setEosSettlements(eos.data);
+      setIncentiveDataForSalary({
+        tiers: (tiersR.data || []).map((r) => ({ id: r.id, threshold: r.margin_threshold, rate: r.rate })),
+        tierThresholdHistory: historyR.data || [],
+        incentiveOverrides: overridesR.data || [],
+        incentiveList: prodsR.data || [],
+        allowedCategories: configR.data?.allowed_categories || [],
+      });
+    });
+  }, [pharmacyId]);
+
+  const [showEmployeeForm, setShowEmployeeForm] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState(null); // null = إضافة جديد، وإلا الموظف الجاري تعديله
+  const [employeeForm, setEmployeeForm] = useState({
+    name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "",
+    percentage_rate: "", leave_days_per_year: "21", note: "",
+  });
+  const employeeRoleLabel = { "صيدلي": "💊 صيدلي", "محاسب": "🧮 محاسب", "عامل": "🧰 عامل", "كاشير": "🧾 كاشير", "مخزن": "📦 مخزن", "أخرى": "👤 أخرى" };
+
+  const [payMonth, setPayMonth] = useState(todayLocal().slice(0, 7));
+  const [showPayForm, setShowPayForm] = useState(null); // employee object
+  const [savingSalary, setSavingSalary] = useState(false);
+  const [payForm, setPayForm] = useState({
+    base_salary: "", allowances: "", percentage_amount: "", target_commission: "",
+    other_addition: "", deduction_advance: "", deduction_advance_note: "",
+    deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
+  });
+
+  const [showLeaveForm, setShowLeaveForm] = useState(null); // employee object
+  const [leaveForm, setLeaveForm] = useState({ days: "", amount: "", note: "", type: "cashout" });
+  const [savingLeave, setSavingLeave] = useState(false);
+
+  const [showEosForm, setShowEosForm] = useState(null); // employee object
+  const [eosForm, setEosForm] = useState({ termination_date: todayLocal(), termination_type: "normal", other_addition: "", other_deduction: "", other_deduction_note: "", method: "نقدي", note: "", proof: null });
+  const [savingEos, setSavingEos] = useState(false);
+
+  const getEmployeeLeaveLedger = (employeeId) => leaveLedger.filter((l) => l.employee_id === employeeId);
+  const getEmployeeLeaveBalance = (emp, asOfDate) =>
+    calcLeaveBalanceDays(emp.hire_date, emp.leave_days_per_year, getEmployeeLeaveLedger(emp.id), asOfDate);
+  const getEmployeeSalaryPayments = (employeeId) => salaryPayments.filter((p) => p.employee_id === employeeId);
+  const isPaidThisMonth = (employeeId, month) => salaryPayments.some((p) => p.employee_id === employeeId && p.month === month);
+
+  // ── حفظ/تعديل موظف ──
+  const saveEmployee = async () => {
+    if (!employeeForm.name || !employeeForm.hire_date) { showToast("يرجى إدخال الاسم وتاريخ التعيين", "error"); return; }
+    const payload = {
+      pharmacy_id: pharmacyId, name: employeeForm.name, role: employeeForm.role, hire_date: employeeForm.hire_date,
+      base_salary: +employeeForm.base_salary || 0, allowances: +employeeForm.allowances || 0, allowances_note: employeeForm.allowances_note,
+      percentage_rate: +employeeForm.percentage_rate || 0, leave_days_per_year: +employeeForm.leave_days_per_year || 21,
+      note: employeeForm.note, active: true,
+    };
+    if (editingEmployee) {
+      const { data, error } = await supabase.from("employees").update(payload).eq("id", editingEmployee.id).eq("pharmacy_id", pharmacyId).select();
+      if (error) { showToast("خطأ: " + error.message, "error"); return; }
+      setEmployees((p) => p.map((e) => (e.id === editingEmployee.id ? data[0] : e)));
+      showToast("تم تعديل بيانات الموظف ✓");
+    } else {
+      const { data, error } = await supabase.from("employees").insert(payload).select();
+      if (error) { showToast("خطأ: " + error.message, "error"); return; }
+      setEmployees((p) => [...p, data[0]]);
+      showToast("تم إضافة الموظف ✓");
+    }
+    setShowEmployeeForm(false);
+    setEditingEmployee(null);
+    setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "" });
+  };
+  const deleteEmployee = async (emp) => {
+    if (!confirm(`حذف الموظف "${emp.name}"؟ (السجل التاريخي للرواتب هيفضل موجود)`)) return;
+    const { error } = await supabase.from("employees").delete().eq("id", emp.id).eq("pharmacy_id", pharmacyId);
+    if (error) { showToast("خطأ: " + error.message, "error"); return; }
+    setEmployees((p) => p.filter((e) => e.id !== emp.id));
+    showToast("تم حذف الموظف");
+  };
+
+  // ── فتح فورم صرف الراتب: تعبئة تلقائية بالراتب الأساسي والبدلات وعمولة التحفيز (لو صيدلي) ──
+  const openPayForm = (emp) => {
+    let autoCommission = 0;
+    if (emp.role === "صيدلي") {
+      const { commission } = computeStaffCommissionForMonth(emp.name, payMonth, {
+        sales, returns, products,
+        tiers: incentiveDataForSalary.tiers,
+        tierThresholdHistory: incentiveDataForSalary.tierThresholdHistory,
+        incentiveOverrides: incentiveDataForSalary.incentiveOverrides,
+        incentiveList: incentiveDataForSalary.incentiveList,
+        allowedCategories: incentiveDataForSalary.allowedCategories,
+      });
+      autoCommission = Math.max(0, commission);
+    }
+    setPayForm({
+      base_salary: String(emp.base_salary || 0), allowances: String(emp.allowances || 0),
+      percentage_amount: "", target_commission: autoCommission ? autoCommission.toFixed(2) : "",
+      other_addition: "", deduction_advance: "", deduction_advance_note: "",
+      deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
+    });
+    setShowPayForm(emp);
+  };
+
+  const payNetTotal = () => {
+    const add = (+payForm.base_salary || 0) + (+payForm.allowances || 0) + (+payForm.percentage_amount || 0) + (+payForm.target_commission || 0) + (+payForm.other_addition || 0);
+    const ded = (+payForm.deduction_advance || 0) + (+payForm.deduction_absence || 0);
+    return add - ded;
+  };
+
+  const saveSalaryPayment = async (emp) => {
+    const net = payNetTotal();
+    if (net <= 0) { showToast("صافي الراتب لازم يكون أكبر من صفر", "error"); return; }
+    setSavingSalary(true);
+    let proofUrl = "";
+    if (payForm.proof) {
+      const fileName = `salaries/${emp.id}_${payMonth}_${Date.now()}_${payForm.proof.name}`;
+      const { error: uploadError } = await supabase.storage.from("payment_reports").upload(fileName, payForm.proof);
+      if (!uploadError) { const { data: urlData } = supabase.storage.from("payment_reports").getPublicUrl(fileName); proofUrl = urlData.publicUrl; }
+    }
+    const payload = {
+      pharmacy_id: pharmacyId, employee_id: emp.id, month: payMonth,
+      base_salary: +payForm.base_salary || 0, allowances: +payForm.allowances || 0,
+      percentage_amount: +payForm.percentage_amount || 0, target_commission: +payForm.target_commission || 0,
+      other_addition: +payForm.other_addition || 0,
+      deduction_advance: +payForm.deduction_advance || 0, deduction_advance_note: payForm.deduction_advance_note,
+      deduction_absence: +payForm.deduction_absence || 0, deduction_absence_note: payForm.deduction_absence_note,
+      net_amount: net, method: payForm.method, note: payForm.note, attachment_url: proofUrl || null,
+      date: todayLocal(), created_by: currentUser?.name || "",
+    };
+    const { data, error } = await supabase.from("salary_payments").insert(payload).select();
+    if (error) { setSavingSalary(false); showToast("❌ فشل حفظ الراتب: " + error.message, "error"); return; }
+    const trPayload = {
+      type: "expense", sub_type: "salary", method: payForm.method, amount: net,
+      note: `راتب ${emp.name} (${emp.role}) — شهر ${payMonth}`,
+      date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
+    };
+    const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
+    setSavingSalary(false);
+    if (trError) { showToast("تم حفظ الراتب لكن فشل تحديث الخزنة: " + trError.message, "error"); }
+    else if (trData && trData[0] && setEntries) setEntries((p) => [trData[0], ...p]);
+    setSalaryPayments((p) => [data[0], ...p]);
+    setShowPayForm(null);
+    showToast(`✅ تم صرف راتب ${emp.name} — ${net.toFixed(2)} ر.س`);
+  };
+
+  // ── تصرف رصيد إجازة (نقدًا) ──
+  const saveLeaveCashout = async (emp) => {
+    const days = +leaveForm.days || 0;
+    const amount = +leaveForm.amount || 0;
+    if (days <= 0) { showToast("يرجى إدخال عدد أيام صحيح", "error"); return; }
+    setSavingLeave(true);
+    const payload = {
+      pharmacy_id: pharmacyId, employee_id: emp.id, date: todayLocal(), type: leaveForm.type,
+      days, amount, note: leaveForm.note, created_by: currentUser?.name || "",
+    };
+    const { data, error } = await supabase.from("leave_ledger").insert(payload).select();
+    if (error) { setSavingLeave(false); showToast("خطأ: " + error.message, "error"); return; }
+    setLeaveLedger((p) => [data[0], ...p]);
+    if (leaveForm.type === "cashout" && amount > 0) {
+      const trPayload = {
+        type: "expense", sub_type: "leave_cashout", method: "نقدي", amount,
+        note: `صرف بدل إجازة نقدًا — ${emp.name} (${days} يوم)`,
+        date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
+      };
+      const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
+      if (trError) showToast("تم تسجيل الإجازة لكن فشل تحديث الخزنة: " + trError.message, "error");
+      else if (trData && trData[0] && setEntries) setEntries((p) => [trData[0], ...p]);
+    }
+    setSavingLeave(false);
+    setShowLeaveForm(null);
+    setLeaveForm({ days: "", amount: "", note: "", type: "cashout" });
+    showToast("✅ تم تسجيل حركة الإجازة");
+  };
+
+  // ── تسوية نهاية الخدمة ──
+  const previewEos = (emp) => {
+    const wage = (+emp.base_salary || 0) + (+emp.allowances || 0);
+    const eosb = calcEndOfServiceBenefit(emp.hire_date, eosForm.termination_date, wage, eosForm.termination_type);
+    const leaveBalance = getEmployeeLeaveBalance(emp, eosForm.termination_date);
+    const dailyWage = wage / 30;
+    const leaveCashout = leaveBalance * dailyWage;
+    const net = eosb.netAmount + leaveCashout + (+eosForm.other_addition || 0) - (+eosForm.other_deduction || 0);
+    return { wage, eosb, leaveBalance, leaveCashout, net };
+  };
+  const saveEosSettlement = async (emp) => {
+    const preview = previewEos(emp);
+    if (preview.net < 0) { showToast("صافي التسوية بالسالب — راجع البيانات", "error"); return; }
+    setSavingEos(true);
+    let proofUrl = "";
+    if (eosForm.proof) {
+      const fileName = `eos_settlements/${emp.id}_${Date.now()}_${eosForm.proof.name}`;
+      const { error: uploadError } = await supabase.storage.from("payment_reports").upload(fileName, eosForm.proof);
+      if (!uploadError) { const { data: urlData } = supabase.storage.from("payment_reports").getPublicUrl(fileName); proofUrl = urlData.publicUrl; }
+    }
+    const payload = {
+      pharmacy_id: pharmacyId, employee_id: emp.id, termination_date: eosForm.termination_date,
+      termination_type: eosForm.termination_type, years_of_service: preview.eosb.years,
+      wage_basis: preview.wage, eosb_amount: preview.eosb.netAmount, leave_days_cashed: preview.leaveBalance,
+      leave_cashout_amount: preview.leaveCashout, other_addition: +eosForm.other_addition || 0,
+      other_deduction: +eosForm.other_deduction || 0, other_deduction_note: eosForm.other_deduction_note,
+      net_amount: preview.net, method: eosForm.method, note: eosForm.note, attachment_url: proofUrl || null,
+      date: todayLocal(), created_by: currentUser?.name || "",
+    };
+    const { data, error } = await supabase.from("end_of_service_settlements").insert(payload).select();
+    if (error) { setSavingEos(false); showToast("❌ فشل حفظ التسوية: " + error.message, "error"); return; }
+    if (preview.net > 0) {
+      const trPayload = {
+        type: "expense", sub_type: "end_of_service", method: eosForm.method, amount: preview.net,
+        note: `تسوية نهاية خدمة — ${emp.name} (${preview.eosb.years.toFixed(1)} سنة خدمة)`,
+        date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
+      };
+      const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
+      if (trError) showToast("تم حفظ التسوية لكن فشل تحديث الخزنة: " + trError.message, "error");
+      else if (trData && trData[0] && setEntries) setEntries((p) => [trData[0], ...p]);
+    }
+    await supabase.from("employees").update({ active: false, termination_date: eosForm.termination_date }).eq("id", emp.id).eq("pharmacy_id", pharmacyId);
+    setEmployees((p) => p.map((e) => (e.id === emp.id ? { ...e, active: false, termination_date: eosForm.termination_date } : e)));
+    setEosSettlements((p) => [data[0], ...p]);
+    setSavingEos(false);
+    setShowEosForm(null);
+    showToast(`✅ تمت تسوية نهاية الخدمة — صافي ${preview.net.toFixed(2)} ر.س`);
+  };
+
+  // ── حسابات مساعدة ──
+  const activeEmployees = employees.filter((e) => e.active !== false);
+  const unpaidThisMonth = activeEmployees.filter((e) => !isPaidThisMonth(e.id, payMonth));
+  const monthSalaryTotal = salaryPayments.filter((p) => p.month === payMonth).reduce((a, p) => a + (p.net_amount || 0), 0);
 
   // ── حسابات المبيعات مقسمة ──
   // 🆕 النقدي/البطاقة/التحويل ما بتُستبعدش هنا حتى لو اترجعت بالكامل — قيمتها الأصلية لازم تفضل
@@ -24729,6 +25098,7 @@ useEffect(() => {
           { k: "history", l: "📋 السجل", allowed: canViewOverview },
           { k: "fixed", l: "🔒 مصاريف ثابتة", allowed: canViewOverview },
           { k: "licenses", l: "📄 التراخيص", allowed: canViewOverview },
+          { k: "salaries", l: "👥 الرواتب", allowed: canViewOverview },
         ].filter((t) => t.allowed).map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
             flex: 1, padding: "9px 6px", borderRadius: 8, border: "none",
@@ -25308,6 +25678,263 @@ useEffect(() => {
           }
         </div>
       )}
+
+      {/* ══════════ الرواتب ══════════ */}
+      {activeTab === "salaries" && canViewOverview && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: COLORS.textDim }}>شهر الصرف:</span>
+              <input type="month" value={payMonth} onChange={(e) => setPayMonth(e.target.value)}
+                style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12 }} />
+            </div>
+            {canAddEmployee && <Btn icon="plus" onClick={() => { setEditingEmployee(null); setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "" }); setShowEmployeeForm(true); }}>إضافة موظف</Btn>}
+          </div>
+
+          <div style={{ ...cardStyle(COLORS.goldSoft), display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+            <span style={{ color: COLORS.gold, fontWeight: 700 }}>إجمالي رواتب {payMonth}</span>
+            <span style={{ color: COLORS.coral, fontWeight: 900, fontSize: 16 }}>{monthSalaryTotal.toFixed(2)} ر.س</span>
+          </div>
+
+          {unpaidThisMonth.length > 0 && (
+            <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+              <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⏰ لسه ما اتصرفش راتب {payMonth} لـ {unpaidThisMonth.length} موظف</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {unpaidThisMonth.map((e) => <span key={e.id} style={{ fontSize: 11, color: COLORS.textDim }}>{e.name}</span>)}
+              </div>
+            </div>
+          )}
+
+          {employees.length === 0
+            ? <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا يوجد موظفين مسجلين</div>
+            : employees.map((emp) => {
+                const paid = isPaidThisMonth(emp.id, payMonth);
+                const leaveBalance = getEmployeeLeaveBalance(emp);
+                const empPayments = getEmployeeSalaryPayments(emp.id).slice(0, 3);
+                return (
+                  <div key={emp.id} style={cardStyle(emp.active === false ? COLORS.border : (paid ? tint(COLORS.green, 0.35) : COLORS.border))}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{emp.name}</span>
+                          <span style={{ fontSize: 10, color: COLORS.textDim, background: COLORS.surfaceAlt, padding: "2px 6px", borderRadius: 5 }}>{employeeRoleLabel[emp.role] || emp.role}</span>
+                          {emp.active === false && <span style={{ fontSize: 10, color: COLORS.red, background: COLORS.redSoft, padding: "2px 6px", borderRadius: 5 }}>منتهي الخدمة</span>}
+                          {paid && emp.active !== false && <span style={{ fontSize: 10, color: COLORS.green, background: COLORS.greenSoft, padding: "2px 6px", borderRadius: 5 }}>✓ اتصرف {payMonth}</span>}
+                        </div>
+                        <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 4 }}>
+                          راتب أساسي: {(emp.base_salary || 0).toFixed(0)} ر.س
+                          {emp.allowances > 0 && ` • بدلات: ${emp.allowances.toFixed(0)} ر.س`}
+                          {emp.percentage_rate > 0 && ` • نسبة: ${emp.percentage_rate}%`}
+                        </div>
+                        <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 2 }}>
+                          📅 تعيين: {emp.hire_date} • 🏖️ رصيد إجازة: {leaveBalance.toFixed(1)} يوم
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                        {emp.active !== false && canPaySalary && (
+                          <button onClick={() => openPayForm(emp)} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.green, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>💵 صرف راتب</button>
+                        )}
+                        {emp.active !== false && canPaySalary && (
+                          <button onClick={() => { setLeaveForm({ days: "", amount: "", note: "", type: "cashout" }); setShowLeaveForm(emp); }} style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.blue, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏖️ إجازة</button>
+                        )}
+                        {emp.active !== false && canEditEmployee && (
+                          <button onClick={() => { setEditingEmployee(emp); setEmployeeForm({ name: emp.name, role: emp.role, hire_date: emp.hire_date, base_salary: String(emp.base_salary || ""), allowances: String(emp.allowances || ""), allowances_note: emp.allowances_note || "", percentage_rate: String(emp.percentage_rate || ""), leave_days_per_year: String(emp.leave_days_per_year || 21), note: emp.note || "" }); setShowEmployeeForm(true); }} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✏️ تعديل</button>
+                        )}
+                        {emp.active !== false && canDeleteEmployee && (
+                          <button onClick={() => { setEosForm({ termination_date: todayLocal(), termination_type: "normal", other_addition: "", other_deduction: "", other_deduction_note: "", method: "نقدي", note: "", proof: null }); setShowEosForm(emp); }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.red, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏁 إنهاء خدمة</button>
+                        )}
+                        {canDeleteEmployee && (
+                          <button onClick={() => deleteEmployee(emp)} style={{ background: "transparent", border: "none", color: COLORS.textDim, cursor: "pointer", fontSize: 11 }}>🗑 حذف</button>
+                        )}
+                      </div>
+                    </div>
+                    {empPayments.length > 0 && (
+                      <div style={{ marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
+                        <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>آخر الرواتب المصروفة</div>
+                        {empPayments.map((p) => (
+                          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0" }}>
+                            <span style={{ color: COLORS.textDim }}>{p.month}</span>
+                            <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{(p.net_amount || 0).toFixed(2)} ر.س</span>
+                            {p.attachment_url && <a href={p.attachment_url} target="_blank" rel="noreferrer" style={{ color: COLORS.blue }}>📎</a>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+          }
+        </div>
+      )}
+
+      {/* Modal إضافة/تعديل موظف */}
+      <Modal open={showEmployeeForm} onClose={() => setShowEmployeeForm(false)} title={editingEmployee ? "✏️ تعديل موظف" : "👥 إضافة موظف جديد"}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="اسم الموظف *" value={employeeForm.name} onChange={(v) => setEmployeeForm((p) => ({ ...p, name: v }))} placeholder="الاسم" />
+          <div>
+            <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>الوظيفة</div>
+            <select value={employeeForm.role} onChange={(e) => setEmployeeForm((p) => ({ ...p, role: e.target.value }))}
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
+              <option value="صيدلي">💊 صيدلي</option>
+              <option value="محاسب">🧮 محاسب</option>
+              <option value="عامل">🧰 عامل</option>
+              <option value="كاشير">🧾 كاشير</option>
+              <option value="مخزن">📦 مخزن</option>
+              <option value="أخرى">👤 أخرى</option>
+            </select>
+          </div>
+          <Input label="تاريخ التعيين *" value={employeeForm.hire_date} onChange={(v) => setEmployeeForm((p) => ({ ...p, hire_date: v }))} type="date" />
+          <Input label="الراتب الأساسي (ر.س)" value={employeeForm.base_salary} onChange={(v) => setEmployeeForm((p) => ({ ...p, base_salary: v }))} type="number" />
+          <Input label="البدلات الثابتة (ر.س)" value={employeeForm.allowances} onChange={(v) => setEmployeeForm((p) => ({ ...p, allowances: v }))} type="number" />
+          <Input label="تفاصيل البدلات" value={employeeForm.allowances_note} onChange={(v) => setEmployeeForm((p) => ({ ...p, allowances_note: v }))} placeholder="سكن + مواصلات..." />
+          <Input label="نسبة (%) — إن وجدت" value={employeeForm.percentage_rate} onChange={(v) => setEmployeeForm((p) => ({ ...p, percentage_rate: v }))} type="number" />
+          <Input label="أيام الإجازة السنوية" value={employeeForm.leave_days_per_year} onChange={(v) => setEmployeeForm((p) => ({ ...p, leave_days_per_year: v }))} type="number" placeholder="21" />
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <Input label="ملاحظات" value={employeeForm.note} onChange={(v) => setEmployeeForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
+        </div>
+        {employeeForm.role === "صيدلي" && (
+          <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 10, lineHeight: 1.6 }}>
+            💡 عمولة التحفيز الشهرية هتتسحب تلقائيًا من تاب "التارجت" وقت صرف الراتب، مش محتاج تدخلها هنا.
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setShowEmployeeForm(false)}>إلغاء</Btn>
+          <Btn icon="check" onClick={saveEmployee}>{editingEmployee ? "حفظ التعديل" : "إضافة"}</Btn>
+        </div>
+      </Modal>
+
+      {/* Modal صرف راتب */}
+      {showPayForm && (
+        <Modal open title={`💵 صرف راتب — ${showPayForm.name} (${payMonth})`} onClose={() => !savingSalary && setShowPayForm(null)} wide>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Input label="الراتب الأساسي" value={payForm.base_salary} onChange={(v) => setPayForm((p) => ({ ...p, base_salary: v }))} type="number" />
+            <Input label="البدلات" value={payForm.allowances} onChange={(v) => setPayForm((p) => ({ ...p, allowances: v }))} type="number" />
+            <Input label="مبلغ النسبة (%)" value={payForm.percentage_amount} onChange={(v) => setPayForm((p) => ({ ...p, percentage_amount: v }))} type="number" placeholder="0.00" />
+            <Input label="عمولة تحفيز (تارجت)" value={payForm.target_commission} onChange={(v) => setPayForm((p) => ({ ...p, target_commission: v }))} type="number" />
+            <Input label="إضافات أخرى" value={payForm.other_addition} onChange={(v) => setPayForm((p) => ({ ...p, other_addition: v }))} type="number" />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+            <Input label="خصم سلفة" value={payForm.deduction_advance} onChange={(v) => setPayForm((p) => ({ ...p, deduction_advance: v }))} type="number" />
+            <Input label="سبب السلفة" value={payForm.deduction_advance_note} onChange={(v) => setPayForm((p) => ({ ...p, deduction_advance_note: v }))} placeholder="اختياري" />
+            <Input label="خصم غياب" value={payForm.deduction_absence} onChange={(v) => setPayForm((p) => ({ ...p, deduction_absence: v }))} type="number" />
+            <Input label="سبب خصم الغياب" value={payForm.deduction_absence_note} onChange={(v) => setPayForm((p) => ({ ...p, deduction_absence_note: v }))} placeholder="اختياري" />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>طريقة الصرف</div>
+            <select value={payForm.method} onChange={(e) => setPayForm((p) => ({ ...p, method: e.target.value }))}
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
+              <option value="نقدي">💵 نقدي</option>
+              <option value="بطاقة">💳 بطاقة</option>
+              <option value="تحويل">🏦 تحويل بنكي</option>
+            </select>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <Input label="ملاحظة" value={payForm.note} onChange={(v) => setPayForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>إثبات الصرف (اختياري)</label>
+            <input type="file" accept="image/*,application/pdf" onChange={(e) => { const file = e.target.files[0]; if (file) setPayForm((p) => ({ ...p, proof: file })); }} style={{ color: COLORS.textPrimary, fontSize: 12 }} />
+            {payForm.proof && <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4 }}>✓ {payForm.proof.name}</div>}
+          </div>
+          <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 14, display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: COLORS.textDim, fontWeight: 700 }}>صافي الراتب</span>
+            <span style={{ color: payNetTotal() < 0 ? COLORS.red : COLORS.green, fontWeight: 900, fontSize: 18 }}>{payNetTotal().toFixed(2)} ر.س</span>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowPayForm(null)} disabled={savingSalary}>إلغاء</Btn>
+            <Btn icon="check" onClick={() => saveSalaryPayment(showPayForm)} disabled={savingSalary}>{savingSalary ? "جاري الحفظ..." : "تأكيد الصرف"}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal إجازة */}
+      {showLeaveForm && (
+        <Modal open title={`🏖️ رصيد إجازة — ${showLeaveForm.name}`} onClose={() => !savingLeave && setShowLeaveForm(null)}>
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 10 }}>
+            الرصيد الحالي: <strong style={{ color: COLORS.textPrimary }}>{getEmployeeLeaveBalance(showLeaveForm).toFixed(1)} يوم</strong>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>نوع الحركة</div>
+              <select value={leaveForm.type} onChange={(e) => setLeaveForm((p) => ({ ...p, type: e.target.value }))}
+                style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
+                <option value="cashout">💰 صرف نقدًا (بدل إجازة)</option>
+                <option value="taken">🗓️ إجازة فعلية (خصم من الرصيد فقط)</option>
+              </select>
+            </div>
+            <Input label="عدد الأيام" value={leaveForm.days} onChange={(v) => setLeaveForm((p) => ({ ...p, days: v }))} type="number" />
+            {leaveForm.type === "cashout" && (
+              <Input label="المبلغ المصروف (ر.س)" value={leaveForm.amount} onChange={(v) => setLeaveForm((p) => ({ ...p, amount: v }))} type="number" />
+            )}
+            <Input label="ملاحظة" value={leaveForm.note} onChange={(v) => setLeaveForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowLeaveForm(null)} disabled={savingLeave}>إلغاء</Btn>
+            <Btn icon="check" onClick={() => saveLeaveCashout(showLeaveForm)} disabled={savingLeave}>{savingLeave ? "جاري الحفظ..." : "تأكيد"}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal إنهاء الخدمة */}
+      {showEosForm && (() => {
+        const preview = previewEos(showEosForm);
+        return (
+          <Modal open title={`🏁 تسوية نهاية الخدمة — ${showEosForm.name}`} onClose={() => !savingEos && setShowEosForm(null)} wide>
+            <div style={{ fontSize: 11, color: COLORS.textDim, lineHeight: 1.6, marginBottom: 12 }}>
+              ⚠️ حساب تقديري حسب نظام العمل السعودي (نص شهر عن كل سنة من أول 5 سنين + شهر كامل عن كل سنة بعد كده)، على أساس الراتب الأساسي + البدلات فقط. ده مش استشارة قانونية — راجع مختص عند التسوية الفعلية.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="تاريخ انتهاء الخدمة" value={eosForm.termination_date} onChange={(v) => setEosForm((p) => ({ ...p, termination_date: v }))} type="date" />
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>نوع إنهاء الخدمة</div>
+                <select value={eosForm.termination_type} onChange={(e) => setEosForm((p) => ({ ...p, termination_type: e.target.value }))}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
+                  <option value="normal">انتهاء عادي / فصل من صاحب العمل (استحقاق كامل)</option>
+                  <option value="resignation">استقالة (استحقاق حسب مدة الخدمة)</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}><span>مدة الخدمة</span><strong>{preview.eosb.years.toFixed(2)} سنة</strong></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}><span>الأجر المحسوب عليه</span><strong>{preview.wage.toFixed(2)} ر.س</strong></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}><span>مكافأة نهاية الخدمة</span><strong>{preview.eosb.netAmount.toFixed(2)} ر.س</strong></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}><span>رصيد إجازة ({preview.leaveBalance.toFixed(1)} يوم)</span><strong>{preview.leaveCashout.toFixed(2)} ر.س</strong></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+              <Input label="إضافات أخرى" value={eosForm.other_addition} onChange={(v) => setEosForm((p) => ({ ...p, other_addition: v }))} type="number" />
+              <Input label="خصومات أخرى" value={eosForm.other_deduction} onChange={(v) => setEosForm((p) => ({ ...p, other_deduction: v }))} type="number" />
+              <Input label="سبب الخصم" value={eosForm.other_deduction_note} onChange={(v) => setEosForm((p) => ({ ...p, other_deduction_note: v }))} placeholder="اختياري" />
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>طريقة الصرف</div>
+                <select value={eosForm.method} onChange={(e) => setEosForm((p) => ({ ...p, method: e.target.value }))}
+                  style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
+                  <option value="نقدي">💵 نقدي</option>
+                  <option value="بطاقة">💳 بطاقة</option>
+                  <option value="تحويل">🏦 تحويل بنكي</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <Input label="ملاحظة" value={eosForm.note} onChange={(v) => setEosForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>مستند التسوية (اختياري)</label>
+              <input type="file" accept="image/*,application/pdf" onChange={(e) => { const file = e.target.files[0]; if (file) setEosForm((p) => ({ ...p, proof: file })); }} style={{ color: COLORS.textPrimary, fontSize: 12 }} />
+              {eosForm.proof && <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4 }}>✓ {eosForm.proof.name}</div>}
+            </div>
+            <div style={{ background: COLORS.goldSoft, borderRadius: 10, padding: 12, marginTop: 14, display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: COLORS.gold, fontWeight: 700 }}>صافي التسوية</span>
+              <span style={{ color: COLORS.gold, fontWeight: 900, fontSize: 18 }}>{preview.net.toFixed(2)} ر.س</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => setShowEosForm(null)} disabled={savingEos}>إلغاء</Btn>
+              <Btn icon="check" onClick={() => saveEosSettlement(showEosForm)} disabled={savingEos}>{savingEos ? "جاري الحفظ..." : "تأكيد التسوية النهائية"}</Btn>
+            </div>
+          </Modal>
+        );
+      })()}
+
       {/* Modal مصروف ثابت */}
       <Modal open={showFixedForm} onClose={() => setShowFixedForm(false)} title="🔒 إضافة مصروف ثابت">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -29309,6 +29936,7 @@ const SYSTEM_SECTIONS = [
       { id: "licenses",           label: "التراخيص" },
       { id: "balance_visibility", label: "زر إظهار/إخفاء أرقام الكروت" },
       { id: "opening_balance",    label: "رصيد أول المدة" },
+      { id: "salaries",           label: "الرواتب" },
     ] },
   { id: "shift",             label: "الشفتات",             icon: "🕐" },
   { id: "target",            label: "تارجت المبيعات والتحفيز",      icon: "🎯" },
