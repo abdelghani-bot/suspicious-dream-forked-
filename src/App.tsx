@@ -3490,6 +3490,26 @@ function calcLeaveBalanceDays(hireDate, leaveDaysPerYear, ledgerEntries, asOfDat
   return Math.max(0, accrued - used);
 }
 
+// 🆕 حساب اشتراكات التأمينات الاجتماعية (GOSI) الشهرية
+// الأساس: هنا مبسّط = الراتب الأساسي + البدلات الثابتة، بحد أقصى 45,000 ر.س
+// سعودي: خصم الموظف 9.75% (تقاعد 9% + ساند 0.75%) + حصة صاحب العمل 11.75% (تقاعد 9% + أخطار مهنية 2% + ساند 0.75%)
+// غير سعودي: مفيش خصم من الموظف، وصاحب العمل بيدفع بس فرع الأخطار المهنية 2%
+// ⚠️ نسب تقريبية حسب آخر تحديث معلن لنظام التأمينات — راجع بوابة GOSI الرسمية للتأكد قبل الاعتماد عليها فعليًا
+const GOSI_WAGE_CAP = 45000;
+const GOSI_RATES = {
+  "سعودي": { employee: 0.0975, employer: 0.1175 },
+  "غير سعودي": { employee: 0, employer: 0.02 },
+};
+function calcGosi(wageBasis, nationality) {
+  const cappedWage = Math.min(+wageBasis || 0, GOSI_WAGE_CAP);
+  const rates = GOSI_RATES[nationality] || GOSI_RATES["سعودي"];
+  return {
+    wageBasis: cappedWage,
+    employeeDeduction: +(cappedWage * rates.employee).toFixed(2),
+    employerContribution: +(cappedWage * rates.employer).toFixed(2),
+  };
+}
+
 // 🆕 حساب عمولة التحفيز الشهرية لموظف واحد بالاسم — نفس منطق تاب "التارجت" (نسخة مبسطة لموظف واحد
 // بدل كل الموظفين، عشان تُستخدم في شاشة صرف الراتب لسحب العمولة تلقائيًا من غير تكرار الحساب الكامل).
 function computeStaffCommissionForMonth(staffName, monthKey, ctx) {
@@ -24304,7 +24324,7 @@ useEffect(() => {
   const [editingEmployee, setEditingEmployee] = useState(null); // null = إضافة جديد، وإلا الموظف الجاري تعديله
   const [employeeForm, setEmployeeForm] = useState({
     name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "",
-    percentage_rate: "", leave_days_per_year: "21", note: "",
+    percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true,
   });
   const employeeRoleLabel = { "صيدلي": "💊 صيدلي", "محاسب": "🧮 محاسب", "عامل": "🧰 عامل", "كاشير": "🧾 كاشير", "مخزن": "📦 مخزن", "أخرى": "👤 أخرى" };
 
@@ -24315,6 +24335,7 @@ useEffect(() => {
     base_salary: "", allowances: "", percentage_amount: "", target_commission: "",
     other_addition: "", deduction_advance: "", deduction_advance_note: "",
     deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
+    gosi_employee_deduction: "", gosi_employer_contribution: "",
   });
 
   const [showLeaveForm, setShowLeaveForm] = useState(null); // employee object
@@ -24338,7 +24359,7 @@ useEffect(() => {
       pharmacy_id: pharmacyId, name: employeeForm.name, role: employeeForm.role, hire_date: employeeForm.hire_date,
       base_salary: +employeeForm.base_salary || 0, allowances: +employeeForm.allowances || 0, allowances_note: employeeForm.allowances_note,
       percentage_rate: +employeeForm.percentage_rate || 0, leave_days_per_year: +employeeForm.leave_days_per_year || 21,
-      note: employeeForm.note, active: true,
+      note: employeeForm.note, active: true, nationality: employeeForm.nationality || "سعودي", gosi_enabled: !!employeeForm.gosi_enabled,
     };
     if (editingEmployee) {
       const { data, error } = await supabase.from("employees").update(payload).eq("id", editingEmployee.id).eq("pharmacy_id", pharmacyId).select();
@@ -24353,7 +24374,7 @@ useEffect(() => {
     }
     setShowEmployeeForm(false);
     setEditingEmployee(null);
-    setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "" });
+    setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true });
   };
   const deleteEmployee = async (emp) => {
     if (!confirm(`حذف الموظف "${emp.name}"؟ (السجل التاريخي للرواتب هيفضل موجود)`)) return;
@@ -24377,18 +24398,25 @@ useEffect(() => {
       });
       autoCommission = Math.max(0, commission);
     }
+    let gosiEmployee = "", gosiEmployer = "";
+    if (emp.gosi_enabled !== false) {
+      const gosi = calcGosi((+emp.base_salary || 0) + (+emp.allowances || 0), emp.nationality || "سعودي");
+      gosiEmployee = gosi.employeeDeduction ? gosi.employeeDeduction.toFixed(2) : "0";
+      gosiEmployer = gosi.employerContribution ? gosi.employerContribution.toFixed(2) : "0";
+    }
     setPayForm({
       base_salary: String(emp.base_salary || 0), allowances: String(emp.allowances || 0),
       percentage_amount: "", target_commission: autoCommission ? autoCommission.toFixed(2) : "",
       other_addition: "", deduction_advance: "", deduction_advance_note: "",
       deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
+      gosi_employee_deduction: gosiEmployee, gosi_employer_contribution: gosiEmployer,
     });
     setShowPayForm(emp);
   };
 
   const payNetTotal = () => {
     const add = (+payForm.base_salary || 0) + (+payForm.allowances || 0) + (+payForm.percentage_amount || 0) + (+payForm.target_commission || 0) + (+payForm.other_addition || 0);
-    const ded = (+payForm.deduction_advance || 0) + (+payForm.deduction_absence || 0);
+    const ded = (+payForm.deduction_advance || 0) + (+payForm.deduction_absence || 0) + (+payForm.gosi_employee_deduction || 0);
     return add - ded;
   };
 
@@ -24409,14 +24437,16 @@ useEffect(() => {
       other_addition: +payForm.other_addition || 0,
       deduction_advance: +payForm.deduction_advance || 0, deduction_advance_note: payForm.deduction_advance_note,
       deduction_absence: +payForm.deduction_absence || 0, deduction_absence_note: payForm.deduction_absence_note,
+      gosi_employee_deduction: +payForm.gosi_employee_deduction || 0, gosi_employer_contribution: +payForm.gosi_employer_contribution || 0,
       net_amount: net, method: payForm.method, note: payForm.note, attachment_url: proofUrl || null,
       date: todayLocal(), created_by: currentUser?.name || "",
     };
     const { data, error } = await supabase.from("salary_payments").insert(payload).select();
     if (error) { setSavingSalary(false); showToast("❌ فشل حفظ الراتب: " + error.message, "error"); return; }
+    const gosiNote = (+payForm.gosi_employee_deduction || 0) > 0 ? ` (بعد خصم تأمينات ${(+payForm.gosi_employee_deduction).toFixed(2)} ر.س)` : "";
     const trPayload = {
       type: "expense", sub_type: "salary", method: payForm.method, amount: net,
-      note: `راتب ${emp.name} (${emp.role}) — شهر ${payMonth}`,
+      note: `راتب ${emp.name} (${emp.role}) — شهر ${payMonth}${gosiNote}`,
       date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
     };
     const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
@@ -25688,7 +25718,7 @@ useEffect(() => {
               <input type="month" value={payMonth} onChange={(e) => setPayMonth(e.target.value)}
                 style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12 }} />
             </div>
-            {canAddEmployee && <Btn icon="plus" onClick={() => { setEditingEmployee(null); setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "" }); setShowEmployeeForm(true); }}>إضافة موظف</Btn>}
+            {canAddEmployee && <Btn icon="plus" onClick={() => { setEditingEmployee(null); setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true }); setShowEmployeeForm(true); }}>إضافة موظف</Btn>}
           </div>
 
           <div style={{ ...cardStyle(COLORS.goldSoft), display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -25738,7 +25768,7 @@ useEffect(() => {
                           <button onClick={() => { setLeaveForm({ days: "", amount: "", note: "", type: "cashout" }); setShowLeaveForm(emp); }} style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.blue, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏖️ إجازة</button>
                         )}
                         {emp.active !== false && canEditEmployee && (
-                          <button onClick={() => { setEditingEmployee(emp); setEmployeeForm({ name: emp.name, role: emp.role, hire_date: emp.hire_date, base_salary: String(emp.base_salary || ""), allowances: String(emp.allowances || ""), allowances_note: emp.allowances_note || "", percentage_rate: String(emp.percentage_rate || ""), leave_days_per_year: String(emp.leave_days_per_year || 21), note: emp.note || "" }); setShowEmployeeForm(true); }} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✏️ تعديل</button>
+                          <button onClick={() => { setEditingEmployee(emp); setEmployeeForm({ name: emp.name, role: emp.role, hire_date: emp.hire_date, base_salary: String(emp.base_salary || ""), allowances: String(emp.allowances || ""), allowances_note: emp.allowances_note || "", percentage_rate: String(emp.percentage_rate || ""), leave_days_per_year: String(emp.leave_days_per_year || 21), note: emp.note || "", nationality: emp.nationality || "سعودي", gosi_enabled: emp.gosi_enabled !== false }); setShowEmployeeForm(true); }} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✏️ تعديل</button>
                         )}
                         {emp.active !== false && canDeleteEmployee && (
                           <button onClick={() => { setEosForm({ termination_date: todayLocal(), termination_type: "normal", other_addition: "", other_deduction: "", other_deduction_note: "", method: "نقدي", note: "", proof: null }); setShowEosForm(emp); }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.red, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏁 إنهاء خدمة</button>
@@ -25789,6 +25819,18 @@ useEffect(() => {
           <Input label="تفاصيل البدلات" value={employeeForm.allowances_note} onChange={(v) => setEmployeeForm((p) => ({ ...p, allowances_note: v }))} placeholder="سكن + مواصلات..." />
           <Input label="نسبة (%) — إن وجدت" value={employeeForm.percentage_rate} onChange={(v) => setEmployeeForm((p) => ({ ...p, percentage_rate: v }))} type="number" />
           <Input label="أيام الإجازة السنوية" value={employeeForm.leave_days_per_year} onChange={(v) => setEmployeeForm((p) => ({ ...p, leave_days_per_year: v }))} type="number" placeholder="21" />
+          <div>
+            <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>الجنسية (لحساب التأمينات)</div>
+            <select value={employeeForm.nationality} onChange={(e) => setEmployeeForm((p) => ({ ...p, nationality: e.target.value }))}
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
+              <option value="سعودي">🇸🇦 سعودي</option>
+              <option value="غير سعودي">🌍 غير سعودي</option>
+            </select>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 20 }}>
+            <input type="checkbox" checked={employeeForm.gosi_enabled} onChange={(e) => setEmployeeForm((p) => ({ ...p, gosi_enabled: e.target.checked }))} style={{ width: 16, height: 16, cursor: "pointer" }} />
+            <span style={{ fontSize: 12, color: COLORS.textPrimary }}>احسب اشتراكات التأمينات (GOSI) لهذا الموظف تلقائيًا</span>
+          </div>
         </div>
         <div style={{ marginTop: 12 }}>
           <Input label="ملاحظات" value={employeeForm.note} onChange={(v) => setEmployeeForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
@@ -25819,6 +25861,16 @@ useEffect(() => {
             <Input label="سبب السلفة" value={payForm.deduction_advance_note} onChange={(v) => setPayForm((p) => ({ ...p, deduction_advance_note: v }))} placeholder="اختياري" />
             <Input label="خصم غياب" value={payForm.deduction_absence} onChange={(v) => setPayForm((p) => ({ ...p, deduction_absence: v }))} type="number" />
             <Input label="سبب خصم الغياب" value={payForm.deduction_absence_note} onChange={(v) => setPayForm((p) => ({ ...p, deduction_absence_note: v }))} placeholder="اختياري" />
+          </div>
+          <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: COLORS.textDim, fontWeight: 700, marginBottom: 8 }}>🏛️ التأمينات الاجتماعية (GOSI) — {showPayForm.nationality || "سعودي"}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="خصم التأمينات من الموظف" value={payForm.gosi_employee_deduction} onChange={(v) => setPayForm((p) => ({ ...p, gosi_employee_deduction: v }))} type="number" />
+              <Input label="حصة صاحب العمل (لا تُخصم من الراتب)" value={payForm.gosi_employer_contribution} onChange={(v) => setPayForm((p) => ({ ...p, gosi_employer_contribution: v }))} type="number" />
+            </div>
+            <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 8, lineHeight: 1.5 }}>
+              ⚠️ نسب تقديرية للتأكد راجع بوابة GOSI. حصة صاحب العمل هنا للتوثيق فقط، وبتتحول شهريًا لمنصة GOSI مجمّعة وليست جزء من صافي الراتب.
+            </div>
           </div>
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>طريقة الصرف</div>
