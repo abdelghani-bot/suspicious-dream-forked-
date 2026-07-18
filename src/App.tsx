@@ -1161,6 +1161,52 @@ const Table = ({ headers, rows, emptyMsg = "لا توجد بيانات" }) => (
   </div>
 );
 
+// 🆕 Pagination — عنصر عام لتقسيم أي قايمة طويلة لصفحات بدل عرضها كاملة دفعة واحدة.
+// totalItems = عدد العناصر الكلي (قبل التقسيم)، pageSize = عدد العناصر في الصفحة، page/onPageChange = التحكم بالصفحة الحالية.
+// بيختفي تلقائيًا لو العدد الكلي أقل من أو يساوي pageSize (مفيش داعي لعناصر تحكم لو كل حاجة ظاهرة أصلًا).
+const Pagination = ({ page, onPageChange, totalItems, pageSize }) => {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  if (totalItems <= pageSize) return null;
+  const clampedPage = Math.min(Math.max(1, page), totalPages);
+  const from = totalItems === 0 ? 0 : (clampedPage - 1) * pageSize + 1;
+  const to = Math.min(clampedPage * pageSize, totalItems);
+  const goTo = (p) => onPageChange(Math.min(Math.max(1, p), totalPages));
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, padding: "12px 4px" }}>
+      <div style={{ fontSize: 12, color: COLORS.textDim }}>
+        عرض {from}–{to} من {totalItems}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button
+          onClick={() => goTo(clampedPage - 1)}
+          disabled={clampedPage === 1}
+          style={{
+            border: `1px solid ${COLORS.border}`, background: COLORS.surface, borderRadius: 8,
+            padding: "6px 12px", fontSize: 12, fontWeight: 700, color: clampedPage === 1 ? COLORS.textDim : COLORS.textPrimary,
+            cursor: clampedPage === 1 ? "not-allowed" : "pointer", opacity: clampedPage === 1 ? 0.5 : 1,
+          }}
+        >
+          السابق
+        </button>
+        <span style={{ fontSize: 12, color: COLORS.textPrimary, fontWeight: 700, minWidth: 70, textAlign: "center" }}>
+          صفحة {clampedPage} / {totalPages}
+        </span>
+        <button
+          onClick={() => goTo(clampedPage + 1)}
+          disabled={clampedPage === totalPages}
+          style={{
+            border: `1px solid ${COLORS.border}`, background: COLORS.surface, borderRadius: 8,
+            padding: "6px 12px", fontSize: 12, fontWeight: 700, color: clampedPage === totalPages ? COLORS.textDim : COLORS.textPrimary,
+            cursor: clampedPage === totalPages ? "not-allowed" : "pointer", opacity: clampedPage === totalPages ? 0.5 : 1,
+          }}
+        >
+          التالي
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ==================== BARCODE SCANNER ====================
 // خريطة الأزرار الفيزيائية (event.code) لكيبورد US، بيها الوضع العادي والوضع مع Shift.
 // بنستخدم event.code (مش event.key) عشان ده بيرجع "الزرار اللي اتدوس فعليًا" بغض النظر
@@ -27062,7 +27108,15 @@ function FinThresholdsEditor({ thresholds, onSave }) {
 // ==================== REPORTS ====================
 function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId, treasuryEntries = [], creditPayments = [] }) {
   const [type, setType] = useState("sales");
-  const [fromDate, setFromDate] = useState("");
+  // 🆕 افتراضي "من" = أول الشهر الحالي بدل فاضي — كان بيخلي التقرير (لو المستخدم مسحتش "من")
+  // يعرض كل فواتير الصيدلية من أول يوم فتحت فيه الحساب، وده بطيء وغير مفيد في أغلب الاستخدام.
+  // خيار "كل الفترة" تحت بيمسح "من" (فاضي) لمن يحتاج فعلاً يشوف كل التاريخ — نفس المعنى اللي
+  // كل أكواد الفلترة تحت أصلاً بتفهمه (fromDate فاضي = مفيش حد أدنى للتاريخ).
+  const firstDayOfCurrentMonth = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  };
+  const [fromDate, setFromDate] = useState(firstDayOfCurrentMonth);
   const [toDate, setToDate] = useState(todayLocal());
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterProduct, setFilterProduct] = useState("");
@@ -27071,6 +27125,15 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   const [showInvoiceDetail, setShowInvoiceDetail] = useState(null);
   const [showPrint, setShowPrint] = useState(null);
   const [selectedPaymentGroup, setSelectedPaymentGroup] = useState(null); // 🆕 فلتر تفاعلي لجدول تقرير السداد والمصروفات
+
+  // 🆕 Pagination — بدل ما كل جداول التقارير تعرض كل الصفوف دفعة واحدة (بطيء لو الفترة كبيرة أو الصيدلية شغالة بـ"كل الفترة")،
+  // بنعرض صفحة واحدة بس في كل مرة. صفحة واحدة مشتركة لكل أنواع التقارير (يكفي لأن نوع واحد بس ظاهر في كل لحظة)،
+  // وبنصفّرها على 1 كل ما أي فلتر يتغيّر عشان المستخدم ميلاقيش نفسه واقف في صفحة فاضية بعد تضييق النتايج.
+  const REPORT_PAGE_SIZE = 25;
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [type, fromDate, toDate, filterSupplier, filterProduct, filterManufacturer, search, selectedPaymentGroup]);
 
   // helper: منتجات الشركة المنتجة المختارة
   const mfrProductIds = filterManufacturer
@@ -27101,6 +27164,13 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     if (toDate && d > toDate) ok = false;
     if (filterSupplier && p.supplier !== filterSupplier) ok = false;
     if (mfrProductIds && !(p.items || []).some((i) => mfrProductIds.has(i.id))) ok = false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const inId = (p.id || "").toLowerCase().includes(q);
+      const inSupplier = (p.supplierName || "").toLowerCase().includes(q);
+      const inItems = (p.items || []).some((i) => (i.name || "").toLowerCase().includes(q));
+      if (!inId && !inSupplier && !inItems) ok = false;
+    }
     return ok;
   });
 
@@ -27110,6 +27180,14 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     if (fromDate && d < fromDate) ok = false;
     if (toDate && d > toDate) ok = false;
     if (mfrProductIds && !(r.items || []).some((i) => mfrProductIds.has(i.id))) ok = false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const inId = (r.id || "").toLowerCase().includes(q);
+      const inParty = ((r.customer_name || "") + (r.supplier_name || "")).toLowerCase().includes(q);
+      const inReason = (r.reason || "").toLowerCase().includes(q);
+      const inItems = (r.items || []).some((i) => (i.name || "").toLowerCase().includes(q));
+      if (!inId && !inParty && !inReason && !inItems) ok = false;
+    }
     return ok;
   });
   // 🆕 مرتجعات المبيعات (كامل + جزئي) — بنحسبها الأول عشان نخصمها من كل أرقام المبيعات تحت.
@@ -27265,9 +27343,144 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     (e) => e && e.type === "expense" && e.sub_type === "sales_return" && inDateRange(e.date)
   ).reduce((a, e) => a + (e.amount || 0), 0);
   const recordedNetChangeInRange = recordedIncomeInRange - totalPayments - recordedSalesReturnExpense;
-  const reconciliationVariance = expectedNetChange - recordedNetChangeInRange;
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🆕 السبب الجذري لتحذير "المطابقة" الزائف اليومي: "المتوقع" فوق بيتحسب فورًا من
+  // فواتير/مرتجعات اليوم الخام (متاحة على طول)، أما "المسجّل" فبييجي من قيود سجل تقفيل
+  // الخزنة (sub_type = "daily_sales") اللي بتتسجل بس لما الصيدلي يعمل "تقفيل اليوم" —
+  // ولأن تقفيل النهارده لسه ما حصلش، بيفضل يظهر فرق/تحذير أحمر زائف كل يوم لحد ما تقفل،
+  // وده كان بيخلي المستخدم يتعود يتجاهل التحذير بدل ما ياخده على محمل الجد لما يكون حقيقي.
+  // ✅ الحل: بنحسب نسخة موازية "أيام مُقفّلة بس" (بتستبعد اليوم الحالي لو لسه ما اتقفلش)
+  // ونستخدمها لتحديد لون/رسالة الكارت بس، من غير ما نلمس cashBasisIncome ولا تكسير طرق
+  // الدفع ولا جدول السداد المعروضين تحت (لسه شاملين اليوم الحالي زي ما هما).
+  // ═══════════════════════════════════════════════════════════════
+  const todayStr = todayLocal();
+  const isTodayClosed = (treasuryEntries || []).some((e) => e && e.date === todayStr && e.sub_type === "daily_sales");
+  const todayInRange = (!fromDate || fromDate <= todayStr) && (!toDate || toDate >= todayStr);
+  const excludeUnclosedToday = todayInRange && !isTodayClosed;
+  const closedRangeCheck = (d) => inDateRange(d) && !(excludeUnclosedToday && d === todayStr);
 
+  const closedCashSalesInRange = (sales || []).filter((s) => closedRangeCheck(s.date) && !s.returned && s.payment !== "آجل");
+  const closedCashReturnsInRange = (returns || []).filter(
+    (r) => r.type === "sales" && closedRangeCheck(r.date) && r.refund_method &&
+      !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id))
+  );
+  const closedOtherIncomeInRange = (treasuryEntries || []).filter(
+    (e) => e && e.type === "income" && e.sub_type === "other" && closedRangeCheck(e.date)
+  );
+  const closedCashBasisIncome =
+    closedCashSalesInRange.reduce((a, s) => a + (s.total || 0), 0)
+    - closedCashReturnsInRange.reduce((a, r) => a + (r.total || 0), 0)
+    + (creditPayments || []).filter((p) => closedRangeCheck(p.date)).reduce((a, p) => a + (p.amount || 0), 0)
+    + closedOtherIncomeInRange.reduce((a, e) => a + (e.amount || 0), 0);
+  const closedRecordedIncome = (treasuryEntries || []).filter(
+    (e) => e && e.type === "income" && e.sub_type !== "opening_balance" && closedRangeCheck(e.date)
+  ).reduce((a, e) => a + (e.amount || 0), 0);
+  const closedRecordedSalesReturnExpense = (treasuryEntries || []).filter(
+    (e) => e && e.type === "expense" && e.sub_type === "sales_return" && closedRangeCheck(e.date)
+  ).reduce((a, e) => a + (e.amount || 0), 0);
+  // ملحوظة: totalPayments بيتلغي رياضيًا من طرفَي الفرق (بيتخصم من المتوقع والمسجّل بنفس القيمة)،
+  // فمفيش داعي نستبعد اليوم الحالي منه — استبعاده كان هيغيّر رقم "إجمالي السداد والمصروفات"
+  // المعروض فوق كـ StatCard من غير أي فايدة في دقة المطابقة.
+  const closedExpectedNetChange = closedCashBasisIncome - totalPayments;
+  const closedRecordedNetChange = closedRecordedIncome - totalPayments - closedRecordedSalesReturnExpense;
+  const closedReconciliationVariance = closedExpectedNetChange - closedRecordedNetChange;
+  const isReconciled = Math.abs(closedReconciliationVariance) < 0.01;
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🆕 تصدير Excel — بيصدّر نفس بيانات التبويب المفتوح حاليًا وبنفس الفلاتر
+  // المطبّقة (من/إلى/مورد/صنف/شركة/بحث)، عشان اللي بيتصدّر يطابق اللي المستخدم شايفه بالظبط.
+  // بنبني الصفوف كقيم نصية/رقمية خام (مش JSX زي الجدول المعروض) عشان xlsx يقدر يكتبها.
+  // ═══════════════════════════════════════════════════════════════
+  const exportReportToExcel = () => {
+    let headers = [];
+    let rows = [];
+    let sheetName = "تقرير";
+    let fileLabel = "تقرير";
+
+    if (type === "sales") {
+      headers = ["رقم الفاتورة", "التاريخ", "العميل", "المجموع", "الضريبة", "الإجمالي شامل الضريبة", "الدفع", "الحالة"];
+      rows = filteredSales.map((s) => [
+        s.id, s.date, s.customer_name || "زبون عادي",
+        (s.subtotal || 0).toFixed(2), (s.taxAmount || s.tax_amount || 0).toFixed(2), (s.total || 0).toFixed(2),
+        s.payment, s.returned ? "مرتجعة" : "مكتملة",
+      ]);
+      sheetName = "تقرير المبيعات"; fileLabel = "تقرير_المبيعات";
+    } else if (type === "purchase") {
+      headers = ["رقم الأمر", "التاريخ", "المورد", "المجموع", "الضريبة", "الإجمالي", "الحالة"];
+      rows = filteredPurchases.map((p) => [
+        p.id, p.date, p.supplierName, (p.subtotal || 0).toFixed(2), (p.taxAmount || 0).toFixed(2), (p.total || 0).toFixed(2), p.status,
+      ]);
+      sheetName = "تقرير المشتريات"; fileLabel = "تقرير_المشتريات";
+    } else if (type === "product") {
+      headers = ["الصنف", "الشركة المنتجة", "الكمية المباعة", "الإيراد قبل الضريبة", "الضريبة", "الإيراد الكلي"];
+      rows = Object.entries(productSales)
+        .filter(([, d]) => !search.trim() || (d.name || "").toLowerCase().includes(search.trim().toLowerCase()))
+        .sort((a, b) => b[1].revenue - a[1].revenue).map(([id, d]) => {
+        const prod = products.find((p) => p.id === id);
+        const mfr = manufacturers.find((m) => m.id === prod?.manufacturer_id);
+        return [d.name, mfr ? mfr.name : "—", d.qty, d.revenue.toFixed(2), d.tax.toFixed(2), (d.revenue + d.tax).toFixed(2)];
+      });
+      sheetName = "تقرير الأصناف"; fileLabel = "تقرير_الأصناف";
+    } else if (type === "monthly") {
+      headers = ["الشهر", "عدد الفواتير", "المبيعات قبل الضريبة", "ضريبة المبيعات", "المبيعات الكلية"];
+      rows = Object.entries(salesByMonth)
+        .filter(([m]) => !search.trim() || m.includes(search.trim()))
+        .sort().reverse().map(([m, d]) => [
+        m, d.count, d.subtotal.toFixed(2), d.tax.toFixed(2), d.total.toFixed(2),
+      ]);
+      sheetName = "تقرير شهري"; fileLabel = "تقرير_شهري";
+    } else if (type === "sales_returns") {
+      headers = ["رقم المرتجع", "التاريخ", "العميل", "السبب", "الإجمالي"];
+      rows = returnsSales.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
+        r.id, r.date, r.customer_name || "زبون عادي", r.reason || "—", (r.total || 0).toFixed(2),
+      ]);
+      sheetName = "مرتجع المبيعات"; fileLabel = "تقرير_مرتجع_المبيعات";
+    } else if (type === "purchase_returns") {
+      headers = ["رقم المرتجع", "التاريخ", "المورد", "السبب", "الإجمالي"];
+      rows = returnsPurchases.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
+        r.id, r.date, r.supplier_name || "—", r.reason || "—", (r.total || 0).toFixed(2),
+      ]);
+      sheetName = "مرتجع المشتريات"; fileLabel = "تقرير_مرتجع_المشتريات";
+    } else if (type === "payments") {
+      headers = ["التاريخ", "الفئة", "التفاصيل", "الطريقة", "المبلغ", "بواسطة"];
+      rows = paymentEntries
+        .filter((e) => {
+          if (!selectedPaymentGroup) return true;
+          const grp = PAYMENT_GROUPS.find((g) => g.key === selectedPaymentGroup);
+          return grp ? grp.subs.includes(e.sub_type) : true;
+        })
+        .filter((e) => {
+          if (!search.trim()) return true;
+          const q = search.trim().toLowerCase();
+          const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
+          const inNote = (e.note || "").toLowerCase().includes(q);
+          const inMethod = (e.method || "").toLowerCase().includes(q);
+          const inCategory = (grp ? grp.label : e.sub_type || "").toLowerCase().includes(q);
+          const inCreatedBy = (e.created_by || "").toLowerCase().includes(q);
+          return inNote || inMethod || inCategory || inCreatedBy;
+        })
+        .slice()
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .map((e) => {
+          const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
+          return [e.date, grp ? grp.label : e.sub_type, e.note || "—", e.method || "—", (e.amount || 0).toFixed(2), e.created_by || "—"];
+        });
+      sheetName = "السداد والمصروفات"; fileLabel = "تقرير_السداد_والمصروفات";
+    }
+
+    if (rows.length === 0) {
+      alert("لا توجد بيانات للتصدير في هذه الفترة/الفلتر الحالي");
+      return;
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws["!cols"] = headers.map(() => ({ wch: 20 }));
+    const wb = XLSX.utils.book_new();
+    // 🆕 اسم الشيت في Excel ممنوع يتعدى 31 حرف وممنوع فيه رموز زي / \ ? * [ ]
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.substring(0, 31));
+    XLSX.writeFile(wb, `${fileLabel}_${fromDate || "الكل"}_إلى_${toDate || todayLocal()}.xlsx`);
+  };
 
   return (
     <div>
@@ -27275,7 +27488,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
         {["sales", "purchase", "product", "monthly", "sales_returns", "purchase_returns", "payments"].map((t) => (
-          <button key={t} onClick={() => setType(t)} style={{
+          <button key={t} onClick={() => { setType(t); setSearch(""); }} style={{
             padding: "8px 18px", borderRadius: 8, border: "1px solid",
             borderColor: type === t ? COLORS.blue : COLORS.border,
             background: type === t ? COLORS.blueSoft : "transparent",
@@ -27287,10 +27500,26 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
         ))}
 
         <div style={{ marginRight: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {type === "sales" && (
-            <Input label="بحث" value={search} onChange={setSearch} placeholder="رقم الفاتورة، العميل، أو اسم الصنف" style={{ width: 220 }} />
-          )}
+          <Input
+            label="بحث"
+            value={search}
+            onChange={setSearch}
+            placeholder={
+              type === "sales" ? "رقم الفاتورة، العميل، أو اسم الصنف"
+              : type === "purchase" ? "رقم الأمر أو اسم المورد"
+              : type === "product" ? "اسم الصنف"
+              : type === "monthly" ? "الشهر، مثال 2026-07"
+              : type === "sales_returns" ? "رقم المرتجع، العميل، أو السبب"
+              : type === "purchase_returns" ? "رقم المرتجع، المورد، أو السبب"
+              : "التفاصيل أو بواسطة"
+            }
+            style={{ width: 220 }}
+          />
           <Input label="من" value={fromDate} onChange={setFromDate} type="date" style={{ width: 140 }} />
+          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: COLORS.textDim, cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox" checked={!fromDate} onChange={(e) => setFromDate(e.target.checked ? "" : firstDayOfCurrentMonth())} />
+            كل الفترة
+          </label>
           <Input label="إلى" value={toDate} onChange={setToDate} type="date" style={{ width: 140 }} />
 
           {type === "purchase" && (
@@ -27308,6 +27537,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               options={[{ v: "", l: "الكل" }, ...manufacturers.map((m) => ({ v: m.id, l: m.name }))]}
               style={{ width: 180 }} />
           )}
+          <Btn variant="secondary" onClick={exportReportToExcel}>📊 تصدير Excel</Btn>
         </div>
       </div>
 
@@ -27322,7 +27552,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           </div>
           <Table
             headers={["رقم الفاتورة", "التاريخ", "العميل", "المجموع", "الضريبة", "الإجمالي شامل الضريبة", "الدفع", "حالة"]}
-            rows={filteredSales.map((s) => [
+            rows={filteredSales.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map((s) => [
               <span onClick={() => setShowInvoiceDetail({ ...s, customer_phone: customers.find((c) => c.id === s.customer)?.phone || null })} style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{s.id}</span>,
               s.date,
               s.customer_name || "زبون عادي",
@@ -27335,6 +27565,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
                 : <Badge color={COLORS.greenSoft} text={COLORS.green}>مكتملة</Badge>,
             ])}
           />
+          <Pagination page={page} onPageChange={setPage} totalItems={filteredSales.length} pageSize={REPORT_PAGE_SIZE} />
           {filteredSales.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد فواتير مطابقة للبحث</div>}
         </>
       )}
@@ -27349,7 +27580,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           </div>
           <Table
             headers={["رقم الأمر", "التاريخ", "المورد", "المجموع", "الضريبة", "الإجمالي", "الحالة"]}
-            rows={filteredPurchases.map((p) => [
+            rows={filteredPurchases.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map((p) => [
               <span style={{ color: COLORS.blue, fontWeight: 700 }}>{p.id}</span>,
               p.date, p.supplierName,
               p.subtotal.toFixed(2) + " ر.س",
@@ -27358,6 +27589,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               <Badge color={COLORS.greenSoft} text={COLORS.green}>{p.status}</Badge>,
             ])}
           />
+          <Pagination page={page} onPageChange={setPage} totalItems={filteredPurchases.length} pageSize={REPORT_PAGE_SIZE} />
         </>
       )}
 
@@ -27369,37 +27601,55 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               🏭 تصفية بالشركة: {manufacturers.find((m) => m.id === filterManufacturer)?.name}
             </div>
           )}
-          <Table
-            headers={["الصنف", "الشركة المنتجة", "الكمية المباعة", "الإيراد قبل الضريبة", "الضريبة", "الإيراد الكلي"]}
-            rows={Object.entries(productSales).sort((a, b) => b[1].revenue - a[1].revenue).map(([id, d]) => {
-              const prod = products.find((p) => p.id === id);
-              const mfr = manufacturers.find((m) => m.id === prod?.manufacturer_id);
-              return [
-                <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{d.name}</span>,
-                mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
-                <span style={{ color: COLORS.blue, fontWeight: 700 }}>{d.qty}</span>,
-                d.revenue.toFixed(2) + " ر.س",
-                <span style={{ color: COLORS.green }}>{d.tax.toFixed(2)} ر.س</span>,
-                <span style={{ color: COLORS.green, fontWeight: 700 }}>{(d.revenue + d.tax).toFixed(2)} ر.س</span>,
-              ];
-            })}
-          />
+          {(() => {
+            const productRows = Object.entries(productSales)
+              .filter(([, d]) => !search.trim() || (d.name || "").toLowerCase().includes(search.trim().toLowerCase()))
+              .sort((a, b) => b[1].revenue - a[1].revenue);
+            return (
+              <>
+                <Table
+                  headers={["الصنف", "الشركة المنتجة", "الكمية المباعة", "الإيراد قبل الضريبة", "الضريبة", "الإيراد الكلي"]}
+                  rows={productRows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map(([id, d]) => {
+                    const prod = products.find((p) => p.id === id);
+                    const mfr = manufacturers.find((m) => m.id === prod?.manufacturer_id);
+                    return [
+                      <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{d.name}</span>,
+                      mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
+                      <span style={{ color: COLORS.blue, fontWeight: 700 }}>{d.qty}</span>,
+                      d.revenue.toFixed(2) + " ر.س",
+                      <span style={{ color: COLORS.green }}>{d.tax.toFixed(2)} ر.س</span>,
+                      <span style={{ color: COLORS.green, fontWeight: 700 }}>{(d.revenue + d.tax).toFixed(2)} ر.س</span>,
+                    ];
+                  })}
+                />
+                <Pagination page={page} onPageChange={setPage} totalItems={productRows.length} pageSize={REPORT_PAGE_SIZE} />
+              </>
+            );
+          })()}
         </>
       )}
 
       {/* تقرير شهري */}
-      {type === "monthly" && (
-        <Table
-          headers={["الشهر", "عدد الفواتير", "المبيعات قبل الضريبة", "ضريبة المبيعات", "المبيعات الكلية"]}
-          rows={Object.entries(salesByMonth).sort().reverse().map(([m, d]) => [
-            <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{m}</span>,
-            d.count,
-            d.subtotal.toFixed(2) + " ر.س",
-            <span style={{ color: COLORS.green }}>{d.tax.toFixed(2)} ر.س</span>,
-            <span style={{ color: COLORS.blue, fontWeight: 700 }}>{d.total.toFixed(2)} ر.س</span>,
-          ])}
-        />
-      )}
+      {type === "monthly" && (() => {
+        const monthRows = Object.entries(salesByMonth)
+          .filter(([m]) => !search.trim() || m.includes(search.trim()))
+          .sort().reverse();
+        return (
+          <>
+            <Table
+              headers={["الشهر", "عدد الفواتير", "المبيعات قبل الضريبة", "ضريبة المبيعات", "المبيعات الكلية"]}
+              rows={monthRows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map(([m, d]) => [
+                <span style={{ fontWeight: 700, color: COLORS.textPrimary }}>{m}</span>,
+                d.count,
+                d.subtotal.toFixed(2) + " ر.س",
+                <span style={{ color: COLORS.green }}>{d.tax.toFixed(2)} ر.س</span>,
+                <span style={{ color: COLORS.blue, fontWeight: 700 }}>{d.total.toFixed(2)} ر.س</span>,
+              ])}
+            />
+            <Pagination page={page} onPageChange={setPage} totalItems={monthRows.length} pageSize={REPORT_PAGE_SIZE} />
+          </>
+        );
+      })()}
 
       {/* تقرير مرتجع المبيعات */}
       {type === "sales_returns" && (
@@ -27416,7 +27666,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           </div>
           <Table
             headers={["رقم المرتجع", "التاريخ", "العميل", "السبب", "الإجمالي"]}
-            rows={returnsSales.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
+            rows={returnsSales.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map((r) => [
               <span
                 onClick={() => setShowInvoiceDetail({
                   id: r.id,
@@ -27440,6 +27690,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
             ])}
           />
+          <Pagination page={page} onPageChange={setPage} totalItems={returnsSales.length} pageSize={REPORT_PAGE_SIZE} />
           {returnsSales.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مرتجعات مبيعات في هذه الفترة</div>}
         </>
       )}
@@ -27459,7 +27710,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
           </div>
           <Table
             headers={["رقم المرتجع", "التاريخ", "المورد", "السبب", "الإجمالي"]}
-            rows={returnsPurchases.sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
+            rows={returnsPurchases.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map((r) => [
               <span
                 onClick={() => setShowInvoiceDetail({
                   id: r.id,
@@ -27483,6 +27734,7 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
             ])}
           />
+          <Pagination page={page} onPageChange={setPage} totalItems={returnsPurchases.length} pageSize={REPORT_PAGE_SIZE} />
           {returnsPurchases.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مرتجعات مشتريات في هذه الفترة</div>}
         </>
       )}
@@ -27522,23 +27774,31 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
             />
           </div>
 
-          {/* 🆕 مطابقة مع سجل تقفيل الخزنة — بيكشف الأيام اللي ما اتقفلتش لسه في الفترة */}
+          {/* 🆕 مطابقة مع سجل تقفيل الخزنة — بيكشف الأيام اللي ما اتقفلتش لسه في الفترة (غير النهارده) */}
           <div style={{
-            background: Math.abs(reconciliationVariance) < 0.01 ? COLORS.greenSoft : COLORS.redSoft,
-            border: `1px solid ${tint(Math.abs(reconciliationVariance) < 0.01 ? COLORS.green : COLORS.red, 0.35)}`,
-            borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12,
-            color: Math.abs(reconciliationVariance) < 0.01 ? COLORS.green : COLORS.red, lineHeight: 1.9,
+            background: isReconciled ? COLORS.greenSoft : COLORS.redSoft,
+            border: `1px solid ${tint(isReconciled ? COLORS.green : COLORS.red, 0.35)}`,
+            borderRadius: 8, padding: "10px 14px", marginBottom: excludeUnclosedToday ? 8 : 16, fontSize: 12,
+            color: isReconciled ? COLORS.green : COLORS.red, lineHeight: 1.9,
           }}>
-            {Math.abs(reconciliationVariance) < 0.01 ? (
-              <>✅ <strong>مطابق:</strong> نفس الرقم اتحسب من سجل تقفيل الخزنة الفعلي، يعني كل أيام الفترة دي مُقفّلة وموثّقة صح.</>
+            {isReconciled ? (
+              <>✅ <strong>مطابق:</strong> نفس الرقم اتحسب من سجل تقفيل الخزنة الفعلي{excludeUnclosedToday ? " (للأيام المُقفّلة قبل النهارده)" : ""}، يعني كل أيام الفترة دي مُقفّلة وموثّقة صح.</>
             ) : (
               <>
-                ⚠️ <strong>فيه فرق {reconciliationVariance.toFixed(2)} ر.س</strong> بين "الصافي المحسوب من فواتير/مرتجعات الفترة" وبين "الصافي المسجّل فعليًا في سجل تقفيل الخزنة" لنفس الفترة.
+                ⚠️ <strong>فيه فرق {closedReconciliationVariance.toFixed(2)} ر.س</strong> بين "الصافي المحسوب من فواتير/مرتجعات الفترة" وبين "الصافي المسجّل فعليًا في سجل تقفيل الخزنة" لنفس الفترة{excludeUnclosedToday ? " (بعد استبعاد النهارده اللي لسه ما اتقفلش)" : ""}.
                 <br />
                 السبب الأرجح: فيه يوم أو أكتر في الفترة دي لسه ما اتقفلش (تقفيل الخزنة اليومي)، فقيود الدخل الخاصة بيه لسه ماتسجلتش. راجع أيام التقفيل الناقصة في تبويب "الخزنة".
               </>
             )}
           </div>
+          {excludeUnclosedToday && (
+            <div style={{
+              background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`,
+              borderRadius: 8, padding: "8px 14px", marginBottom: 16, fontSize: 12, color: COLORS.blue, lineHeight: 1.9,
+            }}>
+              ℹ️ اليوم الحالي ({todayStr}) لسه ما اتقفلش، فمستبعد مؤقتًا من كارت المطابقة فوق عشان محدش يتلبّس بتحذير غير حقيقي — هيدخل في المطابقة تلقائيًا أول ما تعمل "تقفيل اليوم".
+            </div>
+          )}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 10 }}>
             {paymentGroupTotals.map((g) => (
@@ -27561,28 +27821,45 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
             )}
           </div>
 
-          <Table
-            headers={["التاريخ", "الفئة", "التفاصيل", "الطريقة", "المبلغ", "بواسطة"]}
-            rows={paymentEntries
+          {(() => {
+            const paymentRows = paymentEntries
               .filter((e) => {
                 if (!selectedPaymentGroup) return true;
                 const grp = PAYMENT_GROUPS.find((g) => g.key === selectedPaymentGroup);
                 return grp ? grp.subs.includes(e.sub_type) : true;
               })
-              .slice()
-              .sort((a, b) => new Date(b.date) - new Date(a.date))
-              .map((e) => {
+              .filter((e) => {
+                if (!search.trim()) return true;
+                const q = search.trim().toLowerCase();
                 const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
-                return [
-                  e.date,
-                  <Badge color={COLORS.blueSoft} text={COLORS.blue}>{grp ? grp.label : e.sub_type}</Badge>,
-                  e.note || "—",
-                  e.method || "—",
-                  <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(e.amount || 0).toFixed(2)} ر.س</span>,
-                  e.created_by || "—",
-                ];
-              })}
-          />
+                const inNote = (e.note || "").toLowerCase().includes(q);
+                const inMethod = (e.method || "").toLowerCase().includes(q);
+                const inCategory = (grp ? grp.label : e.sub_type || "").toLowerCase().includes(q);
+                const inCreatedBy = (e.created_by || "").toLowerCase().includes(q);
+                return inNote || inMethod || inCategory || inCreatedBy;
+              })
+              .slice()
+              .sort((a, b) => new Date(b.date) - new Date(a.date));
+            return (
+              <>
+                <Table
+                  headers={["التاريخ", "الفئة", "التفاصيل", "الطريقة", "المبلغ", "بواسطة"]}
+                  rows={paymentRows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map((e) => {
+                    const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
+                    return [
+                      e.date,
+                      <Badge color={COLORS.blueSoft} text={COLORS.blue}>{grp ? grp.label : e.sub_type}</Badge>,
+                      e.note || "—",
+                      e.method || "—",
+                      <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(e.amount || 0).toFixed(2)} ر.س</span>,
+                      e.created_by || "—",
+                    ];
+                  })}
+                />
+                <Pagination page={page} onPageChange={setPage} totalItems={paymentRows.length} pageSize={REPORT_PAGE_SIZE} />
+              </>
+            );
+          })()}
           {paymentEntries.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مصروفات أو مدفوعات مسجّلة في هذه الفترة</div>}
         </>
       )}
@@ -27913,7 +28190,7 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
       ) : (
         <div
           style={{
-            background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+            background: COLORS.surface,
             backdropFilter: "blur(16px)",
             WebkitBackdropFilter: "blur(16px)",
             border: `1px solid ${COLORS.border}`,
