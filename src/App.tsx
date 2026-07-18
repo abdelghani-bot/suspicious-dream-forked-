@@ -16965,7 +16965,15 @@ function ProductFormModal({
       const oldProduct = products.find((x) => x.id === editingId);
       const { error } = await supabase.from("products").update(p).eq("id", editingId).eq("pharmacy_id", pharmacyId);
       if (error) { showToast("خطأ في التعديل: " + error.message, "error"); return; }
-      setProducts((prev) => prev.map((x) => (x.id === editingId ? { ...x, ...p } : x)));
+      // 🔧 لازم نحدّث كمان النسخة camelCase (saleUnits/packageType) اللي بتتقرا في نقطة البيع،
+      // مش بس الحقول الخام (snake_case) من "p" — لأن أول تحميل بس هو اللي كان بيعمل الماب ده،
+      // فأي تعديل بعد كده (زي عدد وحدات البيع) كان فاضل في القيمة القديمة في الميموري لحد ما تعمل refresh.
+      setProducts((prev) => prev.map((x) => (x.id === editingId ? {
+        ...x,
+        ...p,
+        saleUnits: p.sale_units || x.saleUnits || null,
+        packageType: p.package_type || x.packageType || "",
+      } : x)));
       // 🆕 نسجل أي تغيير في أي حقل من حقول الصنف، مش بس السعر/التكلفة
       if (oldProduct) {
         const trackedFields = ["name", "price", "cost", "barcode", "category", "mainCategory", "supplier_id", "is_essential", "is_chronic", "not_available_market"];
@@ -16987,7 +16995,14 @@ function ProductFormModal({
       const { data, error } = await supabase.from("products").insert({ ...p, pharmacy_id: pharmacyId }).select();
       if (error) { showToast("خطأ في الإضافة: " + error.message, "error"); return; }
       productId = data[0].id;
-      setProducts((prev) => [...prev, data[0]]);
+      // 🔧 نفس مشكلة التعديل: صف supabase الراجع من insert فيه الحقول الخام (snake_case) بس،
+      // لازم نضيف النسخة camelCase يدويًا (saleUnits/packageType) عشان نقطة البيع تشتغل
+      // على الصنف الجديد من غير ما نحتاج نعمل refresh للصفحة الأول.
+      setProducts((prev) => [...prev, {
+        ...data[0],
+        saleUnits: data[0].sale_units || null,
+        packageType: data[0].package_type || "",
+      }]);
       logAudit({
         pharmacyId, userName: currentUser?.name, action: "create", entityType: "product",
         entityId: productId, entityLabel: p.name,
