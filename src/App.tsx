@@ -3952,7 +3952,15 @@ const [myTarget, setMyTarget] = useState(null);
   });
 
   // ══════════ مبيعات الأقسام (يومي/شهري) — إيراد + ربح لكل قسم ══════════
-  const DEPT_PALETTE = [COLORS.blue, COLORS.purple, COLORS.teal, COLORS.gold, COLORS.coral, COLORS.green, COLORS.red];
+  // 🆕 خريطة ألوان موحّدة للأقسام — نفس اللون لنفس القسم في كل كروت الداشبورد (مبيعات الأقسام + قيمة المخزون)
+  const CATEGORY_COLORS = {
+    "دواء": COLORS.blue,
+    "كوزمتك عادي": COLORS.teal,
+    "كوزمتك طبي": COLORS.purple,
+    "مستلزمات أطفال": COLORS.gold,
+    "مستلزمات طبية": COLORS.red,
+  };
+  const DEPT_PALETTE = [COLORS.coral, COLORS.green, COLORS.blue, COLORS.purple, COLORS.teal, COLORS.gold, COLORS.red]; // احتياطي لأقسام مش في الخريطة الموحّدة
   // 🆕 مرتجعات كل قسم (قيمة) — من جدول returns (النوع "sales" فقط)، بنفس منطق تصنيف القسم المستخدم في المبيعات
   const computeDeptReturnsMap = (returnsArr) => {
     const map = {};
@@ -4310,11 +4318,31 @@ const [myTarget, setMyTarget] = useState(null);
     if (p.end_date < today) return false;
     return isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products);
   });
-  const autoPromoProducts = products.filter((p) => {
-    if (!p.expiry) return false;
-    const daysLeft = Math.ceil((new Date(p.expiry).getTime() - Date.now()) / 86400000);
-    return daysLeft > 0 && daysLeft <= 90 && (p.stock ?? 0) > 0;
-  });
+  // 🆕 أقرب تاريخ صلاحية لكل صنف من فواتير الشراء (batches) + fallback لـ p.expiry — نفس منطق
+  // productEarliestExpiry في PromotionsModule، عشان الكارت ده يطابق العروض التلقائية الحقيقية
+  // بدل ما يعتمد بس على p.expiry اللي ممكن يبقى فاضي أو قديم لو الصلاحية متسجلة في الباتش بس
+  const dashProductEarliestExpiry = (() => {
+    const map = {};
+    (purchases || []).forEach((pu) => {
+      const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
+      (items || []).forEach((item) => {
+        const expiry = item.expiry_date || item.expiry;
+        if (!expiry || !item.id) return;
+        if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
+      });
+    });
+    (products || []).forEach((p) => {
+      if (p.expiry && (!map[p.id] || p.expiry < map[p.id])) map[p.id] = p.expiry;
+    });
+    return map;
+  })();
+  const autoPromoProducts = products
+    .map((p) => ({ ...p, expiry: dashProductEarliestExpiry[p.id] || p.expiry }))
+    .filter((p) => {
+      if (!p.expiry) return false;
+      const daysLeft = Math.ceil((new Date(p.expiry).getTime() - Date.now()) / 86400000);
+      return daysLeft > 0 && daysLeft <= 90 && (p.stock ?? 0) > 0;
+    });
 
   // ══════════ كارت تغيير الأسعار ══════════
   const oneWeekAgo = todayLocal(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
@@ -4344,13 +4372,7 @@ const [myTarget, setMyTarget] = useState(null);
 
   // ── قيمة المخزون حسب التصنيف الرئيسي ──
   const stockByCategory = (() => {
-    const catColors = {
-      "دواء": COLORS.blue,
-      "كوزمتك عادي": COLORS.teal,
-      "كوزمتك طبي": COLORS.purple,
-      "مستلزمات أطفال": COLORS.gold,
-      "مستلزمات طبية": COLORS.red,
-    };
+    // 🆕 بتستخدم نفس CATEGORY_COLORS الموحّدة مع كارت "مبيعات الأقسام" — نفس القسم = نفس اللون في الكارتين
     const cats = Object.keys(MAIN_CATEGORIES);
     const grouped = {};
     cats.forEach((c) => { grouped[c] = 0; });
@@ -4366,7 +4388,7 @@ const [myTarget, setMyTarget] = useState(null);
     const total = Object.values(grouped).reduce((s, v) => s + v, 0) + otherVal;
 
     const rows = cats
-      .map((c) => ({ label: c, value: grouped[c], color: catColors[c] }))
+      .map((c) => ({ label: c, value: grouped[c], color: CATEGORY_COLORS[c] }))
       .concat(otherVal > 0 ? [{ label: "أخرى", value: otherVal, color: VAR.muted }] : [])
       .filter((r) => r.value > 0)
       .sort((a, b) => b.value - a.value)
@@ -4592,7 +4614,7 @@ const [myTarget, setMyTarget] = useState(null);
                 {/* كروت زجاجية ملونة لكل قسم — عرض الشريط بنسبة الحصة من الإيراد */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px 14px" }}>
                   {stats.rows.map((r, i) => {
-                    const color = DEPT_PALETTE[i % DEPT_PALETTE.length];
+                    const color = CATEGORY_COLORS[r.category] || DEPT_PALETTE[i % DEPT_PALETTE.length];
                     return (
                       <div
                         key={r.category}
@@ -4910,12 +4932,22 @@ const [myTarget, setMyTarget] = useState(null);
                 </div>
               )}
               {stockByCategory.rows.map((r) => (
-                <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ width: 9, height: 9, borderRadius: "50%", background: r.color, flexShrink: 0, boxShadow: `0 0 6px ${r.color}` }} />
-                  <div style={{ flex: 1, fontSize: 12, color: VAR.text }}>{r.label}</div>
-                  <div style={{ fontSize: 11, color: VAR.muted, fontFamily: "monospace" }}>{r.value.toFixed(0)} ر.س</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: r.color, fontFamily: "monospace", minWidth: 38, textAlign: "left" }}>
-                    {r.pct.toFixed(1)}%
+                <div key={r.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 9, height: 9, borderRadius: "50%", background: r.color, flexShrink: 0, boxShadow: `0 0 6px ${r.color}` }} />
+                    <div style={{ flex: 1, fontSize: 12, color: VAR.text }}>{r.label}</div>
+                    <div style={{ fontSize: 11, color: VAR.muted, fontFamily: "monospace" }}>{r.value.toFixed(0)} ر.س</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: r.color, fontFamily: "monospace", minWidth: 38, textAlign: "left" }}>
+                      {r.pct.toFixed(1)}%
+                    </div>
+                  </div>
+                  {/* 🆕 شريط تقدّم مصغّر بنفس روح كارت مبيعات الأقسام — يوحّد اللغة البصرية بين الكارتين */}
+                  <div style={{ height: 4, borderRadius: 99, background: VAR.surface2, overflow: "hidden", marginRight: 17 }}>
+                    <div style={{
+                      height: "100%", width: `${Math.max(r.pct, 2)}%`,
+                      background: `linear-gradient(90deg, ${tint(r.color, 0.35)}, ${r.color})`,
+                      borderRadius: 99, transition: "width 0.4s",
+                    }} />
                   </div>
                 </div>
               ))}
