@@ -24432,6 +24432,7 @@ useEffect(() => {
     deduction_absence: "", deduction_absence_note: "", method: "نقدي", note: "", proof: null,
     gosi_employee_deduction: "", gosi_employer_contribution: "",
     friday_count: "", friday_allowance: "", late_minutes: "", deduction_lateness: "",
+    actual_amount: "", // 🆕 المبلغ اللي هيتصرف فعليًا دلوقتي — قابل للتعديل المباشر، مش لازم يساوي مجموع التفاصيل
   });
   const [commissionSalesBasis, setCommissionSalesBasis] = useState(0); // 🆕 إجمالي مبيعات الصيدلي اللي احتُسبت عليها العمولة (للعرض فقط)
 
@@ -24555,6 +24556,7 @@ useEffect(() => {
     setCommissionSalesBasis(full.salesBasis);
     const paidSoFar = getPaidSumsThisMonth(emp.id, payMonth);
     const remain = (key) => Math.max(0, full[key] - (paidSoFar[key] || 0));
+    const remainNet = remain("base_salary") + remain("allowances") + remain("target_commission") + remain("friday_allowance") - remain("gosi_employee_deduction") - remain("deduction_lateness");
     setPayForm({
       base_salary: remain("base_salary").toFixed(2), allowances: remain("allowances").toFixed(2),
       percentage_amount: "", target_commission: remain("target_commission").toFixed(2),
@@ -24563,6 +24565,7 @@ useEffect(() => {
       gosi_employee_deduction: remain("gosi_employee_deduction").toFixed(2), gosi_employer_contribution: remain("gosi_employer_contribution").toFixed(2),
       friday_count: String(Math.max(0, full.friday_count - (paidSoFar.friday_count || 0))), friday_allowance: remain("friday_allowance").toFixed(2),
       late_minutes: String(Math.max(0, full.late_minutes - (paidSoFar.late_minutes || 0))), deduction_lateness: remain("deduction_lateness").toFixed(2),
+      actual_amount: Math.max(0, remainNet).toFixed(2),
     });
     setShowPayForm(emp);
   };
@@ -24572,10 +24575,12 @@ useEffect(() => {
     const ded = (+payForm.deduction_advance || 0) + (+payForm.deduction_absence || 0) + (+payForm.gosi_employee_deduction || 0) + (+payForm.deduction_lateness || 0);
     return add - ded;
   };
+  // 🆕 المبلغ الفعلي اللي هيتصرف (قابل للتعديل المباشر من اليوزر، ومش لازم يساوي مجموع التفاصيل فوق)
+  const payActualAmount = () => +payForm.actual_amount || 0;
 
   // 🆕 طباعة إيصال صرف الراتب — يتطبع، الموظف يمضي عليه ورقيًا، وبعدين يتصور ويترفع في خانة "إثبات الصرف"
   const printSalaryReceipt = (emp) => {
-    const net = payNetTotal();
+    const net = payActualAmount();
     const rows = [
       ["الراتب الأساسي", payForm.base_salary],
       ["البدلات", payForm.allowances],
@@ -24622,8 +24627,8 @@ useEffect(() => {
   };
 
   const saveSalaryPayment = async (emp) => {
-    const net = payNetTotal();
-    if (net <= 0) { showToast("صافي الراتب لازم يكون أكبر من صفر", "error"); return; }
+    const net = payActualAmount();
+    if (net <= 0) { showToast("المبلغ المصروف لازم يكون أكبر من صفر", "error"); return; }
     setSavingSalary(true);
     let proofUrl = "";
     if (payForm.proof) {
@@ -26146,9 +26151,26 @@ useEffect(() => {
             <input type="file" accept="image/*,application/pdf" onChange={(e) => { const file = e.target.files[0]; if (file) setPayForm((p) => ({ ...p, proof: file })); }} style={{ color: COLORS.textPrimary, fontSize: 12 }} />
             {payForm.proof && <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4 }}>✓ {payForm.proof.name}</div>}
           </div>
-          <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 14, display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: COLORS.textDim, fontWeight: 700 }}>صافي الراتب</span>
-            <span style={{ color: payNetTotal() < 0 ? COLORS.red : COLORS.green, fontWeight: 900, fontSize: 18 }}>{payNetTotal().toFixed(2)} ر.س</span>
+          <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: COLORS.textDim, marginBottom: 8 }}>
+              <span>الإجمالي المحسوب من التفاصيل فوق</span>
+              <span>
+                {payNetTotal().toFixed(2)} ر.س
+                {(+payForm.actual_amount || 0).toFixed(2) !== payNetTotal().toFixed(2) && (
+                  <button onClick={() => setPayForm((p) => ({ ...p, actual_amount: payNetTotal().toFixed(2) }))} style={{ marginRight: 8, background: "none", border: "none", color: COLORS.accent, cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>استخدم الرقم ده</button>
+                )}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>💵 المبلغ اللي هيتصرف فعليًا</span>
+              <input
+                type="number"
+                value={payForm.actual_amount}
+                onChange={(e) => setPayForm((p) => ({ ...p, actual_amount: e.target.value }))}
+                style={{ width: 140, textAlign: "left", fontWeight: 900, fontSize: 18, color: payActualAmount() <= 0 ? COLORS.red : COLORS.green, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 10px" }}
+              />
+            </div>
+            <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 6 }}>ده الرقم اللي بيتسجّل فعليًا كمصروف ويحسب على أساسه المتبقي — ممكن يختلف عن الإجمالي المحسوب لو مثلاً هتصرف جزء بس.</div>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
             <Btn variant="ghost" onClick={() => setShowPayForm(null)} disabled={savingSalary}>إلغاء</Btn>
