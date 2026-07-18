@@ -3550,7 +3550,11 @@ function computeMonthlyAttendanceStats(pharmacistName, monthKey, ctx, staffUserI
   let fridaysWorked = 0;
   const countedFridayDates = new Set();
   for (const log of myLogs) {
-    lateMinutes += calcLateMinutesForSalary(pharmacistName, log.shift_number || 1, log.check_in, ctx);
+    // 🆕 الأولوية للقيمة المحفوظة على السجل وقت تسجيل الحضور نفسه — لأنها محسوبة بمنطق getExpectedShift الكامل
+    // في AttendanceModule (بياخد التناوب الدوري في الاعتبار). إعادة الحساب هنا (calcLateMinutesForSalary)
+    // بتتجاهل التناوب، فكانت بترجّع صفر غلط لأي موظف شغال بنظام تناوب. بنرجع لإعادة الحساب بس لو السجل قديم
+    // ومفيهوش قيمة محفوظة أصلاً.
+    lateMinutes += (log.late_minutes != null ? log.late_minutes : calcLateMinutesForSalary(pharmacistName, log.shift_number || 1, log.check_in, ctx));
     const dow = new Date(log.check_in).getDay(); // 5 = الجمعة
     if (dow === 5 && log.check_out && !countedFridayDates.has(log.date)) {
       countedFridayDates.add(log.date);
