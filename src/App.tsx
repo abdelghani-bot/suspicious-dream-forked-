@@ -26339,7 +26339,12 @@ function TaxReport({ sales, purchases, returns = [] }) {
   const filtSales = sales.filter((s) => months.some((m) => s.date.startsWith(m)) && !s.returned);
   const filtPurchases = purchases.filter((p) => months.some((m) => p.date.startsWith(m)));
   const filtReturns = (returns || []).filter((r) => months.some((m) => (r.date || "").startsWith(m)));
-  const filtSalesReturns = filtReturns.filter((r) => r.type === "sales");
+  // 🆕 فاتورة اترجعت بالكامل (s.returned) أصلًا مستبعدة من filtSales فمساهمتها صفر — لو سيبنا سجل
+  // مرتجعها في filtSalesReturns هيتخصم قيمتها تاني من الجانب التاني، يعني خصم مزدوج لنفس الفاتورة.
+  // فبنستبعد من filtSalesReturns أي مرتجع تابع لفاتورة مرتجعة بالكامل، وبيفضل بس المرتجع الجزئي (الصحيح
+  // إنه يتخصم لأن فاتورته الأصلية لسه محسوبة كاملة في filtSales).
+  const fullyReturnedSaleIds = new Set(sales.filter((s) => s.returned).map((s) => s.id));
+  const filtSalesReturns = filtReturns.filter((r) => r.type === "sales" && !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id)));
   const filtPurchaseReturns = filtReturns.filter((r) => r.type === "purchases");
   const salesSubtotal = filtSales.reduce((a, s) => a + (s.subtotal || 0), 0);
   const salesTax = filtSales.reduce((a, s) => a + (s.tax_amount || 0), 0);
@@ -27104,68 +27109,76 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     if (mfrProductIds && !(r.items || []).some((i) => mfrProductIds.has(i.id))) ok = false;
     return ok;
   });
-  // 🆕 مرتجعات المبيعات (كامل + جزئي) — بنحسبها الأول عشان نقدر نخصمها من كل أرقام المبيعات تحت،
-  // فيبقى "إجمالي المبيعات" صافي فعليًا مش إجمالي خام.
+  // 🆕 مرتجعات المبيعات (كامل + جزئي) — بنحسبها الأول عشان نخصمها من كل أرقام المبيعات تحت.
+  // ⚠️ التصحيح المهم: بنخصم كل مرتجع في "شهره/فترته هو نفسه" (تاريخ المرتجع)، مش في شهر الفاتورة الأصلية.
+  // ده نفس أسلوب "تقرير ضريبي" (وهو الصح فعليًا وفق مبدأ إقرار الـ ZATCA: المرتجع بيتسجّل في الفترة اللي
+  // حصل فيها، مش بيترحّل لفترة الفاتورة الأصلية). المحاولة السابقة كانت بتتبّع كل مرتجع لفاتورته الأصلية
+  // وتخصمه من شهرها هي، فكانت بتختلف عن "تقرير ضريبي" لو المرتجع حصل في شهر تاني عن شهر البيع.
   const returnsSales = filteredReturns.filter((r) => r.type === "sales");
   const returnsPurchases = filteredReturns.filter((r) => r.type === "purchases");
-  // خريطة: قيمة المرتجع الجزئي لكل فاتورة (invoice_id) — بنستخدمها لخصمها من نفس الفاتورة في كل التقارير تحت
-  const partialReturnByInvoice = {};
-  returnsSales.forEach((r) => {
-    if (!r.invoice_id) return;
-    if (!partialReturnByInvoice[r.invoice_id]) partialReturnByInvoice[r.invoice_id] = { total: 0, tax: 0, itemsQty: {} };
-    partialReturnByInvoice[r.invoice_id].total += r.total || 0;
-    partialReturnByInvoice[r.invoice_id].tax += r.tax || 0;
-    (r.items || []).forEach((i) => {
-      partialReturnByInvoice[r.invoice_id].itemsQty[i.id] = (partialReturnByInvoice[r.invoice_id].itemsQty[i.id] || 0) + (i.qty || 0);
-    });
-  });
-  const netInvoiceTotal = (s) => Math.max(0, (s.total || 0) - (partialReturnByInvoice[s.id]?.total || 0));
-  const netInvoiceTax = (s) => Math.max(0, (s.taxAmount || s.tax_amount || 0) - (partialReturnByInvoice[s.id]?.tax || 0));
+  const totalReturnsSales = returnsSales.reduce((a, r) => a + (r.total || 0), 0);
+  const returnsSalesTax = returnsSales.reduce((a, r) => a + (r.tax || 0), 0);
+  // 🆕 خصم مزدوج: فاتورة مرتجعة بالكامل (s.returned) أصلًا مستبعدة من filteredSales فمساهمتها صفر —
+  // لو خصمنا قيمة مرتجعها تاني هنا (زي totalReturnsSales اللي فوق) هيبقى خصم مزدوج لنفس الفاتورة.
+  // فبنستخدم نسخة "للخصم فقط" بتستبعد مرتجعات الفواتير المرتجعة بالكامل، وتفضل بس المرتجع الجزئي
+  // (اللي فعلًا لازم يتخصم لأن فاتورته الأصلية لسه محسوبة كاملة). totalReturnsSales/returnsSalesTax
+  // الأصليين فضلوا زي ما هم لعرض "إجمالي المرتجعات" الحقيقي في تبويب مرتجع المبيعات.
+  const fullyReturnedSaleIds = new Set(sales.filter((s) => s.returned).map((s) => s.id));
+  const returnsSalesForNetting = returnsSales.filter((r) => !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id)));
+  const totalReturnsSalesForNetting = returnsSalesForNetting.reduce((a, r) => a + (r.total || 0), 0);
+  const returnsSalesTaxForNetting = returnsSalesForNetting.reduce((a, r) => a + (r.tax || 0), 0);
 
-  // احصائيات شهرية
-  // 🆕 كان بيلف على filteredSales كاملة من غير ما يستبعد الفواتير المرتجعة بالكامل (s.returned)،
-  // فكان بيجمع فواتير اتلغت فعليًا ضمن مبيعات الشهر — ده سبب إن "تقرير شهري" كان بيطلع بعدد فواتير وقيمة
-  // أعلى من "تقرير المبيعات" (فرق 15 فاتورة بالظبط = نفس عدد الفواتير المرتجعة بالكامل في الفترة).
-  // 🆕 وبقى كمان بيخصم قيمة المرتجع الجزئي من نفس الشهر اللي فيه الفاتورة الأصلية، فيبقى صافي حقيقي.
+  // احصائيات شهرية — إجمالي كل شهر (فواتير غير مرتجعة بالكامل) ناقص مرتجعات نفس الشهر (بتاريخ المرتجع نفسه)
   const salesByMonth = {};
+  const monthBucket = (m) => (salesByMonth[m] || (salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 }));
   filteredSales.filter((s) => !s.returned).forEach((s) => {
     const m = (s.date || s.created_at || "").substring(0, 7);
     if (!m) return;
-    if (!salesByMonth[m]) salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
-    const netTotal = netInvoiceTotal(s), netTax = netInvoiceTax(s);
-    salesByMonth[m].count++;
-    salesByMonth[m].subtotal += Math.max(0, netTotal - netTax);
-    salesByMonth[m].tax += netTax;
-    salesByMonth[m].total += netTotal;
+    const b = monthBucket(m);
+    b.count++;
+    b.subtotal += s.subtotal || 0;
+    b.tax += s.taxAmount ?? s.tax_amount ?? 0;
+    b.total += s.total || 0;
+  });
+  returnsSalesForNetting.forEach((r) => {
+    const m = (r.date || "").substring(0, 7);
+    if (!m) return;
+    const b = monthBucket(m);
+    b.subtotal -= Math.max(0, (r.total || 0) - (r.tax || 0));
+    b.tax -= r.tax || 0;
+    b.total -= r.total || 0;
   });
 
-  // تقرير الأصناف — مع فلتر الشركة
-  // 🆕 نفس التصحيح: استبعاد الفواتير المرتجعة بالكامل، وخصم كمية/قيمة أي مرتجع جزئي لنفس الصنف من نفس الفاتورة
+  // تقرير الأصناف — مع فلتر الشركة — إجمالي كمية/إيراد الصنف ناقص أي كمية اترجعت من نفس الصنف في نفس الفترة
   const productSales = {};
-  filteredSales.filter((s) => !s.returned).forEach((s) => {
-    const returnedQtyForInvoice = partialReturnByInvoice[s.id]?.itemsQty || {};
+  filteredSales.filter((s) => !s.returned).forEach((s) =>
     s.items.forEach((i) => {
       if (mfrProductIds && !mfrProductIds.has(i.id)) return;
-      const returnedQty = Math.min(i.qty, returnedQtyForInvoice[i.id] || 0);
-      const netQty = i.qty - returnedQty;
       if (!productSales[i.id]) productSales[i.id] = { name: i.name, qty: 0, revenue: 0, tax: 0 };
-      productSales[i.id].qty += netQty;
-      productSales[i.id].revenue += i.price * netQty;
-      productSales[i.id].tax += i.taxable ? i.price * netQty * TAX_RATE : 0;
-    });
-  });
+      productSales[i.id].qty += i.qty;
+      productSales[i.id].revenue += i.price * i.qty;
+      productSales[i.id].tax += i.taxable ? i.price * i.qty * TAX_RATE : 0;
+    })
+  );
+  returnsSalesForNetting.forEach((r) =>
+    (r.items || []).forEach((i) => {
+      if (mfrProductIds && !mfrProductIds.has(i.id)) return;
+      if (!productSales[i.id]) productSales[i.id] = { name: i.name, qty: 0, revenue: 0, tax: 0 };
+      productSales[i.id].qty -= i.qty || 0;
+      productSales[i.id].revenue -= (i.price || 0) * (i.qty || 0);
+      productSales[i.id].tax -= i.taxable ? (i.price || 0) * (i.qty || 0) * TAX_RATE : 0;
+    })
+  );
 
-  // 🆕 صافي بعد خصم المرتجع الكامل والجزئي مع بعض
-  const totalSalesRev = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + netInvoiceTotal(s), 0);
-  const totalSalesTax = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + netInvoiceTax(s), 0);
+  // 🆕 صافي المبيعات (شامل الضريبة) بعد خصم مرتجعات نفس الفترة — نفس أسلوب "تقرير ضريبي" بالظبط
+  const totalSalesRev = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + (s.total || 0), 0) - totalReturnsSalesForNetting;
+  const totalSalesTax = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + (s.taxAmount || s.tax_amount || 0), 0) - returnsSalesTaxForNetting;
   // 🆕 عدد المرتجعات (returnedCount) اتنقل تحت بعد تعريف returnsSales — راجع الشرح هناك
   const totalPurchase = filteredPurchases.reduce((a, p) => a + p.total, 0);
   const totalPurchaseTax = filteredPurchases.reduce((a, p) => a + p.taxAmount, 0);
 
   const returnedCount = returnsSales.length; // 🆕 نفس مصدر تبويب "تقرير مرتجع المبيعات" (كامل + جزئي)
-  const totalReturnsSales = returnsSales.reduce((a, r) => a + (r.total || 0), 0);
   const totalReturnsPurchases = returnsPurchases.reduce((a, r) => a + (r.total || 0), 0);
-  const returnsSalesTax = returnsSales.reduce((a, r) => a + (r.tax || 0), 0);
   const returnsPurchasesTax = returnsPurchases.reduce((a, r) => a + (r.tax || 0), 0);
   const isAutoReturn = (r) => (r.reason || "").includes("تلقائي");
 
