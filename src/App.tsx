@@ -3357,6 +3357,7 @@ if (isLoading) return (
             creditPayments={creditPayments}
             pharmacyId={pharmacyId}
             currentUser={currentUser}
+            users={users}
             showToast={showToast}
             suppliers={suppliers}
             shifts={shifts}
@@ -24112,7 +24113,7 @@ function TargetModule({ users, sales, customers, products, currentUser, pharmacy
   );
 }
 // ==================== TREASURY MODULE ====================
-function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, showToast, shifts, entries, setEntries, returns = [], products = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
+function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, users = [], showToast, shifts, entries, setEntries, returns = [], products = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
   const canViewDayClosing = canViewSub("day_closing");
   const canEditDayClosing = canEditSub("day_closing");
   const canViewOverview   = canViewSub("overview");
@@ -24395,8 +24396,13 @@ useEffect(() => {
   const [employeeForm, setEmployeeForm] = useState({
     name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "",
     percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "",
+    user_id: "",
   });
   const employeeRoleLabel = { "صيدلي": "💊 صيدلي", "محاسب": "🧮 محاسب", "عامل": "🧰 عامل", "كاشير": "🧾 كاشير", "مخزن": "📦 مخزن", "أخرى": "👤 أخرى" };
+  // 🆕 ربط الموظف (سجل الراتب) بحساب المستخدم بتاعه (تسجيل الدخول) — أساس نقل كل الجداول لاحقًا من الاسم للـ ID
+  const linkedUserIds = new Set(employees.filter((e) => e.user_id && e.id !== editingEmployee?.id).map((e) => e.user_id));
+  const availableUsersForLink = users.filter((u) => !linkedUserIds.has(u.id));
+  const getLinkedUser = (emp) => users.find((u) => u.id === emp.user_id);
 
   const [payMonth, setPayMonth] = useState(todayLocal().slice(0, 7));
   // 🆕 نجيب سجلات الحضور بتاعة الشهر المختار بس (عشان الجدول ده ممكن يبقى كبير)
@@ -24436,12 +24442,18 @@ useEffect(() => {
   // ── حفظ/تعديل موظف ──
   const saveEmployee = async () => {
     if (!employeeForm.name || !employeeForm.hire_date) { showToast("يرجى إدخال الاسم وتاريخ التعيين", "error"); return; }
+    // 🆕 حماية: نفس حساب المستخدم ميترّبطش بأكتر من موظف راتب واحد
+    if (employeeForm.user_id) {
+      const clash = employees.find((e) => e.user_id === employeeForm.user_id && e.id !== editingEmployee?.id);
+      if (clash) { showToast(`❌ الحساب ده متربط بالفعل بالموظف "${clash.name}"`, "error"); return; }
+    }
     const payload = {
       pharmacy_id: pharmacyId, name: employeeForm.name, role: employeeForm.role, hire_date: employeeForm.hire_date,
       base_salary: +employeeForm.base_salary || 0, allowances: +employeeForm.allowances || 0, allowances_note: employeeForm.allowances_note,
       percentage_rate: +employeeForm.percentage_rate || 0, leave_days_per_year: +employeeForm.leave_days_per_year || 21,
       note: employeeForm.note, active: true, nationality: employeeForm.nationality || "سعودي", gosi_enabled: !!employeeForm.gosi_enabled,
       friday_allowance_rate: +employeeForm.friday_allowance_rate || 0,
+      user_id: employeeForm.user_id || null,
     };
     if (editingEmployee) {
       const { data, error } = await supabase.from("employees").update(payload).eq("id", editingEmployee.id).eq("pharmacy_id", pharmacyId).select();
@@ -24456,7 +24468,7 @@ useEffect(() => {
     }
     setShowEmployeeForm(false);
     setEditingEmployee(null);
-    setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "" });
+    setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "", user_id: "" });
   };
   const deleteEmployee = async (emp) => {
     if (!confirm(`حذف الموظف "${emp.name}"؟ (السجل التاريخي للرواتب هيفضل موجود)`)) return;
@@ -25821,7 +25833,7 @@ useEffect(() => {
               <input type="month" value={payMonth} onChange={(e) => setPayMonth(e.target.value)}
                 style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 12 }} />
             </div>
-            {canAddEmployee && <Btn icon="plus" onClick={() => { setEditingEmployee(null); setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "" }); setShowEmployeeForm(true); }}>إضافة موظف</Btn>}
+            {canAddEmployee && <Btn icon="plus" onClick={() => { setEditingEmployee(null); setEmployeeForm({ name: "", role: "عامل", hire_date: todayLocal(), base_salary: "", allowances: "", allowances_note: "", percentage_rate: "", leave_days_per_year: "21", note: "", nationality: "سعودي", gosi_enabled: true, friday_allowance_rate: "", user_id: "" }); setShowEmployeeForm(true); }}>إضافة موظف</Btn>}
           </div>
 
           <div style={{ ...cardStyle(COLORS.goldSoft), display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -25853,6 +25865,10 @@ useEffect(() => {
                           <span style={{ fontSize: 10, color: COLORS.textDim, background: COLORS.surfaceAlt, padding: "2px 6px", borderRadius: 5 }}>{employeeRoleLabel[emp.role] || emp.role}</span>
                           {emp.active === false && <span style={{ fontSize: 10, color: COLORS.red, background: COLORS.redSoft, padding: "2px 6px", borderRadius: 5 }}>منتهي الخدمة</span>}
                           {paid && emp.active !== false && <span style={{ fontSize: 10, color: COLORS.green, background: COLORS.greenSoft, padding: "2px 6px", borderRadius: 5 }}>✓ اتصرف {payMonth}</span>}
+                          {getLinkedUser(emp)
+                            ? <span style={{ fontSize: 10, color: COLORS.blue, background: COLORS.blueSoft, padding: "2px 6px", borderRadius: 5 }}>🔗 مرتبط بحساب {getLinkedUser(emp).name}</span>
+                            : emp.active !== false && <span title="من غير ربط، حساب الراتب بيعتمد على تطابق الاسم في الحضور/المبيعات، وده عرضة للأخطاء" style={{ fontSize: 10, color: COLORS.gold, background: COLORS.goldSoft, padding: "2px 6px", borderRadius: 5 }}>⚠️ غير مرتبط بحساب</span>
+                          }
                         </div>
                         <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 4 }}>
                           راتب أساسي: {(emp.base_salary || 0).toFixed(0)} ر.س
@@ -25871,7 +25887,7 @@ useEffect(() => {
                           <button onClick={() => { setLeaveForm({ days: "", amount: "", note: "", type: "cashout" }); setShowLeaveForm(emp); }} style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.blue, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏖️ إجازة</button>
                         )}
                         {emp.active !== false && canEditEmployee && (
-                          <button onClick={() => { setEditingEmployee(emp); setEmployeeForm({ name: emp.name, role: emp.role, hire_date: emp.hire_date, base_salary: String(emp.base_salary || ""), allowances: String(emp.allowances || ""), allowances_note: emp.allowances_note || "", percentage_rate: String(emp.percentage_rate || ""), leave_days_per_year: String(emp.leave_days_per_year || 21), note: emp.note || "", nationality: emp.nationality || "سعودي", gosi_enabled: emp.gosi_enabled !== false, friday_allowance_rate: String(emp.friday_allowance_rate || "") }); setShowEmployeeForm(true); }} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✏️ تعديل</button>
+                          <button onClick={() => { setEditingEmployee(emp); setEmployeeForm({ name: emp.name, role: emp.role, hire_date: emp.hire_date, base_salary: String(emp.base_salary || ""), allowances: String(emp.allowances || ""), allowances_note: emp.allowances_note || "", percentage_rate: String(emp.percentage_rate || ""), leave_days_per_year: String(emp.leave_days_per_year || 21), note: emp.note || "", nationality: emp.nationality || "سعودي", gosi_enabled: emp.gosi_enabled !== false, friday_allowance_rate: String(emp.friday_allowance_rate || ""), user_id: emp.user_id || "" }); setShowEmployeeForm(true); }} style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 12px", color: COLORS.textDim, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✏️ تعديل</button>
                         )}
                         {emp.active !== false && canDeleteEmployee && (
                           <button onClick={() => { setEosForm({ termination_date: todayLocal(), termination_type: "normal", other_addition: "", other_deduction: "", other_deduction_note: "", method: "نقدي", note: "", proof: null }); setShowEosForm(emp); }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 8, padding: "6px 12px", color: COLORS.red, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🏁 إنهاء خدمة</button>
@@ -25935,6 +25951,19 @@ useEffect(() => {
             <span style={{ fontSize: 12, color: COLORS.textPrimary }}>احسب اشتراكات التأمينات (GOSI) لهذا الموظف تلقائيًا</span>
           </div>
           <Input label="بدل الجمعة الواحدة (ر.س) — لو بيشتغل جمع" value={employeeForm.friday_allowance_rate} onChange={(v) => setEmployeeForm((p) => ({ ...p, friday_allowance_rate: v }))} type="number" placeholder="0" />
+          <div>
+            <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>🔗 ربط بحساب دخول (اختياري)</div>
+            <select value={employeeForm.user_id} onChange={(e) => setEmployeeForm((p) => ({ ...p, user_id: e.target.value }))}
+              style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13 }}>
+              <option value="">— بدون ربط —</option>
+              {availableUsersForLink.map((u) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role === "admin" ? "مدير" : u.role === "pharmacist" ? "صيدلاني" : u.role === "warehouse" ? "مخزن" : "كاشير"})</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>
+              ربط الموظف بحساب دخوله هو الأساس اللي هنبني عليه بعدين نقل الحضور والمبيعات من الاسم للـ ID.
+            </div>
+          </div>
         </div>
         <div style={{ marginTop: 12 }}>
           <Input label="ملاحظات" value={employeeForm.note} onChange={(v) => setEmployeeForm((p) => ({ ...p, note: v }))} placeholder="اختياري" />
