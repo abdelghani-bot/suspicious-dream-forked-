@@ -27104,39 +27104,64 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
     if (mfrProductIds && !(r.items || []).some((i) => mfrProductIds.has(i.id))) ok = false;
     return ok;
   });
+  // 🆕 مرتجعات المبيعات (كامل + جزئي) — بنحسبها الأول عشان نقدر نخصمها من كل أرقام المبيعات تحت،
+  // فيبقى "إجمالي المبيعات" صافي فعليًا مش إجمالي خام.
+  const returnsSales = filteredReturns.filter((r) => r.type === "sales");
+  const returnsPurchases = filteredReturns.filter((r) => r.type === "purchases");
+  // خريطة: قيمة المرتجع الجزئي لكل فاتورة (invoice_id) — بنستخدمها لخصمها من نفس الفاتورة في كل التقارير تحت
+  const partialReturnByInvoice = {};
+  returnsSales.forEach((r) => {
+    if (!r.invoice_id) return;
+    if (!partialReturnByInvoice[r.invoice_id]) partialReturnByInvoice[r.invoice_id] = { total: 0, tax: 0, itemsQty: {} };
+    partialReturnByInvoice[r.invoice_id].total += r.total || 0;
+    partialReturnByInvoice[r.invoice_id].tax += r.tax || 0;
+    (r.items || []).forEach((i) => {
+      partialReturnByInvoice[r.invoice_id].itemsQty[i.id] = (partialReturnByInvoice[r.invoice_id].itemsQty[i.id] || 0) + (i.qty || 0);
+    });
+  });
+  const netInvoiceTotal = (s) => Math.max(0, (s.total || 0) - (partialReturnByInvoice[s.id]?.total || 0));
+  const netInvoiceTax = (s) => Math.max(0, (s.taxAmount || s.tax_amount || 0) - (partialReturnByInvoice[s.id]?.tax || 0));
 
   // احصائيات شهرية
+  // 🆕 كان بيلف على filteredSales كاملة من غير ما يستبعد الفواتير المرتجعة بالكامل (s.returned)،
+  // فكان بيجمع فواتير اتلغت فعليًا ضمن مبيعات الشهر — ده سبب إن "تقرير شهري" كان بيطلع بعدد فواتير وقيمة
+  // أعلى من "تقرير المبيعات" (فرق 15 فاتورة بالظبط = نفس عدد الفواتير المرتجعة بالكامل في الفترة).
+  // 🆕 وبقى كمان بيخصم قيمة المرتجع الجزئي من نفس الشهر اللي فيه الفاتورة الأصلية، فيبقى صافي حقيقي.
   const salesByMonth = {};
-  filteredSales.forEach((s) => {
+  filteredSales.filter((s) => !s.returned).forEach((s) => {
     const m = (s.date || s.created_at || "").substring(0, 7);
     if (!m) return;
     if (!salesByMonth[m]) salesByMonth[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
+    const netTotal = netInvoiceTotal(s), netTax = netInvoiceTax(s);
     salesByMonth[m].count++;
-    salesByMonth[m].subtotal += s.subtotal || 0;
-    salesByMonth[m].tax += s.taxAmount ?? s.tax_amount ?? 0;
-    salesByMonth[m].total += s.total || 0;
+    salesByMonth[m].subtotal += Math.max(0, netTotal - netTax);
+    salesByMonth[m].tax += netTax;
+    salesByMonth[m].total += netTotal;
   });
 
   // تقرير الأصناف — مع فلتر الشركة
+  // 🆕 نفس التصحيح: استبعاد الفواتير المرتجعة بالكامل، وخصم كمية/قيمة أي مرتجع جزئي لنفس الصنف من نفس الفاتورة
   const productSales = {};
-  filteredSales.forEach((s) =>
+  filteredSales.filter((s) => !s.returned).forEach((s) => {
+    const returnedQtyForInvoice = partialReturnByInvoice[s.id]?.itemsQty || {};
     s.items.forEach((i) => {
       if (mfrProductIds && !mfrProductIds.has(i.id)) return;
+      const returnedQty = Math.min(i.qty, returnedQtyForInvoice[i.id] || 0);
+      const netQty = i.qty - returnedQty;
       if (!productSales[i.id]) productSales[i.id] = { name: i.name, qty: 0, revenue: 0, tax: 0 };
-      productSales[i.id].qty += i.qty;
-      productSales[i.id].revenue += i.price * i.qty;
-      productSales[i.id].tax += i.taxable ? i.price * i.qty * TAX_RATE : 0;
-    })
-  );
+      productSales[i.id].qty += netQty;
+      productSales[i.id].revenue += i.price * netQty;
+      productSales[i.id].tax += i.taxable ? i.price * netQty * TAX_RATE : 0;
+    });
+  });
 
-  const totalSalesRev = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + s.total, 0);
-  const totalSalesTax = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + (s.taxAmount || s.tax_amount || 0), 0);
+  // 🆕 صافي بعد خصم المرتجع الكامل والجزئي مع بعض
+  const totalSalesRev = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + netInvoiceTotal(s), 0);
+  const totalSalesTax = filteredSales.filter((s) => !s.returned).reduce((a, s) => a + netInvoiceTax(s), 0);
   // 🆕 عدد المرتجعات (returnedCount) اتنقل تحت بعد تعريف returnsSales — راجع الشرح هناك
   const totalPurchase = filteredPurchases.reduce((a, p) => a + p.total, 0);
   const totalPurchaseTax = filteredPurchases.reduce((a, p) => a + p.taxAmount, 0);
 
-  const returnsSales = filteredReturns.filter((r) => r.type === "sales");
-  const returnsPurchases = filteredReturns.filter((r) => r.type === "purchases");
   const returnedCount = returnsSales.length; // 🆕 نفس مصدر تبويب "تقرير مرتجع المبيعات" (كامل + جزئي)
   const totalReturnsSales = returnsSales.reduce((a, r) => a + (r.total || 0), 0);
   const totalReturnsPurchases = returnsPurchases.reduce((a, r) => a + (r.total || 0), 0);
