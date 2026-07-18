@@ -3575,8 +3575,11 @@ function calcWeeklyScheduledHours(pharmacistName, workSchedules) {
 
 // 🆕 حساب عمولة التحفيز الشهرية لموظف واحد بالاسم — نفس منطق تاب "التارجت" (نسخة مبسطة لموظف واحد
 // بدل كل الموظفين، عشان تُستخدم في شاشة صرف الراتب لسحب العمولة تلقائيًا من غير تكرار الحساب الكامل).
-function computeStaffCommissionForMonth(staffName, monthKey, ctx) {
+function computeStaffCommissionForMonth(staffName, monthKey, ctx, staffUserId) {
   const { sales = [], returns = [], products = [], tiers = [], tierThresholdHistory = [], incentiveOverrides = [], incentiveList = [], allowedCategories = [] } = ctx || {};
+  // 🆕 لو الموظف مرتبط بحساب دخول (user_id)، نطابق بالـ ID المستقر بدل الاسم (اللي ممكن يتغيّر أو يتكرر بين موظفين).
+  // لو مش مرتبط، بنرجع للطريقة القديمة (تطابق الاسم) عشان السجلات القديمة أو الموظفين اللي لسه من غير ربط.
+  const saleMatchesStaff = (s) => staffUserId ? s.cashier_user_id === staffUserId : (s.cashier_name || "غير محدد") === staffName;
   const matchTierForMargin = (margin, category, atTime) => {
     if (margin === null) return null;
     if (allowedCategories.length > 0 && !allowedCategories.includes(category)) return null;
@@ -3615,7 +3618,7 @@ function computeStaffCommissionForMonth(staffName, monthKey, ctx) {
   const salesById = {};
   sales.forEach((s) => { salesById[s.id] = s; });
   let commission = 0, total = 0;
-  sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned && (s.cashier_name || "غير محدد") === staffName)
+  sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned && saleMatchesStaff(s))
     .forEach((s) => {
       const saleDateTime = s.created_at || s.date + "T00:00:00.000Z";
       const items = typeof s.items === "string" ? JSON.parse(s.items) : s.items || [];
@@ -3630,7 +3633,7 @@ function computeStaffCommissionForMonth(staffName, monthKey, ctx) {
   (returns || []).filter((r) => r.type === "sales" && r.date?.startsWith(monthKey)).forEach((r) => {
     const originalSale = salesById[r.invoice_id];
     if (!originalSale || originalSale.returned) return;
-    if ((originalSale.cashier_name || "غير محدد") !== staffName) return;
+    if (!saleMatchesStaff(originalSale)) return;
     const saleDateTime = originalSale.created_at || (originalSale.date + "T00:00:00.000Z");
     const items = typeof r.items === "string" ? JSON.parse(r.items) : r.items || [];
     items.forEach((ri) => {
@@ -3773,7 +3776,7 @@ const [myTarget, setMyTarget] = useState(null);
   const myMonthSales = sales.filter(
     (s) => (s.created_at || s.date || "").startsWith(monthKey) &&
            !s.returned &&
-           s.cashier_name === currentUser?.name
+           (currentUser?.id ? s.cashier_user_id === currentUser.id : s.cashier_name === currentUser?.name)
   );
   const myAchieved = myMonthSales.reduce((a, s) => a + (s.total || 0), 0);
 
@@ -6239,6 +6242,7 @@ function POS({
       returned: false,
       pharmacy_id: pharmacyId,
       cashier_name: currentUser?.name || "",
+      cashier_user_id: currentUser?.id || null,
       points_redeemed: pointsDiscount > 0 ? pointsDiscount : null,
     };
 
@@ -24489,7 +24493,7 @@ useEffect(() => {
         incentiveOverrides: incentiveDataForSalary.incentiveOverrides,
         incentiveList: incentiveDataForSalary.incentiveList,
         allowedCategories: incentiveDataForSalary.allowedCategories,
-      });
+      }, emp.user_id || null);
       autoCommission = Math.max(0, commission);
       salesBasis = total;
     }
