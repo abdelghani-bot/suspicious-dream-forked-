@@ -2246,16 +2246,25 @@ function PharmacyShelfBackground() {
 
 // ==================== SUPER ADMIN PANEL ====================
 function computeAccessStatus(pharmacy: any): "full" | "readonly" | "blocked" {
+  const now = new Date();
   if (pharmacy.subscription_status === "suspended") return "blocked";
-  if (pharmacy.subscription_status === "active") return "full";
+
+  if (pharmacy.subscription_status === "active") {
+    const subEnds = pharmacy.subscription_ends_at ? new Date(pharmacy.subscription_ends_at) : null;
+    if (!subEnds || now < subEnds) return "full";
+    const graceEnds = new Date(subEnds.getTime() + 7 * 24 * 60 * 60 * 1000);
+    if (now < graceEnds) return "readonly";
+    return "blocked";
+  }
+
   if (pharmacy.subscription_status === "trial") {
-    const now = new Date();
     const trialEnds = pharmacy.trial_ends_at ? new Date(pharmacy.trial_ends_at) : null;
     if (!trialEnds || now < trialEnds) return "full";
     const graceEnds = new Date(trialEnds.getTime() + 7 * 24 * 60 * 60 * 1000);
     if (now < graceEnds) return "readonly";
     return "blocked";
   }
+
   return "blocked";
 }
 
@@ -2275,7 +2284,7 @@ function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout
     setLoading(true);
     const { data, error } = await supabase
       .from("pharmacies")
-      .select("id, name, name_en, phone, subscription_plan, subscription_status, trial_ends_at, created_at")
+      .select("id, name, name_en, phone, subscription_plan, subscription_status, trial_ends_at, subscription_ends_at, created_at")
       .order("created_at", { ascending: false });
     if (error) setMsg({ text: "تعذّر تحميل الصيدليات: " + error.message, type: "err" });
     setPharmacies(data || []);
@@ -2299,7 +2308,15 @@ function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout
   };
 
   const suspend = (id: string) => updatePharmacy(id, { subscription_status: "suspended" }, "تم إيقاف الصيدلية");
-  const activate = (id: string) => updatePharmacy(id, { subscription_status: "active" }, "تم تفعيل الصيدلية");
+
+  // تفعيل الاشتراك المدفوع: يحدد تاريخ انتهاء سنة من الآن (أو من تاريخ الانتهاء الحالي لو لسه ساري)
+  const activate = (p: any) => {
+    const base = p.subscription_ends_at && new Date(p.subscription_ends_at) > new Date() ? new Date(p.subscription_ends_at) : new Date();
+    const next = new Date(base);
+    next.setFullYear(next.getFullYear() + 1);
+    updatePharmacy(p.id, { subscription_status: "active", subscription_ends_at: next.toISOString() }, "تم تفعيل الاشتراك لمدة سنة");
+  };
+
   const extendTrial7 = (p: any) => {
     const base = p.trial_ends_at && new Date(p.trial_ends_at) > new Date() ? new Date(p.trial_ends_at) : new Date();
     const next = new Date(base.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -2346,6 +2363,7 @@ function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout
                 <th style={{ padding: 12 }}>الحالة</th>
                 <th style={{ padding: 12 }}>وضع الوصول</th>
                 <th style={{ padding: 12 }}>نهاية التجربة</th>
+                <th style={{ padding: 12 }}>نهاية الاشتراك</th>
                 <th style={{ padding: 12 }}>تاريخ الإنشاء</th>
                 <th style={{ padding: 12 }}>إجراءات</th>
               </tr>
@@ -2366,6 +2384,9 @@ function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout
                     <td style={{ padding: 12 }}>
                       {p.trial_ends_at ? new Date(p.trial_ends_at).toLocaleDateString("ar-EG") : "—"}
                     </td>
+                    <td style={{ padding: 12 }}>
+                      {p.subscription_ends_at ? new Date(p.subscription_ends_at).toLocaleDateString("ar-EG") : "—"}
+                    </td>
                     <td style={{ padding: 12, color: COLORS.textDim }}>
                       {p.created_at ? new Date(p.created_at).toLocaleDateString("ar-EG") : "—"}
                     </td>
@@ -2375,14 +2396,14 @@ function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout
                         onClick={() => extendTrial7(p)}
                         style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#e0f2fe", color: "#075985", fontWeight: 700, cursor: "pointer" }}
                       >
-                        +7 أيام
+                        +7 أيام تجربة
                       </button>
                       <button
                         disabled={busyId === p.id}
-                        onClick={() => activate(p.id)}
+                        onClick={() => activate(p)}
                         style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#dcfce7", color: "#166534", fontWeight: 700, cursor: "pointer" }}
                       >
-                        تفعيل
+                        تفعيل (+سنة)
                       </button>
                       <button
                         disabled={busyId === p.id}
@@ -2396,7 +2417,7 @@ function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout
                 );
               })}
               {pharmacies.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: COLORS.textDim }}>لا توجد صيدليات</td></tr>
+                <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: COLORS.textDim }}>لا توجد صيدليات</td></tr>
               )}
             </tbody>
           </table>
