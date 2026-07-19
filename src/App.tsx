@@ -29461,6 +29461,13 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, users = 
   const ramadan = isRamadan();
   const intervalRef = useRef<any>(null);
 
+  // 🆕 استشعار انقطاع الكهرباء/النت: فجوة بين آخر نبضة والوقت الحالي
+  const [gapThresholdMinutes, setGapThresholdMinutes] = useState<number>(30);
+  const [pendingGap, setPendingGap] = useState<{ start: string; end: string; minutes: number } | null>(null);
+  const [gapReasonNote, setGapReasonNote] = useState("");
+  const [unreviewedGaps, setUnreviewedGaps] = useState<any[]>([]);
+  const heartbeatRef = useRef<any>(null);
+
   const today = todayLocal();
   const todayDow = new Date().getDay();
 
@@ -29484,6 +29491,125 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, users = 
         if (data?.prayer_city) setPrayerCity(data.prayer_city);
       });
   }, [pharmacyId]);
+
+  // 🆕 تحميل حد الفجوة المشبوهة (بالدقايق) من إعدادات الصيدلية
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase
+      .from("pharmacy_settings")
+      .select("attendance_gap_threshold_minutes")
+      .eq("pharmacy_id", pharmacyId)
+      .single()
+      .then(({ data }) => {
+        if (data?.attendance_gap_threshold_minutes) setGapThresholdMinutes(data.attendance_gap_threshold_minutes);
+      });
+  }, [pharmacyId]);
+
+  const saveGapThreshold = async (minutes: number) => {
+    setGapThresholdMinutes(minutes);
+    await supabase
+      .from("pharmacy_settings")
+      .upsert([{ pharmacy_id: pharmacyId, attendance_gap_threshold_minutes: minutes }], { onConflict: "pharmacy_id" });
+    globalToast(`✅ تم تحديث حد الفجوة المشبوهة إلى ${minutes} دقيقة`);
+  };
+
+  // 🆕 نبضة heartbeat محلية طول ما الشاشة مفتوحة، عشان لو الجهاز اتقفل فجأة (كهرباء/كراش)
+  // نلاقي آخر وقت كان فيه نشاط فعلي محفوظ على القرص (localStorage مش الذاكرة).
+  const HEARTBEAT_KEY = `attendance_heartbeat_${pharmacyId}`;
+
+  function checkForGap() {
+    if (!currentUser?.name) return;
+    const myOpenLog = todayLogs.find((l) => l.pharmacist_name === currentUser.name && !l.check_out);
+    if (!myOpenLog) return; // مفيش حضور مفتوح للمستخدم الحالي، مفيش داعي نسأل
+
+    const lastBeat = localStorage.getItem(HEARTBEAT_KEY);
+    const now = Date.now();
+    if (lastBeat) {
+      const gapMs = now - parseInt(lastBeat, 10);
+      const gapMinutes = gapMs / 60000;
+      if (gapMinutes >= gapThresholdMinutes) {
+        setPendingGap({
+          start: new Date(parseInt(lastBeat, 10)).toISOString(),
+          end: new Date(now).toISOString(),
+          minutes: Math.round(gapMinutes),
+        });
+      }
+    }
+    localStorage.setItem(HEARTBEAT_KEY, String(now));
+  }
+
+  useEffect(() => {
+    if (!pharmacyId || !currentUser?.name) return;
+    checkForGap(); // تحقق فوري عند فتح/رجوع الصفحة
+    heartbeatRef.current = setInterval(() => {
+      localStorage.setItem(HEARTBEAT_KEY, String(Date.now()));
+    }, 60000); // نبضة كل دقيقة طول ما الصفحة مفتوحة وشغالة
+    const onVisible = () => { if (document.visibilityState === "visible") checkForGap(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(heartbeatRef.current);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [pharmacyId, currentUser?.name, gapThresholdMinutes, todayLogs.length]);
+
+  // 🆕 حفظ سبب الفجوة اللي اختاره الصيدلي + تحميل الفجوات اللي لسه محتاجة مراجعة المدير
+  async function submitGapReason(reason: string) {
+    if (!pendingGap || !currentUser?.name) return;
+    const myOpenLog = todayLogs.find((l) => l.pharmacist_name === currentUser.name && !l.check_out);
+    await supabase.from("attendance_gaps").insert({
+      pharmacy_id: pharmacyId,
+      attendance_id: myOpenLog?.id || null,
+      pharmacist_name: currentUser.name,
+      gap_start: pendingGap.start,
+      gap_end: pendingGap.end,
+      duration_minutes: pendingGap.minutes,
+      reason,
+      note: reason === "سبب آخر" ? gapReasonNote : null,
+      review_status: "pending",
+    });
+    globalToast("✅ تم تسجيل السبب، هيتراجع من المدير");
+    setPendingGap(null);
+    setGapReasonNote("");
+    loadUnreviewedGaps();
+  }
+
+  async function loadUnreviewedGaps() {
+    const { data } = await supabase
+      .from("attendance_gaps")
+      .select("*")
+      .eq("pharmacy_id", pharmacyId)
+      .eq("review_status", "pending")
+      .order("gap_start", { ascending: false });
+    if (data) setUnreviewedGaps(data);
+  }
+
+  useEffect(() => { if (pharmacyId) loadUnreviewedGaps(); }, [pharmacyId]);
+
+  // 🆕 اعتماد الفجوة (مفيش خصم) أو رفضها (تتحسب تأخير/خصم من ساعات العمل)
+  async function reviewGap(gap: any, approve: boolean) {
+    await supabase.from("attendance_gaps").update({
+      review_status: approve ? "approved" : "rejected",
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: currentUser?.name || null,
+    }).eq("id", gap.id);
+
+    if (!approve && gap.attendance_id) {
+      const { data: log } = await supabase.from("attendance_logs").select("*").eq("id", gap.attendance_id).single();
+      if (log) {
+        const currentLate = +log.late_minutes || 0;
+        const currentNet = log.net_hours != null ? +log.net_hours : null;
+        await supabase.from("attendance_logs").update({
+          late_minutes: currentLate + gap.duration_minutes,
+          net_hours: currentNet != null ? Math.max(0, currentNet - gap.duration_minutes / 60) : null,
+        }).eq("id", gap.attendance_id);
+      }
+    }
+    globalToast(approve ? "✅ تم اعتماد الفجوة" : "❌ تم رفض الفجوة واحتسابها تأخير");
+    loadUnreviewedGaps();
+    loadTodayLogs();
+  }
 
   const saveCityAndReload = async (cityId: string) => {
     setPrayerCity(cityId);
@@ -29878,6 +30004,41 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, users = 
   return (
     <div style={{ fontFamily: "'Cairo', sans-serif", color: C.text }}>
 
+      {/* 🆕 مودال: طلب توضيح سبب توقف البرنامج فترة (احتمال انقطاع كهرباء) */}
+      {pendingGap && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+          <div style={{ background: C.bg, border: `1px solid ${COLORS.gold}`, borderRadius: 16, padding: 22, width: 340, maxWidth: "90%" }}>
+            <div style={{ fontWeight: 900, fontSize: 15, color: COLORS.gold, marginBottom: 6 }}>⚡ لاحظنا توقف في البرنامج</div>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
+              من {fmt(pendingGap.start)} إلى {fmt(pendingGap.end)} (حوالي {pendingGap.minutes} دقيقة) — ايه السبب؟
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button onClick={() => submitGapReason("انقطاع كهرباء")} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 13, cursor: "pointer", textAlign: "right" }}>
+                ⚡ انقطاع كهرباء
+              </button>
+              <button onClick={() => submitGapReason("مشكلة إنترنت")} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 13, cursor: "pointer", textAlign: "right" }}>
+                📶 مشكلة إنترنت
+              </button>
+              <div>
+                <input
+                  value={gapReasonNote}
+                  onChange={(e) => setGapReasonNote(e.target.value)}
+                  placeholder="سبب آخر (اكتبه هنا)..."
+                  style={{ width: "100%", boxSizing: "border-box", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: C.text, fontSize: 13, outline: "none", marginBottom: 6 }}
+                />
+                <button
+                  onClick={() => gapReasonNote.trim() && submitGapReason("سبب آخر")}
+                  disabled={!gapReasonNote.trim()}
+                  style={{ width: "100%", background: gapReasonNote.trim() ? COLORS.blueSoft : C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 13, cursor: gapReasonNote.trim() ? "pointer" : "not-allowed" }}
+                >
+                  إرسال السبب الآخر
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>🕐 الحضور والانصراف</h2>
@@ -29939,6 +30100,38 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, users = 
                 })}
             </div>
           </div>
+
+          {/* 🆕 فجوات محتاجة مراجعة (احتمال انقطاع كهرباء/نت) */}
+          {unreviewedGaps.length > 0 && (
+            <div style={{ ...cardStyle, border: `1px solid ${COLORS.gold}` }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: COLORS.gold, marginBottom: 10 }}>
+                ⚡ فجوات محتاجة مراجعة ({unreviewedGaps.length})
+              </div>
+              {unreviewedGaps.map((gap) => (
+                <div key={gap.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, color: C.text, fontSize: 13 }}>{gap.pharmacist_name}</div>
+                      <div style={{ fontSize: 11, color: C.muted }}>
+                        من {fmt(gap.gap_start)} إلى {fmt(gap.gap_end)} · {gap.duration_minutes} دقيقة
+                      </div>
+                      <div style={{ fontSize: 12, color: C.accent, marginTop: 4 }}>
+                        السبب: {gap.reason}{gap.note ? ` — ${gap.note}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <button onClick={() => reviewGap(gap, true)} style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 7, padding: "6px 12px", color: C.green, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        ✅ اعتماد
+                      </button>
+                      <button onClick={() => reviewGap(gap, false)} style={{ background: "#3a1a1a", border: `1px solid #6a2a2a`, borderRadius: 7, padding: "6px 12px", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        ❌ رفض واحتسابها تأخير
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* تسجيل الحضور */}
           <div style={cardStyle}>
@@ -30116,6 +30309,29 @@ function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, users = 
             </select>
             <div style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>
               تغيير المدينة يعيد حساب مواقيت الصلاة فوراً حسب الإحداثيات الجديدة
+            </div>
+          </div>
+
+          {/* 🆕 حد الفجوة المشبوهة لاستشعار انقطاع الكهرباء/النت */}
+          <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, color: C.text, fontSize: 13, marginBottom: 8 }}>⚡ حد الفجوة المشبوهة (انقطاع كهرباء/نت)</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="number"
+                min={5}
+                step={5}
+                defaultValue={gapThresholdMinutes}
+                disabled={!canEditTab("settings")}
+                onBlur={(e) => {
+                  const v = +e.target.value;
+                  if (v >= 5 && v !== gapThresholdMinutes) saveGapThreshold(v);
+                }}
+                style={{ width: 100, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: C.text, fontSize: 13, outline: "none" }}
+              />
+              <span style={{ color: C.muted, fontSize: 12 }}>دقيقة</span>
+            </div>
+            <div style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>
+              لو الجهاز اتقفل (كهرباء/كراش) لفترة أطول من كده أثناء شفت مفتوح، هيظهر للصيدلي طلب توضيح السبب عند رجوعه
             </div>
           </div>
 
