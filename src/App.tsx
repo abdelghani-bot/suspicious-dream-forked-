@@ -231,20 +231,40 @@ const authService = {
     const email = `${username.trim().toLowerCase()}@pharmacy.internal`;
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError || !authData?.user) throw new Error("اسم المستخدم أو كلمة المرور غير صحيحة");
+
     const { data: profile, error: profileError } = await supabase
       .from("users")
-      .select("id, name, role, username, pharmacy_id")
+      .select("id, name, role, username, pharmacy_id, is_super_admin")
       .eq("auth_user_id", authData.user.id)
       .single();
     if (profileError || !profile) {
       await supabase.auth.signOut();
       throw new Error("هذا الحساب غير مفعّل، راجع مدير النظام");
     }
+
+    // السوبر أدمن بيدخل دايمًا من غير ما يتقيّد بحالة أي صيدلية
+    if (profile.is_super_admin) {
+      return { ...profile, readOnly: false };
+    }
+
     if (!profile.pharmacy_id) {
       await supabase.auth.signOut();
       throw new Error("هذا المستخدم غير مرتبط بصيدلية");
     }
-    return profile;
+
+    const { data: accessStatus, error: statusError } = await supabase.rpc("pharmacy_access_status", {
+      p_pharmacy_id: profile.pharmacy_id,
+    });
+    if (statusError) {
+      await supabase.auth.signOut();
+      throw new Error("تعذّر التحقق من حالة الاشتراك، حاول مرة أخرى");
+    }
+    if (accessStatus === "blocked") {
+      await supabase.auth.signOut();
+      throw new Error("انتهت صلاحية الاشتراك. تواصل مع الدعم لتجديد الاشتراك");
+    }
+
+    return { ...profile, readOnly: accessStatus === "readonly" };
   },
   async logout() {
     await supabase.auth.signOut();
@@ -252,12 +272,28 @@ const authService = {
   async getCurrentUser() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return null;
+
     const { data: profile } = await supabase
       .from("users")
-      .select("id, name, role, username, pharmacy_id")
+      .select("id, name, role, username, pharmacy_id, is_super_admin")
       .eq("auth_user_id", session.user.id)
       .single();
-    return profile || null;
+    if (!profile) return null;
+
+    if (profile.is_super_admin) {
+      return { ...profile, readOnly: false };
+    }
+    if (!profile.pharmacy_id) return { ...profile, readOnly: true };
+
+    const { data: accessStatus } = await supabase.rpc("pharmacy_access_status", {
+      p_pharmacy_id: profile.pharmacy_id,
+    });
+    if (accessStatus === "blocked") {
+      await supabase.auth.signOut();
+      return null;
+    }
+
+    return { ...profile, readOnly: accessStatus === "readonly" };
   },
 };
 
@@ -2208,6 +2244,168 @@ function PharmacyShelfBackground() {
   );
 }
 
+// ==================== SUPER ADMIN PANEL ====================
+function computeAccessStatus(pharmacy: any): "full" | "readonly" | "blocked" {
+  if (pharmacy.subscription_status === "suspended") return "blocked";
+  if (pharmacy.subscription_status === "active") return "full";
+  if (pharmacy.subscription_status === "trial") {
+    const now = new Date();
+    const trialEnds = pharmacy.trial_ends_at ? new Date(pharmacy.trial_ends_at) : null;
+    if (!trialEnds || now < trialEnds) return "full";
+    const graceEnds = new Date(trialEnds.getTime() + 7 * 24 * 60 * 60 * 1000);
+    if (now < graceEnds) return "readonly";
+    return "blocked";
+  }
+  return "blocked";
+}
+
+const ACCESS_BADGE: Record<string, { label: string; bg: string; color: string }> = {
+  full:     { label: "✅ نشط",         bg: "#dcfce7", color: "#166534" },
+  readonly: { label: "⏳ قراءة فقط",   bg: "#fef3c7", color: "#92400e" },
+  blocked:  { label: "🚫 موقوف",       bg: "#fee2e2", color: "#991b1b" },
+};
+
+function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout: () => void }) {
+  const [pharmacies, setPharmacies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ text: string; type: "ok" | "err" } | null>(null);
+
+  const loadPharmacies = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("pharmacies")
+      .select("id, name, name_en, phone, subscription_plan, subscription_status, trial_ends_at, created_at")
+      .order("created_at", { ascending: false });
+    if (error) setMsg({ text: "تعذّر تحميل الصيدليات: " + error.message, type: "err" });
+    setPharmacies(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadPharmacies(); }, []);
+
+  const showMsg = (text: string, type: "ok" | "err" = "ok") => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg(null), 3500);
+  };
+
+  const updatePharmacy = async (id: string, patch: Record<string, any>, successText: string) => {
+    setBusyId(id);
+    const { error } = await supabase.from("pharmacies").update(patch).eq("id", id);
+    setBusyId(null);
+    if (error) { showMsg("فشل التحديث: " + error.message, "err"); return; }
+    showMsg(successText, "ok");
+    await loadPharmacies();
+  };
+
+  const suspend = (id: string) => updatePharmacy(id, { subscription_status: "suspended" }, "تم إيقاف الصيدلية");
+  const activate = (id: string) => updatePharmacy(id, { subscription_status: "active" }, "تم تفعيل الصيدلية");
+  const extendTrial7 = (p: any) => {
+    const base = p.trial_ends_at && new Date(p.trial_ends_at) > new Date() ? new Date(p.trial_ends_at) : new Date();
+    const next = new Date(base.getTime() + 7 * 24 * 60 * 60 * 1000);
+    updatePharmacy(p.id, { subscription_status: "trial", trial_ends_at: next.toISOString() }, "تم تمديد الفترة التجريبية 7 أيام");
+  };
+
+  return (
+    <div dir="rtl" style={{ fontFamily: "'Tajawal',sans-serif", minHeight: "100vh", background: COLORS.appBg, padding: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.textPrimary }}>لوحة تحكم السوبر أدمن</div>
+          <div style={{ fontSize: 13, color: COLORS.textDim }}>مرحبًا {currentUser?.name} — إدارة اشتراكات كل الصيدليات</div>
+        </div>
+        <button
+          onClick={onLogout}
+          style={{
+            padding: "8px 16px", borderRadius: 8, border: "none",
+            background: COLORS.redSoft || "#fee2e2", color: COLORS.red || "#991b1b",
+            fontWeight: 700, cursor: "pointer",
+          }}
+        >
+          خروج
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{
+          padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontWeight: 700,
+          background: msg.type === "ok" ? "#dcfce7" : "#fee2e2",
+          color: msg.type === "ok" ? "#166534" : "#991b1b",
+        }}>
+          {msg.text}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ color: COLORS.textDim }}>جارٍ التحميل...</div>
+      ) : (
+        <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", boxShadow: SHADOW?.card || "0 1px 4px rgba(0,0,0,0.08)" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: COLORS.surfaceAlt, textAlign: "right" }}>
+                <th style={{ padding: 12 }}>الصيدلية</th>
+                <th style={{ padding: 12 }}>الحالة</th>
+                <th style={{ padding: 12 }}>وضع الوصول</th>
+                <th style={{ padding: 12 }}>نهاية التجربة</th>
+                <th style={{ padding: 12 }}>تاريخ الإنشاء</th>
+                <th style={{ padding: 12 }}>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pharmacies.map((p) => {
+                const status = computeAccessStatus(p);
+                const badge = ACCESS_BADGE[status];
+                return (
+                  <tr key={p.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                    <td style={{ padding: 12, fontWeight: 700 }}>{p.name}</td>
+                    <td style={{ padding: 12 }}>{p.subscription_status || "—"}</td>
+                    <td style={{ padding: 12 }}>
+                      <span style={{ padding: "3px 10px", borderRadius: 999, background: badge.bg, color: badge.color, fontWeight: 700 }}>
+                        {badge.label}
+                      </span>
+                    </td>
+                    <td style={{ padding: 12 }}>
+                      {p.trial_ends_at ? new Date(p.trial_ends_at).toLocaleDateString("ar-EG") : "—"}
+                    </td>
+                    <td style={{ padding: 12, color: COLORS.textDim }}>
+                      {p.created_at ? new Date(p.created_at).toLocaleDateString("ar-EG") : "—"}
+                    </td>
+                    <td style={{ padding: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button
+                        disabled={busyId === p.id}
+                        onClick={() => extendTrial7(p)}
+                        style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#e0f2fe", color: "#075985", fontWeight: 700, cursor: "pointer" }}
+                      >
+                        +7 أيام
+                      </button>
+                      <button
+                        disabled={busyId === p.id}
+                        onClick={() => activate(p.id)}
+                        style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#dcfce7", color: "#166534", fontWeight: 700, cursor: "pointer" }}
+                      >
+                        تفعيل
+                      </button>
+                      <button
+                        disabled={busyId === p.id}
+                        onClick={() => suspend(p.id)}
+                        style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#fee2e2", color: "#991b1b", fontWeight: 700, cursor: "pointer" }}
+                      >
+                        إيقاف
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {pharmacies.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: COLORS.textDim }}>لا توجد صيدليات</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
@@ -2779,6 +2977,19 @@ loadData();
         }}
       />
     );
+
+  if (currentUser.is_super_admin) {
+    return (
+      <SuperAdminPanel
+        currentUser={currentUser}
+        onLogout={async () => {
+          await authService.logout();
+          setCurrentUser(null);
+        }}
+      />
+    );
+  }
+
 if (isLoading) return (
   <div style={{
     minHeight: "100vh",
@@ -2849,6 +3060,7 @@ if (isLoading) return (
   return (
     <div
       dir="rtl"
+      className={currentUser?.readOnly ? "app-readonly" : ""}
       style={{
         fontFamily: "'Tajawal',sans-serif",
         position: "relative",
@@ -2857,6 +3069,35 @@ if (isLoading) return (
         display: "flex",
       }}
     >
+      {currentUser?.readOnly && (
+        <style>{`
+          .app-readonly .content-area button:not(.readonly-allow) {
+            pointer-events: none !important;
+            opacity: 0.45 !important;
+            cursor: not-allowed !important;
+            filter: grayscale(40%);
+          }
+        `}</style>
+      )}
+      {currentUser?.readOnly && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            background: "#f59e0b",
+            color: "#1a1a1a",
+            textAlign: "center",
+            padding: "8px 12px",
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          ⚠️ انتهت الفترة التجريبية — وضع القراءة فقط. تواصل مع الدعم لتجديد الاشتراك وتفعيل الإضافة والتعديل.
+        </div>
+      )}
       <PharmacyShelfBackground />
       <link
         href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap"
@@ -3138,6 +3379,7 @@ if (isLoading) return (
 }} />
 
       {/* MAIN CONTENT */}
+      <div className="content-area" style={{ display: "contents" }}>
       {tab === "pharmacy_settings" && currentUser?.role === "admin" && (
         <PharmacySettings showToast={showToast}
           pharmacyId={pharmacyId}
@@ -3471,6 +3713,7 @@ if (isLoading) return (
   />
 )}    
       </main>
+      </div>
     </div>
   );
 }
