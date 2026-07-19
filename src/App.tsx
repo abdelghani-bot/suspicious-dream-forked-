@@ -25460,6 +25460,10 @@ useEffect(() => {
       rows.push({ type: "income", sub_type: "daily_sales", method: "بطاقة", amount: todayCard, note: "دخل مبيعات اليوم (بطاقة)", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     if (todayTransfer > 0)
       rows.push({ type: "income", sub_type: "daily_sales", method: "تحويل", amount: todayTransfer, note: "دخل مبيعات اليوم (تحويل)", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
+    // 🆕 سداد آجل العملاء كان بيظهر في الملخص بس من غير ما يترحّل كقيد فعلي في الخزنة،
+    // فكان بيتغيب عن "صافي الخزنة لهذا اليوم" وعن التقرير المطبوع رغم إنه فلوس كاش اتحصّلت فعليًا.
+    if (todayCreditIncome > 0)
+      rows.push({ type: "income", sub_type: "daily_sales", method: "نقدي", amount: todayCreditIncome, note: "سداد آجل عملاء", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     if (+closingForm.extra_income > 0)
       rows.push({ type: "income", sub_type: "other", method: "نقدي", amount: +closingForm.extra_income, note: closingForm.extra_income_note || "دخل إضافي", date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
     if (+closingForm.petty > 0)
@@ -25665,6 +25669,8 @@ useEffect(() => {
       if (t.cash > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "نقدي", amount: t.cash, note: "دخل مبيعات (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
       if (t.card > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "بطاقة", amount: t.card, note: "دخل مبيعات (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
       if (t.transfer > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "تحويل", amount: t.transfer, note: "دخل مبيعات (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
+      // 🆕 نفس تصحيح التقفيل العادي — سداد آجل العملاء لازم يترحّل كقيد دخل فعلي عشان يدخل في الصافي والتقرير
+      if (t.creditIncome > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "نقدي", amount: t.creditIncome, note: "سداد آجل عملاء (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
       if (+retroExpense > 0) rows.push({ type: "expense", sub_type: "variable", method: "نقدي", amount: +retroExpense, note: retroExpenseNote || "مصروفات اليوم (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
       if (rows.length > 0) {
         const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
