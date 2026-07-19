@@ -24784,6 +24784,9 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   // لفاتورة قديمة قبل التقفيل مكانش بيتلحق خالص لأن وقت الفاتورة نفسه قبل الكيرسر).
   // بنستبعد: رجاعة الشبكة (بطاقة) لأنها مالهاش دخل بفلوس التقفيل المعلّقة، ومرتجع الآجل (refund_method=null)
   // لأنه بيترد كمديونية مباشرة من غير حركة كاش، ومرتجع النقد الافتتاحي لشفت جديد (محسوب على شفته هو).
+  // 🆕 المرتجعات بعد التقفيل بتتسجل بمصروفها في الخزنة فورًا لحظة حصولها (بغض النظر عن حالة
+  // التقفيل)، فمفيش داعي نطرحها من التسوية هنا تاني — غير كده هيحصل خصم مزدوج. التسوية دي
+  // بقت مقصورة على المبيعات الجديدة فقط كدخل. بنسيب postClosingReturns للعرض الإعلامي بس.
   const postClosingReturns = postClosingCursor
     ? (returns || []).filter(
         (r) => r.type === "sales" && r.date === today && r.refund_source !== "shift" &&
@@ -24794,9 +24797,8 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
   const postClosingSalesTotal = postClosingSales
     .filter((s) => s.payment !== "آجل")
     .reduce((a, s) => a + (s.total || 0), 0);
-  const postClosingReturnsTotal = postClosingReturns.reduce((a, r) => a + (r.total || 0), 0);
-  const postClosingNet = postClosingSalesTotal - postClosingReturnsTotal;
-  const hasPostClosingActivity = postClosingSales.length > 0 || postClosingReturns.length > 0;
+  const postClosingNet = postClosingSalesTotal;
+  const hasPostClosingActivity = postClosingSales.length > 0;
 
   const [addingAdjustment, setAddingAdjustment] = useState(false);
   const addingAdjustmentRef = useRef(false); // 🆕 حماية فورية من الضغط المتكرر (state وحده مش كفاية لأن التحديث async)
@@ -24815,14 +24817,13 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     }
     addingAdjustmentRef.current = true;
     setAddingAdjustment(true);
-    const invoiceIds = [...postClosingSales.map((s) => s.id), ...postClosingReturns.map((r) => r.invoice_id || r.id)]
-      .join("، ");
+    const invoiceIds = postClosingSales.map((s) => s.id).join("، ");
     const payload = {
-      type: postClosingNet > 0 ? "income" : "expense",
+      type: "income",
       sub_type: "closing_adjustment",
       method: "نقدي",
-      amount: Math.abs(postClosingNet),
-      note: `تسوية مبيعات/مرتجعات بعد تقفيل اليوم — فواتير: ${invoiceIds}`,
+      amount: postClosingNet,
+      note: `تسوية مبيعات جديدة بعد تقفيل اليوم — فواتير: ${invoiceIds}`,
       date: today,
       pharmacy_id: pharmacyId,
       created_by: currentUser?.name || "",
@@ -24867,10 +24868,11 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
           r.created_at && new Date(r.created_at).getTime() > reviewPostClosingCursor
       )
     : [];
+  // 🆕 نفس منطق تسوية اليوم الحالي: المرتجعات متسجلة بمصروفها منفصل فورًا، فبنقتصر هنا على
+  // قيمة المبيعات الجديدة فقط كدخل من غير طرح المرتجعات.
   const reviewPostClosingSalesTotal = reviewPostClosingSales.filter((s) => s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0);
-  const reviewPostClosingReturnsTotal = reviewPostClosingReturns.reduce((a, r) => a + (r.total || 0), 0);
-  const reviewPostClosingNet = reviewPostClosingSalesTotal - reviewPostClosingReturnsTotal;
-  const reviewHasPostClosingActivity = reviewPostClosingSales.length > 0 || reviewPostClosingReturns.length > 0;
+  const reviewPostClosingNet = reviewPostClosingSalesTotal;
+  const reviewHasPostClosingActivity = reviewPostClosingSales.length > 0;
   const [addingReviewAdjustment, setAddingReviewAdjustment] = useState(false);
   const addingReviewAdjustmentRef = useRef(false);
   const addReviewClosingAdjustment = async () => {
@@ -24884,13 +24886,13 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     }
     addingReviewAdjustmentRef.current = true;
     setAddingReviewAdjustment(true);
-    const invoiceIds = [...reviewPostClosingSales.map((s) => s.id), ...reviewPostClosingReturns.map((r) => r.invoice_id || r.id)].join("، ");
+    const invoiceIds = reviewPostClosingSales.map((s) => s.id).join("، ");
     const payload = {
-      type: reviewPostClosingNet > 0 ? "income" : "expense",
+      type: "income",
       sub_type: "closing_adjustment",
       method: "نقدي",
-      amount: Math.abs(reviewPostClosingNet),
-      note: `تسوية مبيعات/مرتجعات بعد تقفيل يوم ${reviewDate} — فواتير: ${invoiceIds}`,
+      amount: reviewPostClosingNet,
+      note: `تسوية مبيعات جديدة بعد تقفيل يوم ${reviewDate} — فواتير: ${invoiceIds}`,
       date: reviewDate,
       pharmacy_id: pharmacyId,
       created_by: currentUser?.name || "",
@@ -25961,9 +25963,13 @@ useEffect(() => {
               </div>
               <div style={{ color: COLORS.textDim, fontSize: 12, lineHeight: 1.8 }}>
                 {postClosingSales.length > 0 && <div>مبيعات جديدة: {postClosingSales.length} فاتورة</div>}
-                {postClosingReturns.length > 0 && <div>مرتجعات جديدة: {postClosingReturns.length} فاتورة</div>}
-                <div style={{ marginTop: 4, fontWeight: 700, color: postClosingNet >= 0 ? COLORS.green : COLORS.red }}>
-                  الصافي: {postClosingNet >= 0 ? "+" : ""}{postClosingNet.toFixed(2)} ر.س
+                {postClosingReturns.length > 0 && (
+                  <div style={{ fontSize: 11, color: COLORS.textDim }}>
+                    ℹ️ فيه {postClosingReturns.length} مرتجع بعد التقفيل — متسجل مصروفه في الخزنة فورًا بالفعل، ومش هيتضاف هنا تاني.
+                  </div>
+                )}
+                <div style={{ marginTop: 4, fontWeight: 700, color: COLORS.green }}>
+                  قيمة المبيعات الجديدة: +{postClosingNet.toFixed(2)} ر.س
                 </div>
               </div>
               <button
@@ -25975,7 +25981,7 @@ useEffect(() => {
                   cursor: (addingAdjustment || openShifts.length > 0) ? "default" : "pointer", opacity: (addingAdjustment || openShifts.length > 0) ? 0.6 : 1,
                 }}
               >
-                {addingAdjustment ? "جارٍ الإضافة..." : "➕ إضافة كتسوية على تقفيل اليوم"}
+                {addingAdjustment ? "جارٍ الإضافة..." : "➕ إضافة قيمة المبيعات الجديدة كتسوية"}
               </button>
               {openShifts.length > 0 && (
                 <div style={{ marginTop: 8, color: COLORS.red, fontSize: 11, fontWeight: 700, textAlign: "center" }}>
@@ -26037,9 +26043,13 @@ useEffect(() => {
               </div>
               <div style={{ color: COLORS.textDim, fontSize: 12, lineHeight: 1.8 }}>
                 {reviewPostClosingSales.length > 0 && <div>مبيعات جديدة: {reviewPostClosingSales.length} فاتورة</div>}
-                {reviewPostClosingReturns.length > 0 && <div>مرتجعات جديدة: {reviewPostClosingReturns.length} فاتورة</div>}
-                <div style={{ marginTop: 4, fontWeight: 700, color: reviewPostClosingNet >= 0 ? COLORS.green : COLORS.red }}>
-                  الصافي: {reviewPostClosingNet >= 0 ? "+" : ""}{reviewPostClosingNet.toFixed(2)} ر.س
+                {reviewPostClosingReturns.length > 0 && (
+                  <div style={{ fontSize: 11, color: COLORS.textDim }}>
+                    ℹ️ فيه {reviewPostClosingReturns.length} مرتجع بعد التقفيل — متسجل مصروفه في الخزنة فورًا بالفعل، ومش هيتضاف هنا تاني.
+                  </div>
+                )}
+                <div style={{ marginTop: 4, fontWeight: 700, color: COLORS.green }}>
+                  قيمة المبيعات الجديدة: +{reviewPostClosingNet.toFixed(2)} ر.س
                 </div>
               </div>
               <button
@@ -26051,7 +26061,7 @@ useEffect(() => {
                   cursor: (addingReviewAdjustment || openShifts.length > 0) ? "default" : "pointer", opacity: (addingReviewAdjustment || openShifts.length > 0) ? 0.6 : 1,
                 }}
               >
-                {addingReviewAdjustment ? "جارٍ الإضافة..." : `➕ إضافة كتسوية على تقفيل يوم ${reviewDate}`}
+                {addingReviewAdjustment ? "جارٍ الإضافة..." : `➕ إضافة قيمة المبيعات الجديدة كتسوية ليوم ${reviewDate}`}
               </button>
               {openShifts.length > 0 && (
                 <div style={{ marginTop: 8, color: COLORS.red, fontSize: 11, fontWeight: 700, textAlign: "center" }}>
