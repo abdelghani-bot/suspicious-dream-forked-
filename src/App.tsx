@@ -24530,6 +24530,74 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     showToast("✅ تمت إضافة التسوية لتقفيل اليوم");
   };
 
+  // ═══════════════════════════════════════════════════
+  // 🆕 مراجعة/تسوية أي يوم سابق مُقفّل — نفس فحص "حركة بعد التقفيل" فوق بالظبط،
+  // بس مش مقصور على النهارده. اليوزر بيختار يوم من قائمة الأيام المقفولة، ولو فيه
+  // مبيعات/مرتجعات حصلت بعد وقت التقفيل بتاع اليوم ده ولسه مش متضافة كتسوية، يقدر يضيفها.
+  // ده بيسد الفجوة اللي كانت بتخلي فرق المطابقة في تقرير "السداد والمصروفات" يفضل عالق
+  // لأيام فاتت من غير أي طريقة لتصليحه غير التعديل اليدوي في Supabase.
+  // ═══════════════════════════════════════════════════
+  const closedDaysList = Array.from(
+    new Set((entries || []).filter((e) => e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing").map((e) => e.date))
+  ).sort().reverse();
+  const [reviewDate, setReviewDate] = useState("");
+  const reviewClosingRecord = reviewDate
+    ? (entries || []).find((e) => e.pharmacy_id === pharmacyId && e.date === reviewDate && e.sub_type === "daily_closing")
+    : null;
+  const reviewClosingCreatedAt = reviewClosingRecord?.created_at ? new Date(reviewClosingRecord.created_at).getTime() : null;
+  const reviewLastAdjustmentAt = (entries || [])
+    .filter((e) => e.pharmacy_id === pharmacyId && e.date === reviewDate && e.sub_type === "closing_adjustment" && e.created_at)
+    .reduce((max, e) => Math.max(max, new Date(e.created_at).getTime()), 0);
+  const reviewPostClosingCursor = reviewClosingCreatedAt ? Math.max(reviewClosingCreatedAt, reviewLastAdjustmentAt) : null;
+  const reviewPostClosingSales = reviewPostClosingCursor
+    ? (sales || []).filter((s) => s.date === reviewDate && s.created_at && new Date(s.created_at).getTime() > reviewPostClosingCursor)
+    : [];
+  const reviewPostClosingReturns = reviewPostClosingCursor
+    ? (returns || []).filter(
+        (r) => r.type === "sales" && r.date === reviewDate && r.refund_source !== "shift" &&
+          r.refund_method && r.refund_method !== "بطاقة" &&
+          r.created_at && new Date(r.created_at).getTime() > reviewPostClosingCursor
+      )
+    : [];
+  const reviewPostClosingSalesTotal = reviewPostClosingSales.filter((s) => s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0);
+  const reviewPostClosingReturnsTotal = reviewPostClosingReturns.reduce((a, r) => a + (r.total || 0), 0);
+  const reviewPostClosingNet = reviewPostClosingSalesTotal - reviewPostClosingReturnsTotal;
+  const reviewHasPostClosingActivity = reviewPostClosingSales.length > 0 || reviewPostClosingReturns.length > 0;
+  const [addingReviewAdjustment, setAddingReviewAdjustment] = useState(false);
+  const addingReviewAdjustmentRef = useRef(false);
+  const addReviewClosingAdjustment = async () => {
+    if (!reviewDate || !reviewHasPostClosingActivity || reviewPostClosingNet === 0) return;
+    if (addingReviewAdjustmentRef.current) return;
+    // 🆕 نفس قيد النهارده بالظبط: ما ينفعش نضيف تسوية والشفت لسه مفتوح، عشان نضمن كل حركة اتلحقت
+    const openShiftsNow = (shifts || []).filter((s) => !s.end_time);
+    if (openShiftsNow.length > 0) {
+      showToast(`❌ يوجد ${openShiftsNow.length} شفت مفتوح — أقفل الشفت أولاً قبل إضافة التسوية`, "error");
+      return;
+    }
+    addingReviewAdjustmentRef.current = true;
+    setAddingReviewAdjustment(true);
+    const invoiceIds = [...reviewPostClosingSales.map((s) => s.id), ...reviewPostClosingReturns.map((r) => r.invoice_id || r.id)].join("، ");
+    const payload = {
+      type: reviewPostClosingNet > 0 ? "income" : "expense",
+      sub_type: "closing_adjustment",
+      method: "نقدي",
+      amount: Math.abs(reviewPostClosingNet),
+      note: `تسوية مبيعات/مرتجعات بعد تقفيل يوم ${reviewDate} — فواتير: ${invoiceIds}`,
+      date: reviewDate,
+      pharmacy_id: pharmacyId,
+      created_by: currentUser?.name || "",
+    };
+    const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+    setAddingReviewAdjustment(false);
+    addingReviewAdjustmentRef.current = false;
+    if (error) {
+      showToast("خطأ في إضافة تسوية اليوم السابق: " + error.message, "error");
+      return;
+    }
+    if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
+    showToast(`✅ تمت إضافة التسوية لتقفيل يوم ${reviewDate}`);
+  };
+
   const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(0);
 
 useEffect(() => {
@@ -25615,6 +25683,69 @@ useEffect(() => {
           >
             🖨️ طباعة التقفيل
           </button>
+        </div>
+      )}
+
+      {/* ══════════ 🆕 مراجعة/تسوية أي يوم سابق مُقفّل — يظهر دايمًا في تبويب تقفيل اليوم ══════════ */}
+      {activeTab === "today" && canViewDayClosing && closedDaysList.length > 0 && (
+        <div style={{
+          marginTop: 20, background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+          borderRadius: 10, padding: "14px 16px",
+        }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.textPrimary, marginBottom: 10 }}>
+            🔎 مراجعة تسوية يوم سابق
+          </div>
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 10, lineHeight: 1.8 }}>
+            اختار يوم مقفول عشان تتأكد مفيش مبيعات/مرتجعات حصلت فيه بعد وقت التقفيل ولسه ما اتضافتش كتسوية.
+          </div>
+          <select
+            value={reviewDate}
+            onChange={(e) => setReviewDate(e.target.value)}
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surface, color: COLORS.textPrimary, fontSize: 13, marginBottom: 10 }}
+          >
+            <option value="">— اختر يوم —</option>
+            {closedDaysList.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+
+          {reviewDate && !reviewHasPostClosingActivity && (
+            <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700 }}>
+              ✅ اليوم ده مفيهوش أي حركة معلّقة بعد التقفيل — كل حاجة متسجلة صح.
+            </div>
+          )}
+
+          {reviewDate && reviewHasPostClosingActivity && (
+            <div style={{
+              textAlign: "right", background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold,0.35)}`,
+              borderRadius: 10, padding: "14px 16px",
+            }}>
+              <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+                ⚠️ فيه حركة بعد تقفيل يوم {reviewDate} مش داخلة في السجل المحفوظ
+              </div>
+              <div style={{ color: COLORS.textDim, fontSize: 12, lineHeight: 1.8 }}>
+                {reviewPostClosingSales.length > 0 && <div>مبيعات جديدة: {reviewPostClosingSales.length} فاتورة</div>}
+                {reviewPostClosingReturns.length > 0 && <div>مرتجعات جديدة: {reviewPostClosingReturns.length} فاتورة</div>}
+                <div style={{ marginTop: 4, fontWeight: 700, color: reviewPostClosingNet >= 0 ? COLORS.green : COLORS.red }}>
+                  الصافي: {reviewPostClosingNet >= 0 ? "+" : ""}{reviewPostClosingNet.toFixed(2)} ر.س
+                </div>
+              </div>
+              <button
+                onClick={addReviewClosingAdjustment}
+                disabled={addingReviewAdjustment || reviewPostClosingNet === 0 || openShifts.length > 0}
+                style={{
+                  marginTop: 10, width: "100%", background: COLORS.gold, border: "none", borderRadius: 8,
+                  padding: "8px 12px", color: "#1a0f00", fontWeight: 700, fontSize: 12,
+                  cursor: (addingReviewAdjustment || openShifts.length > 0) ? "default" : "pointer", opacity: (addingReviewAdjustment || openShifts.length > 0) ? 0.6 : 1,
+                }}
+              >
+                {addingReviewAdjustment ? "جارٍ الإضافة..." : `➕ إضافة كتسوية على تقفيل يوم ${reviewDate}`}
+              </button>
+              {openShifts.length > 0 && (
+                <div style={{ marginTop: 8, color: COLORS.red, fontSize: 11, fontWeight: 700, textAlign: "center" }}>
+                  ⛔ مينفعش تضيف التسوية والشفت لسه مفتوح — أقفل الشفت الأول ({openShifts.map((s) => s.user).join("، ")})
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -27553,6 +27684,29 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   const closedReconciliationVariance = closedExpectedNetChange - closedRecordedNetChange;
   const isReconciled = Math.abs(closedReconciliationVariance) < 0.01;
 
+  // 🆕 تشخيص يوم بيوم — بدل ما نفترض "فيه يوم ما اتقفلش" من غير دليل، بنحسب لكل يوم في الفترة
+  // (المُقفّل منها) الفرق بين "المتوقع من الفواتير الخام" و"المسجّل فعليًا في قيود الخزنة"،
+  // ونعرض بس الأيام اللي فيها فرق فعلي — عشان أحمد يعرف بالظبط اليوم المسبب للمشكلة
+  // بدل ما يدوّر في كل الفترة. سبب شائع: مبيعات/مرتجعات حصلت بعد "تقفيل اليوم" ولسه
+  // ما اتضافتش كـ"تسوية" (closing_adjustment) — دلوقتي زرار التسوية شغال بس على النهارده.
+  const dailyReconDates = new Set();
+  (sales || []).forEach((s) => { if (s && closedRangeCheck(s.date)) dailyReconDates.add(s.date); });
+  (returns || []).forEach((r) => { if (r && r.type === "sales" && closedRangeCheck(r.date)) dailyReconDates.add(r.date); });
+  (treasuryEntries || []).forEach((e) => { if (e && closedRangeCheck(e.date)) dailyReconDates.add(e.date); });
+  (creditPayments || []).forEach((p) => { if (p && closedRangeCheck(p.date)) dailyReconDates.add(p.date); });
+  const dailyReconciliation = Array.from(dailyReconDates).sort().map((d) => {
+    const expected =
+      (sales || []).filter((s) => s.date === d && !s.returned && s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0)
+      - (returns || []).filter((r) => r.type === "sales" && r.date === d && r.refund_method && !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id))).reduce((a, r) => a + (r.total || 0), 0)
+      + (creditPayments || []).filter((p) => p.date === d).reduce((a, p) => a + (p.amount || 0), 0)
+      + (treasuryEntries || []).filter((e) => e && e.type === "income" && e.sub_type === "other" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
+    const recorded =
+      (treasuryEntries || []).filter((e) => e && e.type === "income" && e.sub_type !== "opening_balance" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0)
+      - (treasuryEntries || []).filter((e) => e && e.type === "expense" && e.sub_type === "sales_return" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
+    const wasClosed = (treasuryEntries || []).some((e) => e && e.date === d && e.sub_type === "daily_closing");
+    return { date: d, expected, recorded, diff: expected - recorded, wasClosed };
+  }).filter((r) => Math.abs(r.diff) > 0.01);
+
   // ═══════════════════════════════════════════════════════════════
   // 🆕 تصدير Excel — بيصدّر نفس بيانات التبويب المفتوح حاليًا وبنفس الفلاتر
   // المطبّقة (من/إلى/مورد/صنف/شركة/بحث)، عشان اللي بيتصدّر يطابق اللي المستخدم شايفه بالظبط.
@@ -27963,6 +28117,31 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
               borderRadius: 8, padding: "8px 14px", marginBottom: 16, fontSize: 12, color: COLORS.blue, lineHeight: 1.9,
             }}>
               ℹ️ اليوم الحالي ({todayStr}) لسه ما اتقفلش، فمستبعد مؤقتًا من كارت المطابقة فوق عشان محدش يتلبّس بتحذير غير حقيقي — هيدخل في المطابقة تلقائيًا أول ما تعمل "تقفيل اليوم".
+            </div>
+          )}
+
+          {/* 🆕 تشخيص يوم بيوم — بيظهر بس لو فيه فرق فعلي، عشان يحدد اليوم بالظبط بدل التخمين */}
+          {!isReconciled && dailyReconciliation.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", color: COLORS.textPrimary }}>
+                🔎 الأيام اللي فيها فرق فعلي (بدل التخمين)
+              </h3>
+              <Table
+                headers={["التاريخ", "متوقع من الفواتير", "مسجّل في الخزنة", "الفرق", "مُقفّل؟"]}
+                rows={dailyReconciliation.map((r) => [
+                  r.date,
+                  r.expected.toFixed(2) + " ر.س",
+                  r.recorded.toFixed(2) + " ر.س",
+                  <span style={{ fontWeight: 700, color: COLORS.red }}>{r.diff.toFixed(2)} ر.س</span>,
+                  r.wasClosed ? "✅ مقفول" : "❌ غير مقفول",
+                ])}
+              />
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginTop: 6, lineHeight: 1.8 }}>
+                لو اليوم "✅ مقفول" وبرضه فيه فرق، الاحتمال الأكبر إن فيه مبيعات/مرتجعات حصلت
+                في نفس اليوم <strong>بعد</strong> ما اتعمل "تقفيل اليوم"، ولسه ما اتضافتش كـ"تسوية" — وده حاليًا
+                زرار "إضافة كتسوية على تقفيل اليوم" شغال بس لليوم الحالي، مش لأي يوم سابق. ممكن كمان
+                يكون فيه تعديل يدوي حصل على جدول treasury_entries من الـ Table Editor مباشرة لنفس اليوم ده.
+              </div>
             </div>
           )}
 
