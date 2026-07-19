@@ -2274,7 +2274,7 @@ const ACCESS_BADGE: Record<string, { label: string; bg: string; color: string }>
   blocked:  { label: "🚫 موقوف",       bg: "#fee2e2", color: "#991b1b" },
 };
 
-function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout: () => void }) {
+function SuperAdminPanel({ currentUser, onLogout, onEnterPharmacy }: { currentUser: any; onLogout: () => void; onEnterPharmacy?: () => void }) {
   const [pharmacies, setPharmacies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -2330,16 +2330,30 @@ function SuperAdminPanel({ currentUser, onLogout }: { currentUser: any; onLogout
           <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.textPrimary }}>لوحة تحكم السوبر أدمن</div>
           <div style={{ fontSize: 13, color: COLORS.textDim }}>مرحبًا {currentUser?.name} — إدارة اشتراكات كل الصيدليات</div>
         </div>
-        <button
-          onClick={onLogout}
-          style={{
-            padding: "8px 16px", borderRadius: 8, border: "none",
-            background: COLORS.redSoft || "#fee2e2", color: COLORS.red || "#991b1b",
-            fontWeight: 700, cursor: "pointer",
-          }}
-        >
-          خروج
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {currentUser?.pharmacy_id && onEnterPharmacy && (
+            <button
+              onClick={onEnterPharmacy}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: "none",
+                background: COLORS.greenSoft || "#dcfce7", color: COLORS.green || "#166534",
+                fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              الدخول كصيدلية
+            </button>
+          )}
+          <button
+            onClick={onLogout}
+            style={{
+              padding: "8px 16px", borderRadius: 8, border: "none",
+              background: COLORS.redSoft || "#fee2e2", color: COLORS.red || "#991b1b",
+              fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            خروج
+          </button>
+        </div>
       </div>
 
       {msg && (
@@ -2458,6 +2472,9 @@ export default function PharmacyPro() {
   const [users, setUsers] = useState(INIT_USERS);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  // 🆕 لو حساب السوبر أدمن نفسه مربوط بصيدلية (pharmacy_id)، الفلاج ده بيسمح له
+  // بالدخول على واجهة الصيدلية العادية بدل ما يفضل محبوس جوه لوحة السوبر أدمن بس
+  const [viewAsPharmacy, setViewAsPharmacy] = useState(false);
 
   // استعادة الجلسة عند تحميل التطبيق + الاستماع لتغيّرات Auth
   useEffect(() => {
@@ -2999,7 +3016,7 @@ loadData();
       />
     );
 
-  if (currentUser.is_super_admin) {
+  if (currentUser.is_super_admin && !viewAsPharmacy) {
     return (
       <SuperAdminPanel
         currentUser={currentUser}
@@ -3007,6 +3024,7 @@ loadData();
           await authService.logout();
           setCurrentUser(null);
         }}
+        onEnterPharmacy={currentUser.pharmacy_id ? () => setViewAsPharmacy(true) : undefined}
       />
     );
   }
@@ -3364,6 +3382,32 @@ if (isLoading) return (
             >
               لا يوجد شفت مفتوح
             </div>
+          )}
+          {currentUser.is_super_admin && viewAsPharmacy && (
+            <button
+              onClick={() => {
+                setViewAsPharmacy(false);
+                setTab("dashboard");
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                padding: "9px 10px",
+                background: COLORS.greenSoft,
+                border: `1px solid ${COLORS.green}`,
+                borderRadius: 8,
+                color: COLORS.green,
+                fontSize: 13,
+                fontWeight: 600,
+                marginBottom: 8,
+                cursor: "pointer",
+              }}
+            >
+              <IC n="user" s={14} />
+              رجوع للوحة السوبر أدمن
+            </button>
           )}
           <button
             onClick={async () => {
