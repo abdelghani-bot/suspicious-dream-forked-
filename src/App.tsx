@@ -24725,6 +24725,59 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     setOpeningBalanceForm({ method: "نقدي", amount: "", source: "تمويل", source_other: "", note: "", date: todayLocal(), proof: null });
     showToast(`✅ تم تسجيل رصيد أول المدة — ${amount.toFixed(2)} ر.س`);
   };
+  // ═══════════════════════════════════════════════════
+  // 🆕 تسوية رصيد الخزنة — لتصحيح أي انحراف بين الرصيد المحسوب في النظام والرصيد الفعلي
+  // (عمولات جهاز الشبكة، تصحيحات بنكية، بيانات قديمة اتنقلت من نظام تاني...) بدل التعديل
+  // اليدوي المباشر في Supabase. بيتسجل كقيد فعلي (دخل لو الفعلي أعلى، مصروف لو أقل) مع سبب
+  // إلزامي دايمًا، وسجل تاريخي كامل لكل تسوية حصلت.
+  // ═══════════════════════════════════════════════════
+  const canSettleBalance = canEditSub("balance_settlement");
+  const [showSettlementForm, setShowSettlementForm] = useState(false);
+  const [savingSettlement, setSavingSettlement] = useState(false);
+  const [settlementForm, setSettlementForm] = useState({ method: "نقدي", actual_balance: "", reason: "" });
+  const settlementHistory = (entries || [])
+    .filter((e) => e.pharmacy_id === pharmacyId && e.sub_type === "balance_settlement")
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  // 🆕 بنستخدم computeTreasuryBalance مباشرة (مش calcBalance) لأنها لسه متعرفتش في الكود
+  // في النقطة دي من الملف — نفس الدالة المشتركة بالظبط، بس من غير الاعتماد على ترتيب التعريف.
+  const settlementCurrentBalance = computeTreasuryBalance(settlementForm.method, { sales, creditPayments, entries });
+  const settlementActualNum = settlementForm.actual_balance === "" ? null : +settlementForm.actual_balance;
+  const settlementDiff = settlementActualNum === null ? 0 : settlementActualNum - settlementCurrentBalance;
+  const saveBalanceSettlement = async () => {
+    if (settlementForm.actual_balance === "" || isNaN(+settlementForm.actual_balance)) {
+      showToast("يرجى إدخال الرصيد الفعلي الصحيح", "error");
+      return;
+    }
+    if (!settlementForm.reason.trim()) {
+      showToast("يرجى كتابة سبب التسوية — إلزامي دايمًا", "error");
+      return;
+    }
+    if (settlementDiff === 0) {
+      showToast("الرصيد مطابق بالفعل — لا حاجة للتسوية", "warn");
+      return;
+    }
+    setSavingSettlement(true);
+    const payload = {
+      type: settlementDiff > 0 ? "income" : "expense",
+      sub_type: "balance_settlement",
+      method: settlementForm.method,
+      amount: Math.abs(settlementDiff),
+      note: `تسوية رصيد الخزنة (${settlementForm.method}) — من ${settlementCurrentBalance.toFixed(2)} إلى ${settlementActualNum.toFixed(2)} — السبب: ${settlementForm.reason.trim()}`,
+      date: todayLocal(),
+      pharmacy_id: pharmacyId,
+      created_by: currentUser?.name || "",
+    };
+    const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+    setSavingSettlement(false);
+    if (error) {
+      showToast("❌ فشل حفظ التسوية: " + error.message, "error");
+      return;
+    }
+    if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
+    setShowSettlementForm(false);
+    setSettlementForm({ method: "نقدي", actual_balance: "", reason: "" });
+    showToast(`✅ تمت تسوية الرصيد — ${settlementDiff > 0 ? "+" : ""}${settlementDiff.toFixed(2)} ر.س`);
+  };
   const [licensePayAmount, setLicensePayAmount] = useState({}); // 🆕 مبلغ السداد القابل للتعديل لكل ترخيص { [licenseId]: "value" }
   const [licensePayMethod, setLicensePayMethod] = useState({}); // 🆕 طريقة السداد لكل ترخيص { [licenseId]: "نقدي" | "بطاقة" | "تحويل" }
   const [fixedPayMethod, setFixedPayMethod] = useState({}); // 🆕 طريقة السداد لكل مصروف ثابت { [expenseId]: "نقدي" | "بطاقة" | "تحويل" }
@@ -25739,14 +25792,65 @@ useEffect(() => {
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>💰 الخزنة</h2>
           <div style={{ color: COLORS.border, fontSize: 12, marginTop: 2 }}>{today}</div>
         </div>
-        {canAddOpeningBalance && (
-          <button
-            onClick={() => setShowOpeningBalanceForm(true)}
-            style={{ background: COLORS.goldSoft, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 8, padding: "8px 14px", color: COLORS.gold, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-            ➕ رصيد أول المدة
-          </button>
-        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          {canSettleBalance && (
+            <button
+              onClick={() => setShowSettlementForm(true)}
+              style={{ background: COLORS.blueSoft, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "8px 14px", color: COLORS.blue, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+              ⚖️ تسوية الرصيد
+            </button>
+          )}
+          {canAddOpeningBalance && (
+            <button
+              onClick={() => setShowOpeningBalanceForm(true)}
+              style={{ background: COLORS.goldSoft, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 8, padding: "8px 14px", color: COLORS.gold, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+              ➕ رصيد أول المدة
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* ── 🆕 Modal تسوية رصيد الخزنة ── */}
+      {showSettlementForm && (
+        <Modal open title="⚖️ تسوية رصيد الخزنة" onClose={() => !savingSettlement && setShowSettlementForm(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 12, color: COLORS.textDim, lineHeight: 1.6 }}>
+              استخدم هذا لتصحيح رصيد الخزنة لو اكتشفت انحراف بينه وبين الرصيد الفعلي (كشف حساب بنكي، عدّ نقدي فعلي...) — بدل التعديل المباشر في قاعدة البيانات. أي تسوية بتتسجل كقيد فعلي مع سبب واضح، وتفضل قابلة للمراجعة في السجل تحت.
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>طريقة الدفع</div>
+              <select value={settlementForm.method}
+                onChange={(e) => setSettlementForm((p) => ({ ...p, method: e.target.value }))}
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+                <option value="نقدي">💵 نقدي</option>
+                <option value="بطاقة">💳 بطاقة</option>
+                <option value="تحويل">🏦 تحويل بنكي</option>
+              </select>
+            </div>
+            <div style={{ background: COLORS.surfaceAlt, borderRadius: 8, padding: "10px 12px", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: COLORS.textDim }}>الرصيد المحسوب في النظام حاليًا</span>
+              <strong style={{ color: COLORS.textPrimary }}>{settlementCurrentBalance.toFixed(2)} ر.س</strong>
+            </div>
+            <Input label="الرصيد الفعلي الصحيح (ر.س) *" value={settlementForm.actual_balance} onChange={(v) => setSettlementForm((p) => ({ ...p, actual_balance: v }))} placeholder="0.00" type="number" />
+            {settlementForm.actual_balance !== "" && !isNaN(+settlementForm.actual_balance) && (
+              <div style={{
+                background: settlementDiff === 0 ? COLORS.surfaceAlt : settlementDiff > 0 ? COLORS.greenSoft : COLORS.redSoft,
+                border: `1px solid ${settlementDiff === 0 ? COLORS.border : tint(settlementDiff > 0 ? COLORS.green : COLORS.red, 0.35)}`,
+                borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 700,
+                color: settlementDiff === 0 ? COLORS.textDim : settlementDiff > 0 ? COLORS.green : COLORS.red,
+              }}>
+                الفرق: {settlementDiff > 0 ? "+" : ""}{settlementDiff.toFixed(2)} ر.س
+                {settlementDiff !== 0 && ` (هيتسجل ${settlementDiff > 0 ? "كدخل" : "كمصروف"})`}
+              </div>
+            )}
+            <Input label="سبب التسوية (إلزامي) *" value={settlementForm.reason} onChange={(v) => setSettlementForm((p) => ({ ...p, reason: v }))} placeholder="مثال: عمولة جهاز الشبكة، تصحيح من كشف الحساب البنكي..." />
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowSettlementForm(false)} disabled={savingSettlement}>إلغاء</Btn>
+            <Btn icon="check" onClick={saveBalanceSettlement} disabled={savingSettlement || settlementDiff === 0}>{savingSettlement ? "جاري الحفظ..." : "تأكيد التسوية"}</Btn>
+          </div>
+        </Modal>
+      )}
 
       {/* ── 🆕 Modal إضافة رصيد أول المدة للخزنة ── */}
       {showOpeningBalanceForm && (
@@ -25902,6 +26006,24 @@ useEffect(() => {
                 <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.green }}>{(e.amount || 0).toFixed(2)} ر.س</span>
                 {e.attachment_url && <a href={e.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: COLORS.blue }}>📎 مستند</a>}
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── 🆕 سجل تسويات رصيد الخزنة ── */}
+      {canViewOverview && settlementHistory.length > 0 && (
+        <div style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: COLORS.textPrimary, marginBottom: 8 }}>⚖️ سجل تسويات رصيد الخزنة</div>
+          {settlementHistory.map((e) => (
+            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}`, gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.textPrimary }}>{e.note}</div>
+                <div style={{ fontSize: 11, color: COLORS.textDim }}>{e.date} — {e.created_by}</div>
+              </div>
+              <span style={{ fontSize: 14, fontWeight: 700, color: e.type === "income" ? COLORS.green : COLORS.red, flexShrink: 0 }}>
+                {e.type === "income" ? "+" : "−"}{(e.amount || 0).toFixed(2)} ر.س
+              </span>
             </div>
           ))}
         </div>
@@ -31861,6 +31983,7 @@ const SYSTEM_SECTIONS = [
       { id: "licenses",           label: "التراخيص" },
       { id: "balance_visibility", label: "زر إظهار/إخفاء أرقام الكروت" },
       { id: "opening_balance",    label: "رصيد أول المدة" },
+      { id: "balance_settlement", label: "تسوية رصيد الخزنة" },
       { id: "salaries",           label: "الرواتب" },
     ] },
   { id: "shift",             label: "الشفتات",             icon: "🕐" },
