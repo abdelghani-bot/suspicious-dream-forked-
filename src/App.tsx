@@ -3745,6 +3745,8 @@ if (isLoading) return (
             pharmacyId={pharmacyId}
             invoices={posInvoices}
             returns={returnsData}
+            entries={treasuryEntries}
+            setEntries={setTreasuryEntries}
           />
         )}
 {tab === "attendance" && canView("attendance") && (
@@ -5808,6 +5810,18 @@ function computeTreasuryBalance(method, { sales = [], creditPayments = [], entri
   const entryIn = safe.filter((e) => e.type === "income" && e.method === method && e.sub_type !== "daily_sales").reduce((a, e) => a + e.amount, 0);
   const entryOut = safe.filter((e) => e.type === "expense" && e.method === method).reduce((a, e) => a + e.amount, 0);
   return salesIncome + creditIn + entryIn - entryOut;
+}
+
+// 🆕 "بطاقة" و"تحويل" فعليًا نفس المحفظة (رصيد بنكي واحد) — بس قنوات دخول/خروج مختلفة.
+// دخل البطاقة (مبيعات الشبكة) بيتسجل تحت method="بطاقة"، وخروج السداد بتحويل بنكي بيتسجل
+// تحت method="تحويل"، فلو فحصنا كل واحد لوحده هيفضل رصيد "تحويل" شبه صفر دايمًا حتى لو
+// فيه رصيد بنكي فعلي كافي (جاي من البطاقة). عشان كده أي فحص "هل يكفي للسداد؟" بيُجمّع
+// الاتنين مع بعض، لكن كروت العرض في تبويب الخزنة بتفضل منفصلة (بطاقة/تحويل) عشان المتابعة.
+function computeAvailableForPayment(method, ctx) {
+  if (method === "بطاقة" || method === "تحويل") {
+    return computeTreasuryBalance("بطاقة", ctx) + computeTreasuryBalance("تحويل", ctx);
+  }
+  return computeTreasuryBalance(method, ctx);
 }
 
 // ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
@@ -18569,10 +18583,12 @@ function SuppliersModule({
     if (!amount || amount <= 0) { showToast("يرجى إدخال مبلغ صحيح", "error"); return; }
 
     // 🆕 قيد: لازم رصيد الخزنة بطريقة الدفع المختارة يكفي مبلغ السداد
+    // (بطاقة وتحويل بيتجمّعوا كرصيد بنكي واحد للفحص، لأنهم فعليًا نفس المحفظة)
     const payMethod = payForm.method || "نقدي";
-    const availableForPayment = computeTreasuryBalance(payMethod, { sales, creditPayments, entries: treasuryEntries });
+    const availableForPayment = computeAvailableForPayment(payMethod, { sales, creditPayments, entries: treasuryEntries });
     if (amount > availableForPayment) {
-      showToast(`❌ رصيد الخزنة (${payMethod}) لا يكفي — المتاح ${availableForPayment.toFixed(2)} ر.س والمطلوب ${amount.toFixed(2)} ر.س`, "error");
+      const availLabel = (payMethod === "بطاقة" || payMethod === "تحويل") ? "بطاقة + تحويل" : payMethod;
+      showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي — المتاح ${availableForPayment.toFixed(2)} ر.س والمطلوب ${amount.toFixed(2)} ر.س`, "error");
       return;
     }
 
@@ -24710,6 +24726,8 @@ function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyI
     showToast(`✅ تم تسجيل رصيد أول المدة — ${amount.toFixed(2)} ر.س`);
   };
   const [licensePayAmount, setLicensePayAmount] = useState({}); // 🆕 مبلغ السداد القابل للتعديل لكل ترخيص { [licenseId]: "value" }
+  const [licensePayMethod, setLicensePayMethod] = useState({}); // 🆕 طريقة السداد لكل ترخيص { [licenseId]: "نقدي" | "بطاقة" | "تحويل" }
+  const [fixedPayMethod, setFixedPayMethod] = useState({}); // 🆕 طريقة السداد لكل مصروف ثابت { [expenseId]: "نقدي" | "بطاقة" | "تحويل" }
   const printRef = useRef(null);
 
   // 🆕 بيانات الصيدلية (اسم/عنوان/رقم ضريبي) لعرضها في رأس تقرير التقفيل المطبوع
@@ -25215,10 +25233,12 @@ useEffect(() => {
     const net = payActualAmount();
     if (net <= 0) { showToast("المبلغ المصروف لازم يكون أكبر من صفر", "error"); return; }
     // 🆕 قيد: لازم رصيد الخزنة بطريقة الدفع المختارة يكفي المبلغ قبل ما نأكد الصرف
+    // (بطاقة وتحويل بيتجمّعوا كرصيد بنكي واحد للفحص، لأنهم فعليًا نفس المحفظة)
     const salaryMethod = payForm.method || "نقدي";
-    const availableForSalary = calcBalance(salaryMethod);
+    const availableForSalary = computeAvailableForPayment(salaryMethod, { sales, creditPayments, entries });
     if (net > availableForSalary) {
-      showToast(`❌ رصيد الخزنة (${salaryMethod}) لا يكفي — المتاح ${availableForSalary.toFixed(2)} ر.س والمطلوب ${net.toFixed(2)} ر.س`, "error");
+      const availLabel = (salaryMethod === "بطاقة" || salaryMethod === "تحويل") ? "بطاقة + تحويل" : salaryMethod;
+      showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي — المتاح ${availableForSalary.toFixed(2)} ر.س والمطلوب ${net.toFixed(2)} ر.س`, "error");
       return;
     }
     setSavingSalary(true);
@@ -26478,25 +26498,40 @@ useEffect(() => {
             )}
           </div>
           {canPayFixedExpense && (
+          <>
+          <select
+            value={fixedPayMethod[f.id] || "نقدي"}
+            onChange={(e) => setFixedPayMethod((p) => ({ ...p, [f.id]: e.target.value }))}
+            style={{ padding: "6px 8px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, fontSize: 12 }}
+          >
+            <option value="نقدي">💵 نقدي</option>
+            <option value="بطاقة">💳 بطاقة</option>
+            <option value="تحويل">🏦 تحويل</option>
+          </select>
           <button
             onClick={async () => {
-              // 🆕 قيد: لازم رصيد الخزنة النقدي يكفي قبل السداد
-              if (f.amount > balanceCash) {
-                showToast(`❌ رصيد الخزنة النقدي لا يكفي لسداد "${f.name}" — المتاح ${balanceCash.toFixed(2)} ر.س والمطلوب ${f.amount} ر.س`, "error");
+              // 🆕 قيد: لازم رصيد الخزنة بطريقة الدفع المختارة يكفي قبل السداد
+              // (بطاقة وتحويل بيتجمّعوا كرصيد بنكي واحد للفحص)
+              const method = fixedPayMethod[f.id] || "نقدي";
+              const available = computeAvailableForPayment(method, { sales, creditPayments, entries });
+              if (f.amount > available) {
+                const availLabel = (method === "بطاقة" || method === "تحويل") ? "بطاقة + تحويل" : method;
+                showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي لسداد "${f.name}" — المتاح ${available.toFixed(2)} ر.س والمطلوب ${f.amount} ر.س`, "error");
                 return;
               }
               const { error } = await supabase.from("treasury_entries").insert([{
-                type: "expense", sub_type: "fixed", method: "نقدي",
+                type: "expense", sub_type: "fixed", method,
                 amount: f.amount, note: f.name, date: today,
                 pharmacy_id: pharmacyId, created_by: currentUser.name
               }]);
               if (error) { showToast("خطأ: " + error.message, "error"); return; }
-              setEntries((p) => [...p, { type: "expense", sub_type: "fixed", method: "نقدي", amount: f.amount, note: f.name, date: today }]);
+              setEntries((p) => [...p, { type: "expense", sub_type: "fixed", method, amount: f.amount, note: f.name, date: today }]);
               showToast(`تم سداد ${f.name} ✓`);
             }}
             style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
             💳 سداد
           </button>
+          </>
           )}
           {canDeleteFixedExpense && (
           <button
@@ -26549,7 +26584,7 @@ useEffect(() => {
                       </div>
                     </div>
                     {canPayLicense && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, flexWrap: "wrap" as const }}>
                         <span style={{ color: COLORS.textDim, fontSize: 11 }}>مبلغ السداد:</span>
                         <input
                           type="number"
@@ -26558,22 +26593,35 @@ useEffect(() => {
                           style={{ width: 100, boxSizing: "border-box", padding: "6px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, fontSize: 12 }}
                         />
                         <span style={{ color: COLORS.textDim, fontSize: 11 }}>ر.س</span>
+                        <select
+                          value={licensePayMethod[l.id] || "نقدي"}
+                          onChange={(e) => setLicensePayMethod((p) => ({ ...p, [l.id]: e.target.value }))}
+                          style={{ padding: "6px 8px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, fontSize: 12 }}
+                        >
+                          <option value="نقدي">💵 نقدي</option>
+                          <option value="بطاقة">💳 بطاقة</option>
+                          <option value="تحويل">🏦 تحويل</option>
+                        </select>
                         <button
                           onClick={async () => {
                             const amt = +payAmount || 0;
                             if (amt <= 0) { showToast("أدخل مبلغ سداد صحيح", "error"); return; }
-                            // 🆕 قيد: لازم رصيد الخزنة النقدي يكفي قبل السداد
-                            if (amt > balanceCash) {
-                              showToast(`❌ رصيد الخزنة النقدي لا يكفي لسداد "${l.name}" — المتاح ${balanceCash.toFixed(2)} ر.س والمطلوب ${amt.toFixed(2)} ر.س`, "error");
+                            // 🆕 قيد: لازم رصيد الخزنة بطريقة الدفع المختارة يكفي قبل السداد
+                            // (بطاقة وتحويل بيتجمّعوا كرصيد بنكي واحد للفحص)
+                            const method = licensePayMethod[l.id] || "نقدي";
+                            const available = computeAvailableForPayment(method, { sales, creditPayments, entries });
+                            if (amt > available) {
+                              const availLabel = (method === "بطاقة" || method === "تحويل") ? "بطاقة + تحويل" : method;
+                              showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي لسداد "${l.name}" — المتاح ${available.toFixed(2)} ر.س والمطلوب ${amt.toFixed(2)} ر.س`, "error");
                               return;
                             }
                             const { error } = await supabase.from("treasury_entries").insert([{
-                              type: "expense", sub_type: "license", method: "نقدي",
+                              type: "expense", sub_type: "license", method,
                               amount: amt, note: l.name, date: today,
                               pharmacy_id: pharmacyId, created_by: currentUser.name
                             }]);
                             if (error) { showToast("خطأ: " + error.message, "error"); return; }
-                            setEntries((p) => [...p, { type: "expense", sub_type: "license", method: "نقدي", amount: amt, note: l.name, date: today }]);
+                            setEntries((p) => [...p, { type: "expense", sub_type: "license", method, amount: amt, note: l.name, date: today }]);
                             showToast(`تم سداد ${l.name} ✓`);
                           }}
                           style={{ marginRight: "auto", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
@@ -28592,10 +28640,14 @@ function Reports({ sales, purchases, products, suppliers, customers, returns = [
   );
 }
 // ==================== SHIFT MODULE ====================
-function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices, returns = [] }) {
+// 🆕 عتبة فرق النقد اللي بتستوجب سبب إلزامي قبل قفل الشفت — عشان نضمن محاسبية أي فرق كبير
+const SHIFT_CASH_DIFF_REASON_THRESHOLD = 20;
+function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices, returns = [], entries = [], setEntries }) {
   const [openCash, setOpenCash] = useState("500");
   const [closeCash, setCloseCash] = useState("");
   const [notes, setNotes] = useState("");
+  const [shiftDiffReason, setShiftDiffReason] = useState(""); // 🆕 سبب فرق النقد (عجز/زيادة) عند إغلاق الشفت
+  const [expandedVarianceEmployee, setExpandedVarianceEmployee] = useState(null); // 🆕 لعرض تفاصيل حوادث موظف معيّن
   const isAdmin = currentUser?.role === "admin";
   // 🆕 إغلاق قسري (للمدير فقط) — لإقفال شفتات "يتيمة" فُتحت باسم مستخدم تم تغييره لاحقاً،
   // وبالتالي لم تعد تطابق currentUser.name فلا تظهر كـ"شفتي الحالي" ولا يمكن إغلاقها من المسار العادي.
@@ -28651,6 +28703,30 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   const shiftCardSales = shiftSalesRaw.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
   const shiftTransferSales = shiftSalesRaw.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
   const shiftAjilSales = shiftSalesRaw.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 تقرير فروقات النقد لكل موظف — بيجمع كل قيود "shift_variance" المسجّلة تلقائيًا
+  // عند إغلاق الشفت، ويقسّمها حسب الموظف (created_by)، عشان يبان أي نمط متكرر
+  // (نفس الموظف بيعمل عجز/زيادة كتير) بدل ما كل حادثة تفضل رقم لوحدها في سجل الخزنة.
+  // ═══════════════════════════════════════════════════
+  const varianceEntries = (entries || []).filter((e) => e.sub_type === "shift_variance");
+  const varianceByEmployee = {};
+  varianceEntries.forEach((e) => {
+    const name = e.created_by || "غير معروف";
+    if (!varianceByEmployee[name]) {
+      varianceByEmployee[name] = { name, shortageCount: 0, shortageTotal: 0, surplusCount: 0, surplusTotal: 0, incidents: [] };
+    }
+    const g = varianceByEmployee[name];
+    if (e.type === "expense") { g.shortageCount += 1; g.shortageTotal += e.amount || 0; }
+    else { g.surplusCount += 1; g.surplusTotal += e.amount || 0; }
+    g.incidents.push(e);
+  });
+  const varianceRows = Object.values(varianceByEmployee)
+    .map((g: any) => ({ ...g, net: g.surplusTotal - g.shortageTotal, incidents: g.incidents.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)) }))
+    .sort((a: any, b: any) => b.shortageTotal - a.shortageTotal);
+  const totalShortageAll = varianceEntries.filter((e) => e.type === "expense").reduce((a, e) => a + (e.amount || 0), 0);
+  const totalSurplusAll = varianceEntries.filter((e) => e.type === "income").reduce((a, e) => a + (e.amount || 0), 0);
+
 
  const openShift = async () => {
   if (currentShift) {
@@ -28717,6 +28793,13 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
     showToast("يرجى إدخال النقد الفعلي عند الإغلاق", "error");
     return;
   }
+  // 🆕 فرق النقد (عجز/زيادة) — لازم سبب واضح لو الفرق أكبر من العتبة، عشان يبقى فيه محاسبية
+  // بدل ما الفرق يتعرض بس على الشاشة ويضيع من غير ما يتسجل في أي مكان.
+  const shiftCashDiff = +closeCash - expectedCloseCash;
+  if (Math.abs(shiftCashDiff) > SHIFT_CASH_DIFF_REASON_THRESHOLD && !shiftDiffReason.trim()) {
+    showToast(`⚠️ فيه فرق نقد ${shiftCashDiff > 0 ? "زيادة" : "عجز"} قدره ${Math.abs(shiftCashDiff).toFixed(2)} ر.س — اكتب السبب قبل إغلاق الشفت`, "error");
+    return;
+  }
 
   const updates = {
     end_time: new Date().toISOString(),
@@ -28738,6 +28821,31 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
   setShifts((p) =>
     p.map((s) => (s.id === currentShift.id ? { ...s, ...updates } : s))
   );
+
+  // 🆕 تسجيل فرق النقد كقيد فعلي في الخزنة (دخل لو زيادة، مصروف لو عجز) — بنفس أسلوب
+  // تسوية فرق البطاقة في تقفيل اليوم، مربوط بالشفت والموظف عشان تتبع أي نمط متكرر لاحقًا.
+  if (shiftCashDiff !== 0 && setEntries) {
+    const reasonNote = shiftDiffReason.trim()
+      ? `فرق نقد ${shiftCashDiff > 0 ? "زيادة" : "عجز"} عند تسليم شفت ${currentUser?.name || ""} — ${shiftDiffReason.trim()}`
+      : `فرق نقد ${shiftCashDiff > 0 ? "زيادة" : "عجز"} عند تسليم شفت ${currentUser?.name || ""} (متوقع: ${expectedCloseCash.toFixed(2)} / فعلي: ${(+closeCash).toFixed(2)})`;
+    const diffPayload = {
+      type: shiftCashDiff > 0 ? "income" : "expense",
+      sub_type: "shift_variance",
+      method: "نقدي",
+      amount: Math.abs(shiftCashDiff),
+      note: reasonNote,
+      date: todayLocal(),
+      pharmacy_id: pharmacyId,
+      created_by: currentUser?.name || "",
+    };
+    const { data: diffData, error: diffError } = await supabase.from("treasury_entries").insert(diffPayload).select();
+    if (diffError) {
+      showToast("تم إغلاق الشفت، لكن فشل تسجيل فرق النقد: " + diffError.message, "error");
+    } else if (diffData && diffData[0]) {
+      setEntries((p) => [diffData[0], ...p]);
+    }
+  }
+  setShiftDiffReason("");
 
   // ✅ تسجيل انصراف تلقائي — بيحسب الساعات الفعلية مربوطة بجدول الدوام (زيادة عن الشفت متتحسبش إلا لو أوفر تايم معتمد)
   const today = todayLocal();
@@ -29008,7 +29116,21 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
               فرق النقد (نقدي فقط):{" "}
               {(+closeCash - expectedCloseCash).toFixed(2)}{" "}
               ر.س
+              {(+closeCash - expectedCloseCash) !== 0 && (
+                <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 4 }}>
+                  {(+closeCash - expectedCloseCash) > 0 ? "الزيادة" : "العجز"} ده هيتسجل كقيد {(+closeCash - expectedCloseCash) > 0 ? "دخل" : "مصروف"} في الخزنة تلقائيًا عند إغلاق الشفت.
+                </div>
+              )}
             </div>
+          )}
+          {closeCash && Math.abs(+closeCash - expectedCloseCash) > SHIFT_CASH_DIFF_REASON_THRESHOLD && (
+            <Input
+              label={`سبب ${(+closeCash - expectedCloseCash) > 0 ? "الزيادة" : "العجز"} (إلزامي لفرق أكبر من ${SHIFT_CASH_DIFF_REASON_THRESHOLD} ر.س)`}
+              value={shiftDiffReason}
+              onChange={setShiftDiffReason}
+              placeholder="مثال: باقي اتحسب غلط لعميل، صرف بدون تسجيل..."
+              style={{ marginTop: 10 }}
+            />
           )}
           <Btn
             icon="check"
@@ -29126,6 +29248,65 @@ function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmac
         ])}
       />
       <Pagination page={shiftsPage} onPageChange={setShiftsPage} totalItems={shifts.length} pageSize={SHIFTS_PAGE_SIZE} />
+
+      {/* ══════════ 🆕 تقرير فروقات النقد لكل موظف (عجز/زيادة) — للمدير فقط ══════════ */}
+      {isAdmin && varianceRows.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <h3 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 800, color: COLORS.textPrimary }}>
+            📊 فروقات النقد عند تسليم الشفت — حسب الموظف
+          </h3>
+          <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" as const }}>
+            <div style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red,0.35)}`, borderRadius: 10, padding: "10px 16px" }}>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>إجمالي العجز (كل الموظفين)</div>
+              <div style={{ color: COLORS.red, fontWeight: 900, fontSize: 18 }}>{totalShortageAll.toFixed(2)} ر.س</div>
+            </div>
+            <div style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 10, padding: "10px 16px" }}>
+              <div style={{ color: COLORS.textDim, fontSize: 11 }}>إجمالي الزيادة (كل الموظفين)</div>
+              <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{totalSurplusAll.toFixed(2)} ر.س</div>
+            </div>
+          </div>
+          {varianceRows.map((g: any) => (
+            <div key={g.name} style={{
+              background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 10,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" as const, gap: 8 }}>
+                <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{g.name}</span>
+                <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
+                  {g.shortageCount > 0 && (
+                    <span style={{ color: COLORS.red }}>عجز: {g.shortageCount} مرة — {g.shortageTotal.toFixed(2)} ر.س</span>
+                  )}
+                  {g.surplusCount > 0 && (
+                    <span style={{ color: COLORS.green }}>زيادة: {g.surplusCount} مرة — {g.surplusTotal.toFixed(2)} ر.س</span>
+                  )}
+                  <span style={{ color: g.net >= 0 ? COLORS.green : COLORS.red, fontWeight: 700 }}>
+                    الصافي: {g.net >= 0 ? "+" : ""}{g.net.toFixed(2)} ر.س
+                  </span>
+                </div>
+                <button
+                  onClick={() => setExpandedVarianceEmployee((p) => (p === g.name ? null : g.name))}
+                  style={{ background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}
+                >
+                  {expandedVarianceEmployee === g.name ? "إخفاء التفاصيل" : "عرض التفاصيل"}
+                </button>
+              </div>
+              {expandedVarianceEmployee === g.name && (
+                <div style={{ marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, display: "flex", flexDirection: "column" as const, gap: 6 }}>
+                  {g.incidents.map((inc: any) => (
+                    <div key={inc.id || inc.created_at} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, gap: 8 }}>
+                      <span style={{ color: COLORS.textDim, flexShrink: 0 }}>{inc.date}</span>
+                      <span style={{ color: COLORS.textDim, flex: 1 }}>{inc.note}</span>
+                      <span style={{ color: inc.type === "expense" ? COLORS.red : COLORS.green, fontWeight: 700, flexShrink: 0 }}>
+                        {inc.type === "expense" ? "−" : "+"}{(inc.amount || 0).toFixed(2)} ر.س
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
