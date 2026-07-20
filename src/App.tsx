@@ -6955,7 +6955,6 @@ function POS({
           workingJokerList = workingJokerList.map((j) => (j.id === existing.id ? { ...j, qty: newQty } : j));
         } else {
           const record = {
-            id: "JK-" + Date.now() + "-" + i.id,
             pharmacy_id: pharmacyId,
             name,
             category: cat,
@@ -6964,8 +6963,15 @@ function POS({
             status: "pending",
             created_at: new Date().toISOString(),
           };
-          const { error: jokerErr } = await supabase.from("joker_pending_items").insert(record);
-          if (!jokerErr) workingJokerList = [...workingJokerList, record];
+          // 🛠️ لازم نسيب عمود id لقاعدة البيانات تولده (uuid تلقائي) - قبل كده كان بيتبعت
+          // نص من نوع "JK-...-..." وده مش uuid صحيح فكان الـ insert بيفشل بـ 400 (22P02)
+          // ونستخدم select().single() عشان نرجع الصف باللي فيه الـ id الحقيقي.
+          const { data: inserted, error: jokerErr } = await supabase
+            .from("joker_pending_items")
+            .insert(record)
+            .select()
+            .single();
+          if (!jokerErr && inserted) workingJokerList = [...workingJokerList, inserted];
         }
       }
       setJokerPendingItems(workingJokerList);
