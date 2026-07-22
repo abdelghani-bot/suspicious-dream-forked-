@@ -1,0 +1,267 @@
+// ==================== INITIAL DATA ====================
+export const INIT_PRODUCTS = [
+  {
+    id: "P001",
+    name: "باراسيتامول 500mg",
+    barcode: "6281234567001",
+    category: "مسكنات",
+    unit: "قرص",
+    price: 12,
+    cost: 7,
+    taxable: false,
+    stock: 150,
+    minStock: 20,
+    supplier: "S001",
+    expiry: "2027-06-01",
+    activeIngredient: "Paracetamol",
+    concentration: "500mg",
+  },
+  {
+    id: "P002",
+    name: "أموكسيسيلين 250mg",
+    barcode: "6281234567002",
+    category: "مضادات حيوية",
+    unit: "كبسولة",
+    price: 45,
+    cost: 28,
+    taxable: true,
+    stock: 80,
+    minStock: 15,
+    supplier: "S001",
+    expiry: "2026-12-01",
+    activeIngredient: "Amoxicillin",
+    concentration: "250mg",
+  },
+  {
+    id: "P003",
+    name: "أومبيرازول 20mg",
+    barcode: "6281234567003",
+    category: "جهاز هضمي",
+    unit: "كبسولة",
+    price: 35,
+    cost: 20,
+    taxable: true,
+    stock: 60,
+    minStock: 10,
+    supplier: "S002",
+    expiry: "2027-03-01",
+    activeIngredient: "Omeprazole",
+    concentration: "20mg",
+  },
+  {
+    id: "P004",
+    name: "ميتفورمين 500mg",
+    barcode: "6281234567004",
+    category: "سكري",
+    unit: "قرص",
+    price: 28,
+    cost: 16,
+    taxable: true,
+    stock: 5,
+    minStock: 20,
+    supplier: "S002",
+    expiry: "2027-01-01",
+    activeIngredient: "Metformin",
+    concentration: "500mg",
+  },
+  {
+    id: "P005",
+    name: "فيتامين C 1000mg",
+    barcode: "6281234567005",
+    category: "فيتامينات",
+    unit: "قرص فوار",
+    price: 55,
+    cost: 32,
+    taxable: true,
+    stock: 200,
+    minStock: 30,
+    supplier: "S003",
+    expiry: "2027-08-01",
+    activeIngredient: "Ascorbic Acid",
+    concentration: "1000mg",
+  },
+];
+
+
+export const INIT_SUPPLIERS = [
+  {
+    id: "S001",
+    name: "شركة الدواء العربية",
+    taxId: "300123456700003",
+    phone: "0112345678",
+    email: "info@arabmed.sa",
+    address: "الرياض، حي الملز",
+    contact: "أحمد الشمري",
+  },
+  {
+    id: "S002",
+    name: "فارما مصر للتوزيع",
+    taxId: "300987654300003",
+    phone: "0223456789",
+    email: "orders@pharmaegy.sa",
+    address: "جدة، المنطقة الصناعية",
+    contact: "محمد العتيبي",
+  },
+  {
+    id: "S003",
+    name: "ناتيورال كير",
+    taxId: "311234567890003",
+    phone: "0143456789",
+    email: "sales@naturalcare.sa",
+    address: "الدمام، حي الفيصلية",
+    contact: "سارة الزهراني",
+  },
+];
+
+
+export const INIT_CUSTOMERS = [
+  {
+    id: "C001",
+    name: "أحمد محمد علي",
+    phone: "0501234567",
+    taxId: "",
+    totalSpent: 450,
+    visits: 5,
+    lastVisit: "2026-05-20",
+  },
+  {
+    id: "C002",
+    name: "شركة الرعاية الصحية",
+    phone: "0112223344",
+    taxId: "310234567890003",
+    totalSpent: 8500,
+    visits: 25,
+    lastVisit: "2026-05-22",
+  },
+];
+
+
+export const INIT_SALES = [
+  {
+    id: "INV-0001",
+    date: "2026-05-20",
+    customer: "C001",
+    customerName: "أحمد محمد علي",
+    items: [
+      {
+        id: "P001",
+        name: "باراسيتامول 500mg",
+        qty: 2,
+        price: 12,
+        taxable: false,
+        dose: "قرص واحد 3 مرات يومياً بعد الأكل",
+      },
+      {
+        id: "P005",
+        name: "فيتامين C 1000mg",
+        qty: 1,
+        price: 55,
+        taxable: true,
+        dose: "قرص يومياً مع الطعام",
+      },
+    ],
+    subtotal: 79,
+    taxAmount: 2.75,
+    total: 81.75,
+    payment: "نقدي",
+    shift: "S-001",
+    prescriptionImg: null,
+    returned: false,
+  },
+];
+
+
+export const INIT_PURCHASES = [
+  {
+    id: "PO-0001",
+    date: "2026-05-15",
+    supplier: "S001",
+    supplierName: "شركة الدواء العربية",
+    items: [
+      {
+        id: "P001",
+        name: "باراسيتامول 500mg",
+        qty: 100,
+        cost: 7,
+        taxable: false,
+      },
+      {
+        id: "P002",
+        name: "أموكسيسيلين 250mg",
+        qty: 50,
+        cost: 28,
+        taxable: true,
+      },
+    ],
+    subtotal: 2100,
+    taxAmount: 210,
+    total: 2310,
+    status: "مستلمة",
+  },
+];
+
+
+export const INIT_INVENTORY = [
+  {
+    id: "INV-ADJ-001",
+    date: "2026-05-10",
+    type: "جرد",
+    items: [
+      { id: "P001", systemQty: 150, actualQty: 148, diff: -2 },
+      { id: "P002", systemQty: 80, actualQty: 80, diff: 0 },
+    ],
+    notes: "جرد شهر مايو",
+    by: "أحمد الصيدلاني",
+  },
+];
+
+
+export const INIT_SHIFTS = [
+  {
+    id: "SH-001",
+    user: "أحمد الصيدلاني",
+    start: "2026-05-22 08:00",
+    end: null,
+    openCash: 500,
+    closeCash: null,
+    sales: 0,
+    notes: "",
+  },
+];
+
+
+export const INIT_USERS = [
+  {
+    id: "U001",
+    name: "مدير النظام",
+    role: "admin",
+    username: "admin",
+    password: "admin123",
+  },
+  {
+    id: "U002",
+    name: "أحمد الصيدلاني",
+    role: "pharmacist",
+    username: "ahmed",
+    password: "123456",
+  },
+];
+
+
+export const CATEGORIES = [
+  "مسكنات",
+  "مضادات حيوية",
+  "جهاز هضمي",
+  "سكري",
+  "قلب وأوعية",
+  "فيتامينات",
+  "حساسية",
+  "جلدية",
+  "عيون",
+  "أذن وأنف",
+  "تغذية",
+  "أخرى",
+];
+
+
+export const TAX_RATE = 0.15;
