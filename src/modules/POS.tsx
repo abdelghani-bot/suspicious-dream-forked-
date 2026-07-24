@@ -9,7 +9,6 @@ import { sellFromBatches } from "../lib/inventoryUtils";
 import { CART_AREA_HEIGHT, DEFAULT_DOSE_TEMPLATES, DOSAGE_LABEL_SIZES, MAX_INVOICES, emptyInvoice, playWarningBeep } from "../lib/posConstants";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { calcPromoLineTotal, getEffectivePrice, recalcCartLinePrice } from "../lib/promoUtils";
-import { buildZatcaChainForInvoice } from "../lib/zatca";
 import { PrintReceipt } from "./PrintReceipt";
 import { RasdQueue } from "../services/rasdService";
 import { Btn, IC, Modal } from "../ui/primitives";
@@ -93,7 +92,18 @@ export function POS({
     const updated = [...doseTemplates, t];
     setDoseTemplates(updated);
     if (pharmacyId) {
-      await supabase.from("pharmacy_settings").update({ dosage_templates: updated }).eq("pharmacy_id", pharmacyId);
+      // 🆕 عبر طابور الأوفلاين بدل الكتابة المباشرة — لو مفيش نت، التعديل بيتخزن محليًا
+      // ويتزامن لما النت يرجع بدل ما يضيع بصمت
+      const result = await window.offlineAPI.queueEvent({
+        id: crypto.randomUUID(),
+        type: "DOSE_TEMPLATES_UPDATE",
+        timestamp: new Date().toISOString(),
+        payload: { pharmacy_id: pharmacyId, dosage_templates: updated },
+      });
+      if (!result.synced) {
+        showToast("📴 القالب اتحفظ محليًا - هيتزامن لما النت يرجع", "warning");
+        return;
+      }
     }
     showToast("تم حفظ القالب ✓");
   };
@@ -102,7 +112,12 @@ export function POS({
     const updated = doseTemplates.filter((t) => t !== text);
     setDoseTemplates(updated);
     if (pharmacyId) {
-      await supabase.from("pharmacy_settings").update({ dosage_templates: updated }).eq("pharmacy_id", pharmacyId);
+      await window.offlineAPI.queueEvent({
+        id: crypto.randomUUID(),
+        type: "DOSE_TEMPLATES_UPDATE",
+        timestamp: new Date().toISOString(),
+        payload: { pharmacy_id: pharmacyId, dosage_templates: updated },
+      });
     }
   };
 
@@ -849,27 +864,24 @@ export function POS({
       points_redeemed: pointsDiscount > 0 ? pointsDiscount : null,
     };
 
-    // ── زاتكا Phase 1: توليد UUID/ICV/PIH + XML + Hash قبل الحفظ ──
-    // لو حصل أي عطل هنا (مثلاً الشبكة وقت حساب الـ chain)، الفاتورة تتحفظ عادي
-    // بدون حقول زاتكا بدل ما نمنع الكاشير من إتمام البيع، ونسجلها في الـ console للمتابعة.
-    try {
-      const zatcaFields = await buildZatcaChainForInvoice({
-        pharmacyId,
-        invoiceId: invoice.id,
-        sellerName: pharmSettingsPOS?.name_ar || pharmSettingsPOS?.name_en || "",
-        vatNumber: pharmSettingsPOS?.tax_number || "",
-        sellerAddress: pharmSettingsPOS?.address || "",
-        items: invoice.items.filter((it) => !it.isMissed && !it.isJoker),
-        subtotal,
-        taxAmount,
-        discountAmt,
-        total,
-        createdAt: invoice.created_at,
-      });
-      Object.assign(invoice, zatcaFields);
-    } catch (zErr) {
-      console.error("zatca chain build failed:", zErr);
-    }
+    // ── زاتكا Phase 1: مش بيتحسب هنا ──
+    // 🆕 حجز ICV/PIH بقى بيحصل جوه executeEvent وقت التنفيذ الفعلي (أونلاين فورًا أو وقت
+    // مزامنة الأوفلاين) مش هنا وقت إنشاء الفاتورة. لو حسبناه هنا وإحنا أوفلاين، مكناش
+    // هنقدر نعرف آخر icv/hash حقيقي، وكل فاتورة أوفلاين كانت هتاخد icv=1 غلط وتكسر السلسلة.
+    // بدل كده بنمرر المدخلات اللازمة (zatcaInput) مع الحدث، وexecuteEvent هو اللي يحجز
+    // ويبني السلسلة لحظة الإدراج الفعلي في السيرفر.
+    const zatcaInput = {
+      pharmacyId,
+      sellerName: pharmSettingsPOS?.name_ar || pharmSettingsPOS?.name_en || "",
+      vatNumber: pharmSettingsPOS?.tax_number || "",
+      sellerAddress: pharmSettingsPOS?.address || "",
+      items: invoice.items.filter((it) => !it.isMissed && !it.isJoker),
+      subtotal,
+      taxAmount,
+      discountAmt,
+      total,
+      createdAt: invoice.created_at,
+    };
 
     // ═══ حفظ الفاتورة عبر طابور الأوفلاين ═══
     // queueEvent بتحاول تبعت مباشر لو فيه نت، ولو مفيش نت أو فشلت المحاولة (النت اتقطع
@@ -879,10 +891,14 @@ export function POS({
       id: crypto.randomUUID(),
       type: "SALE_INSERT",
       timestamp: new Date().toISOString(),
-      payload: { invoice },
+      payload: { invoice, zatcaInput },
     });
     if (!saleResult.synced) {
       showToast("📴 الفاتورة اتحفظت محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
+    } else if (saleResult.result) {
+      // 🆕 البيع اتنفذ فورًا (أونلاين) — نحدّث نسخة الفاتورة المحلية بحقول زاتكا الحقيقية
+      // اللي اتحسبت وقت الإدراج، عشان الطباعة والعرض يطلعوا بنفس القيمة المسجّلة في السيرفر
+      Object.assign(invoice, saleResult.result);
     }
 
     // 🆕 تسجيل كل سيريال اتباع في الفاتورة دي — أساس منع تكرار بيع نفس العلبة تاني
