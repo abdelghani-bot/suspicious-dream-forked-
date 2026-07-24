@@ -59,6 +59,18 @@ export function POS({
   const [showBulkDoseModal, setShowBulkDoseModal] = useState(false);
   const [bulkLabelSize, setBulkLabelSize] = useState("80x60");
 
+  // 🆕 تحميل إعدادات الولاء مرة واحدة لكل صيدلية عند فتح شاشة نقطة البيع، بدل ما نستنى
+  // لحظة اختيار العميل أو حفظ الفاتورة عشان نجيبها. كده لو حصل بيع أوفلاين، الإعدادات
+  // (وضع الاحتساب، النسبة...) تبقى محفوظة محليًا في الـ state من الأول، ومنعتمدش على نت
+  // شغالة في اللحظة الحرجة عشان نعرف نحسب النقاط.
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase.from("loyalty_settings").select("*").eq("pharmacy_id", pharmacyId).maybeSingle()
+      .then(({ data }) => {
+        if (data) setLoyaltySettings(data);
+      });
+  }, [pharmacyId]);
+
   useEffect(() => {
     if (!pharmacyId) return;
     supabase.from("pharmacy_settings").select("*").eq("pharmacy_id", pharmacyId).single()
@@ -959,24 +971,21 @@ export function POS({
     setSales((p) => [...p, invoice]);
 
     // ── استبدال نقاط في الفاتورة ──
+    // 🆕 بيتبعت كـ "دلتا" (-pointsToRedeem) عبر طابور الأوفلاين بدل upsert برقم نهائي مطلق،
+    // عشان لو فيه جهازين أوفلاين شغالين بنفس العميل مايبقوش بيكتبوا فوق بعض لما يتزامنوا.
     if (usePoints && pointsToRedeem > 0 && inv.selCustomer?.id) {
-      const prev = customerLoyalty || { points: 0, total_earned: 0, total_redeemed: 0 };
-      await supabase.from("loyalty_points").upsert({
-        pharmacy_id: pharmacyId,
-        customer_id: inv.selCustomer.id,
-        points: Math.max(0, (prev.points || 0) - pointsToRedeem),
-        total_earned: prev.total_earned || 0,
-        total_redeemed: (prev.total_redeemed || 0) + pointsToRedeem,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "pharmacy_id,customer_id" });
-
-      await supabase.from("loyalty_transactions").insert({
-        pharmacy_id: pharmacyId,
-        customer_id: inv.selCustomer.id,
-        type: "redeem",
-        amount: -pointsToRedeem,
-        ref_sale_id: invoice.id,
-        note: `استبدال نقاط في فاتورة ${invoice.id}`,
+      await window.offlineAPI.queueEvent({
+        id: crypto.randomUUID(),
+        type: "LOYALTY_DELTA",
+        timestamp: new Date().toISOString(),
+        payload: {
+          pharmacy_id: pharmacyId,
+          customer_id: inv.selCustomer.id,
+          delta: -pointsToRedeem,
+          type: "redeem",
+          ref_sale_id: invoice.id,
+          note: `استبدال نقاط في فاتورة ${invoice.id}`,
+        },
       });
 
       setUsePoints(false);
@@ -1006,33 +1015,24 @@ export function POS({
           points = Math.floor(pointsEligibleSubtotal / ls.sales_per) * ls.sales_rate;
         }
 
+        // 🆕 بيتبعت كـ "دلتا" (+points) عبر طابور الأوفلاين — من غير ما نحتاج نقرا الرصيد
+        // الحالي أولاً (ده كان بيتطلب نت وقت البيع أصلاً). الـ RPC نفسها بتضيف الدلتا على
+        // الرصيد الموجود وقت التنفيذ الفعلي (أونلاين أو وقت المزامنة)، فمفيش خطر تكرار
+        // أو فقدان نقاط حتى لو حصل sync لفاتورتين لنفس العميل من جهازين مختلفين.
         if (points > 0) {
-          const { data: current } = await supabase
-            .from("loyalty_points")
-            .select("*")
-            .eq("pharmacy_id", pharmacyId)
-            .eq("customer_id", inv.selCustomer.id)
-            .maybeSingle();
-
-          const prev = current || { points: 0, total_earned: 0, total_redeemed: 0 };
-
-          await supabase.from("loyalty_points").upsert({
-            pharmacy_id: pharmacyId,
-            customer_id: inv.selCustomer.id,
-            points: (prev.points || 0) + points,
-            total_earned: (prev.total_earned || 0) + points,
-            total_redeemed: prev.total_redeemed || 0,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: "pharmacy_id,customer_id" });
-
-          await supabase.from("loyalty_transactions").insert({
-            pharmacy_id: pharmacyId,
-            customer_id: inv.selCustomer.id,
-            type: "earn",
-            amount: points,
-            ref_sale_id: invoice.id,
-            earned_mode: ls.mode,
-            note: `نقاط مكتسبة من فاتورة ${invoice.id}`,
+          await window.offlineAPI.queueEvent({
+            id: crypto.randomUUID(),
+            type: "LOYALTY_DELTA",
+            timestamp: new Date().toISOString(),
+            payload: {
+              pharmacy_id: pharmacyId,
+              customer_id: inv.selCustomer.id,
+              delta: points,
+              type: "earn",
+              ref_sale_id: invoice.id,
+              earned_mode: ls.mode,
+              note: `نقاط مكتسبة من فاتورة ${invoice.id}`,
+            },
           });
 
           showToast(`🌟 ${inv.selCustomer.name} كسب ${points.toFixed(1)} ريال نقاط`);
@@ -1801,7 +1801,9 @@ export function POS({
                             .eq("pharmacy_id", pharmacyId).maybeSingle(),
                         ]);
                         setCustomerLoyalty(lpRes.data);
-                        setLoyaltySettings(lsRes.data);
+                        // 🆕 منكتبش فوق الـ cache المحمّلة مسبقًا بـ null لو الجلب فشل (أوفلاين مثلاً) —
+                        // بنحدّثها بس لو فعلاً رجع رد فيه بيانات
+                        if (lsRes.data) setLoyaltySettings(lsRes.data);
                         setUsePoints(false);
                         setPointsToRedeem(0);
                       }}
