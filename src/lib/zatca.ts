@@ -53,21 +53,20 @@ export const sha256Base64 = async (text) => {
 
 
 
-// بيجيب آخر ICV/Hash لنفس الصيدلية (كل صيدلية = EGS Unit مستقلة بالكامل عن باقي الصيدليات)
+// 🆕 بيجيب آخر ICV/Hash لنفس الصيدلية عن طريق RPC واحدة atomic (reserve_zatca_chain) بدل
+// قراءة مباشرة من الجدول. القراءة المباشرة القديمة كانت فيها احتمال race condition حقيقي:
+// لو فاتورتين اتقفلوا في نفس اللحظة (حتى أونلاين)، الاتنين ممكن يقرأوا نفس "آخر icv" ويحسبوا
+// نفس الرقم التالي. الـ RPC بتستخدم pg_advisory_xact_lock على مستوى الصيدلية عشان تمنع ده.
+//
+// ⚠️ مهم: الدالة دي لازم تتنفذ بس وقت الإدراج الفعلي في السيرفر (جوه executeEvent وقت الإرسال
+// الحقيقي — أونلاين فورًا أو وقت مزامنة الأوفلاين)، مش وقت إنشاء الفاتورة في الشاشة. لو اتنفذت
+// وإحنا أوفلاين، هترمي error (تتلقفها buildZatcaChainForInvoice وتتسجل في الكونسول من غير ما
+// توقف حفظ الفاتورة) بدل ما ترجع icv=1 غلط لكل فاتورة أوفلاين.
 export const getNextZatcaChain = async (pharmacyId) => {
-  const { data, error } = await supabase
-    .from("sales")
-    .select("zatca_icv, zatca_hash")
-    .eq("pharmacy_id", pharmacyId)
-    .not("zatca_icv", "is", null)
-    .order("zatca_icv", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) console.error("zatca chain fetch error:", error.message);
-  const prevIcv = data?.zatca_icv || 0;
-  // أول فاتورة في السلسلة: الـ PIH بيبقى Base64("0") حسب مواصفات زاتكا
-  const prevHash = data?.zatca_hash || btoa("0");
-  return { icv: prevIcv + 1, pih: prevHash };
+  const { data, error } = await supabase.rpc("reserve_zatca_chain", { p_pharmacy_id: pharmacyId });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return { icv: Number(row?.icv || 1), pih: row?.pih || btoa("0") };
 };
 
 
