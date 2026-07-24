@@ -99,6 +99,23 @@ async function executeEvent(event: QueuedEvent): Promise<void> {
       }
       break;
     }
+    // 🆕 نقاط الولاء (كسب أو استبدال) — بتتبعت كـ "دلتا" (+/-) بدل رقم نهائي مطلق، وبتتنفذ
+    // عبر RPC واحدة idempotent (apply_loyalty_delta) بتستخدم نفس id الحدث كمفتاح منع التكرار.
+    // ده بيحل مشكلة إن جهازين أوفلاين ياخدوا نفس "الرصيد القديم" ويكتبوا فوق بعض لما يتزامنوا.
+    case "LOYALTY_DELTA": {
+      const { error } = await supabase.rpc("apply_loyalty_delta", {
+        p_pharmacy_id: event.payload.pharmacy_id,
+        p_customer_id: event.payload.customer_id,
+        p_delta: event.payload.delta,
+        p_type: event.payload.type, // 'earn' | 'redeem'
+        p_ref_sale_id: event.payload.ref_sale_id,
+        p_event_id: event.id,
+        p_note: event.payload.note ?? null,
+        p_earned_mode: event.payload.earned_mode ?? null,
+      });
+      if (error) throw error;
+      break;
+    }
     case "MISSED_SALES_INSERT": {
       const { error } = await supabase.from("missed_sales").insert(event.payload.records);
       if (error) throw error;
