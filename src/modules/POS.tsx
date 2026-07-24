@@ -905,15 +905,44 @@ export function POS({
     }
 
     if (stockEvents.length > 0) {
-      const { data: syncResults, error: syncError } = await supabase
-        .rpc("apply_stock_movements_batch", { p_events: stockEvents });
-      if (syncError) {
-        showToast("خطأ في تحديث المخزون: " + syncError.message, "error");
-      } else {
-        const failed = (syncResults?.results || []).filter((r) => r.status === "error");
-        if (failed.length > 0) {
-          showToast(`⚠️ فشل تحديث ${failed.length} تشغيلة أثناء البيع — راجع المخزون`, "warning");
+      // فحص أولي: الجهاز متصل بالنت ولا لأ (مش دقيق 100% لكنه أول خط دفاع)
+      const isOnline = navigator.onLine;
+
+      if (isOnline) {
+        try {
+          const { data: syncResults, error: syncError } = await supabase
+            .rpc("apply_stock_movements_batch", { p_events: stockEvents });
+
+          if (syncError) {
+            // ده خطأ راجع من السيرفر نفسه (مش قطع نت) - نعرضه زي ما كان بالظبط
+            showToast("خطأ في تحديث المخزون: " + syncError.message, "error");
+          } else {
+            const failed = (syncResults?.results || []).filter((r) => r.status === "error");
+            if (failed.length > 0) {
+              showToast(`⚠️ فشل تحديث ${failed.length} تشغيلة أثناء البيع — راجع المخزون`, "warning");
+            }
+          }
+        } catch (networkError) {
+          // الطلب اتبعت فعلاً بس فشل وصوله (النت اتقطع أثناء الإرسال نفسه)
+          // بدل ما نضيّع حركة المخزون، نسجلها محليًا كـ event واحد بنفس شكل الـ batch
+          // عشان لما النت يرجع، سكريبت المزامنة يبعتها لـ apply_stock_movements_batch بنفس الطريقة بالظبط
+          await window.offlineAPI.queueEvent({
+            id: crypto.randomUUID(),
+            type: "SALE_STOCK_BATCH",
+            timestamp: new Date().toISOString(),
+            payload: { events: stockEvents },
+          });
+          showToast("⚠️ انقطع الاتصال أثناء الإرسال - تم حفظ حركة المخزون محليًا وهتتزامن تلقائيًا", "warning");
         }
+      } else {
+        // مفيش نت من الأساس - نسجل الحدث محليًا على طول من غير أي محاولة اتصال
+        await window.offlineAPI.queueEvent({
+          id: crypto.randomUUID(),
+          type: "SALE_STOCK_BATCH",
+          timestamp: new Date().toISOString(),
+          payload: { events: stockEvents },
+        });
+        showToast("📴 وضع الأوفلاين - تم حفظ حركة المخزون محليًا", "warning");
       }
     }
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
