@@ -38,7 +38,8 @@ import { authService } from "./services/authService";
 import { RasdQueue } from "./services/rasdService";
 import { IC, Toast } from "./ui/primitives";
 import { supabase } from "./lib/supabaseClient";
-
+import { initOfflineAPI } from "./lib/offlineAPI";
+initOfflineAPI();
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
