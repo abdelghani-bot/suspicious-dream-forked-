@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { COLORS, tint } from "../theme";
 import { BarcodeScanner } from "../components/BarcodeScanner";
@@ -615,19 +615,26 @@ export function POS({
     const newGtin = unmatchedScan.gtin;
     if (!newGtin) return;
     const oldBarcode = product.barcode || "بدون باركود";
-    const { error } = await supabase.from("products").update({ barcode: newGtin }).eq("id", product.id).eq("pharmacy_id", pharmacyId);
-    if (error) { showToast("خطأ في تحديث الباركود: " + error.message, "error"); return; }
+    // تحديث محلي فوري (متفائل) بغض النظر عن حالة النت، والكتابة الفعلية بتعدي على طابور الأوفلاين
     const updatedProduct = { ...product, barcode: newGtin };
     setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
-    // نسجل الدفعة (تشغيلة/صلاحية/سيريال) بتاعة السكان ده في product_barcodes لو فيها بيانات
-    if (unmatchedScan.batch || unmatchedScan.expiry || unmatchedScan.serial) {
-      await supabase.from("product_barcodes").insert({
-        product_id: product.id, pharmacy_id: pharmacyId,
-        base_barcode: newGtin,
-        batch_number: unmatchedScan.batch || null,
-        serial_number: unmatchedScan.serial || null,
-        expiry_date: unmatchedScan.expiry || null,
-      });
+    const barcodeRow = (unmatchedScan.batch || unmatchedScan.expiry || unmatchedScan.serial)
+      ? {
+          product_id: product.id, pharmacy_id: pharmacyId,
+          base_barcode: newGtin,
+          batch_number: unmatchedScan.batch || null,
+          serial_number: unmatchedScan.serial || null,
+          expiry_date: unmatchedScan.expiry || null,
+        }
+      : null;
+    const linkResult = await window.offlineAPI.queueEvent({
+      id: crypto.randomUUID(),
+      type: "BARCODE_LINK",
+      timestamp: new Date().toISOString(),
+      payload: { productId: product.id, pharmacyId, newGtin, barcodeRow },
+    });
+    if (!linkResult.synced) {
+      showToast("📴 تم حفظ ربط الباركود محليًا - هيتزامن لما النت يرجع", "warning");
     }
     showToast(`✅ تم تحديث باركود "${product.nameAr || product.name}" من (${oldBarcode}) إلى (${newGtin})`, "success");
     const pendingScan = unmatchedScan;
@@ -852,10 +859,18 @@ export function POS({
       console.error("zatca chain build failed:", zErr);
     }
 
-    const { error: saleError } = await supabase.from("sales").insert(invoice);
-    if (saleError) {
-      showToast("فشل حفظ الفاتورة: " + saleError.message, "error");
-      return;
+    // ═══ حفظ الفاتورة عبر طابور الأوفلاين ═══
+    // queueEvent بتحاول تبعت مباشر لو فيه نت، ولو مفيش نت أو فشلت المحاولة (النت اتقطع
+    // فعلاً أثناء الإرسال) بتخزن الحدث محليًا في IndexedDB وتتزامن تلقائيًا لما الاتصال
+    // يرجع — من غير ما توقف البيع أو تحتاج نكرر منطق isOnline/try-catch في كل مكان.
+    const saleResult = await window.offlineAPI.queueEvent({
+      id: crypto.randomUUID(),
+      type: "SALE_INSERT",
+      timestamp: new Date().toISOString(),
+      payload: { invoice },
+    });
+    if (!saleResult.synced) {
+      showToast("📴 الفاتورة اتحفظت محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
     }
 
     // 🆕 تسجيل كل سيريال اتباع في الفاتورة دي — أساس منع تكرار بيع نفس العلبة تاني
@@ -872,17 +887,17 @@ export function POS({
       }));
     });
     if (soldSerialRows.length) {
-      const { error: serialError } = await supabase.from("sold_serials").insert(soldSerialRows);
-      if (serialError) {
-        // الفاتورة اتحفظت بنجاح؛ فشل تسجيل التتبع لوحده ميوقفش البيع، بس ننبّه الكاشير يراجعه
-        showToast("⚠️ الفاتورة اتحفظت، لكن تسجيل تتبع السيريال فشل: " + serialError.message, "warning");
-      }
+      await window.offlineAPI.queueEvent({
+        id: crypto.randomUUID(),
+        type: "SOLD_SERIALS_INSERT",
+        timestamp: new Date().toISOString(),
+        payload: { rows: soldSerialRows },
+      });
     }
 
-   // ── تحديث المخزون عن طريق stock movement events بدل الكتابة المباشرة ──
-    // كده نفس المسار (RPC آمن، idempotent) بيتستخدم أونلاين وأوفلاين، ومفيش خطر
-    // إن جهازين يكتبوا فوق بعض (last-write-wins) لو حصل تزامن بينهم.
-    alert("وصلنا لكود stockEvents");
+    // ── تحديث المخزون عن طريق stock movement events بدل الكتابة المباشرة ──
+    // نفس المسار (RPC آمن، idempotent عبر apply_stock_movements_batch) بيتستخدم أونلاين
+    // وأوفلاين، ومفيش خطر إن جهازين يكتبوا فوق بعض (last-write-wins) لو حصل تزامن بينهم.
     const stockEvents = [];
     for (const ci of inv.cart) {
       if (ci.isMissed || ci.isJoker) continue;
@@ -905,44 +920,14 @@ export function POS({
     }
 
     if (stockEvents.length > 0) {
-      // فحص أولي: الجهاز متصل بالنت ولا لأ (مش دقيق 100% لكنه أول خط دفاع)
-      const isOnline = navigator.onLine;
-
-      if (isOnline) {
-        try {
-          const { data: syncResults, error: syncError } = await supabase
-            .rpc("apply_stock_movements_batch", { p_events: stockEvents });
-
-          if (syncError) {
-            // ده خطأ راجع من السيرفر نفسه (مش قطع نت) - نعرضه زي ما كان بالظبط
-            showToast("خطأ في تحديث المخزون: " + syncError.message, "error");
-          } else {
-            const failed = (syncResults?.results || []).filter((r) => r.status === "error");
-            if (failed.length > 0) {
-              showToast(`⚠️ فشل تحديث ${failed.length} تشغيلة أثناء البيع — راجع المخزون`, "warning");
-            }
-          }
-        } catch (networkError) {
-          // الطلب اتبعت فعلاً بس فشل وصوله (النت اتقطع أثناء الإرسال نفسه)
-          // بدل ما نضيّع حركة المخزون، نسجلها محليًا كـ event واحد بنفس شكل الـ batch
-          // عشان لما النت يرجع، سكريبت المزامنة يبعتها لـ apply_stock_movements_batch بنفس الطريقة بالظبط
-          await window.offlineAPI.queueEvent({
-            id: crypto.randomUUID(),
-            type: "SALE_STOCK_BATCH",
-            timestamp: new Date().toISOString(),
-            payload: { events: stockEvents },
-          });
-          showToast("⚠️ انقطع الاتصال أثناء الإرسال - تم حفظ حركة المخزون محليًا وهتتزامن تلقائيًا", "warning");
-        }
-      } else {
-        // مفيش نت من الأساس - نسجل الحدث محليًا على طول من غير أي محاولة اتصال
-        await window.offlineAPI.queueEvent({
-          id: crypto.randomUUID(),
-          type: "SALE_STOCK_BATCH",
-          timestamp: new Date().toISOString(),
-          payload: { events: stockEvents },
-        });
-        showToast("📴 وضع الأوفلاين - تم حفظ حركة المخزون محليًا", "warning");
+      const stockResult = await window.offlineAPI.queueEvent({
+        id: crypto.randomUUID(),
+        type: "SALE_STOCK_BATCH",
+        timestamp: new Date().toISOString(),
+        payload: { events: stockEvents },
+      });
+      if (!stockResult.synced) {
+        showToast("📴 تم حفظ حركة المخزون محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
       }
     }
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
@@ -1086,7 +1071,12 @@ export function POS({
         customer_id: inv.selCustomer?.id || null,
         customer_name: inv.selCustomer?.name || null,
       }));
-      await supabase.from("missed_sales").insert(missedRecords);
+      await window.offlineAPI.queueEvent({
+        id: crypto.randomUUID(),
+        type: "MISSED_SALES_INSERT",
+        timestamp: new Date().toISOString(),
+        payload: { records: missedRecords },
+      });
     }
 
     // 🆕 كل صنف جوكر (بفئته اللي اتحددت) بيتسجل كسطر معلّق في طلبات الشراء —
@@ -1104,10 +1094,18 @@ export function POS({
         );
         if (existing) {
           const newQty = (+existing.qty || 0) + (+i.qty || 1);
-          await supabase.from("joker_pending_items").update({ qty: newQty }).eq("id", existing.id);
+          await window.offlineAPI.queueEvent({
+            id: crypto.randomUUID(),
+            type: "JOKER_UPDATE",
+            timestamp: new Date().toISOString(),
+            payload: { id: existing.id, qty: newQty },
+          });
           workingJokerList = workingJokerList.map((j) => (j.id === existing.id ? { ...j, qty: newQty } : j));
         } else {
+          // 🛠️ الـ id بيتولد هنا في العميل (uuid صحيح) بدل ما نستنى رد السيرفر —
+          // كده القايمة المحلية (workingJokerList) بتتحدث فورًا سواء فيه نت أو لأ.
           const record = {
+            id: crypto.randomUUID(),
             pharmacy_id: pharmacyId,
             name,
             category: cat,
@@ -1116,15 +1114,13 @@ export function POS({
             status: "pending",
             created_at: new Date().toISOString(),
           };
-          // 🛠️ لازم نسيب عمود id لقاعدة البيانات تولده (uuid تلقائي) - قبل كده كان بيتبعت
-          // نص من نوع "JK-...-..." وده مش uuid صحيح فكان الـ insert بيفشل بـ 400 (22P02)
-          // ونستخدم select().single() عشان نرجع الصف باللي فيه الـ id الحقيقي.
-          const { data: inserted, error: jokerErr } = await supabase
-            .from("joker_pending_items")
-            .insert(record)
-            .select()
-            .single();
-          if (!jokerErr && inserted) workingJokerList = [...workingJokerList, inserted];
+          await window.offlineAPI.queueEvent({
+            id: crypto.randomUUID(),
+            type: "JOKER_INSERT",
+            timestamp: new Date().toISOString(),
+            payload: { record },
+          });
+          workingJokerList = [...workingJokerList, record];
         }
       }
       setJokerPendingItems(workingJokerList);
