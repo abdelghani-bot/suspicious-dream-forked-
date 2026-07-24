@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { buildZatcaChainForInvoice } from "./zatca";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // نظام الأوفلاين — طابور عمليات مبني على IndexedDB.
@@ -74,12 +75,34 @@ export async function getQueueCount(): Promise<number> {
 // ── تنفيذ فعلي لكل نوع event على Supabase ──
 // أضف حالة جديدة هنا (case) لكل نوع عملية جديدة تحب تضيفها لنظام الأوفلاين مستقبلًا
 // (مرتجعات، تحصيل آجل، إغلاق شفت...) بنفس الأسلوب.
-async function executeEvent(event: QueuedEvent): Promise<void> {
+async function executeEvent(event: QueuedEvent): Promise<any> {
   switch (event.type) {
     case "SALE_INSERT": {
-      const { error } = await supabase.from("sales").insert(event.payload.invoice);
+      let invoice = event.payload.invoice;
+      // 🆕 سلسلة زاتكا (ICV/PIH/XML/Hash) بتتحسب هنا بالظبط — لحظة الإدراج الفعلي في
+      // السيرفر (أونلاين فورًا أو وقت مزامنة الأوفلاين) — مش وقت إنشاء الفاتورة في الشاشة.
+      // كده الـ RPC (reserve_zatca_chain) بتشوف آخر حلقة حقيقية في السلسلة دايمًا، وفواتير
+      // الأوفلاين المتعددة بتتزامن بالترتيب (زي ما هو مضمون في syncQueue) فكل واحدة بتاخد
+      // الرقم الصح اللي بعد اللي قبلها فعلاً.
+      if (event.payload.zatcaInput) {
+        try {
+          const zatcaFields = await buildZatcaChainForInvoice({
+            invoiceId: invoice.id,
+            ...event.payload.zatcaInput,
+          });
+          invoice = { ...invoice, ...zatcaFields };
+        } catch (zErr) {
+          // لو فشل حجز السلسلة (مثلاً مشكلة اتصال لحظية أثناء التنفيذ نفسه)، الفاتورة
+          // تتحفظ من غير حقول زاتكا بدل ما توقف التسجيل، ونسجل الخطأ للمراجعة.
+          console.error("zatca chain build failed at insert time:", zErr);
+        }
+      }
+      const { error } = await supabase.from("sales").insert(invoice);
       if (error) throw error;
-      break;
+      // 🆕 نرجّع الفاتورة النهائية (بحقول زاتكا لو اتحسبت) عشان لو التنفيذ حصل فورًا
+      // (أونلاين)، الكود اللي نادى queueEvent يقدر يحدّث نسخته المحلية (للطباعة والعرض)
+      // بنفس القيم اللي فعلاً اتسجلت في السيرفر
+      return invoice;
     }
     case "SOLD_SERIALS_INSERT": {
       const { error } = await supabase.from("sold_serials").insert(event.payload.rows);
@@ -133,6 +156,14 @@ async function executeEvent(event: QueuedEvent): Promise<void> {
       // الـ id متولد من العميل مسبقًا (crypto.randomUUID) عشان القايمة المحلية تكون
       // متزامنة فورًا من غير ما نستنى رد السيرفر باللي فيه id مولّد هناك.
       const { error } = await supabase.from("joker_pending_items").insert(event.payload.record);
+      if (error) throw error;
+      break;
+    }
+    case "DOSE_TEMPLATES_UPDATE": {
+      const { error } = await supabase
+        .from("pharmacy_settings")
+        .update({ dosage_templates: event.payload.dosage_templates })
+        .eq("pharmacy_id", event.payload.pharmacy_id);
       if (error) throw error;
       break;
     }
@@ -195,11 +226,11 @@ export async function syncQueue() {
 }
 
 // ── نقطة الدخول الرئيسية: أي كود في التطبيق ينده عليها بدل الكتابة المباشرة على Supabase ──
-async function queueEvent(event: QueuedEvent): Promise<{ synced: boolean }> {
+async function queueEvent(event: QueuedEvent): Promise<{ synced: boolean; result?: any }> {
   if (navigator.onLine) {
     try {
-      await executeEvent(event);
-      return { synced: true };
+      const result = await executeEvent(event);
+      return { synced: true, result };
     } catch (err) {
       // فشل رغم إن navigator.onLine بيقول متصل (نت ضعيف/متقطع أثناء الإرسال نفسه) →
       // منسيبش العملية تضيع، بنخزنها كـ fallback
