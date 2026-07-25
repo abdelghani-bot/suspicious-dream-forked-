@@ -7,7 +7,7 @@
     "react",
     "starter"
   ],
-  "main": "electron/main.cjs",
+  "main": "src/index.tsx",
   "scripts": {
     "start": "vite",
     "dev": "vite",
@@ -15,23 +15,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.106.2",
-    "better-sqlite3": "^13.0.1",
-    "electron-updater": "^6.8.9",
-    "qrcode.react": "4.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "@supabase/supabase-js": "2.106.2",
+    "qrcode.react": "4.2.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.2",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/react": "18.2.38",
     "@types/react-dom": "18.2.15",
-    "@vitejs/plugin-react": "^4.2.1",
-    "electron": "^41.7.1",
     "typescript": "4.4.4",
-    "vite": "^5.0.11"
+    "vite": "^5.0.11",
+    "@vitejs/plugin-react": "^4.2.1"
   },
   "browserslist": [
     ">0.2%",
