@@ -49,7 +49,50 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+const Database = require("better-sqlite3");
+const path = require("path");
+const crypto = require("crypto");
 
+const dbPath = path.join(app.getPath("userData"), "pharmacypro_offline.db");
+const db = new Database(dbPath);
+db.pragma("journal_mode = WAL");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pending_sync_events (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    synced INTEGER DEFAULT 0,
+    sync_attempts INTEGER DEFAULT 0,
+    last_error TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_pending_unsynced ON pending_sync_events(synced);
+`);
+
+ipcMain.handle("offline:queueEvent", (_event, evt) => {
+    try {
+        db.prepare(`
+      INSERT INTO pending_sync_events (id, type, payload, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(evt.id, evt.type, JSON.stringify(evt.payload), evt.timestamp);
+        return { synced: false, id: evt.id };
+    } catch (err) {
+        return { synced: false, error: String(err) };
+    }
+});
+
+ipcMain.handle("offline:getPendingEvents", () => {
+    const rows = db.prepare("SELECT * FROM pending_sync_events WHERE synced = 0 ORDER BY created_at ASC").all();
+    return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
+});
+
+ipcMain.handle("offline:markSynced", (_event, ids) => {
+    const stmt = db.prepare("UPDATE pending_sync_events SET synced = 1 WHERE id = ?");
+    const tx = db.transaction((list) => list.forEach((id) => stmt.run(id)));
+    tx(ids);
+    return { success: true };
+});
 ipcMain.handle("app:getVersion", () => app.getVersion());
 app.whenReady().then(() => {
   autoUpdater.checkForUpdatesAndNotify();
@@ -58,7 +101,7 @@ app.whenReady().then(() => {
 autoUpdater.on("update-downloaded", () => {
   if (mainWindow) {
     mainWindow.webContents.executeJavaScript(
-      `window.confirm && confirm("íÊæÝÑ ÊÍÏíË ÌÏíÏ. åá ÊÑíÏ ÅÚÇÏÉ ÊÔÛíá ÇáÈÑäÇãÌ ÇáÂä áÊËÈíÊå¿")`
+      `window.confirm && confirm("ÙŠØªÙˆÙØ± ØªØ­Ø¯ÙŠØ« Ø¬Ø¯ÙŠØ¯. Ù‡Ù„ ØªØ±ÙŠØ¯ Ø¥Ø¹Ø§Ø¯Ø© ØªØ´ØºÙŠÙ„ Ø§Ù„Ø¨Ø±Ù†Ø§Ù…Ø¬ Ø§Ù„Ø¢Ù† Ù„ØªØ«Ø¨ÙŠØªÙ‡ØŸ")`
     ).then((result) => {
       if (result) autoUpdater.quitAndInstall();
     }).catch(() => {});
