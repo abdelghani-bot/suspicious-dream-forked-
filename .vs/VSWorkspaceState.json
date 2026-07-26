@@ -3,11 +3,12 @@
     "",
     "\\electron",
     "\\src",
+    "\\src\\components",
     "\\src\\lib",
     "\\src\\modules",
     "\\src\\services",
     "\\src\\ui"
   ],
-  "SelectedNode": "\\electron\\main.cjs",
+  "SelectedNode": "\\src\\modules\\POS.tsx",
   "PreviewInSolutionExplorer": false
 }

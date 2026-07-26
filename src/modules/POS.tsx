@@ -546,32 +546,39 @@ export function POS({
 };
   const scanBarcode = async (scan) => {
     // ── منع تكرار مسح نفس الرقم التسلسلي: كل SN بيمثل علبة فيزيائية واحدة بس ──
-    if (scan.serial) {
-      // 1) مكرر جوه نفس الفاتورة الحالية (دبل سكان بالغلط)
-      // 🆕 لازم نفتش جوه serials[] كمان، مش بس i.serial المفرد — لأن العلبة التانية والتالتة
-      // من نفس الصنف بتتجمّع في نفس السطر وسيريالها بيتخزن جوه المصفوفة دي (شوف addToCart).
-      const dupInCart = inv.cart.some(
-        (i) => (i.serials && i.serials.includes(scan.serial)) || i.serial === scan.serial
-      );
-      if (dupInCart) {
-        playWarningBeep();
-        showToast(`⚠️ الرقم التسلسلي (${scan.serial}) اتمسح في الفاتورة دي بالفعل`, "error");
-        return;
+      if (scan.serial) {
+          // 1) مكرر جوه نفس الفاتورة الحالية (دبل سكان بالغلط)
+          const dupInCart = inv.cart.some(
+              (i) => (i.serials && i.serials.includes(scan.serial)) || i.serial === scan.serial
+          );
+          if (dupInCart) {
+              playWarningBeep();
+              showToast(`⚠️ الرقم التسلسلي (${scan.serial}) اتمسح في الفاتورة دي بالفعل`, "error");
+              return;
+          }
+
+          // 2) مباع قبل كده في فاتورة تانية — الفحص ده بيحصل بس لو فيه نت متاح
+          // (أوفلاين: بنكمل البيع، والحماية النهائية بقت على مستوى الداتابيز عبر
+          // sold_serials_unique_sold، فأي تكرار فعلي هيتمسك وقت المزامنة)
+          if (navigator.onLine) {
+              try {
+                  const { data: soldRow } = await supabase
+                      .from("sold_serials")
+                      .select("invoice_id")
+                      .eq("pharmacy_id", pharmacyId)
+                      .eq("serial_number", scan.serial)
+                      .eq("status", "sold")
+                      .maybeSingle();
+                  if (soldRow) {
+                      playWarningBeep();
+                      showToast(`⚠️ الرقم التسلسلي (${scan.serial}) مباع بالفعل في فاتورة ${soldRow.invoice_id} — راجع قبل ما تكمل`, "error");
+                      return;
+                  }
+              } catch (err) {
+                  console.warn("تعذر التحقق من السيريال أونلاين:", err);
+              }
+          }
       }
-      // 2) مباع قبل كده في فاتورة تانية ولسه معملوش إرجاع
-      const { data: soldRow } = await supabase
-        .from("sold_serials")
-        .select("invoice_id")
-        .eq("pharmacy_id", pharmacyId)
-        .eq("serial_number", scan.serial)
-        .eq("status", "sold")
-        .maybeSingle();
-      if (soldRow) {
-        playWarningBeep();
-        showToast(`⚠️ الرقم التسلسلي (${scan.serial}) مباع بالفعل في فاتورة ${soldRow.invoice_id} — راجع قبل ما تكمل`, "error");
-        return;
-      }
-    }
     let product = null;
     if (scan.type === "gs1" || scan.type === "custom") {
       product =

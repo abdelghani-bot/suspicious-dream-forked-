@@ -10,18 +10,34 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
   const [paperWidth, setPaperWidth] = useState("80"); // 58 / 80 / A4 — الافتراضي 80مم
   const [pharmacyInfo, setPharmacyInfo] = useState({ name: "", vatNumber: "" });
 
-  useEffect(() => {
-    if (!pharmacyId) return;
-    supabase
-      .from("pharmacy_settings")
-      .select("receipt_paper_width, name_ar, tax_number")
-      .eq("pharmacy_id", pharmacyId)
-      .single()
-      .then(({ data }) => {
-        if (data?.receipt_paper_width) setPaperWidth(data.receipt_paper_width);
-        if (data) setPharmacyInfo({ name: data.name_ar || "", vatNumber: data.tax_number || "" });
-      });
-  }, [pharmacyId]);
+    useEffect(() => {
+        if (!pharmacyId) return;
+
+        // استخدم النسخة المحفوظة محليًا الأول (لو موجودة) كعرض فوري وfallback
+        const cached = localStorage.getItem(`pharmacy_settings_${pharmacyId}`);
+        if (cached) {
+            const data = JSON.parse(cached);
+            if (data.receipt_paper_width) setPaperWidth(data.receipt_paper_width);
+            setPharmacyInfo({ name: data.name_ar || "", vatNumber: data.tax_number || "" });
+        }
+
+        // لو فيه نت، حاول تجيب نسخة محدثة وتخزنها لاستخدامها بعدين أوفلاين
+        if (navigator.onLine) {
+            supabase
+                .from("pharmacy_settings")
+                .select("receipt_paper_width, name_ar, tax_number")
+                .eq("pharmacy_id", pharmacyId)
+                .single()
+                .then(({ data }) => {
+                    if (data) {
+                        if (data.receipt_paper_width) setPaperWidth(data.receipt_paper_width);
+                        setPharmacyInfo({ name: data.name_ar || "", vatNumber: data.tax_number || "" });
+                        localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify(data));
+                    }
+                })
+                .catch(() => { }); // فشل بهدوء لو حصل قطع نت أثناء الطلب
+        }
+    }, [pharmacyId]);
 
   const doPrint = () => {
     const isA4 = paperWidth === "A4";
