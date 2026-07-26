@@ -7,7 +7,7 @@
     "react",
     "starter"
   ],
-  "main": "src/index.tsx",
+  "main": "electron/main.cjs",
   "scripts": {
     "start": "vite",
     "dev": "vite",

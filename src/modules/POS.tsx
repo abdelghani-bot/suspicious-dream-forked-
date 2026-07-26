@@ -887,12 +887,13 @@ export function POS({
     // queueEvent بتحاول تبعت مباشر لو فيه نت، ولو مفيش نت أو فشلت المحاولة (النت اتقطع
     // فعلاً أثناء الإرسال) بتخزن الحدث محليًا في IndexedDB وتتزامن تلقائيًا لما الاتصال
     // يرجع — من غير ما توقف البيع أو تحتاج نكرر منطق isOnline/try-catch في كل مكان.
-    const saleResult = await window.offlineAPI.queueEvent({
-      id: crypto.randomUUID(),
-      type: "SALE_INSERT",
-      timestamp: new Date().toISOString(),
-      payload: { invoice, zatcaInput },
-    });
+      const saleResult = await window.offlineAPI.queueEvent({
+          id: crypto.randomUUID(),
+          type: "SALE_INSERT",
+          pharmacy_id: pharmacyId,
+          timestamp: new Date().toISOString(),
+          payload: { invoice, zatcaInput },
+      });
     if (!saleResult.synced) {
       showToast("📴 الفاتورة اتحفظت محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
     } else if (saleResult.result) {
@@ -914,14 +915,15 @@ export function POS({
         sold_at: new Date().toISOString(),
       }));
     });
-    if (soldSerialRows.length) {
-      await window.offlineAPI.queueEvent({
-        id: crypto.randomUUID(),
-        type: "SOLD_SERIALS_INSERT",
-        timestamp: new Date().toISOString(),
-        payload: { rows: soldSerialRows },
-      });
-    }
+      if (soldSerialRows.length) {
+          await window.offlineAPI.queueEvent({
+              id: crypto.randomUUID(),
+              type: "SOLD_SERIALS_INSERT",
+              pharmacy_id: pharmacyId,
+              timestamp: new Date().toISOString(),
+              payload: { rows: soldSerialRows },
+          });
+      }
 
     // ── تحديث المخزون عن طريق stock movement events بدل الكتابة المباشرة ──
     // نفس المسار (RPC آمن، idempotent عبر apply_stock_movements_batch) بيتستخدم أونلاين
@@ -947,17 +949,18 @@ export function POS({
       });
     }
 
-    if (stockEvents.length > 0) {
-      const stockResult = await window.offlineAPI.queueEvent({
-        id: crypto.randomUUID(),
-        type: "SALE_STOCK_BATCH",
-        timestamp: new Date().toISOString(),
-        payload: { events: stockEvents },
-      });
-      if (!stockResult.synced) {
-        showToast("📴 تم حفظ حركة المخزون محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
+      if (stockEvents.length > 0) {
+          const stockResult = await window.offlineAPI.queueEvent({
+              id: crypto.randomUUID(),
+              type: "SALE_STOCK_BATCH",
+              pharmacy_id: pharmacyId,
+              timestamp: new Date().toISOString(),
+              payload: { events: stockEvents },
+          });
+          if (!stockResult.synced) {
+              showToast("📴 تم حفظ حركة المخزون محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
+          }
       }
-    }
     const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
     // ✅ كل علبة (سيريال) لازم PRODUCT node مستقل في رصد — مش سطر واحد بكمية 2 وسيريال واحد بس
     // 🆕 رصد بيغطي الدواء بس. لازم فلتر صريح بالفئة هنا (مش الاعتماد بس على وجود serial)،

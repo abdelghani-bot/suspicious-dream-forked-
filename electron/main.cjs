@@ -95,8 +95,8 @@ ipcMain.handle("offline:queueEvent", (_event, evt) => {
         db.prepare(`
       INSERT INTO pending_sync_events (id, pharmacy_id, event_type, payload, created_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(id, evt.payload.pharmacy_id, evt.type, JSON.stringify(evt.payload), evt.timestamp || new Date().toISOString());
-        return { id, success: true };
+    `).run(id, evt.pharmacy_id, evt.type, JSON.stringify(evt.payload), evt.timestamp || new Date().toISOString());
+        return { id, success: true, synced: false };
     } catch (err) {
         return { success: false, error: String(err) };
     }
@@ -104,7 +104,12 @@ ipcMain.handle("offline:queueEvent", (_event, evt) => {
 
 ipcMain.handle("offline:getPendingEvents", () => {
     const rows = db.prepare("SELECT * FROM pending_sync_events WHERE synced = 0").all();
-    return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
+    return rows.map((r) => ({
+        ...r,
+        type: r.event_type,
+        timestamp: r.created_at,
+        payload: JSON.parse(r.payload)
+    }));
 });
 
 ipcMain.handle("offline:markSynced", (event, ids) => {

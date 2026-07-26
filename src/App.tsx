@@ -38,9 +38,14 @@ import { authService } from "./services/authService";
 import { RasdQueue } from "./services/rasdService";
 import { IC, Toast } from "./ui/primitives";
 import { supabase } from "./lib/supabaseClient";
+import { initOfflineSync } from "./lib/offlineAPI";
 
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
+    // جوه الكومبوننت الرئيسي:
+    useEffect(() => {
+        initOfflineSync();
+    }, []);
   const [products, setProducts] = useStorage("ph_products", INIT_PRODUCTS);
   const [suppliers, setSuppliers] = useStorage("ph_suppliers", INIT_SUPPLIERS);
   const [customers, setCustomers] = useStorage("ph_customers", INIT_CUSTOMERS);
