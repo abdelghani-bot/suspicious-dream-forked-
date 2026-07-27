@@ -90,6 +90,20 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             }
             break;
         }
+        case "PURCHASE_INSERT": {
+            const { error } = await supabase.from("purchases").insert(event.payload.invoice);
+            if (error) throw error;
+            break;
+        }
+        case "PURCHASE_STOCK_ADD": {
+            const { data, error } = await supabase.rpc("apply_purchase_stock_batch", {
+                p_events: event.payload.events,
+            });
+            if (error) throw error;
+            const failed = (data?.results || []).filter((r: any) => r.status === "error");
+            if (failed.length > 0) console.error("apply_purchase_stock_batch: some events failed", failed);
+            break;
+        }
         default:
             console.warn("Unknown offline event type:", event.type);
     }
@@ -119,7 +133,7 @@ export async function syncQueue() {
 }
 
 // ── نقطة الدخول الرئيسية: بديل window.offlineAPI.queueEvent المباشر ──
-export async function queueEvent(event: QueuedEvent): Promise<{ synced: boolean; result?: any }> {
+export async function queueEvent(event: QueuedEvent): Promise<{ synced: boolean; result?: any; error?: string }> {
     if (navigator.onLine) {
         try {
             const result = await executeEvent(event);
@@ -128,6 +142,10 @@ export async function queueEvent(event: QueuedEvent): Promise<{ synced: boolean;
             return { synced: true, result };
         } catch (err) {
             console.error("execute failed, falling back to local queue:", err);
+            // فشل حقيقي أثناء إننا أونلاين فعليًا (مش قطع نت) — نسجله محليًا للمزامنة لاحقًا
+            // برضو، لكن نرجّع رسالة الخطأ عشان المستدعي يقدر يميّز الحالة ده من الأوفلاين العادي
+            await window.offlineAPI.persistEvent(event);
+            return { synced: false, error: err?.message || String(err) };
         }
     }
     await window.offlineAPI.persistEvent(event);

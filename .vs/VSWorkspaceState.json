@@ -9,6 +9,6 @@
     "\\src\\services",
     "\\src\\ui"
   ],
-  "SelectedNode": "\\src\\modules\\POS.tsx",
+  "SelectedNode": "\\electron\\main.cjs",
   "PreviewInSolutionExplorer": false
 }

@@ -12,7 +12,7 @@ import { ProductFormModal } from "./ProductFormModal";
 import { RasdSettings } from "./RasdSettings";
 import { RasdQueue } from "../services/rasdService";
 import { Badge, Btn, IC, Modal, Pagination, Select, Table } from "../ui/primitives";
-
+import { queueEvent } from "../lib/offlineAPI";
 export function PurchaseModule({
   products,
   setProducts,
@@ -72,19 +72,25 @@ export function PurchaseModule({
   const [productFormPrefillName, setProductFormPrefillName] = useState("");
 
   // تحميل بروفايل الأعمدة وقاموس أكواد الأصناف الخاصين بالمورد المختار
-  useEffect(() => {
-    if (!selSupplier || !pharmacyId) { setSupplierCodesMap({}); setSupplierColumnProfile(null); return; }
-    supabase.from("supplier_product_codes").select("supplier_code, product_id")
-      .eq("pharmacy_id", pharmacyId).eq("supplier_id", selSupplier)
-      .then(({ data }) => {
-        const map = {};
-        (data || []).forEach((r) => { map[r.supplier_code] = r.product_id; });
-        setSupplierCodesMap(map);
-      });
-    supabase.from("supplier_import_profiles").select("column_mapping")
-      .eq("pharmacy_id", pharmacyId).eq("supplier_id", selSupplier).maybeSingle()
-      .then(({ data }) => setSupplierColumnProfile(data?.column_mapping || null));
-  }, [selSupplier, pharmacyId]);
+    useEffect(() => {
+        if (!selSupplier || !pharmacyId) { setSupplierCodesMap({}); setSupplierColumnProfile(null); return; }
+        supabase.from("supplier_product_codes").select("supplier_code, product_id")
+            .eq("pharmacy_id", pharmacyId).eq("supplier_id", selSupplier)
+            .then(({ data }) => {
+                const map = {};
+                (data || []).forEach((r) => { map[r.supplier_code] = r.product_id; });
+                setSupplierCodesMap(map);
+            })
+            .catch(() => {
+                // أوفلاين أو فشل الاتصال — نسيب الخريطة فاضية، الاستيراد هيعمل مطابقة يدوية بس
+                setSupplierCodesMap({});
+            });
+
+        supabase.from("supplier_import_profiles").select("column_mapping")
+            .eq("pharmacy_id", pharmacyId).eq("supplier_id", selSupplier).maybeSingle()
+            .then(({ data }) => setSupplierColumnProfile(data?.column_mapping || null))
+            .catch(() => setSupplierColumnProfile(null));
+    }, [selSupplier, pharmacyId]);
 
   const [showDetail, setShowDetail] = useState(null);
   const [editItems, setEditItems] = useState([]);
@@ -1050,88 +1056,89 @@ const LABEL_SIZES = [
     };
 
     setPurchases((p) => [...p, po]);
-    const { error } = await supabase.from("purchases").insert({
-      id: po.id,
-      date: po.date,
-      supplier: po.supplier,
-      supplier_name: po.supplierName,
-      items: po.items,
-      subtotal: po.subtotal,
-      tax_amount: po.taxAmount,
-      total: po.total,
-      status: po.status,
-      pharmacy_id: pharmacyId,
-    });
-    if (error) {
-      showToast("فشل الحفظ في السيرفر: " + error.message, "error");
-      setPurchases((p) => p.filter((x) => x.id !== po.id)); // نتراجع عن الإضافة المحلية لأن الحفظ فشل
-      return; // لا نكمّل تحديث المخزون لأن الفاتورة نفسها لم تُحفظ
-    }
-    logAudit({
-      pharmacyId, userName: currentUser?.name, action: "create", entityType: "purchase",
-      entityId: po.id, entityLabel: `فاتورة شراء — ${po.supplierName}`,
-      newValue: { supplier: po.supplierName, total: po.total, itemsCount: po.items.length },
-      description: `إضافة فاتورة شراء من "${po.supplierName}" بإجمالي ${po.total} ر.س`,
-    });
-   const stockUpdateFailures = [];
-// بنجهز الـ batches الجديدة لكل صنف قبل الكتابة، عشان نضمن إنها تتحفظ فعليًا
-// في Supabase (مش بس في الذاكرة المحلية) — ده كان السبب في ضياع تواريخ الصلاحية
-// القديمة عند دخول فاتورة شراء جديدة لنفس الصنف.
-const newBatchesByProduct = {};
-for (const ci of items) {
-  const product = products.find((x) => x.id === ci.id);
-  if (!product) continue;
-  const newBatch = {
-    id: crypto.randomUUID(),
-    qty: ci.qty + (ci.bonusQty || 0),
-    cost: ci.receivedCost,
-    salePrice: ci.newSalePrice,
-    expiry_date: ci.expiry_date || null,
-    batch_number: ci.batch_number || null,
-    date: todayLocal(),
-  };
-  const existingBatches = product.batches?.length
-    ? product.batches
-    : product.stock > 0
-    ? [{ id: crypto.randomUUID(), qty: product.stock, cost: product.cost, salePrice: product.price, batch_number: null, date: "قديم" }]
-    : [];
-  newBatchesByProduct[ci.id] = [...existingBatches, newBatch];
+      const purchaseInvoice = {
+          id: po.id,
+          date: po.date,
+          supplier: po.supplier,
+          supplier_name: po.supplierName,
+          items: po.items,
+          subtotal: po.subtotal,
+          tax_amount: po.taxAmount,
+          total: po.total,
+          status: po.status,
+          pharmacy_id: pharmacyId,
+      };
 
-  const newStock = product.stock + ci.qty + (ci.bonusQty || 0);
-  const { error: stockErr } = await supabase
-    .from("products")
-    .update({
-      stock: newStock,
-      cost: ci.receivedCost,
-      price: ci.newSalePrice,
-      batches: newBatchesByProduct[ci.id],
-      not_available_market: false,
-      // 🆕 دخول الصنف في فاتورة شراء حقيقية = تفعيل تلقائي لحسابه ضمن طلبات الشراء التلقائية مستقبلًا
-      auto_order: true,
-    })
-    .eq("id", ci.id)
-    .eq("pharmacy_id", pharmacyId);
-  if (stockErr) stockUpdateFailures.push(product.name || ci.id);
-}
-if (stockUpdateFailures.length > 0) {
-  showToast("⚠️ تم حفظ الفاتورة لكن فشل تحديث مخزون: " + stockUpdateFailures.join("، "), "error");
-}
-setProducts((prev) =>
-  prev.map((x) => {
-    const ci = items.find((i) => i.id === x.id);
-    if (!ci) return x;
-    return {
-      ...x,
-      stock: x.stock + ci.qty + (ci.bonusQty || 0),
-      cost: ci.receivedCost,
-      price: ci.newSalePrice,
-      batches: newBatchesByProduct[x.id] ?? x.batches,
-      not_available_market: false,
-      auto_order: true,
-    };
-  })
-);
+      const invoiceResult = await queueEvent({
+          id: crypto.randomUUID(),
+          type: "PURCHASE_INSERT",
+          pharmacy_id: pharmacyId,
+          timestamp: new Date().toISOString(),
+          payload: { invoice: purchaseInvoice },
+      });
 
+      if (!invoiceResult.synced && invoiceResult.error) {
+          // فشل حتى محاولة الحفظ الأولى (خطأ حقيقي، مش بس أوفلاين) — نتراجع
+          showToast("فشل الحفظ: " + invoiceResult.error, "error");
+          setPurchases((p) => p.filter((x) => x.id !== po.id));
+          return;
+      }
+
+      logAudit({
+          pharmacyId, userName: currentUser?.name, action: "create", entityType: "purchase",
+          entityId: po.id, entityLabel: `فاتورة شراء — ${po.supplierName}`,
+          newValue: { supplier: po.supplierName, total: po.total, itemsCount: po.items.length },
+          description: `إضافة فاتورة شراء من "${po.supplierName}" بإجمالي ${po.total} ر.س`,
+      });
+
+      // بنجهز الـ batches الجديدة لكل صنف كـ أحداث منفصلة (batch id يتولد هنا عشان الـ idempotency)
+      const newBatchesByProduct = {};
+      const stockEvents = items.map((ci) => {
+          const product = products.find((x) => x.id === ci.id);
+          const newBatch = {
+              id: crypto.randomUUID(),
+              qty: ci.qty + (ci.bonusQty || 0),
+              cost: ci.receivedCost,
+              salePrice: ci.newSalePrice,
+              expiry_date: ci.expiry_date || null,
+              batch_number: ci.batch_number || null,
+              date: todayLocal(),
+          };
+          newBatchesByProduct[ci.id] = [...(product?.batches || []), newBatch];
+          return {
+              id: crypto.randomUUID(),
+              pharmacy_id: pharmacyId,
+              product_id: ci.id,
+              batch: newBatch,
+              reference_id: po.id,
+              created_at: new Date().toISOString(),
+              device_id: null,
+          };
+      });
+
+      await queueEvent({
+          id: crypto.randomUUID(),
+          type: "PURCHASE_STOCK_ADD",
+          pharmacy_id: pharmacyId,
+          timestamp: new Date().toISOString(),
+          payload: { events: stockEvents },
+      });
+
+      setProducts((prev) =>
+          prev.map((x) => {
+              const ci = items.find((i) => i.id === x.id);
+              if (!ci) return x;
+              return {
+                  ...x,
+                  stock: x.stock + ci.qty + (ci.bonusQty || 0),
+                  cost: ci.receivedCost,
+                  price: ci.newSalePrice,
+                  batches: newBatchesByProduct[x.id] ?? x.batches,
+                  not_available_market: false,
+                  auto_order: true,
+              };
+          })
+      );
 // ✅ نحتفظ بنسخة من الأصناف للطباعة قبل التصفير
 const itemsForPrint = items.map((i) => ({ ...i }));
 
