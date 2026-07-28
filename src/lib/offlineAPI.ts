@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { buildZatcaChainForInvoice } from "./zatca";
+import { authService } from "../services/authService"; // 🆕 عدّل المسار حسب مكان الملف الفعلي عندك
 
 export type QueuedEvent = {
     id: string;
@@ -116,6 +117,34 @@ export async function syncQueue() {
     if (syncing || !navigator.onLine) return;
     syncing = true;
     try {
+        // تأكد من صلاحية الجلسة قبل أي محاولة مزامنة
+        let { data: { session } } = await supabase.auth.getSession();
+
+        if (!session) {
+            // 🆕 مفيش جلسة Supabase حقيقية — ده متوقع لو المستخدم دخل أوفلاين.
+            // نجرب silent re-auth بالـ refresh_token المخزّن قبل ما نأجّل المزامنة
+            const pharmacyId = localStorage.getItem("current_pharmacy_id");
+            if (!pharmacyId) {
+                console.warn("syncQueue: no valid session and no cached pharmacy_id, deferring sync");
+                return;
+            }
+
+            const reauthed = await authService.attemptSilentReauth(pharmacyId);
+            if (!reauthed) {
+                console.warn("syncQueue: silent re-auth failed, deferring sync");
+                return;
+            }
+
+            // نجحت — نجيب الجلسة الجديدة اللي اتعملها setSession جوه attemptSilentReauth
+            const refreshed = await supabase.auth.getSession();
+            session = refreshed.data.session;
+            if (!session) {
+                console.warn("syncQueue: re-auth reported success but session still missing, deferring sync");
+                return;
+            }
+            console.log("syncQueue: silent re-auth succeeded, proceeding with sync");
+        }
+
         const events: QueuedEvent[] = await window.offlineAPI.getPendingEvents();
         events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
         for (const event of events) {
@@ -124,7 +153,7 @@ export async function syncQueue() {
                 await window.offlineAPI.markSynced([event.id]);
             } catch (err) {
                 console.error("sync failed for event", event.id, err);
-                break; // بنوقف عند أول فشل للحفاظ على الترتيب، هيتعاد المحاولة في الدورة الجاية
+                break;
             }
         }
     } finally {
@@ -137,13 +166,11 @@ export async function queueEvent(event: QueuedEvent): Promise<{ synced: boolean;
     if (navigator.onLine) {
         try {
             const result = await executeEvent(event);
-            await window.offlineAPI.persistEvent(event); // نسجلها كـ audit trail حتى بعد نجاحها
+            await window.offlineAPI.persistEvent(event);
             await window.offlineAPI.markSynced([event.id]);
             return { synced: true, result };
         } catch (err) {
             console.error("execute failed, falling back to local queue:", err);
-            // فشل حقيقي أثناء إننا أونلاين فعليًا (مش قطع نت) — نسجله محليًا للمزامنة لاحقًا
-            // برضو، لكن نرجّع رسالة الخطأ عشان المستدعي يقدر يميّز الحالة ده من الأوفلاين العادي
             await window.offlineAPI.persistEvent(event);
             return { synced: false, error: err?.message || String(err) };
         }

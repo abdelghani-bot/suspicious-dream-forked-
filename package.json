@@ -15,18 +15,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.106.2",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.1",
+    "electron-updater": "^6.8.9",
+    "qrcode.react": "4.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "@supabase/supabase-js": "2.106.2",
-    "qrcode.react": "4.2.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "18.2.38",
     "@types/react-dom": "18.2.15",
+    "@vitejs/plugin-react": "^4.2.1",
     "typescript": "4.4.4",
-    "vite": "^5.0.11",
-    "@vitejs/plugin-react": "^4.2.1"
+    "vite": "^5.0.11"
   },
   "browserslist": [
     ">0.2%",

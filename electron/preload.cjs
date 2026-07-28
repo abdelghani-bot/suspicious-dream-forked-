@@ -1,8 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("desktopApp", {
-  isElectron: true,
-  getVersion: () => ipcRenderer.invoke("app:getVersion"),
+    isElectron: true,
+    getVersion: () => ipcRenderer.invoke("app:getVersion"),
 });
 
 contextBridge.exposeInMainWorld("offlineAPI", {
@@ -12,4 +12,10 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     persistEvent: (evt) => ipcRenderer.invoke("offline:queueEvent", evt),
     getPendingEvents: () => ipcRenderer.invoke("offline:getPendingEvents"),
     markSynced: (ids) => ipcRenderer.invoke("offline:markSynced", ids),
+    cacheCredentials: (payload) => ipcRenderer.invoke("offline:cacheCredentials", payload),
+    verifyOfflineLogin: (payload) => ipcRenderer.invoke("offline:verifyOfflineLogin", payload),
+    // جديد
+    cacheSession: (payload) => ipcRenderer.invoke("offline:cacheSession", payload),
+    getCachedSession: (pharmacyId) => ipcRenderer.invoke("offline:getCachedSession", pharmacyId),
+    clearCachedSession: (pharmacyId) => ipcRenderer.invoke("offline:clearCachedSession", pharmacyId),
 });
