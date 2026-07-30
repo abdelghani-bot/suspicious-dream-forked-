@@ -1,8 +1,12 @@
 {
   "name": "react-typescript",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "React and TypeScript example starter project",
-  "keywords": ["typescript", "react", "starter"],
+  "keywords": [
+    "typescript",
+    "react",
+    "starter"
+  ],
   "main": "electron/main.cjs",
   "scripts": {
     "start": "vite",
@@ -34,16 +38,28 @@
     "vite": "^5.0.11",
     "wait-on": "^9.0.10"
   },
-    "overrides": {
+  "overrides": {
     "@noble/hashes": "^1.4.0"
   },
-  "browserslist": [">0.2%", "not dead", "not ie <= 11", "not op_mini all"],
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not ie <= 11",
+    "not op_mini all"
+  ],
   "build": {
     "appId": "com.ahmed.pharmacypro",
     "productName": "PharmacyPro",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "electron/**/*"],
-    "win": { "target": "nsis" },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
     "publish": {
       "provider": "github",
       "owner": "abdelghani-bot",
