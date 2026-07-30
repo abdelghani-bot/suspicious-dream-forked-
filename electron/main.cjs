@@ -45,10 +45,21 @@ function createWindow() {
 app.whenReady().then(() => {
     createWindow();
     autoUpdater.checkForUpdatesAndNotify();
+    // 🆕 فحص دوري كل ساعة — الفحص الأصلي بيحصل مرة واحدة بس عند فتح التطبيق،
+    // فالمستخدمين اللي بيسيبوا البرنامج شغّال لأيام مكانوش هيعرفوا بريليز جديد
+    // غير لو قفلوا التطبيق وفتحوه تاني. نفس فلسفة الـ setInterval بتاع syncQueue.
+    setInterval(() => autoUpdater.checkForUpdatesAndNotify(), 60 * 60 * 1000);
     app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
+
+// 🆕 لوج مؤقت لتشخيص مشكلة عدم وصول إشعار التحديث — يوريك بالظبط فين بيقف autoUpdater
+autoUpdater.on("checking-for-update", () => console.log("[autoUpdater] checking-for-update..."));
+autoUpdater.on("update-available", (info) => console.log("[autoUpdater] update-available:", info.version));
+autoUpdater.on("update-not-available", (info) => console.log("[autoUpdater] update-not-available, current:", app.getVersion(), "latest:", info?.version));
+autoUpdater.on("error", (err) => console.error("[autoUpdater] error:", err == null ? "unknown" : (err.stack || err.message || err)));
+autoUpdater.on("download-progress", (p) => console.log("[autoUpdater] downloading:", Math.round(p.percent) + "%"));
 
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
