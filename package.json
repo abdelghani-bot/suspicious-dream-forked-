@@ -1,18 +1,17 @@
 {
   "name": "react-typescript",
-  "version": "1.0.3",
+  "version": "1.1.1",
   "description": "React and TypeScript example starter project",
-  "keywords": [
-    "typescript",
-    "react",
-    "starter"
-  ],
+  "keywords": ["typescript", "react", "starter"],
   "main": "electron/main.cjs",
   "scripts": {
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "electron:release": "npm run build && electron-builder --publish never && node publish-release.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.106.2",
@@ -28,13 +27,27 @@
     "@types/react": "18.2.38",
     "@types/react-dom": "18.2.15",
     "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^10.0.3",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
     "typescript": "4.4.4",
-    "vite": "^5.0.11"
+    "vite": "^5.0.11",
+    "wait-on": "^9.0.10"
   },
-  "browserslist": [
-    ">0.2%",
-    "not dead",
-    "not ie <= 11",
-    "not op_mini all"
-  ]
+    "overrides": {
+    "@noble/hashes": "^1.4.0"
+  },
+  "browserslist": [">0.2%", "not dead", "not ie <= 11", "not op_mini all"],
+  "build": {
+    "appId": "com.ahmed.pharmacypro",
+    "productName": "PharmacyPro",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*"],
+    "win": { "target": "nsis" },
+    "publish": {
+      "provider": "github",
+      "owner": "abdelghani-bot",
+      "repo": "suspicious-dream-forked-"
+    }
+  }
 }

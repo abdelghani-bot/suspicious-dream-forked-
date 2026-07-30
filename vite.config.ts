@@ -6,5 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     allowedHosts: "all",
+    watch: {
+      ignored: ["**/.vs/**", "**/node_modules/**", "**/release/**", "**/dist/**"],
+    },
   },
 });

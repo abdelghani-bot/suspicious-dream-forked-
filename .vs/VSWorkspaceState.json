@@ -1,7 +1,7 @@
 {
   "ExpandedNodes": [
     "",
-    "\\functions",
+    "\\electron",
     "\\src",
     "\\src\\components",
     "\\src\\data",
@@ -11,6 +11,5 @@
     "\\src\\services",
     "\\src\\ui"
   ],
-  "SelectedNode": "\\electron\\localDb.cjs",
   "PreviewInSolutionExplorer": false
 }

@@ -12,10 +12,15 @@ const OWNER = pkg.build?.publish?.owner || 'abdelghani-bot';
 const REPO = pkg.build?.publish?.repo || 'suspicious-dream-forked-';
 const OUT_DIR = pkg.build?.directories?.output || 'release';
 const TAG = 'v' + pkg.version;
-const TOKEN = process.env.GITHUB_TOKEN;
+const TOKEN = (process.env.GITHUB_TOKEN || '').trim().replace(/^"(.*)"$/, '$1');
 
 if (!TOKEN) {
   console.error('❌ GITHUB_TOKEN مش موجود. شغّل setx GITHUB_TOKEN ghp_xxxx وافتح CMD جديد.');
+  process.exit(1);
+}
+
+if (!/^[\x21-\x7e]+$/.test(TOKEN)) {
+  console.error('❌ التوكن فيه حروف غريبة (مسافات/سطر جديد). أعد setx GITHUB_TOKEN بدون علامات تنصيص أو مسافات زيادة.');
   process.exit(1);
 }
 
@@ -103,7 +108,12 @@ function uploadAsset(uploadPathBase, filePath) {
   const files = fs.readdirSync(outPath).filter((f) => {
     const full = path.join(outPath, f);
     if (!fs.statSync(full).isFile()) return false;
-    return validExt.includes(path.extname(f).toLowerCase());
+    const ext = path.extname(f).toLowerCase();
+    if (!validExt.includes(ext)) return false;
+    if (f === 'builder-debug.yml' || f === 'builder-effective-config.yaml') return false;
+    // اسمح فقط بملفات latest.yml أو الملفات اللي فيها رقم النسخة الحالي
+    if (f === 'latest.yml') return true;
+    return f.includes(pkg.version);
   });
 
   if (files.length === 0) {
