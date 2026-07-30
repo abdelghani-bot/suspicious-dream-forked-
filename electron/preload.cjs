@@ -18,4 +18,12 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     cacheSession: (payload) => ipcRenderer.invoke("offline:cacheSession", payload),
     getCachedSession: (pharmacyId) => ipcRenderer.invoke("offline:getCachedSession", pharmacyId),
     clearCachedSession: (pharmacyId) => ipcRenderer.invoke("offline:clearCachedSession", pharmacyId),
+    // 🆕 كاش المبيعات المحلي (sales_cache) — لقراءة/فتح الفواتير أوفلاين
+    insertSaleCache: (invoice) => ipcRenderer.invoke("offline:insertSaleCache", invoice),
+    getSalesCache: (params) => ipcRenderer.invoke("offline:getSalesCache", params),
+    getSaleById: (saleId) => ipcRenderer.invoke("offline:getSaleById", saleId),
+    // 🆕 كاش فواتير الشراء المحلي (purchase_invoices_cache)
+    insertPurchaseInvoiceCache: (invoice) => ipcRenderer.invoke("offline:insertPurchaseInvoiceCache", invoice),
+    getPurchaseInvoicesCache: (params) => ipcRenderer.invoke("offline:getPurchaseInvoicesCache", params),
+    getPurchaseInvoiceById: (invoiceId) => ipcRenderer.invoke("offline:getPurchaseInvoiceById", invoiceId),
 });
