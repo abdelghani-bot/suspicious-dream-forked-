@@ -1190,25 +1190,16 @@ export function PurchaseModule({
 
         // 🆕 حفظ الأصناف المتأثرة في products_cache المحلي فوراً — من غير كده الكمية الجديدة
         // بتفضل في الميموري بس، وتضيع من العرض المحلي لو التطبيق اتقفل قبل ما PURCHASE_STOCK_ADD يتزامن.
-        const stockCacheFailures = [];
-        for (const ci of items) {
-            const updatedProd = updatedProducts.find((x) => x.id === ci.id);
-            if (!updatedProd) continue;
-            const result = await retryLocalWrite(() => {
-                if (!window.offlineAPI?.upsertProduct) return { success: false, error: "offlineAPI_unavailable" };
-                return window.offlineAPI.upsertProduct({
-                    id: updatedProd.id,
-                    pharmacy_id: pharmacyId,
-                    name: updatedProd.name,
-                    barcode: updatedProd.barcode,
-                    price: updatedProd.price,
-                    batches: updatedProd.batches,
-                });
+        // (نفس نمط الـ delta المستخدم في POS/المرتجعات بدل upsertProduct القديمة اللي كانت
+        // بتبعت الصنف كامل بـ schema قديمة مش متوافقة مع products_cache الجديد)
+        try {
+            await window.offlineAPI?.applyProductStockDeltaCache?.({
+                pharmacyId,
+                deltas: items.map((ci) => ({ id: ci.id, delta: ci.qty + (ci.bonusQty || 0) })),
             });
-            if (!result?.success) stockCacheFailures.push(updatedProd.name || updatedProd.id);
-        }
-        if (stockCacheFailures.length > 0) {
-            showToast("⚠️ تم حفظ الفاتورة لكن فشل تحديث الكاش المحلي لمخزون: " + stockCacheFailures.join("، "), "error");
+        } catch (err) {
+            console.error("applyProductStockDeltaCache failed:", err);
+            showToast("⚠️ تم حفظ الفاتورة لكن فشل تحديث الكاش المحلي للمخزون", "error");
         }
         // ✅ نحتفظ بنسخة من الأصناف للطباعة قبل التصفير
         const itemsForPrint = items.map((i) => ({ ...i }));
@@ -2840,28 +2831,10 @@ export function PurchaseModule({
                                     taxAmount: editTaxAmt,
                                     total: editSubtotal + editTaxAmt,
                                 };
-                                const { error } = await supabase
-                                    .from("purchases")
-                                    .update({
-                                        supplier: editSupplier,
-                                        supplier_name:
-                                            sup?.name ||
-                                            showDetail.supplier_name ||
-                                            showDetail.supplierName,
-                                        items: updated.items,
-                                        subtotal: editSubtotal,
-                                        tax_amount: editTaxAmt,
-                                        total: editSubtotal + editTaxAmt,
-                                    })
-                                    .eq("id", showDetail.id)
-                                    .eq("pharmacy_id", pharmacyId);
-                                if (error) {
-                                    showToast("فشل التعديل: " + error.message, "error");
-                                    return;
-                                }
 
                                 // 🆕 مطابقة المخزون: الفاتورة القديمة أصلاً زوّدت المخزون بكمياتها،
-                                // فلو الكميات اتغيرت في التعديل، لازم نعدّل الفرق بس على المخزون
+                                // فلو الكميات اتغيرت في التعديل، لازم نعدّل الفرق بس على المخزون.
+                                // القراءة هنا من products (state محلي) مش من Supabase — شغالة أوفلاين بالفعل.
                                 const oldQtyById = {};
                                 (showDetail.items || []).forEach((i) => {
                                     oldQtyById[i.id] = (oldQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
@@ -2871,29 +2844,55 @@ export function PurchaseModule({
                                     newQtyById[i.id] = (newQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
                                 });
                                 const affectedIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
-                                const stockFailures = [];
-                                const stockDeltaById = {};
+                                const stockDeltas = [];
                                 for (const pid of affectedIds) {
                                     const delta = (newQtyById[pid] || 0) - (oldQtyById[pid] || 0);
                                     if (delta === 0) continue;
-                                    const prod = products.find((x) => x.id === pid);
-                                    if (!prod) continue;
-                                    const newStock = prod.stock + delta;
-                                    const { error: stockErr } = await supabase
-                                        .from("products")
-                                        .update({ stock: newStock })
-                                        .eq("id", pid)
-                                        .eq("pharmacy_id", pharmacyId);
-                                    if (stockErr) { stockFailures.push(prod.name || pid); continue; }
-                                    stockDeltaById[pid] = newStock;
+                                    stockDeltas.push({ id: pid, delta });
                                 }
-                                if (stockFailures.length > 0) {
-                                    showToast("⚠️ تم تعديل الفاتورة لكن فشل تحديث مخزون: " + stockFailures.join("، "), "error");
+
+                                // 🆕 event مركّب واحد: تحديث بيانات الفاتورة + تصحيح المخزون بالـ delta —
+                                // بيتنفذ جوه apply_stock_deltas على السيرفر وقت المزامنة، مش كتابة مباشرة
+                                // أونلاين بس زي ما كان. القيمة الحالية للـ stock وقت التنفيذ الفعلي هي
+                                // اللي بتتعدّل، مش قيمة نهائية محسوبة أوفلاين.
+                                const editResult = await queueEvent({
+                                    id: crypto.randomUUID(),
+                                    type: "PURCHASE_INVOICE_EDIT",
+                                    timestamp: new Date().toISOString(),
+                                    payload: {
+                                        purchaseId: showDetail.id,
+                                        pharmacyId,
+                                        updates: {
+                                            supplier: editSupplier,
+                                            supplier_name:
+                                                sup?.name ||
+                                                showDetail.supplier_name ||
+                                                showDetail.supplierName,
+                                            items: updated.items,
+                                            subtotal: editSubtotal,
+                                            tax_amount: editTaxAmt,
+                                            total: editSubtotal + editTaxAmt,
+                                        },
+                                        stockDeltas,
+                                    },
+                                });
+                                if (!editResult.synced) {
+                                    showToast("📴 تم حفظ التعديل محليًا - هيتزامن تلقائيًا لما النت يرجع", "warning");
                                 }
-                                if (Object.keys(stockDeltaById).length > 0) {
+
+                                // تحديث optimistic لـ state المحلي + كاش SQLite بالتوازي (بغض النظر عن حالة النت)
+                                if (stockDeltas.length > 0) {
                                     setProducts((prev) =>
-                                        prev.map((x) => (stockDeltaById[x.id] !== undefined ? { ...x, stock: stockDeltaById[x.id] } : x))
+                                        prev.map((x) => {
+                                            const d = stockDeltas.find((sd) => sd.id === x.id);
+                                            return d ? { ...x, stock: x.stock + d.delta } : x;
+                                        })
                                     );
+                                    try {
+                                        await window.offlineAPI?.applyProductStockDeltaCache?.({ pharmacyId, deltas: stockDeltas });
+                                    } catch (err) {
+                                        console.error("applyProductStockDeltaCache failed:", err);
+                                    }
                                 }
 
                                 // 🆕 كانت ناقصة: تسجيل التعديل في سجل التدقيق (كان بيتسجل الحذف والإضافة بس، مش التعديل)

@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
+import {
+    savePromotions, updatePromotion, deletePromotion,
+    replacePromoRules, logPromoPrint, savePromoSettings,
+} from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { toLocaleString } from "../function toLocaleString() { [native code] }/undefined";
 import { todayLocal } from "../lib/dateUtils";
@@ -62,36 +66,34 @@ export function PromotionsModule({
 
     // ── دالة حفظ autoPromoConfig في Supabase ──
     const saveAutoConfig = async (newConfig) => {
-        await supabase.from("promo_settings").upsert({
-            pharmacy_id: pharmacyId,
-            auto_config: newConfig,
-            updated_at: new Date().toISOString(),
-        });
+        await savePromoSettings({ auto_config: newConfig, updated_at: new Date().toISOString() }, pharmacyId);
     };
 
     // تحميل البيانات
     useEffect(() => {
         if (!pharmacyId) return;
+        // 🆕 promos/discountRules/autoPromoConfig بقوا مسؤولية App.tsx وحده (posPromos وغيرها) —
+        // شيلنا التكرار من هنا عشان منعملش نفس الاستعلام مرتين ومنفوّتش أي offline fallback.
+        // فاضل هنا بس manufacturers (كاش مشترك مع TargetModule) و promo_print_log (سجل محلي للموديول ده فقط)
         Promise.all([
-            supabase.from("promotions").select("*").eq("pharmacy_id", pharmacyId).order("end_date"),
-            // ── الشركات المنتجة مفلترة بالصيدلية ──
             supabase.from("manufacturers").select("id, name").eq("pharmacy_id", pharmacyId).order("name"),
-            // ── إعدادات الإضافة التلقائية المحفوظة ──
-            supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).maybeSingle(),
-            // ── سجل طباعة العروض (لإعادة الطباعة لاحقًا) ──
             supabase.from("promo_print_log")
                 .select("*")
                 .eq("pharmacy_id", pharmacyId)
                 .order("created_at", { ascending: false })
                 .limit(100),
-        ]).then(([p, m, ps, pl]) => {
-            if (p.data) setPromos(p.data);
-            if (m.data) setManufacturers(m.data);
-            // ── تحميل autoPromoConfig المحفوظ ──
-            if (ps.data?.auto_config) {
-                setAutoPromoConfig((prev) => ({ ...prev, ...ps.data.auto_config }));
+        ]).then(async ([m, pl]) => {
+            if (!m.error && m.data) {
+                setManufacturers(m.data);
+                try { await window.offlineAPI?.refreshManufacturersCache?.({ pharmacyId, rows: m.data }); }
+                catch (err) { console.error("refreshManufacturersCache failed:", err); }
+            } else if (m.error) {
+                try {
+                    const cached = await window.offlineAPI?.getManufacturersCache?.(pharmacyId);
+                    if (cached) setManufacturers(cached);
+                } catch (err) { console.error("getManufacturersCache failed:", err); }
             }
-            // ── تحميل سجل الطباعة ──
+            // سجل الطباعة — قراءة فقط، مفيش كاش أوفلاين له (متفق عليه قبل كده إنه مش أساسي وقت البيع)
             if (pl.data) setPrintHistory(pl.data);
         });
     }, [pharmacyId]);
@@ -251,8 +253,9 @@ export function PromotionsModule({
             created_by: currentUser?.name || currentUser?.email || "",
             created_at: new Date().toISOString(),
         };
-        const { data, error } = await supabase.from("promo_print_log").insert(row).select().single();
-        if (!error && data) setPrintHistory((prev) => [data, ...prev]);
+        await logPromoPrint(row, pharmacyId);
+        // تحديث فوري للـ state المحلي (optimistic) — منستنيش رد السيرفر زي الأصلي، عشان يشتغل أوفلاين
+        setPrintHistory((prev) => [{ id: crypto.randomUUID(), ...row }, ...prev]);
     };
 
     // ── طباعة يدوية لأصناف العروض التلقائية (بعد ما كانت بتتطبع أوتوماتيك) ──
@@ -320,8 +323,7 @@ export function PromotionsModule({
 
         if (editPromoId) {
             const row = { ...baseRow, product_id: promoForm.product_id };
-            const { error } = await supabase.from("promotions").update(row).eq("id", editPromoId).eq("pharmacy_id", pharmacyId);
-            if (error) { showToast("خطأ: " + error.message, "error"); return; }
+            await updatePromotion(editPromoId, pharmacyId, row);
             setPromos((p) => p.map((x) => (x.id === editPromoId ? { ...x, ...row } : x)));
             setEditPromoId(null);
             setPromoForm(blankPromo);
@@ -330,13 +332,13 @@ export function PromotionsModule({
             return;
         }
 
-        // منتج واحد أو مجموعة منتجات شركة — نبني سطر لكل منتج ونحفظهم دفعة واحدة
+        // منتج واحد أو مجموعة منتجات شركة — نبني سطر لكل منتج، مع id مولّد من العميل
+        // (زي customers/sales) عشان الكاش المحلي يقدر يتخزن فورًا حتى لو أوفلاين
         const productIds = promoMode === "company" ? companyProductIds : [promoForm.product_id];
-        const rows = productIds.map((pid) => ({ ...baseRow, product_id: pid }));
+        const rows = productIds.map((pid) => ({ ...baseRow, id: crypto.randomUUID(), product_id: pid }));
 
-        const { data, error } = await supabase.from("promotions").insert(rows).select();
-        if (error) { showToast("خطأ: " + error.message, "error"); return; }
-        setPromos((p) => [...p, ...(data || [])]);
+        await savePromotions(rows, pharmacyId);
+        setPromos((p) => [...p, ...rows]);
         setPromoForm(blankPromo);
         setPromoMode("single");
         setCompanyProductIds([]);
@@ -450,6 +452,7 @@ export function PromotionsModule({
         if (buyQty <= 0 || getQty <= 0) { showToast("يرجى تحديد الكمية المطلوبة والمجانية", "error"); return; }
         if (!edit.endDate) { showToast("يرجى تحديد تاريخ نهاية العرض", "error"); return; }
         const row = {
+            id: crypto.randomUUID(),
             promo_type: "bogo",
             ...blankPromoDetails,
             buy_qty: buyQty, get_qty: getQty, get_discount_percent: 100,
@@ -458,12 +461,16 @@ export function PromotionsModule({
             offer_name: "عرض من المورد", manufacturer_id: null,
             pharmacy_id: pharmacyId, product_id: s.product.id,
         };
-        const { data, error } = await supabase.from("promotions").insert(row).select();
-        if (error) { showToast("خطأ: " + error.message, "error"); return; }
-        setPromos((p) => [...p, ...(data || [])]);
+        await savePromotions([row], pharmacyId);
+        setPromos((p) => [...p, row]);
         showToast("تم اعتماد العرض ✓");
     };
 
+    // ── حذف عرض يدوي — دالة واحدة مستخدمة في المكانين (النشطة والمتوقفة مؤقتًا) بدل التكرار ──
+    const handleDeletePromo = async (promoId: string) => {
+        await deletePromotion(promoId, pharmacyId);
+        setPromos((p) => p.filter((x) => x.id !== promoId));
+    };
     // ═══════════════════════════════════════════════════
     // 🆕 إرسال العرض لعملاء مستهدفين (مش إرسال عشوائي) — بناءً على تصنيفات العميل:
     // - نمط الشراء: العميل لازم يكون سبق واشترى من نفس فئة الصنف (أو عميل "شامل")، عشان العرض يبقى ذو صلة
@@ -1099,11 +1106,8 @@ export function PromotionsModule({
                                                         }} style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
                                                     )}
                                                     {canDelete && (
-                                                        <button onClick={async () => {
-                                                            const { error: delPromoError } = await supabase.from("promotions").delete().eq("id", promo.id).eq("pharmacy_id", pharmacyId);
-                                                            if (delPromoError) { showToast("خطأ: " + delPromoError.message, "error"); return; }
-                                                            setPromos((p) => p.filter((x) => x.id !== promo.id));
-                                                        }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
+                                                        <button onClick={() => handleDeletePromo(promo.id)}
+                                                            style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
                                                     )}
                                                 </div>
                                             </div>
@@ -1163,11 +1167,8 @@ export function PromotionsModule({
                                                     }} style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>✏️ تعديل</button>
                                                 )}
                                                 {canDelete && (
-                                                    <button onClick={async () => {
-                                                        const { error: delPromoError } = await supabase.from("promotions").delete().eq("id", promo.id).eq("pharmacy_id", pharmacyId);
-                                                        if (delPromoError) { showToast("خطأ: " + delPromoError.message, "error"); return; }
-                                                        setPromos((p) => p.filter((x) => x.id !== promo.id));
-                                                    }} style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
+                                                    <button onClick={() => handleDeletePromo(promo.id)}
+                                                        style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>🗑️ حذف</button>
                                                 )}
                                             </div>
                                         </div>
@@ -1277,15 +1278,12 @@ export function PromotionsModule({
                     <Btn variant="ghost" onClick={() => setShowRulesEditor(false)}>إلغاء</Btn>
                     <Btn icon="check" onClick={async () => {
                         const sorted = [...editRules].sort((a, b) => a.days - b.days);
-                        await supabase.from("promo_rules").delete().eq("pharmacy_id", pharmacyId);
                         const rows = sorted.map((r) => ({
                             days: r.days,
                             discount: r.discount,
                             color: r.color || COLORS.gold,
-                            pharmacy_id: pharmacyId,
                         }));
-                        const { error } = await supabase.from("promo_rules").insert(rows);
-                        if (error) { showToast("خطأ في الحفظ: " + error.message, "error"); return; }
+                        await replacePromoRules(pharmacyId, rows);
                         setDiscountRules(sorted);
                         setShowRulesEditor(false);
                         showToast("تم حفظ قواعد الخصم ✓");

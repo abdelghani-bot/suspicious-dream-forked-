@@ -7,24 +7,24 @@
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:electron\\main.cjs||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PurchaseModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\PurchaseModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\lib\\offlineAPI.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Dashboard.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\Dashboard.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\preload.cjs||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:electron\\preload.cjs||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Reports.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\Reports.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\lib\\offlineAPI.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\ProductsModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\ProductsModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\POS.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\POS.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\App.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\App.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
     }
   ],
   "DocumentGroupContainers": [
@@ -38,51 +38,55 @@
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 2,
-              "Title": "offlineAPI.ts",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts",
-              "RelativeDocumentMoniker": "src\\lib\\offlineAPI.ts",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts",
-              "RelativeToolTip": "src\\lib\\offlineAPI.ts",
-              "ViewState": "AgIAAKgAAAAAAAAAAAAswLwAAAABAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-07-30T00:36:03.214Z"
-            },
-            {
-              "$type": "Document",
               "DocumentIndex": 1,
-              "Title": "PurchaseModule.tsx",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PurchaseModule.tsx",
-              "RelativeDocumentMoniker": "src\\modules\\PurchaseModule.tsx",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PurchaseModule.tsx",
-              "RelativeToolTip": "src\\modules\\PurchaseModule.tsx",
-              "ViewState": "AgIAAFYLAAAAAAAAAADwv2oLAAAAAAAAAAAAAA==",
+              "Title": "Dashboard.tsx",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Dashboard.tsx",
+              "RelativeDocumentMoniker": "src\\modules\\Dashboard.tsx",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Dashboard.tsx",
+              "RelativeToolTip": "src\\modules\\Dashboard.tsx",
+              "ViewState": "AgIAAHoAAAAAAAAAAAAcwLAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-07-30T00:14:59.37Z"
+              "WhenOpened": "2026-08-06T00:11:30.401Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
-              "Title": "Reports.tsx",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Reports.tsx",
-              "RelativeDocumentMoniker": "src\\modules\\Reports.tsx",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Reports.tsx",
-              "RelativeToolTip": "src\\modules\\Reports.tsx",
-              "ViewState": "AgIAAFUDAAAAAAAAAADwv2YDAAAKAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-07-29T22:01:16.947Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 2,
               "Title": "preload.cjs",
               "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\preload.cjs",
               "RelativeDocumentMoniker": "electron\\preload.cjs",
               "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\preload.cjs",
               "RelativeToolTip": "electron\\preload.cjs",
-              "ViewState": "AgIAAAkAAAAAAAAAAADwvx0AAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAF4AAAAAAAAAAAAcwG0AAABpAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-07-29T21:59:11.005Z"
+              "WhenOpened": "2026-08-05T23:38:08.899Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "offlineAPI.ts",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts",
+              "RelativeDocumentMoniker": "src\\lib\\offlineAPI.ts",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts",
+              "RelativeToolTip": "src\\lib\\offlineAPI.ts",
+              "ViewState": "AgIAAJMDAAAAAAAAAAAcwLMDAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-08-05T23:32:55.338Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "POS.tsx",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\POS.tsx",
+              "RelativeDocumentMoniker": "src\\modules\\POS.tsx",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\POS.tsx",
+              "RelativeToolTip": "src\\modules\\POS.tsx",
+              "ViewState": "AgIAAKUEAAAAAAAAAAAcwK0EAAARAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-08-05T17:49:14.632Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
@@ -92,22 +96,23 @@
               "RelativeDocumentMoniker": "electron\\main.cjs",
               "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\main.cjs",
               "RelativeToolTip": "electron\\main.cjs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAOgBAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAOMBAAAAAAAAAAAcwPoBAABrAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-07-29T21:34:03.306Z",
+              "WhenOpened": "2026-08-04T20:08:46.603Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
               "DocumentIndex": 5,
-              "Title": "ProductsModule.tsx",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\ProductsModule.tsx",
-              "RelativeDocumentMoniker": "src\\modules\\ProductsModule.tsx",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\ProductsModule.tsx",
-              "RelativeToolTip": "src\\modules\\ProductsModule.tsx",
-              "ViewState": "AgIAAEUBAAAAAAAAAAAiwFwBAAAAAAAAAAAAAA==",
+              "Title": "App.tsx",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\App.tsx",
+              "RelativeDocumentMoniker": "src\\App.tsx",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\App.tsx",
+              "RelativeToolTip": "src\\App.tsx",
+              "ViewState": "AgIAAEsEAAAAAAAAAAAcwLEFAAAWAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-07-28T00:17:40.167Z"
+              "WhenOpened": "2026-08-04T19:26:39.462Z",
+              "EditorCaption": ""
             }
           ]
         }

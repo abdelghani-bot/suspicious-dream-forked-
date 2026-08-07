@@ -126,6 +126,21 @@ export default function PharmacyPro() {
                 if (data) setTreasuryEntries(data);
             });
     }, [pharmacyId]);
+    // 🆕 مصدر واحد لإعدادات نقاط الولاء — بتتحمّل مرة واحدة هنا وتتمرر لـ POS وLoyaltyModule
+    // كـ prop، عشان أي تحديث (زي حفظ الإعدادات من موديول الولاء) ينعكس فورًا في POS من
+    // غير ما يحتاج إعادة تشغيل أو fetch إضافي وقت البيع (مهم للاعتماد عليها أوفلاين).
+    const [loyaltySettings, setLoyaltySettings] = useState(null);
+    useEffect(() => {
+        if (!pharmacyId) return;
+        supabase
+            .from("loyalty_settings")
+            .select("*")
+            .eq("pharmacy_id", pharmacyId)
+            .maybeSingle()
+            .then(({ data }) => {
+                if (data) setLoyaltySettings(data);
+            });
+    }, [pharmacyId]);
     const [tab, setTab] = useState("dashboard");
     const [toast, setToast] = useState(null);
 
@@ -315,14 +330,69 @@ export default function PharmacyPro() {
         return map;
     }, [purchases, products]);
     // تحميل العروض وقواعد الخصم وإعدادات العروض التلقائية للـ POS
+    // 🆕 كل استعلام هنا بيتحقق من error بشكل صريح (زي loadData الرئيسية بالظبط)، لأن
+    // supabase-js مش بيرمي على فشل الشبكة — بيرجع { data: null, error }. لو فشل، بنقرا
+    // آخر نسخة معروفة من الكاش المحلي (SQLite) بدل ما نسيب الـ POS من غير عروض/قواعد خصم
+    // خالص. ولو نجح، بنعمل mirror فوري للكاش عشان يبقى جاهز للمرة الجاية اللي هتحصل أوفلاين.
     useEffect(() => {
         if (!pharmacyId) return;
+
         supabase.from("promotions").select("*").eq("pharmacy_id", pharmacyId).order("end_date")
-            .then(({ data }) => { if (data) setPosPromos(data); });
+            .then(async ({ data, error }) => {
+                if (!error && data) {
+                    setPosPromos(data);
+                    try {
+                        await window.offlineAPI?.refreshPromotionsCache?.({ pharmacyId, promotions: data });
+                    } catch (err) {
+                        console.error("refreshPromotionsCache failed:", err);
+                    }
+                } else {
+                    try {
+                        const cached = await window.offlineAPI?.getPromotionsCache?.(pharmacyId);
+                        if (cached && cached.length > 0) setPosPromos(cached);
+                    } catch (err) {
+                        console.error("getPromotionsCache failed:", err);
+                    }
+                }
+            });
+
         supabase.from("promo_rules").select("*").eq("pharmacy_id", pharmacyId).order("days")
-            .then(({ data }) => { if (data && data.length > 0) setPosDiscountRules(data); });
+            .then(async ({ data, error }) => {
+                if (!error && data && data.length > 0) {
+                    setPosDiscountRules(data);
+                    try {
+                        await window.offlineAPI?.replacePromoRulesCache?.({ pharmacyId, rows: data });
+                    } catch (err) {
+                        console.error("replacePromoRulesCache failed:", err);
+                    }
+                } else if (error) {
+                    try {
+                        const cached = await window.offlineAPI?.getPromoRulesCache?.(pharmacyId);
+                        if (cached && cached.length > 0) setPosDiscountRules(cached);
+                    } catch (err) {
+                        console.error("getPromoRulesCache failed:", err);
+                    }
+                }
+            });
+
         supabase.from("promo_settings").select("auto_config").eq("pharmacy_id", pharmacyId).maybeSingle()
-            .then(({ data }) => { if (data?.auto_config) setPosAutoPromoConfig((prev) => ({ ...prev, ...data.auto_config })); });
+            .then(async ({ data, error }) => {
+                if (!error && data?.auto_config) {
+                    setPosAutoPromoConfig((prev) => ({ ...prev, ...data.auto_config }));
+                    try {
+                        await window.offlineAPI?.upsertPromoSettingsCache?.({ pharmacyId, data: { auto_config: data.auto_config } });
+                    } catch (err) {
+                        console.error("upsertPromoSettingsCache failed:", err);
+                    }
+                } else if (error) {
+                    try {
+                        const cached = await window.offlineAPI?.getPromoSettingsCache?.(pharmacyId);
+                        if (cached?.auto_config) setPosAutoPromoConfig((prev) => ({ ...prev, ...cached.auto_config }));
+                    } catch (err) {
+                        console.error("getPromoSettingsCache failed:", err);
+                    }
+                }
+            });
     }, [pharmacyId]);
     const [isLoading, setIsLoading] = useState(false);
     const showToast = useCallback((msg, type = "success") => {
@@ -518,6 +588,14 @@ export default function PharmacyPro() {
                         full_ingredients_text: (ingredientsByProduct[row.id] || (row.active_ingredient ? [`${row.active_ingredient}${row.concentration ? " " + row.concentration : ""}`] : [])).join(" + "),
                     }))
                 );
+                // 🆕 full sync للكاش المحلي (SQLite بدل localStorage) — بيتحدث بنفس بيانات
+                // Supabase الطازجة كل ما التحميل ينجح، عشان لو قفلت البرنامج أوفلاين تلاقي
+                // آخر نسخة معروفة من كل الأصناف، من غير حدود حجم localStorage.
+                try {
+                    await window.offlineAPI?.upsertProductsCache?.({ pharmacyId, products: p.data ?? [] });
+                } catch (err) {
+                    console.error("upsertProductsCache failed:", err);
+                }
                 setSuppliers(s.data ?? []);
                 setCustomers(c.data ?? []);
                 setSales(
@@ -1109,12 +1187,15 @@ export default function PharmacyPro() {
                             activeTab={posActiveTab}
                             setActiveTab={setPosActiveTab}
                             pharmacyId={pharmacyId}
+                            suppliers={suppliers}
                             jokerPendingItems={jokerPendingItems}
                             setJokerPendingItems={setJokerPendingItems}
                             promos={posPromos}
                             discountRules={posDiscountRules}
                             productEarliestExpiry={posProductEarliestExpiry}
                             autoPromoConfig={posAutoPromoConfig}
+                            loyaltySettings={loyaltySettings}
+                            onLoyaltySettingsChange={setLoyaltySettings}
                         />
                     )}
                     {tab === "purchase" && canView("purchase") && (
@@ -1389,7 +1470,10 @@ export default function PharmacyPro() {
                             sales={sales}
                             products={products}
                             pharmacyId={pharmacyId}
+                            currentUser={currentUser}   // 🆕 مطلوب لـ created_by في insertTreasuryEntry (redeemPoints)
                             showToast={showToast}
+                            loyaltySettings={loyaltySettings}
+                            onLoyaltySettingsChange={setLoyaltySettings}
                         />
                     )}
                     {tab === "permissions" && currentUser?.role === "admin" && (

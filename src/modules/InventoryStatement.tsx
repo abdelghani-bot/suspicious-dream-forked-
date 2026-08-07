@@ -209,7 +209,7 @@ export function InventoryStatement({
 <script>window.onload = () => window.print();</script>
 </body></html>`);
     win.document.close();
-  };
+    };
 
   // ===== فتح مودال التسوية =====
   const openAdjust = (row) => {
@@ -217,7 +217,32 @@ export function InventoryStatement({
     setAdjQty(String(row.stock));
     setAdjExpiry(row.expiry || "");
     setAdjNote("");
-  };
+    };
+
+    // ── قفل تلقائي لأي حالة "pending" في سجل الفروقات لنفس الصنف بعد تسوية ناجحة ──
+    // مش بديل عن قرار المدير — ده *هو* قرار المدير (بيسوي الكمية دلوقتي فعليًا)،
+    // فمينفعش يتحط في حالة "معلّق" وهو بالفعل اتصلّح قدامنا.
+    const resolveVarianceLogForProduct = async (productId: string, resolutionNote: string) => {
+        try {
+            const { error } = await supabase
+                .from("inventory_variance_log")
+                .update({
+                    status: "resolved",
+                    resolved_by: currentUser?.name || null,
+                    resolved_at: new Date().toISOString(),
+                    resolution_notes: resolutionNote,
+                })
+                .eq("pharmacy_id", pharmacyId)
+                .eq("product_id", productId)
+                .eq("status", "pending");
+            if (error) throw error;
+        } catch (err) {
+            console.error("resolveVarianceLogForProduct failed:", err);
+    // مش بنعمل showToast هنا عمدًا — التسوية الأساسية نجحت فعلاً، وده مجرد تنظيف
+    // إضافي. لو فشل، السجل هيفضل "pending" والمدير هيلاقيه لسه في الداشبورد،
+    // ومش هيضر لأنه أصلاً هيبقى متسوّى فعليًا لو حد راجعه يدويًا بعد كده.
+        }
+    };
 
   // ===== حفظ التسوية =====
   const saveAdjustment = async () => {
@@ -316,8 +341,18 @@ export function InventoryStatement({
           (adjNote ? ` — ملاحظة: ${adjNote}` : ""),
       });
 
-      showToast("✅ تم حفظ التسوية وتحديث المخزون");
-      setEditingRow(null);
+        await resolveVarianceLogForProduct(
+            prod.id,
+            `اتقفلت تلقائيًا بعد تسوية سريعة من كشف المخزون (${editingRow.stock} → ${newQty})`
+        );
+
+        await resolveVarianceLogForProduct(
+            prod.id,
+            `اتقفلت تلقائيًا بعد تسوية سريعة من كشف المخزون (${editingRow.stock} → ${newQty})`
+        );
+
+        showToast("✅ تم حفظ التسوية وتحديث المخزون");
+        setEditingRow(null);
     } catch (e: any) {
       showToast("❌ خطأ في حفظ التسوية: " + (e?.message || e), "error");
     } finally {
@@ -506,8 +541,13 @@ export function InventoryStatement({
           (itemAdjNote ? ` — ملاحظة: ${itemAdjNote}` : ""),
       });
 
-      showToast("✅ تم حفظ تسوية الصنف وتحديث المخزون");
-      setSettlingProduct(null);
+        await resolveVarianceLogForProduct(
+            prod.id,
+            `اتقفلت تلقائيًا بعد تسوية صنف كامل من كشف المخزون (${settlingProduct.totalQty} → ${newTotal})`
+        );
+
+        showToast("✅ تم حفظ تسوية الصنف وتحديث المخزون");
+        setSettlingProduct(null);
     } catch (e: any) {
       showToast("❌ خطأ في حفظ التسوية: " + (e?.message || e), "error");
     } finally {

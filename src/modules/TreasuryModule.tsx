@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { insertTreasuryEntry, insertTreasuryEntries } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
-import { toLocaleString } from "../function toLocaleString() { [native code] }/undefined";
 import { AUDIT_ENTITY_LABELS, logAudit } from "../lib/auditLog";
 import { todayLocal } from "../lib/dateUtils";
 import { calcEndOfServiceBenefit, calcGosi, calcLeaveBalanceDays, calcWeeklyScheduledHours, computeMonthlyAttendanceStats, computeStaffCommissionForMonth } from "../lib/hrUtils";
@@ -59,24 +59,25 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             }
         }
         const sourceLabel = openingBalanceForm.source === "أخرى" ? (openingBalanceForm.source_other || "أخرى") : openingBalanceForm.source;
-        const payload = {
+        const note = `رصيد أول المدة — المصدر: ${sourceLabel}${openingBalanceForm.note ? " — " + openingBalanceForm.note : ""}`;
+        const date = openingBalanceForm.date || todayLocal();
+        // 🆕 offline-first: كتابة فورية في الكاش المحلي الموحّد + queueEvent، بدل insert مباشر.
+        // ملحوظة: رفع مستند الإثبات (proof) لسه محتاج نت فعلي (Supabase Storage)؛ لو أوفلاين
+        // proofUrl هتفضل فاضية والقيد هيتسجل من غيرها، من غير ما يوقف حفظ رصيد أول المدة نفسه.
+        const { id } = await insertTreasuryEntry({
             type: "income",
             sub_type: "opening_balance",
             method: openingBalanceForm.method,
             amount,
-            note: `رصيد أول المدة — المصدر: ${sourceLabel}${openingBalanceForm.note ? " — " + openingBalanceForm.note : ""}`,
-            date: openingBalanceForm.date || todayLocal(),
+            note,
+            date,
             pharmacy_id: pharmacyId,
             created_by: currentUser?.name || "",
-            attachment_url: proofUrl || null,
-        };
-        const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+        });
         setSavingOpeningBalance(false);
-        if (error) {
-            showToast("❌ فشل حفظ رصيد أول المدة: " + error.message, "error");
-            return;
+        if (setEntries) {
+            setEntries((p) => [{ id, type: "income", sub_type: "opening_balance", method: openingBalanceForm.method, amount, note, date, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", attachment_url: proofUrl || null }, ...p]);
         }
-        if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
         setShowOpeningBalanceForm(false);
         setOpeningBalanceForm({ method: "نقدي", amount: "", source: "تمويل", source_other: "", note: "", date: todayLocal(), proof: null });
         showToast(`✅ تم تسجيل رصيد أول المدة — ${amount.toFixed(2)} ر.س`);
@@ -114,23 +115,24 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             return;
         }
         setSavingSettlement(true);
-        const payload = {
-            type: settlementDiff > 0 ? "income" : "expense",
+        const settleType = settlementDiff > 0 ? "income" : "expense";
+        const settleAmount = Math.abs(settlementDiff);
+        const settleNote = `تسوية رصيد الخزنة (${settlementForm.method}) — من ${settlementCurrentBalance.toFixed(2)} إلى ${settlementActualNum.toFixed(2)} — السبب: ${settlementForm.reason.trim()}`;
+        const settleDate = todayLocal();
+        const { id } = await insertTreasuryEntry({
+            type: settleType,
             sub_type: "balance_settlement",
             method: settlementForm.method,
-            amount: Math.abs(settlementDiff),
-            note: `تسوية رصيد الخزنة (${settlementForm.method}) — من ${settlementCurrentBalance.toFixed(2)} إلى ${settlementActualNum.toFixed(2)} — السبب: ${settlementForm.reason.trim()}`,
-            date: todayLocal(),
+            amount: settleAmount,
+            note: settleNote,
+            date: settleDate,
             pharmacy_id: pharmacyId,
             created_by: currentUser?.name || "",
-        };
-        const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+        });
         setSavingSettlement(false);
-        if (error) {
-            showToast("❌ فشل حفظ التسوية: " + error.message, "error");
-            return;
+        if (setEntries) {
+            setEntries((p) => [{ id, type: settleType, sub_type: "balance_settlement", method: settlementForm.method, amount: settleAmount, note: settleNote, date: settleDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "" }, ...p]);
         }
-        if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
         setShowSettlementForm(false);
         setSettlementForm({ method: "نقدي", actual_balance: "", reason: "" });
         showToast(`✅ تمت تسوية الرصيد — ${settlementDiff > 0 ? "+" : ""}${settlementDiff.toFixed(2)} ر.س`);
@@ -173,6 +175,13 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             (e) => e.date === today && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
         );
         if (localClosing) { setClosingSaved(true); setClosingRecord(localClosing); return; }
+        // 🆕 offline fallback: لو مفيش نت، نفحص الكاش المحلي الموحّد قبل ما نستسلم
+        if (!navigator.onLine && window.offlineAPI?.getTreasuryEntriesCache) {
+            window.offlineAPI.getTreasuryEntriesCache({ pharmacyId, date: today, subType: "daily_closing" })
+                .then((rows) => { if (rows && rows.length > 0) { setClosingSaved(true); setClosingRecord(rows[0]); } })
+                .catch(() => { });
+            return;
+        }
         supabase
             .from("treasury_entries")
             .select("id, created_at")
@@ -182,7 +191,8 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             .limit(1)
             .then(({ data }) => {
                 if (data && data.length > 0) { setClosingSaved(true); setClosingRecord(data[0]); }
-            });
+            })
+            .catch(() => { });
     }, [entries, today, pharmacyId]);
 
     // ═══════════════════════════════════════════════════
@@ -246,25 +256,23 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         addingAdjustmentRef.current = true;
         setAddingAdjustment(true);
         const invoiceIds = postClosingSales.map((s) => s.id).join("، ");
-        const payload = {
+        const adjNote = `تسوية مبيعات جديدة بعد تقفيل اليوم — فواتير: ${invoiceIds}`;
+        const { id } = await insertTreasuryEntry({
             type: "income",
             sub_type: "closing_adjustment",
             method: "نقدي",
             amount: postClosingNet,
-            note: `تسوية مبيعات جديدة بعد تقفيل اليوم — فواتير: ${invoiceIds}`,
+            note: adjNote,
             date: today,
             pharmacy_id: pharmacyId,
             created_by: currentUser?.name || "",
-        };
-        const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+        });
         setAddingAdjustment(false);
         addingAdjustmentRef.current = false; // 🆕
-        if (error) {
-            showToast("خطأ في إضافة تسوية التقفيل: " + error.message, "error");
-            return;
+        if (setEntries) {
+            setEntries((p) => [{ id, type: "income", sub_type: "closing_adjustment", method: "نقدي", amount: postClosingNet, note: adjNote, date: today, pharmacy_id: pharmacyId, created_by: currentUser?.name || "" }, ...p]);
         }
-        if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
-        showToast("✅ تمت إضافة التسوية لتقفيل اليوم");
+        showToast(navigator.onLine ? "✅ تمت إضافة التسوية لتقفيل اليوم" : "✅ تم تسجيل التسوية محليًا (ستُرفع عند توفر الاتصال)");
     };
 
     // ═══════════════════════════════════════════════════
@@ -315,31 +323,36 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         addingReviewAdjustmentRef.current = true;
         setAddingReviewAdjustment(true);
         const invoiceIds = reviewPostClosingSales.map((s) => s.id).join("، ");
-        const payload = {
+        const reviewNote = `تسوية مبيعات جديدة بعد تقفيل يوم ${reviewDate} — فواتير: ${invoiceIds}`;
+        const { id } = await insertTreasuryEntry({
             type: "income",
             sub_type: "closing_adjustment",
             method: "نقدي",
             amount: reviewPostClosingNet,
-            note: `تسوية مبيعات جديدة بعد تقفيل يوم ${reviewDate} — فواتير: ${invoiceIds}`,
+            note: reviewNote,
             date: reviewDate,
             pharmacy_id: pharmacyId,
             created_by: currentUser?.name || "",
-        };
-        const { data, error } = await supabase.from("treasury_entries").insert(payload).select();
+        });
         setAddingReviewAdjustment(false);
         addingReviewAdjustmentRef.current = false;
-        if (error) {
-            showToast("خطأ في إضافة تسوية اليوم السابق: " + error.message, "error");
-            return;
+        if (setEntries) {
+            setEntries((p) => [{ id, type: "income", sub_type: "closing_adjustment", method: "نقدي", amount: reviewPostClosingNet, note: reviewNote, date: reviewDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "" }, ...p]);
         }
-        if (data && data[0] && setEntries) setEntries((p) => [data[0], ...p]);
-        showToast(`✅ تمت إضافة التسوية لتقفيل يوم ${reviewDate}`);
+        showToast(navigator.onLine ? `✅ تمت إضافة التسوية لتقفيل يوم ${reviewDate}` : "✅ تم تسجيل التسوية محليًا (ستُرفع عند توفر الاتصال)");
     };
 
     const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(0);
 
     useEffect(() => {
         if (!pharmacyId) return;
+        // 🆕 offline fallback: لو مفيش نت، بنجمع نفس الحساب من الكاش المحلي الموحّد
+        if (!navigator.onLine && window.offlineAPI?.getTreasuryEntriesCache) {
+            window.offlineAPI.getTreasuryEntriesCache({ pharmacyId, date: today, subType: "loyalty_redeem" })
+                .then((rows) => setLoyaltyRedeemed((rows || []).reduce((s, r) => s + (r.amount || 0), 0)))
+                .catch(() => { });
+            return;
+        }
         supabase
             .from("treasury_entries")
             .select("amount")
@@ -348,7 +361,8 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             .eq("sub_type", "loyalty_redeem")
             .then(({ data }) => {
                 if (data) setLoyaltyRedeemed(data.reduce((s, r) => s + (r.amount || 0), 0));
-            });
+            })
+            .catch(() => { });
     }, [today, pharmacyId]);
     const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1", recurrence: "monthly", due_month: "1" });
     const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
@@ -676,15 +690,19 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         const gosiNote = (+payForm.gosi_employee_deduction || 0) > 0 ? ` (بعد خصم تأمينات ${(+payForm.gosi_employee_deduction).toFixed(2)} ر.س)` : "";
         const fridayNote = (+payForm.friday_allowance || 0) > 0 ? ` + بدل ${payForm.friday_count} جمعة` : "";
         const latenessNote = (+payForm.deduction_lateness || 0) > 0 ? ` - خصم تأخير ${payForm.late_minutes} دقيقة` : "";
-        const trPayload = {
+        const salaryNote = `راتب ${emp.name} (${emp.role}) — شهر ${payMonth}${gosiNote}${fridayNote}${latenessNote}`;
+        const salaryDate = todayLocal();
+        // 🆕 قيد الخزنة نفسه offline-first عبر insertTreasuryEntry. ملحوظة: صرف الراتب (سطر
+        // salary_payments فوق) لسه محتاج نت فعلي حاليًا — التحويل للكاش المحلي غير مشمول هنا.
+        const { id: trId } = await insertTreasuryEntry({
             type: "expense", sub_type: "salary", method: payForm.method, amount: net,
-            note: `راتب ${emp.name} (${emp.role}) — شهر ${payMonth}${gosiNote}${fridayNote}${latenessNote}`,
-            date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
-        };
-        const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
+            note: salaryNote, date: salaryDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "",
+            ref_id: emp.id,
+        });
         setSavingSalary(false);
-        if (trError) { showToast("تم حفظ الراتب لكن فشل تحديث الخزنة: " + trError.message, "error"); }
-        else if (trData && trData[0] && setEntries) setEntries((p) => [trData[0], ...p]);
+        if (setEntries) {
+            setEntries((p) => [{ id: trId, type: "expense", sub_type: "salary", method: payForm.method, amount: net, note: salaryNote, date: salaryDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id }, ...p]);
+        }
         setSalaryPayments((p) => [data[0], ...p]);
         setShowPayForm(null);
         showToast(`✅ تم صرف راتب ${emp.name} — ${net.toFixed(2)} ر.س`);
@@ -704,14 +722,16 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         if (error) { setSavingLeave(false); showToast("خطأ: " + error.message, "error"); return; }
         setLeaveLedger((p) => [data[0], ...p]);
         if (leaveForm.type === "cashout" && amount > 0) {
-            const trPayload = {
+            const leaveNote = `صرف بدل إجازة نقدًا — ${emp.name} (${days} يوم)`;
+            const leaveDate = todayLocal();
+            const { id: trId } = await insertTreasuryEntry({
                 type: "expense", sub_type: "leave_cashout", method: "نقدي", amount,
-                note: `صرف بدل إجازة نقدًا — ${emp.name} (${days} يوم)`,
-                date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
-            };
-            const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
-            if (trError) showToast("تم تسجيل الإجازة لكن فشل تحديث الخزنة: " + trError.message, "error");
-            else if (trData && trData[0] && setEntries) setEntries((p) => [trData[0], ...p]);
+                note: leaveNote, date: leaveDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "",
+                ref_id: emp.id,
+            });
+            if (setEntries) {
+                setEntries((p) => [{ id: trId, type: "expense", sub_type: "leave_cashout", method: "نقدي", amount, note: leaveNote, date: leaveDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id }, ...p]);
+            }
         }
         setSavingLeave(false);
         setShowLeaveForm(null);
@@ -751,14 +771,16 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         const { data, error } = await supabase.from("end_of_service_settlements").insert(payload).select();
         if (error) { setSavingEos(false); showToast("❌ فشل حفظ التسوية: " + error.message, "error"); return; }
         if (preview.net > 0) {
-            const trPayload = {
+            const eosNote = `تسوية نهاية خدمة — ${emp.name} (${preview.eosb.years.toFixed(1)} سنة خدمة)`;
+            const eosDate = todayLocal();
+            const { id: trId } = await insertTreasuryEntry({
                 type: "expense", sub_type: "end_of_service", method: eosForm.method, amount: preview.net,
-                note: `تسوية نهاية خدمة — ${emp.name} (${preview.eosb.years.toFixed(1)} سنة خدمة)`,
-                date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id,
-            };
-            const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
-            if (trError) showToast("تم حفظ التسوية لكن فشل تحديث الخزنة: " + trError.message, "error");
-            else if (trData && trData[0] && setEntries) setEntries((p) => [trData[0], ...p]);
+                note: eosNote, date: eosDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "",
+                ref_id: emp.id,
+            });
+            if (setEntries) {
+                setEntries((p) => [{ id: trId, type: "expense", sub_type: "end_of_service", method: eosForm.method, amount: preview.net, note: eosNote, date: eosDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", employee_id: emp.id }, ...p]);
+            }
         }
         await supabase.from("employees").update({ active: false, termination_date: eosForm.termination_date }).eq("id", emp.id).eq("pharmacy_id", pharmacyId);
         setEmployees((p) => p.map((e) => (e.id === emp.id ? { ...e, active: false, termination_date: eosForm.termination_date } : e)));
@@ -919,26 +941,24 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                     rows.push({ type: "income", sub_type: "adjustment", method: "نقدي", amount: Math.abs(cardDiff), note: reasonNote, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name });
                 }
             }
+            // 🆕 offline-first: كل الحركات (دخل/مصروف اليوم) + علامة التقفيل نفسها بتتبعت عبر
+            // insertTreasuryEntries (نسخة مجمّعة من insertTreasuryEntry) — كل صف بياخد id مستقل
+            // ويتسجل في الكاش المحلي فورًا، فالشاشة بتعرض القيم فورًا حتى أوفلاين، والمزامنة الفعلية
+            // بتحصل لما يتوفر نت. علامة daily_closing لازم تتبعت بعد باقي الصفوف (نفس الترتيب الأصلي).
             if (rows.length > 0) {
-                const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
-                if (error) { showToast("خطأ: " + error.message, "error"); return; }
-                setEntries((p) => [...data, ...p]);
+                const rowResults = await insertTreasuryEntries(rows);
+                const rowsWithIds = rows.map((r, i) => ({ ...r, id: rowResults[i].id }));
+                setEntries((p) => [...rowsWithIds, ...p]);
             }
-            const { data: closingRow, error: closingError } = await supabase
-                .from("treasury_entries")
-                .insert({
-                    type: "closing", sub_type: "daily_closing", method: "نقدي",
-                    amount: 0, note: "تقفيل اليوم", date: today,
-                    pharmacy_id: pharmacyId, created_by: currentUser.name,
-                })
-                .select();
-            if (closingError) {
-                showToast("❌ فشل حفظ تقفيل اليوم: " + closingError.message, "error");
-                return;
-            }
-            if (closingRow) setEntries((p) => [...closingRow, ...p]);
+            const closingEntryPayload = {
+                type: "closing", sub_type: "daily_closing", method: "نقدي",
+                amount: 0, note: "تقفيل اليوم", date: today,
+                pharmacy_id: pharmacyId, created_by: currentUser.name,
+            };
+            const closingResults = await insertTreasuryEntries([closingEntryPayload]);
+            setEntries((p) => [{ ...closingEntryPayload, id: closingResults[0].id }, ...p]);
             setClosingSaved(true);
-            showToast("تم حفظ تقفيل اليوم ✓");
+            showToast(navigator.onLine ? "تم حفظ تقفيل اليوم ✓" : "تم حفظ تقفيل اليوم محليًا ✓ (سيُرفع عند توفر الاتصال)");
             setClosingForm({
                 extra_income: "",
                 extra_income_note: "",
@@ -1105,17 +1125,14 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             if (t.creditIncome > 0) rows.push({ type: "income", sub_type: "daily_sales", method: "نقدي", amount: t.creditIncome, note: "سداد آجل عملاء (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
             if (+retroExpense > 0) rows.push({ type: "expense", sub_type: "variable", method: "نقدي", amount: +retroExpense, note: retroExpenseNote || "مصروفات اليوم (تقفيل بأثر رجعي)", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name });
             if (rows.length > 0) {
-                const { data, error } = await supabase.from("treasury_entries").insert(rows).select();
-                if (error) { showToast("خطأ: " + error.message, "error"); return; }
-                setEntries((p) => [...data, ...p]);
+                const rowResults = await insertTreasuryEntries(rows);
+                const rowsWithIds = rows.map((r, i) => ({ ...r, id: rowResults[i].id }));
+                setEntries((p) => [...rowsWithIds, ...p]);
             }
-            const { data: closingRow, error: closingError } = await supabase
-                .from("treasury_entries")
-                .insert({ type: "closing", sub_type: "daily_closing", method: "نقدي", amount: 0, note: "تقفيل بأثر رجعي", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name })
-                .select();
-            if (closingError) { showToast("❌ فشل حفظ تقفيل اليوم: " + closingError.message, "error"); return; }
-            if (closingRow) setEntries((p) => [...closingRow, ...p]);
-            showToast(`✅ تم تقفيل يوم ${dateStr} بأثر رجعي`);
+            const closingEntryPayload = { type: "closing", sub_type: "daily_closing", method: "نقدي", amount: 0, note: "تقفيل بأثر رجعي", date: dateStr, pharmacy_id: pharmacyId, created_by: currentUser.name };
+            const closingResults = await insertTreasuryEntries([closingEntryPayload]);
+            setEntries((p) => [{ ...closingEntryPayload, id: closingResults[0].id }, ...p]);
+            showToast(navigator.onLine ? `✅ تم تقفيل يوم ${dateStr} بأثر رجعي` : `✅ تم تقفيل يوم ${dateStr} محليًا (سيُرفع عند توفر الاتصال)`);
             setRetroClosingDate(null);
             setRetroExpense("");
             setRetroExpenseNote("");
@@ -2023,14 +2040,14 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                                                         showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي لسداد "${f.name}" — المتاح ${available.toFixed(2)} ر.س والمطلوب ${f.amount} ر.س`, "error");
                                                                         return;
                                                                     }
-                                                                    const { error } = await supabase.from("treasury_entries").insert([{
+                                                                    const { id: fixedTrId } = await insertTreasuryEntry({
                                                                         type: "expense", sub_type: "fixed", method,
                                                                         amount: f.amount, note: f.name, date: today,
-                                                                        pharmacy_id: pharmacyId, created_by: currentUser.name
-                                                                    }]);
-                                                                    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-                                                                    setEntries((p) => [...p, { type: "expense", sub_type: "fixed", method, amount: f.amount, note: f.name, date: today }]);
-                                                                    showToast(`تم سداد ${f.name} ✓`);
+                                                                        pharmacy_id: pharmacyId, created_by: currentUser.name,
+                                                                        ref_id: f.id,
+                                                                    });
+                                                                    setEntries((p) => [...p, { id: fixedTrId, type: "expense", sub_type: "fixed", method, amount: f.amount, note: f.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name }]);
+                                                                    showToast(navigator.onLine ? `تم سداد ${f.name} ✓` : `تم سداد ${f.name} محليًا ✓ (سيُرفع عند توفر الاتصال)`);
                                                                 }}
                                                                 style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
                                                                 💳 سداد
@@ -2119,14 +2136,14 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                                         showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي لسداد "${l.name}" — المتاح ${available.toFixed(2)} ر.س والمطلوب ${amt.toFixed(2)} ر.س`, "error");
                                                         return;
                                                     }
-                                                    const { error } = await supabase.from("treasury_entries").insert([{
+                                                    const { id: licenseTrId } = await insertTreasuryEntry({
                                                         type: "expense", sub_type: "license", method,
                                                         amount: amt, note: l.name, date: today,
-                                                        pharmacy_id: pharmacyId, created_by: currentUser.name
-                                                    }]);
-                                                    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-                                                    setEntries((p) => [...p, { type: "expense", sub_type: "license", method, amount: amt, note: l.name, date: today }]);
-                                                    showToast(`تم سداد ${l.name} ✓`);
+                                                        pharmacy_id: pharmacyId, created_by: currentUser.name,
+                                                        ref_id: l.id,
+                                                    });
+                                                    setEntries((p) => [...p, { id: licenseTrId, type: "expense", sub_type: "license", method, amount: amt, note: l.name, date: today, pharmacy_id: pharmacyId, created_by: currentUser.name }]);
+                                                    showToast(navigator.onLine ? `تم سداد ${l.name} ✓` : `تم سداد ${l.name} محليًا ✓ (سيُرفع عند توفر الاتصال)`);
                                                 }}
                                                 style={{ marginRight: "auto", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 8, padding: "6px 14px", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
                                                 💳 سداد

@@ -9,9 +9,10 @@ import { sellFromBatches } from "../lib/inventoryUtils";
 import { CART_AREA_HEIGHT, DEFAULT_DOSE_TEMPLATES, DOSAGE_LABEL_SIZES, MAX_INVOICES, emptyInvoice, playWarningBeep } from "../lib/posConstants";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { calcPromoLineTotal, getEffectivePrice, recalcCartLinePrice } from "../lib/promoUtils";
+import { earnLoyaltyPoints, redeemLoyaltyPoints, logInventoryVariance, createZeroStockDraftPurchase } from "../lib/offlineAPI";
 import { PrintReceipt } from "./PrintReceipt";
 import { RasdQueue } from "../services/rasdService";
-import { Btn, IC, Modal } from "../ui/primitives";
+import { Btn, IC, Modal, Select } from "../ui/primitives";
 import { getDeviceId } from "../lib/deviceID";
 import { computeCustomerStats, trendConfig } from "../modules/CustomersModule"; // 🆕 مسار الاستيراد ده افتراضي — عدّله لو مكان الملف مختلف عندك
 
@@ -59,12 +60,14 @@ export function POS({
     activeTab,
     setActiveTab,
     pharmacyId,
+    suppliers, // 🆕 لسيناريو "رصيد صفر + طلبية مورد لسه ملحقتش تتسجل"
     jokerPendingItems,
     setJokerPendingItems,
     promos,
     discountRules,
     productEarliestExpiry,
     autoPromoConfig,
+    loyaltySettings, // 🆕 جاي من الـ App دلوقتي (مشترك بين POS وموديول الولاء)، مبقاش بيتجاب هنا
 }) {
     const [showPrint, setShowPrint] = useState(null);
     const fileRef = useRef();
@@ -87,18 +90,6 @@ export function POS({
     const [doseTemplates, setDoseTemplates] = useState<string[]>(DEFAULT_DOSE_TEMPLATES);
     const [showBulkDoseModal, setShowBulkDoseModal] = useState(false);
     const [bulkLabelSize, setBulkLabelSize] = useState("80x60");
-
-    // 🆕 تحميل إعدادات الولاء مرة واحدة لكل صيدلية عند فتح شاشة نقطة البيع، بدل ما نستنى
-    // لحظة اختيار العميل أو حفظ الفاتورة عشان نجيبها. كده لو حصل بيع أوفلاين، الإعدادات
-    // (وضع الاحتساب، النسبة...) تبقى محفوظة محليًا في الـ state من الأول، ومنعتمدش على نت
-    // شغالة في اللحظة الحرجة عشان نعرف نحسب النقاط.
-    useEffect(() => {
-        if (!pharmacyId) return;
-        supabase.from("loyalty_settings").select("*").eq("pharmacy_id", pharmacyId).maybeSingle()
-            .then(({ data }) => {
-                if (data) setLoyaltySettings(data);
-            });
-    }, [pharmacyId]);
 
     useEffect(() => {
         if (!pharmacyId) return;
@@ -128,7 +119,8 @@ export function POS({
                 id: crypto.randomUUID(),
                 type: "DOSE_TEMPLATES_UPDATE",
                 timestamp: new Date().toISOString(),
-                payload: { pharmacy_id: pharmacyId, dosage_templates: updated },
+                pharmacy_id: pharmacyId,   // 🛠️ مضاف على مستوى event (كان جوا payload بس)
+                payload: { dosage_templates: updated },
             });
             if (!result.synced) {
                 showToast("📴 القالب اتحفظ محليًا - هيتزامن لما النت يرجع", "warning");
@@ -146,7 +138,8 @@ export function POS({
                 id: crypto.randomUUID(),
                 type: "DOSE_TEMPLATES_UPDATE",
                 timestamp: new Date().toISOString(),
-                payload: { pharmacy_id: pharmacyId, dosage_templates: updated },
+                pharmacy_id: pharmacyId,   // 🛠️ مضاف على مستوى event
+                payload: { dosage_templates: updated },
             });
         }
     };
@@ -323,7 +316,6 @@ export function POS({
     const [customerLoyalty, setCustomerLoyalty] = useState<any>(null);
     const [usePoints, setUsePoints] = useState(false);
     const [pointsToRedeem, setPointsToRedeem] = useState(0);
-    const [loyaltySettings, setLoyaltySettings] = useState<any>(null);
 
     const inv = invoices[activeTab] || emptyInvoice();
 
@@ -413,11 +405,30 @@ export function POS({
 
     const [expiryPickerLine, setExpiryPickerLine] = useState<any>(null);
 
-    const addToCart = (p) => {
+    // ── سيناريو: صنف اتمسح بالباركود ورصيده صفر بالنظام ──
+    // zeroStockPrompt = الصنف المعلّق قرار بشأنه (null = مفيش مودال مفتوح)
+    const [zeroStockPrompt, setZeroStockPrompt] = useState(null);
+    const [zeroStockStep, setZeroStockStep] = useState("ask"); // "ask" | "supplier_qty"
+    const [zeroStockSupplier, setZeroStockSupplier] = useState("");
+    const [zeroStockQty, setZeroStockQty] = useState("");
+    const [zeroStockSaving, setZeroStockSaving] = useState(false);
+
+    const addToCart = (p, opts: any = {}) => {
         if (!p.isMissed && !p.isJoker) {
             const effectiveStock =
                 p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
             if (effectiveStock <= 0) {
+                // 🆕 لو الصنف اتأكد وجوده فعليًا عن طريق سكانر باركود حقيقي (مش بحث يدوي
+                // ولا ضغط على كارت الصنف)، نديله فرصة يوضح السبب قبل ما نرفض البيع خالص.
+                // opts.skipZeroStockCheck بتتحدد يدويًا لما إحنا بنعيد نداء addToCart بعد
+                // ما زودنا الرصيد فعليًا عبر الفاتورة المؤقتة، عشان منلفش في حلقة لا نهائية.
+                if (p._scannedViaBarcode && !opts.skipZeroStockCheck) {
+                    setZeroStockPrompt(p);
+                    setZeroStockStep("ask");
+                    setZeroStockSupplier("");
+                    setZeroStockQty("");
+                    return;
+                }
                 showToast("المخزون نفد!", "error");
                 return;
             }
@@ -660,6 +671,7 @@ export function POS({
                     // ✅ الباركود نفسه قرا/أكد تاريخ الصلاحية (واتقارن مع التشغيلات المسجلة فوق)،
                     // فمفيش داعي نجبر الكاشير يختار تاني من نافذة الاختيار — بس لو فعلاً في تاريخ مقروء.
                     _expiryConfirmed: !!finalExpiry,
+                    _scannedViaBarcode: true, // 🆕 مؤكد إنه سكانر حقيقي — يفتح مودال رصيد صفر لو الرصيد صفر
                 });
                 return;
             }
@@ -668,7 +680,7 @@ export function POS({
                 (x) => x.barcode === scan.code || x.id === scan.code
             );
             if (product) {
-                addToCart(product);
+                addToCart({ ...product, _scannedViaBarcode: true }); // 🆕
                 return;
             }
         }
@@ -704,6 +716,7 @@ export function POS({
             id: crypto.randomUUID(),
             type: "BARCODE_LINK",
             timestamp: new Date().toISOString(),
+            pharmacy_id: pharmacyId,   // 🛠️ مضاف على مستوى event
             payload: { productId: product.id, pharmacyId, newGtin, barcodeRow },
         });
         if (!linkResult.synced) {
@@ -720,7 +733,74 @@ export function POS({
             serial: pendingScan.serial,
             expiry: norm(pendingScan.expiry) || pendingScan.expiry,
             _expiryConfirmed: !!pendingScan.expiry,
+            _scannedViaBarcode: true, // 🆕
         });
+    };
+
+    // ── "لأ، مش طلبية" — تسجيل ملحوظة في سجل الفروقات والبيع يفضل موقوف ──
+    const handleZeroStockDeny = async () => {
+        const p = zeroStockPrompt;
+        setZeroStockPrompt(null);
+        if (!p) return;
+        try {
+            const result = await logInventoryVariance({
+                pharmacyId,
+                productId: p.id,
+                eventType: "scan_zero_stock",
+                createdBy: currentUser?.name || null,
+                notes: `محاولة بيع "${p.nameAr || p.name}" بالسكانر ورصيده صفر بالنظام`,
+            });
+            if (!result.synced) {
+                showToast("📴 الملحوظة اتسجلت محليًا - هتتزامن لما النت يرجع", "warning");
+            }
+        } catch (err) {
+            console.error("logInventoryVariance failed:", err);
+        }
+        showToast("المخزون نفد! تم تسجيل الصنف في قائمة الأصناف اللي محتاجة تسوية", "error");
+    };
+
+    // ── "آه، طلبية وصلت" — فاتورة مسودة + إتمام البيع فورًا ──
+    const handleZeroStockDraftConfirm = async () => {
+        const p = zeroStockPrompt;
+        if (!p || !zeroStockSupplier || !zeroStockQty || +zeroStockQty <= 0) return;
+        setZeroStockSaving(true);
+        try {
+            const qty = Math.max(1, Math.round(+zeroStockQty));
+            const sup = (suppliers || []).find((s) => s.id === zeroStockSupplier);
+
+            const result = await createZeroStockDraftPurchase({
+                pharmacyId,
+                productId: p.id,
+                productName: p.nameAr || p.name,
+                supplierId: zeroStockSupplier,
+                supplierName: sup?.name || "",
+                qty,
+                createdBy: currentUser?.name || null,
+            });
+            if (!result.synced) {
+                showToast("📴 الفاتورة المؤقتة اتحفظت محليًا - هتتزامن لما النت يرجع", "warning");
+            }
+
+            // تحديث فوري لرصيد الصنف في الـstate المحلي عشان البيع يكمل من غير انتظار الشبكة
+            const bumpedStock = (p.stock || 0) + qty;
+            setProducts((prev) =>
+                prev.map((x) => (x.id === p.id ? { ...x, stock: bumpedStock } : x))
+            );
+
+            showToast(
+                `✅ اتضافت فاتورة مسودة من "${sup?.name || "المورد"}" - كمّل باقي بياناتها لاحقًا من شاشة المشتريات`,
+                "success"
+            );
+            setZeroStockPrompt(null);
+
+            // إتمام إضافة الصنف الأصلي للسلة دلوقتي بعد ما الرصيد اتزود فعليًا
+            addToCart({ ...p, stock: bumpedStock }, { skipZeroStockCheck: true });
+        } catch (err) {
+            console.error("handleZeroStockDraftConfirm failed:", err);
+            showToast("حصل خطأ أثناء حفظ الفاتورة المؤقتة", "error");
+        } finally {
+            setZeroStockSaving(false);
+        }
     };
 
     const searchLower = (inv.search || "").toLowerCase();
@@ -1046,40 +1126,23 @@ export function POS({
         setSales((p) => [...p, invoice]);
 
         // ── استبدال نقاط في الفاتورة ──
-        // 🆕 بيتبعت كـ "دلتا" (-pointsToRedeem) عبر طابور الأوفلاين بدل upsert برقم نهائي مطلق،
-        // عشان لو فيه جهازين أوفلاين شغالين بنفس العميل مايبقوش بيكتبوا فوق بعض لما يتزامنوا.
         if (usePoints && pointsToRedeem > 0 && inv.selCustomer?.id) {
-            await window.offlineAPI.queueEvent({
-                id: crypto.randomUUID(),
-                type: "LOYALTY_DELTA",
-                timestamp: new Date().toISOString(),
-                payload: {
-                    pharmacy_id: pharmacyId,
-                    customer_id: inv.selCustomer.id,
-                    delta: -pointsToRedeem,
-                    type: "redeem",
-                    ref_sale_id: invoice.id,
-                    note: `استبدال نقاط في فاتورة ${invoice.id}`,
-                },
-            });
+            await redeemLoyaltyPoints(pharmacyId, inv.selCustomer.id, pointsToRedeem);
 
             setUsePoints(false);
             setPointsToRedeem(0);
             setCustomerLoyalty(null);
         }
-
         // ── كسب نقاط الولاء ──
         if (inv.selCustomer?.id) {
-            const ls = loyaltySettings || await supabase
-                .from("loyalty_settings")
-                .select("*")
-                .eq("pharmacy_id", pharmacyId)
-                .maybeSingle()
-                .then(({ data }) => data);
+            const ls = loyaltySettings; // من الـ props دلوقتي
+
+            if (!ls) {
+                console.warn("loyalty_settings not loaded — points not calculated");
+            }
 
             if (ls) {
                 let points = 0;
-                // ✅ الأصناف اللي عليها خصم أو عرض (أو هدية) مستبعدة من احتساب النقاط
                 const eligibleItems = invoice.items.filter((it) => !it.excluded_from_points);
                 if (ls.mode === "profit") {
                     const profit = eligibleItems.reduce((sum, it) => {
@@ -1090,26 +1153,8 @@ export function POS({
                     points = Math.floor(pointsEligibleSubtotal / ls.sales_per) * ls.sales_rate;
                 }
 
-                // 🆕 بيتبعت كـ "دلتا" (+points) عبر طابور الأوفلاين — من غير ما نحتاج نقرا الرصيد
-                // الحالي أولاً (ده كان بيتطلب نت وقت البيع أصلاً). الـ RPC نفسها بتضيف الدلتا على
-                // الرصيد الموجود وقت التنفيذ الفعلي (أونلاين أو وقت المزامنة)، فمفيش خطر تكرار
-                // أو فقدان نقاط حتى لو حصل sync لفاتورتين لنفس العميل من جهازين مختلفين.
                 if (points > 0) {
-                    await window.offlineAPI.queueEvent({
-                        id: crypto.randomUUID(),
-                        type: "LOYALTY_DELTA",
-                        timestamp: new Date().toISOString(),
-                        payload: {
-                            pharmacy_id: pharmacyId,
-                            customer_id: inv.selCustomer.id,
-                            delta: points,
-                            type: "earn",
-                            ref_sale_id: invoice.id,
-                            earned_mode: ls.mode,
-                            note: `نقاط مكتسبة من فاتورة ${invoice.id}`,
-                        },
-                    });
-
+                    await earnLoyaltyPoints(pharmacyId, inv.selCustomer.id, invoice.id, points, ls.mode);
                     showToast(`🌟 ${inv.selCustomer.name} كسب ${points.toFixed(1)} ريال نقاط`);
                 }
             }
@@ -1128,12 +1173,26 @@ export function POS({
                 };
             })
         );
+        // 🆕 نفس deltas الـ stockEvents (فوق) بتتكتب كمان في كاش SQLite المحلي (products_cache)
+        // بالتوازي مع React state — عشان لو قفلت البرنامج وانت أوفلاين قبل ما SALE_STOCK_BATCH
+        // يتزامن، الكاش المحلي يفضل مطابق للمخزون الفعلي بعد البيع، مش نسخة قديمة من آخر sync.
+        if (stockEvents.length > 0) {
+            try {
+                await window.offlineAPI?.applyProductStockDeltaCache?.({
+                    pharmacyId,
+                    deltas: stockEvents.map((e) => ({ id: e.product_id, delta: e.delta })),
+                });
+            } catch (err) {
+                console.error("applyProductStockDeltaCache failed:", err);
+            }
+        }
 
         const missedItems = inv.cart.filter((i) => i.isMissed);
         if (missedItems.length > 0) {
             const missedRecords = missedItems.map((i) => ({
                 id: "MS-" + Date.now() + "-" + i.id,
                 date: todayLocal(),
+                created_at: new Date().toISOString(), // 🆕 لازم للفلترة بـ "اليوم" في كارت الفرص الفائتة بالداشبورد
                 product_id: i.id,
                 product_name: i.nameAr || i.name,
                 price: i.price,
@@ -1146,10 +1205,23 @@ export function POS({
                 customer_id: inv.selCustomer?.id || null,
                 customer_name: inv.selCustomer?.name || null,
             }));
+
+            // 🆕 كتابة محلية فورية في missed_sales_cache (offline-first) — عشان كارت "الفرص
+            // الفائتة" في الداشبورد يقرأها فورًا حتى لو النت مقطوع ولسه محصلش sync
+            try {
+                await window.offlineAPI?.upsertMissedSalesCache({ pharmacyId, records: missedRecords });
+            } catch (err) {
+                console.error("upsertMissedSalesCache failed:", err);
+            }
+
+            // 🛠️ تصحيح الباج المتكرر: pharmacy_id لازم يكون على مستوى event نفسه (top-level)
+            // مش بس جوا كل سجل في payload.records — من غيره منطق الـ sync (اللي بيدور على
+            // event.pharmacy_id مباشرة) بيفشل بصمت زي ما ظهر في الـ console قبل كده
             await window.offlineAPI.queueEvent({
                 id: crypto.randomUUID(),
                 type: "MISSED_SALES_INSERT",
                 timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
                 payload: { records: missedRecords },
             });
         }
@@ -1173,6 +1245,7 @@ export function POS({
                         id: crypto.randomUUID(),
                         type: "JOKER_UPDATE",
                         timestamp: new Date().toISOString(),
+                        pharmacy_id: pharmacyId,   // 🛠️ مضاف بالكامل — كان غير موجود خالص حتى جوا payload
                         payload: { id: existing.id, qty: newQty },
                     });
                     workingJokerList = workingJokerList.map((j) => (j.id === existing.id ? { ...j, qty: newQty } : j));
@@ -1193,6 +1266,7 @@ export function POS({
                         id: crypto.randomUUID(),
                         type: "JOKER_INSERT",
                         timestamp: new Date().toISOString(),
+                        pharmacy_id: pharmacyId,   // 🛠️ مضاف على مستوى event
                         payload: { record },
                     });
                     workingJokerList = [...workingJokerList, record];
@@ -1867,18 +1941,11 @@ export function POS({
                                                     customerSearch: c.name,
                                                     customerSearchOpen: false,
                                                 }));
-                                                // جلب نقاط العميل وإعدادات الولاء
-                                                const [lpRes, lsRes] = await Promise.all([
-                                                    supabase.from("loyalty_points").select("*")
-                                                        .eq("pharmacy_id", pharmacyId)
-                                                        .eq("customer_id", c.id).maybeSingle(),
-                                                    supabase.from("loyalty_settings").select("*")
-                                                        .eq("pharmacy_id", pharmacyId).maybeSingle(),
-                                                ]);
-                                                setCustomerLoyalty(lpRes.data);
-                                                // 🆕 منكتبش فوق الـ cache المحمّلة مسبقًا بـ null لو الجلب فشل (أوفلاين مثلاً) —
-                                                // بنحدّثها بس لو فعلاً رجع رد فيه بيانات
-                                                if (lsRes.data) setLoyaltySettings(lsRes.data);
+                                                // جلب نقاط العميل فقط — إعدادات الولاء بقت جاية من الـ props على مستوى الـ App
+                                                const { data: lpData } = await supabase.from("loyalty_points").select("*")
+                                                    .eq("pharmacy_id", pharmacyId)
+                                                    .eq("customer_id", c.id).maybeSingle();
+                                                setCustomerLoyalty(lpData);
                                                 setUsePoints(false);
                                                 setPointsToRedeem(0);
                                             }}
@@ -3011,6 +3078,89 @@ export function POS({
                             إلغاء
                         </Btn>
                     </div>
+                </div>
+            </Modal>
+
+            <Modal
+                open={!!zeroStockPrompt}
+                onClose={() => { if (!zeroStockSaving) setZeroStockPrompt(null); }}
+                title="⚠️ رصيد الصنف صفر بالنظام"
+            >
+                <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+                    {zeroStockStep === "ask" && (
+                        <>
+                            <div style={{ color: COLORS.textPrimary, fontSize: 14 }}>
+                                الصنف "<b>{zeroStockPrompt?.nameAr || zeroStockPrompt?.name}</b>" رصيده صفر
+                                في النظام، بس انت بتبيعه فعليًا من على الرف.
+                            </div>
+                            <div style={{ color: COLORS.textDim, fontSize: 13 }}>
+                                هل الصنف ده جاي من طلبية مورد وصلت الصيدلية فعليًا ولسه ملحقتش تتسجل على النظام؟
+                            </div>
+                            <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+                                <Btn onClick={() => setZeroStockStep("supplier_qty")} style={{ flex: 1, justifyContent: "center" }}>
+                                    آه، طلبية وصلت
+                                </Btn>
+                                <Btn variant="ghost" onClick={handleZeroStockDeny} style={{ flex: 1, justifyContent: "center" }}>
+                                    لأ، مش طلبية
+                                </Btn>
+                            </div>
+                        </>
+                    )}
+
+                    {zeroStockStep === "supplier_qty" && (
+                        <>
+                            <div>
+                                <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                                    المورد
+                                </label>
+                                <Select
+                                    value={zeroStockSupplier}
+                                    onChange={(v) => setZeroStockSupplier(v)}
+                                    options={[
+                                        { v: "", l: "اختر المورد" },
+                                        ...(suppliers || []).map((s) => ({ v: s.id, l: s.name })),
+                                    ]}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                                    الكمية التقريبية اللي وصلت
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={zeroStockQty}
+                                    onChange={(e) => setZeroStockQty(e.target.value)}
+                                    style={{
+                                        width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                        borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13,
+                                        outline: "none", boxSizing: "border-box",
+                                    }}
+                                />
+                            </div>
+                            <div style={{ color: COLORS.textDim, fontSize: 12 }}>
+                                هيتعمل فاتورة شراء "مسودة" بالكمية دي عشان تقدر تكمل البيع دلوقتي، وتفضل الفاتورة
+                                بحاجة لإكمال باقي بياناتها (السعر والخصومات) من شاشة المشتريات لاحقًا.
+                            </div>
+                            <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+                                <Btn
+                                    disabled={!zeroStockSupplier || !zeroStockQty || +zeroStockQty <= 0 || zeroStockSaving}
+                                    onClick={handleZeroStockDraftConfirm}
+                                    style={{ flex: 1, justifyContent: "center" }}
+                                >
+                                    {zeroStockSaving ? "جاري الحفظ..." : "تأكيد وإتمام البيع"}
+                                </Btn>
+                                <Btn
+                                    variant="ghost"
+                                    onClick={() => setZeroStockStep("ask")}
+                                    disabled={zeroStockSaving}
+                                    style={{ flex: 1, justifyContent: "center" }}
+                                >
+                                    رجوع
+                                </Btn>
+                            </div>
+                        </>
+                    )}
                 </div>
             </Modal>
         </div>

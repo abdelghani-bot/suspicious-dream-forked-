@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { queueEvent, insertTreasuryEntry } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { TAX_RATE } from "../data/seedData";
 import { logAudit } from "../lib/auditLog";
@@ -233,109 +234,126 @@ export function SuppliersModule({
     return { updates, unallocated: remaining };
   };
 
-  const persistReturnFIFO = async (supplierId, totalReturnAmount) => {
-    const { updates, unallocated } = applyReturnFIFO(supplierId, totalReturnAmount);
-    const okUpdates = [];
-    for (const u of updates) {
-      const { error: retError } = await supabase.from("purchases").update({ returned_amount: u.returned_amount }).eq("id", u.id).eq("pharmacy_id", pharmacyId);
-      if (retError) { showToast("خطأ في تحديث المرتجع: " + retError.message, "error"); continue; }
-      okUpdates.push(u);
-    }
-    setPurchases((prev) =>
-      prev.map((p) => {
-        const u = okUpdates.find((x) => x.id === p.id);
-        return u ? { ...p, returned_amount: u.returned_amount } : p;
-      })
-    );
-    if (unallocated > 0) {
-      showToast("⚠️ لا توجد فواتير لهذا المورد لتسجيل المرتجع عليها — راجع رصيد أول المدة", "error");
-    }
-    return updates;
-  };
+    const persistReturnFIFO = async (supplierId, totalReturnAmount) => {
+        const { updates, unallocated } = applyReturnFIFO(supplierId, totalReturnAmount);
 
-  const saveAutoReturn = async () => {
-    if (!showAutoReturn || autoReturnItems.length === 0) return;
+        for (const u of updates) {
+            const result = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "PURCHASE_UPDATE",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId, // 🆕 على المستوى العلوي — نفس القاعدة في كل event
+                payload: { id: u.id, pharmacy_id: pharmacyId, updates: { returned_amount: u.returned_amount } },
+            });
+            if (!result.synced && result.error) {
+                showToast("⚠️ تحديث المرتجع اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+            }
+        }
 
-    const items = autoReturnItems.filter((i) => i.returnQty > 0);
-    if (items.length === 0) {
-      showToast("لا توجد كميات للإرجاع", "error");
-      return;
-    }
+        setPurchases((prev) =>
+            prev.map((p) => {
+                const u = updates.find((x) => x.id === p.id);
+                return u ? { ...p, returned_amount: u.returned_amount } : p;
+            })
+        );
+        if (unallocated > 0) {
+            showToast("⚠️ لا توجد فواتير لهذا المورد لتسجيل المرتجع عليها — راجع رصيد أول المدة", "error");
+        }
+        return updates;
+    };
 
-    const subtotal = items.reduce((s, i) => s + (i.cost || i.price || 0) * i.returnQty, 0);
-    const tax = items.reduce((s, i) => i.taxable ? s + (i.cost || i.price || 0) * i.returnQty * TAX_RATE : s, 0);
-    const total = subtotal + tax;
-    const returnId = "RET-" + Date.now();
-    const today = todayLocal();
+    const saveAutoReturn = async () => {
+        if (!showAutoReturn || autoReturnItems.length === 0) return;
 
-    const stockUpdates = [];
-    for (const ri of items) {
-      const prod = products.find((x) => x.id === ri.id);
-      if (prod) {
-        const newStock = prod.stock - ri.returnQty;
-        const { error: stockError } = await supabase.from("products")
-          .update({ stock: newStock })
-          .eq("id", ri.id)
-          .eq("pharmacy_id", pharmacyId);
-        if (stockError) { showToast(`خطأ في تحديث مخزون ${prod.name || ri.id}: ` + stockError.message, "error"); continue; }
-        stockUpdates.push({ id: ri.id, stock: newStock });
-      }
-    }
-    if (stockUpdates.length > 0) {
-      setProducts((prev) => prev.map((p) => {
-        const u = stockUpdates.find((x) => x.id === p.id);
-        return u ? { ...p, stock: u.stock } : p;
-      }));
-    }
+        const items = autoReturnItems.filter((i) => i.returnQty > 0);
+        if (items.length === 0) {
+            showToast("لا توجد كميات للإرجاع", "error");
+            return;
+        }
 
-    const { error } = await supabase.from("returns").insert([{
-      id: returnId,
-      date: today,
-      type: "purchases",
-      supplier_id: showAutoReturn.id,
-      supplier_name: showAutoReturn.name,
-      purchase_invoice_id: null, // 🆕 مرتجع تلقائي غير مرتبط بفاتورة واحدة، التوزيع يتم عبر FIFO
-      items,
-      reason: "مرتجع تلقائي — قرب انتهاء الصلاحية",
-      subtotal,
-      tax,
-      total,
-      pharmacy_id: pharmacyId,
-    }]);
+        const subtotal = items.reduce((s, i) => s + (i.cost || i.price || 0) * i.returnQty, 0);
+        const tax = items.reduce((s, i) => i.taxable ? s + (i.cost || i.price || 0) * i.returnQty * TAX_RATE : s, 0);
+        const total = subtotal + tax;
+        const returnId = "RET-" + Date.now();
+        const today = todayLocal();
 
-    if (error) {
-      showToast("فشل حفظ المرتجع: " + error.message, "error");
-      return;
-    }
-    logAudit({
-      pharmacyId, userName: currentUser?.name, action: "create", entityType: "return",
-      entityId: returnId, entityLabel: showAutoReturn.name,
-      newValue: { supplier: showAutoReturn.name, total, itemsCount: items.length },
-      description: `مرتجع تلقائي (قرب انتهاء الصلاحية) للمورد "${showAutoReturn.name}" بقيمة ${total} ر.س`,
-    });
+        const stockUpdates = [];
+        for (const ri of items) {
+            const prod = products.find((x) => x.id === ri.id);
+            if (!prod) continue;
+            const newStock = prod.stock - ri.returnQty;
 
-    // 🆕 توزيع قيمة المرتجع على أقدم فواتير المورد المديونة (FIFO عكسي)
-    await persistReturnFIFO(showAutoReturn.id, total);
+            const result = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "PRODUCT_FIELD_UPDATE",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
+                payload: { id: ri.id, pharmacy_id: pharmacyId, updates: { stock: newStock } },
+            });
+            if (!result.synced && result.error) {
+                showToast(`⚠️ تحديث مخزون ${prod.name || ri.id} اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: ` + result.error, "warning");
+            }
+            stockUpdates.push({ id: ri.id, stock: newStock });
+        }
+        // 🆕 تطبيق واحد بس على state — ده حل مشكلة تكرار خصم المخزون اللي كانت موجودة
+        // (كان فيه setProducts هنا + setProducts تانية في آخر الدالة بتطرح returnQty تاني)
+        if (stockUpdates.length > 0) {
+            setProducts((prev) => prev.map((p) => {
+                const u = stockUpdates.find((x) => x.id === p.id);
+                return u ? { ...p, stock: u.stock } : p;
+            }));
+        }
 
-    setProducts((p) =>
-      p.map((x) => {
-        const ri = items.find((i) => i.id === x.id);
-        return ri ? { ...x, stock: x.stock - ri.returnQty } : x;
-      })
-    );
+        const returnRecord = {
+            id: returnId,
+            date: today,
+            type: "purchases",
+            supplier_id: showAutoReturn.id,
+            supplier_name: showAutoReturn.name,
+            purchase_invoice_id: null, // مرتجع تلقائي غير مرتبط بفاتورة واحدة، التوزيع يتم عبر FIFO
+            items,
+            reason: "مرتجع تلقائي — قرب انتهاء الصلاحية",
+            subtotal,
+            tax,
+            total,
+            pharmacy_id: pharmacyId,
+        };
 
-    if (showAutoReturn.whatsapp) {
-      const itemsText = items
-        .map((i) => "- " + i.name + ": " + i.returnQty + " وحدة - صلاحية " + i.expiry)
-        .join("\n");
-      const msg = "طلب مرتجع - " + new Date().toLocaleDateString("ar") + "\n" + itemsText;
-      window.open("https://wa.me/" + showAutoReturn.whatsapp + "?text=" + encodeURIComponent(msg), "_blank");
-    }
+        const returnResult = await queueEvent({
+            id: crypto.randomUUID(),
+            type: "RETURN_INSERT",
+            timestamp: new Date().toISOString(),
+            pharmacy_id: pharmacyId,
+            payload: { return: returnRecord },
+        });
+        if (!returnResult.synced && returnResult.error) {
+            showToast("⚠️ المرتجع اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + returnResult.error, "warning");
+        }
 
-    setShowAutoReturn(null);
-    setAutoReturnItems([]);
-    showToast("تم حفظ طلب المرتجع — وتم خصمه من مديونية المورد ✓");
-  };
+        setReturnsData((prev) => [returnRecord, ...prev]);
+
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "create", entityType: "return",
+            entityId: returnId, entityLabel: showAutoReturn.name,
+            newValue: { supplier: showAutoReturn.name, total, itemsCount: items.length },
+            description: `مرتجع تلقائي (قرب انتهاء الصلاحية) للمورد "${showAutoReturn.name}" بقيمة ${total} ر.س`,
+        });
+
+        // توزيع قيمة المرتجع على أقدم فواتير المورد المديونة (FIFO عكسي)
+        await persistReturnFIFO(showAutoReturn.id, total);
+
+        if (showAutoReturn.whatsapp) {
+            const itemsText = items
+                .map((i) => "- " + i.name + ": " + i.returnQty + " وحدة - صلاحية " + i.expiry)
+                .join("\n");
+            const msg = "طلب مرتجع - " + new Date().toLocaleDateString("ar") + "\n" + itemsText;
+            window.open("https://wa.me/" + showAutoReturn.whatsapp + "?text=" + encodeURIComponent(msg), "_blank");
+        }
+
+        setShowAutoReturn(null);
+        setAutoReturnItems([]);
+        showToast("تم حفظ طلب المرتجع — وتم خصمه من مديونية المورد ✓");
+    };
   // ========== أيام الاستحقاق ==========
   const getDueDays = (po, supplier) => {
     const sup = typeof supplier === "object" && supplier !== null
@@ -348,131 +366,162 @@ export function SuppliersModule({
   };
 
   // ========== FIFO للسداد (رصيد أول المدة يُعتبر أقدم دين فيُسدَّد أولاً) ==========
-  const processPaymentFIFO = async (supplierId, totalAmount) => {
-    let remaining = totalAmount;
-    const supplier = suppliers.find((s) => s.id === supplierId);
+    const processPaymentFIFO = async (supplierId, totalAmount) => {
+        let remaining = totalAmount;
+        const supplier = suppliers.find((s) => s.id === supplierId);
 
-    // 1) نخصم من رصيد أول المدة أولاً (لأنه أقدم دين على المورد)
-    let openingBalance = supplier?.opening_balance || 0;
-    if (remaining > 0 && openingBalance > 0) {
-      const payToOpening = Math.min(remaining, openingBalance);
-      const newOpeningBalance = openingBalance - payToOpening;
+        // 1) نخصم من رصيد أول المدة أولاً (لأنه أقدم دين على المورد)
+        let openingBalance = supplier?.opening_balance || 0;
+        if (remaining > 0 && openingBalance > 0) {
+            const payToOpening = Math.min(remaining, openingBalance);
+            const newOpeningBalance = openingBalance - payToOpening;
 
-      // نخصم من تفاصيل رصيد أول المدة بدءاً بالأقدم (أعلى عدد أيام)
-      let toDeduct = payToOpening;
-      const newDetails = [...(supplier?.opening_balance_details || [])]
-        .sort((a, b) => (b.due_days || 0) - (a.due_days || 0))
-        .map((d) => {
-          if (toDeduct <= 0) return d;
-          const cut = Math.min(toDeduct, d.amount || 0);
-          toDeduct -= cut;
-          return { ...d, amount: (d.amount || 0) - cut };
-        })
-        .filter((d) => (d.amount || 0) > 0.001);
+            let toDeduct = payToOpening;
+            const newDetails = [...(supplier?.opening_balance_details || [])]
+                .sort((a, b) => (b.due_days || 0) - (a.due_days || 0))
+                .map((d) => {
+                    if (toDeduct <= 0) return d;
+                    const cut = Math.min(toDeduct, d.amount || 0);
+                    toDeduct -= cut;
+                    return { ...d, amount: (d.amount || 0) - cut };
+                })
+                .filter((d) => (d.amount || 0) > 0.001);
 
-      const { error: obError } = await supabase.from("suppliers").update({
-        opening_balance: newOpeningBalance,
-        opening_balance_details: newDetails,
-      }).eq("id", supplierId).eq("pharmacy_id", pharmacyId);
-      if (obError) { showToast("خطأ في تحديث رصيد أول المدة: " + obError.message, "error"); return; }
-      setSuppliers((prev) =>
-        prev.map((x) => (x.id === supplierId
-          ? { ...x, opening_balance: newOpeningBalance, opening_balance_details: newDetails }
-          : x))
-      );
+            // 🆕 SUPPLIER_UPDATE بنفس الـ case اللي ضفناه في مرحلة الـ CRUD — بنبعتله بس الحقول اللي اتغيرت
+            const obResult = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "SUPPLIER_UPDATE",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId, // 🆕 على المستوى العلوي — نفس القاعدة في كل event
+                payload: {
+                    id: supplierId, pharmacy_id: pharmacyId,
+                    updates: { opening_balance: newOpeningBalance, opening_balance_details: newDetails },
+                },
+            });
+            if (!obResult.synced && obResult.error) {
+                showToast("⚠️ رصيد أول المدة اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + obResult.error, "warning");
+            }
 
-      remaining -= payToOpening;
-    }
+            setSuppliers((prev) =>
+                prev.map((x) => (x.id === supplierId
+                    ? { ...x, opening_balance: newOpeningBalance, opening_balance_details: newDetails }
+                    : x))
+            );
 
-    // 2) الباقي (إن وجد) يوزّع على فواتير الشراء من الأقدم فالأحدث
-    const unpaid = purchases
-      .filter((p) => p.supplier === supplierId && getPurchaseNetDebt(p) > 0)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+            remaining -= payToOpening;
+        }
 
-    const updates = [];
-    for (const po of unpaid) {
-      if (remaining <= 0) break;
-      const balance = getPurchaseNetDebt(po); // 🆕 يحسب صافي الدين بعد المرتجعات
-      const payment = Math.min(remaining, balance);
-      const newPaid = (po.paid || 0) + payment;
-      const stillOwed = (po.total - (po.returned_amount || 0)) - newPaid;
-      updates.push({ id: po.id, paid: newPaid, payment_status: stillOwed <= 0 ? "مسددة" : "مسددة جزئياً" });
-      remaining -= payment;
-    }
-    const okUpdates = [];
-    for (const u of updates) {
-      const { error: puError } = await supabase.from("purchases").update({ paid: u.paid, payment_status: u.payment_status }).eq("id", u.id).eq("pharmacy_id", pharmacyId);
-      if (puError) { showToast("خطأ في تحديث فاتورة الشراء: " + puError.message, "error"); continue; }
-      okUpdates.push(u);
-    }
-    setPurchases((prev) =>
-      prev.map((p) => { const u = okUpdates.find((x) => x.id === p.id); return u ? { ...p, ...u } : p; })
-    );
-    return updates;
-  };
+        // 2) الباقي (إن وجد) يوزّع على فواتير الشراء من الأقدم فالأحدث
+        const unpaid = purchases
+            .filter((p) => p.supplier === supplierId && getPurchaseNetDebt(p) > 0)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const updates = [];
+        for (const po of unpaid) {
+            if (remaining <= 0) break;
+            const balance = getPurchaseNetDebt(po);
+            const payment = Math.min(remaining, balance);
+            const newPaid = (po.paid || 0) + payment;
+            const stillOwed = (po.total - (po.returned_amount || 0)) - newPaid;
+            updates.push({ id: po.id, paid: newPaid, payment_status: stillOwed <= 0 ? "مسددة" : "مسددة جزئياً" });
+            remaining -= payment;
+        }
+
+        // 🆕 PURCHASE_UPDATE: نفس فكرة SUPPLIER_UPDATE، case عامة تقبل أي تحديث على فاتورة شراء واحدة
+        for (const u of updates) {
+            const result = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "PURCHASE_UPDATE",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
+                payload: { id: u.id, pharmacy_id: pharmacyId, updates: { paid: u.paid, payment_status: u.payment_status } },
+            });
+            if (!result.synced && result.error) {
+                showToast("⚠️ تحديث فاتورة شراء اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+            }
+        }
+
+        // 🆕 setPurchases بيحدّث localStorage تلقائيًا (useStorage) — نطبّق كل التحديثات دفعة واحدة
+        setPurchases((prev) =>
+            prev.map((p) => { const u = updates.find((x) => x.id === p.id); return u ? { ...p, ...u } : p; })
+        );
+        return updates;
+    };
 
   // ========== حفظ الدفعة ==========
-  const savePayment = async (supplier) => {
-    const amount = +payForm.amount;
-    if (!amount || amount <= 0) { showToast("يرجى إدخال مبلغ صحيح", "error"); return; }
+    const savePayment = async (supplier) => {
+        const amount = +payForm.amount;
+        if (!amount || amount <= 0) { showToast("يرجى إدخال مبلغ صحيح", "error"); return; }
 
-    // 🆕 قيد: لازم رصيد الخزنة بطريقة الدفع المختارة يكفي مبلغ السداد
-    // (بطاقة وتحويل بيتجمّعوا كرصيد بنكي واحد للفحص، لأنهم فعليًا نفس المحفظة)
-    const payMethod = payForm.method || "نقدي";
-    const availableForPayment = computeAvailableForPayment(payMethod, { sales, creditPayments, entries: treasuryEntries });
-    if (amount > availableForPayment) {
-      const availLabel = (payMethod === "بطاقة" || payMethod === "تحويل") ? "بطاقة + تحويل" : payMethod;
-      showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي — المتاح ${availableForPayment.toFixed(2)} ر.س والمطلوب ${amount.toFixed(2)} ر.س`, "error");
-      return;
-    }
+        const payMethod = payForm.method || "نقدي";
+        const availableForPayment = computeAvailableForPayment(payMethod, { sales, creditPayments, entries: treasuryEntries });
+        if (amount > availableForPayment) {
+            const availLabel = (payMethod === "بطاقة" || payMethod === "تحويل") ? "بطاقة + تحويل" : payMethod;
+            showToast(`❌ رصيد الخزنة (${availLabel}) لا يكفي — المتاح ${availableForPayment.toFixed(2)} ر.س والمطلوب ${amount.toFixed(2)} ر.س`, "error");
+            return;
+        }
 
-    let receiptUrl = "";
-    if (payForm.receipt) {
-      const fileName = `receipts/${supplier.id}_${Date.now()}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("payment_reports").upload(fileName, payForm.receipt);
-      if (!uploadError) {
-        const { data: urlData } = supabase.storage.from("payment_reports").getPublicUrl(fileName);
-        receiptUrl = urlData.publicUrl;
-      }
-    }
+        let receiptUrl = "";
+        // 🆕 رفع الإيصال محتاج نت فعليًا (ملف Storage مش نص عادي يتقفّل في طابور) —
+        // نحاول بس لو أونلاين، وإلا نكمل السداد من غير مرفق بدل ما نوقف العملية كلها
+        if (payForm.receipt && navigator.onLine) {
+            const fileName = `receipts/${supplier.id}_${Date.now()}`;
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from("payment_reports").upload(fileName, payForm.receipt);
+            if (!uploadError) {
+                const { data: urlData } = supabase.storage.from("payment_reports").getPublicUrl(fileName);
+                receiptUrl = urlData.publicUrl;
+            }
+        } else if (payForm.receipt && !navigator.onLine) {
+            showToast("⚠️ مفيش نت — هيتسجل السداد من غير مرفق الإيصال", "warning");
+        }
 
-    const payId = `PAY-${Date.now()}`;
-    const { error } = await supabase.from("payments").insert({
-      id: payId, supplier_id: supplier.id,
-      date: todayLocal(),
-      amount, notes: payForm.note, attachment_url: receiptUrl, pharmacy_id: pharmacyId,
-    });
-    if (error) { showToast("فشل حفظ الدفعة: " + error.message, "error"); return; }
+        const payId = `PAY-${Date.now()}`;
+        const paymentRecord = {
+            id: payId, supplier_id: supplier.id,
+            date: todayLocal(),
+            amount, notes: payForm.note, attachment_url: receiptUrl, pharmacy_id: pharmacyId,
+        };
 
-    setPayments((p) => [...p, { id: payId, supplier_id: supplier.id, date: todayLocal(), amount, notes: payForm.note, attachment_url: receiptUrl }]);
-    await processPaymentFIFO(supplier.id, amount);
-    const trPayload = {
-      type: "expense",
-      sub_type: "supplier_payment",
-      method: payForm.method || "نقدي",
-      amount,
-      note: `سداد مورد: ${supplier.name}${payForm.note ? " - " + payForm.note : ""}`,
-      date: todayLocal(),
-      pharmacy_id: pharmacyId,
-      created_by: currentUser?.name || "",
-      supplier_id: supplier.id,
+        const payResult = await queueEvent({
+            id: crypto.randomUUID(),
+            type: "PAYMENT_INSERT",
+            timestamp: new Date().toISOString(),
+            pharmacy_id: pharmacyId,
+            payload: { payment: paymentRecord },
+        });
+        if (!payResult.synced && payResult.error) {
+            showToast("⚠️ الدفعة اتحفظت محليًا وهتتزامن لاحقًا — خطأ مؤقت: " + payResult.error, "warning");
+        }
+
+        setPayments((p) => [...p, paymentRecord]);
+        await processPaymentFIFO(supplier.id, amount);
+
+        // 🆕 insertTreasuryEntry جاهزة من offlineAPI.ts — بتعمل كتابة كاش الخزنة + queueEvent مع بعض،
+        // زي ما بتستخدمها باقي الموديولات بالظبط
+        const entryPayload = {
+            type: "expense",
+            sub_type: "supplier_payment",
+            method: payForm.method || "نقدي",
+            amount,
+            note: `سداد مورد: ${supplier.name}${payForm.note ? " - " + payForm.note : ""}`,
+            date: todayLocal(),
+            pharmacy_id: pharmacyId,
+            created_by: currentUser?.name || "",
+            ref_id: supplier.id,
+        };
+        const { id: trId, synced: trSynced } = await insertTreasuryEntry(entryPayload);
+        if (!trSynced) {
+            console.warn("treasury entry queued for later sync (supplier payment)");
+        }
+        if (setTreasuryEntries) {
+            setTreasuryEntries((p) => [{ id: trId, ...entryPayload }, ...p]);
+        }
+
+        setShowPayForm(null);
+        setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
+        showToast(`تم تسجيل الدفعة ✓ — ${amount.toFixed(2)} ر.س`);
     };
-    const { data: trData, error: trError } = await supabase.from("treasury_entries").insert(trPayload).select();
-    if (trError) {
-      showToast("تم تسجيل السداد لكن فشل تحديث الخزنة: " + trError.message, "error");
-      setShowPayForm(null);
-      setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
-      return; // 🆕 يوقف هنا عشان توست النجاح ميغطيش على رسالة فشل تحديث الخزنة
-    }
-    if (setTreasuryEntries) {
-      const newEntry = (trData && trData[0]) ? trData[0] : { id: `TMP-${Date.now()}`, ...trPayload };
-      setTreasuryEntries((p) => [newEntry, ...p]);
-    }
-    setShowPayForm(null);
-    setPayForm({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
-    showToast(`تم تسجيل الدفعة ✓ — ${amount.toFixed(2)} ر.س`);
-  };
 
   // ========== تصنيف حركة الصنف ==========
   const getMovementClass = (productId) => {
@@ -635,38 +684,67 @@ export function SuppliersModule({
   };
 
   // ========== حفظ الأوردر ==========
-  const saveOrder = async () => {
-    if (!showOrderForm || orderItems.length === 0) { showToast("لا توجد أصناف للطلب", "error"); return; }
-    const orderId = `ORD-${Date.now()}`;
-    const totalCost = orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0);
-    const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: todayLocal(), coverage_days: coverageDays, budget: orderBudget ? +orderBudget : null, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
-    const { error } = await supabase.from("orders").insert(order);
-    if (error) { showToast("فشل حفظ الأوردر: " + error.message, "error"); return; }
-    setOrders((p) => [order, ...p]);
-    // 🆕 أي صنف جوكر معلّق دخل ضمن الأوردر ده، نقفله عشان ميتكررش في طلبات تانية
-    const jokerIdsUsed = orderItems.filter((i) => i.isJokerPending).flatMap((i) => i.jokerIds || []);
-    if (jokerIdsUsed.length > 0) {
-      await supabase.from("joker_pending_items").update({ status: "ordered" }).in("id", jokerIdsUsed);
-      setJokerPendingItems((prev) => prev.map((j) => (jokerIdsUsed.includes(j.id) ? { ...j, status: "ordered" } : j)));
-    }
-    setShowOrderForm(null);
-    setOrderItems([]);
-    showToast("تم حفظ الأوردر ✓");
-    if (showOrderForm.whatsapp) {
-      const msg = `طلب شراء - ${order.date}\n` + orderItems.map((i) => `• ${i.name}: ${i.orderQty} وحدة`).join("\n");
-      window.open(`https://wa.me/${showOrderForm.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
-    }
-  };
+    const saveOrder = async () => {
+        if (!showOrderForm || orderItems.length === 0) { showToast("لا توجد أصناف للطلب", "error"); return; }
+        const orderId = `ORD-${Date.now()}`;
+        const totalCost = orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0);
+        const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: todayLocal(), coverage_days: coverageDays, budget: orderBudget ? +orderBudget : null, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
+
+        const result = await queueEvent({
+            id: crypto.randomUUID(),
+            type: "ORDER_INSERT",
+            timestamp: new Date().toISOString(),
+            pharmacy_id: pharmacyId, // 🆕 على المستوى العلوي — نفس القاعدة في كل event
+            payload: { order },
+        });
+        if (!result.synced && result.error) {
+            showToast("⚠️ الأوردر اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+        }
+
+        setOrders((p) => [order, ...p]);
+
+        // 🆕 أي صنف جوكر معلّق دخل ضمن الأوردر ده، نقفله عشان ميتكررش في طلبات تانية
+        const jokerIdsUsed = orderItems.filter((i) => i.isJokerPending).flatMap((i) => i.jokerIds || []);
+        if (jokerIdsUsed.length > 0) {
+            const jokerResult = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "JOKER_STATUS_UPDATE",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
+                payload: { ids: jokerIdsUsed, status: "ordered" },
+            });
+            if (!jokerResult.synced && jokerResult.error) {
+                console.warn("JOKER_STATUS_UPDATE queued for later sync:", jokerResult.error);
+            }
+            setJokerPendingItems((prev) => prev.map((j) => (jokerIdsUsed.includes(j.id) ? { ...j, status: "ordered" } : j)));
+        }
+
+        setShowOrderForm(null);
+        setOrderItems([]);
+        showToast("تم حفظ الأوردر ✓");
+        if (showOrderForm.whatsapp) {
+            const msg = `طلب شراء - ${order.date}\n` + orderItems.map((i) => `• ${i.name}: ${i.orderQty} وحدة`).join("\n");
+            window.open(`https://wa.me/${showOrderForm.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
+        }
+    };
 
   // 🆕 تجاهل صنف نهائيًا من حساب الطلبات التلقائية (auto_order = false) — بيفضل يظهر في شاشة الصنف نفسه
   // كـ checkbox لو حبيت ترجّعه تاني في أي وقت
-  const dismissFromAutoOrder = async (item) => {
-    const { error } = await supabase.from("products").update({ auto_order: false }).eq("id", item.id).eq("pharmacy_id", pharmacyId);
-    if (error) { showToast("خطأ: " + error.message, "error"); return; }
-    setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, auto_order: false } : p)));
-    setOrderItems((prev) => prev.filter((i) => i.id !== item.id));
-    showToast(`تم تجاهل "${item.name}" من الطلبات التلقائية — تقدر ترجعه من شاشة الصنف`, "success");
-  };
+    const dismissFromAutoOrder = async (item) => {
+        const result = await queueEvent({
+            id: crypto.randomUUID(),
+            type: "PRODUCT_FIELD_UPDATE",
+            timestamp: new Date().toISOString(),
+            pharmacy_id: pharmacyId,
+            payload: { id: item.id, pharmacy_id: pharmacyId, updates: { auto_order: false } },
+        });
+        if (!result.synced && result.error) {
+            showToast("⚠️ اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+        }
+        setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, auto_order: false } : p)));
+        setOrderItems((prev) => prev.filter((i) => i.id !== item.id));
+        showToast(`تم تجاهل "${item.name}" من الطلبات التلقائية — تقدر ترجعه من شاشة الصنف`, "success");
+    };
 
   // 🆕 ========== أصناف الجوكر المعلّقة (مراجعة يدوية) ==========
   // بتتجمع حسب الاسم + الفئة (احتياطًا لو حصل تكرار قديم قبل تفعيل الدمج عند الفاتورة)
@@ -684,13 +762,21 @@ export function SuppliersModule({
   }, [jokerPendingItems]);
 
   // حذف مجموعة جوكر معلّقة بالكامل (الصيدلي قرر إنه مش هيطلبها، أو غلط في التسجيل)
-  const deleteJokerGroup = async (group) => {
-    if (!window.confirm(`تأكيد حذف "${group.name}" من قائمة الجوكر المعلّقة؟`)) return;
-    const { error } = await supabase.from("joker_pending_items").delete().in("id", group.ids);
-    if (error) { showToast("خطأ في الحذف: " + error.message, "error"); return; }
-    setJokerPendingItems((prev) => prev.filter((j) => !group.ids.includes(j.id)));
-    showToast("تم الحذف ✓");
-  };
+    const deleteJokerGroup = async (group) => {
+        if (!window.confirm(`تأكيد حذف "${group.name}" من قائمة الجوكر المعلّقة؟`)) return;
+        const result = await queueEvent({
+            id: crypto.randomUUID(),
+            type: "JOKER_DELETE",
+            timestamp: new Date().toISOString(),
+            pharmacy_id: pharmacyId,
+            payload: { ids: group.ids },
+        });
+        if (!result.synced && result.error) {
+            showToast("⚠️ اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+        }
+        setJokerPendingItems((prev) => prev.filter((j) => !group.ids.includes(j.id)));
+        showToast("تم الحذف ✓");
+    };
 
   // إضافة مجموعة جوكر لطلب شراء مورد معيّن — يدويًا وبقرار صريح من الصيدلي، مفيش حقن تلقائي
   const addJokerGroupToSupplierOrder = (group, supplierId) => {
@@ -820,49 +906,77 @@ export function SuppliersModule({
     setShowForm(true);
   };
 
-  const save = async () => {
-    if (!form.name) { showToast("يرجى إدخال اسم المورد", "error"); return; }
-    // احسب مجموع رصيد أول المدة من التفاصيل لو موجودة
-    const detailsTotal = (form.opening_balance_details || []).reduce((s, d) => s + (d.amount || 0), 0);
-    const openingBal = detailsTotal > 0 ? detailsTotal : (+form.opening_balance || 0);
+    const save = async () => {
+        if (!form.name) { showToast("يرجى إدخال اسم المورد", "error"); return; }
+        const detailsTotal = (form.opening_balance_details || []).reduce((s, d) => s + (d.amount || 0), 0);
+        const openingBal = detailsTotal > 0 ? detailsTotal : (+form.opening_balance || 0);
 
-    const payload = {
-      name: form.name, tax_id: form.taxId, phone: form.phone, email: form.email,
-      address: form.address, contact: form.contact,
-      credit_limit: +form.credit_limit || 0,
-      payment_terms: +form.payment_terms || 30,
-      whatsapp: form.whatsapp,
-      supply_categories: form.supply_categories,
-      opening_balance: openingBal,
-      opening_balance_details: form.opening_balance_details || [],
-      gln: form.gln || null,
+        const payload = {
+            name: form.name, tax_id: form.taxId, phone: form.phone, email: form.email,
+            address: form.address, contact: form.contact,
+            credit_limit: +form.credit_limit || 0,
+            payment_terms: +form.payment_terms || 30,
+            whatsapp: form.whatsapp,
+            supply_categories: form.supply_categories,
+            opening_balance: openingBal,
+            opening_balance_details: form.opening_balance_details || [],
+            gln: form.gln || null,
+        };
+
+        if (editing) {
+            const oldSupplier = suppliers.find((x) => x.id === editing);
+            const updatedSupplier = { ...oldSupplier, ...payload, id: editing, pharmacy_id: pharmacyId };
+
+            // 🆕 pharmacy_id لازم يكون على المستوى العلوي للـ event (مش بس جوه payload) —
+            // main.cjs بيقرأ evt.pharmacy_id مباشرة عند تخزين الحدث في pending_sync_events
+            const result = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "SUPPLIER_UPDATE",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
+                payload: { id: editing, pharmacy_id: pharmacyId, updates: payload },
+            });
+            if (!result.synced && result.error) {
+                // اتحفظ محليًا وهيتزامن لما النت يرجع — منوقفش المستخدم عشان كده
+                console.warn("SUPPLIER_UPDATE queued for later sync:", result.error);
+            }
+
+            // 🆕 setSuppliers بيحدّث localStorage تلقائيًا عن طريق useStorage — مفيش داعي لكتابة كاش منفصلة
+            setSuppliers((p) => p.map((x) => (x.id === editing ? updatedSupplier : x)));
+            logAudit({
+                pharmacyId, userName: currentUser?.name, action: "update", entityType: "supplier",
+                entityId: editing, entityLabel: payload.name,
+                oldValue: oldSupplier ? { name: oldSupplier.name, phone: oldSupplier.phone, credit_limit: oldSupplier.credit_limit, payment_terms: oldSupplier.payment_terms } : null,
+                newValue: { name: payload.name, phone: payload.phone, credit_limit: payload.credit_limit, payment_terms: payload.payment_terms },
+                description: `تعديل بيانات المورد "${payload.name}"`,
+            });
+        } else {
+            // 🆕 form.id متولّد من قبل بشكل أوفلاين-friendly (openAddWithCategory: "S" + Date.now())
+            // فمش محتاجين .select() نستنى رد من السيرفر عشان نجيب الـ id — بنستخدمه على طول
+            const newSupplier = { id: form.id, ...payload, pharmacy_id: pharmacyId };
+
+            const result = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "SUPPLIER_INSERT",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
+                payload: { supplier: newSupplier },
+            });
+            if (!result.synced && result.error) {
+                console.warn("SUPPLIER_INSERT queued for later sync:", result.error);
+            }
+
+            setSuppliers((p) => [...p, newSupplier]);
+            logAudit({
+                pharmacyId, userName: currentUser?.name, action: "create", entityType: "supplier",
+                entityId: newSupplier.id, entityLabel: payload.name,
+                newValue: { name: payload.name, phone: payload.phone, credit_limit: payload.credit_limit },
+                description: `إضافة مورد جديد "${payload.name}"`,
+            });
+        }
+        setShowForm(false);
+        showToast(editing ? "تم تعديل المورد ✓" : "تمت إضافة المورد ✓");
     };
-    if (editing) {
-      const oldSupplier = suppliers.find((x) => x.id === editing);
-      const { error } = await supabase.from("suppliers").update(payload).eq("id", editing).eq("pharmacy_id", pharmacyId);
-      if (error) { showToast("فشل التعديل: " + error.message, "error"); return; }
-      setSuppliers((p) => p.map((x) => (x.id === editing ? { ...x, ...form, opening_balance: openingBal } : x)));
-      logAudit({
-        pharmacyId, userName: currentUser?.name, action: "update", entityType: "supplier",
-        entityId: editing, entityLabel: payload.name,
-        oldValue: oldSupplier ? { name: oldSupplier.name, phone: oldSupplier.phone, credit_limit: oldSupplier.credit_limit, payment_terms: oldSupplier.payment_terms } : null,
-        newValue: { name: payload.name, phone: payload.phone, credit_limit: payload.credit_limit, payment_terms: payload.payment_terms },
-        description: `تعديل بيانات المورد "${payload.name}"`,
-      });
-    } else {
-      const { data, error } = await supabase.from("suppliers").insert({ id: form.id, ...payload, pharmacy_id: pharmacyId }).select();
-      if (error) { showToast("فشل الإضافة: " + error.message, "error"); return; }
-      setSuppliers((p) => [...p, data[0]]);
-      logAudit({
-        pharmacyId, userName: currentUser?.name, action: "create", entityType: "supplier",
-        entityId: data?.[0]?.id, entityLabel: payload.name,
-        newValue: { name: payload.name, phone: payload.phone, credit_limit: payload.credit_limit },
-        description: `إضافة مورد جديد "${payload.name}"`,
-      });
-    }
-    setShowForm(false);
-    showToast(editing ? "تم تعديل المورد ✓" : "تمت إضافة المورد ✓");
-  };
 
   const filteredSuppliers = suppliers
     .filter((s) => filterStatus === "all" ? true : getSupplierStatus(s) === filterStatus)
@@ -1175,24 +1289,34 @@ export function SuppliersModule({
                   </button>
                 )}
                 {canEdit && <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(s)}>تعديل</Btn>}
-                {canDelete && <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
-                  const supplierDebt = getSupplierDebt(s.id);
-                  if (supplierDebt > 0) {
-                    if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف مورد عليه مديونية", "error"); return; }
-                    if (!window.confirm(`⚠️ على المورد "${s.name}" مديونية ${supplierDebt.toFixed(2)} ر.س
+                      {canDelete && <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
+                          const supplierDebt = getSupplierDebt(s.id);
+                          if (supplierDebt > 0) {
+                              if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف مورد عليه مديونية", "error"); return; }
+                              if (!window.confirm(`⚠️ على المورد "${s.name}" مديونية ${supplierDebt.toFixed(2)} ر.س
 هل أنت متأكد من الحذف؟`)) return;
-                  }
-                  const { error: delSupError } = await supabase.from("suppliers").delete().eq("id", s.id).eq("pharmacy_id", pharmacyId);
-                  if (delSupError) { showToast("خطأ: " + delSupError.message, "error"); return; }
-                  logAudit({
-                    pharmacyId, userName: currentUser?.name, action: "delete", entityType: "supplier",
-                    entityId: s.id, entityLabel: s.name,
-                    oldValue: { name: s.name, debt: supplierDebt },
-                    description: `حذف المورد "${s.name}"${supplierDebt > 0 ? ` (وعليه مديونية ${supplierDebt.toFixed(2)} ر.س)` : ""}`,
-                  });
-                  setSuppliers((p) => p.filter((x) => x.id !== s.id));
-                  showToast("تم حذف المورد");
-                }}>حذف</Btn>}
+                          }
+
+                          const result = await queueEvent({
+                              id: crypto.randomUUID(),
+                              type: "SUPPLIER_DELETE",
+                              timestamp: new Date().toISOString(),
+                              pharmacy_id: pharmacyId, // 🆕 على المستوى العلوي — نفس القاعدة في كل الـ events
+                              payload: { id: s.id, pharmacy_id: pharmacyId },
+                          });
+                          if (!result.synced && result.error) {
+                              console.warn("SUPPLIER_DELETE queued for later sync:", result.error);
+                          }
+
+                          logAudit({
+                              pharmacyId, userName: currentUser?.name, action: "delete", entityType: "supplier",
+                              entityId: s.id, entityLabel: s.name,
+                              oldValue: { name: s.name, debt: supplierDebt },
+                              description: `حذف المورد "${s.name}"${supplierDebt > 0 ? ` (وعليه مديونية ${supplierDebt.toFixed(2)} ر.س)` : ""}`,
+                          });
+                          setSuppliers((p) => p.filter((x) => x.id !== s.id));
+                          showToast("تم حذف المورد");
+                      }}>حذف</Btn>}
               </div>
             </div>
           );

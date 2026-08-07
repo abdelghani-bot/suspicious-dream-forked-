@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
+import {
+    upsertMonthlyTarget, saveIncentiveConfig, upsertIncentiveTier,
+    deleteIncentiveTier, upsertIncentiveOverride, deleteIncentiveOverride,
+} from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { Btn, Input, Modal } from "../ui/primitives";
@@ -72,11 +76,20 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
     // تحميل كل التارجتات (كل الشهور) مرة واحدة — يسمح بالمقارنة عبر الشهور من غير إعادة تحميل
     useEffect(() => {
         if (!pharmacyId) return;
-        supabase
-            .from("monthly_targets")
-            .select("*")
-            .eq("pharmacy_id", pharmacyId)
-            .then(({ data }) => setTargets(data || []));
+        supabase.from("monthly_targets").select("*").eq("pharmacy_id", pharmacyId)
+            .then(async ({ data, error }) => {
+                if (!error && data) {
+                    setTargets(data);
+                    try {
+                        for (const row of data) await window.offlineAPI?.upsertMonthlyTargetCache?.({ pharmacyId, row });
+                    } catch (err) { console.error("upsertMonthlyTargetCache failed:", err); }
+                } else {
+                    try {
+                        const cached = await window.offlineAPI?.getMonthlyTargetsCache?.(pharmacyId);
+                        if (cached) setTargets(cached);
+                    } catch (err) { console.error("getMonthlyTargetsCache failed:", err); }
+                }
+            });
     }, [pharmacyId]);
 
     // ── تحميل بيانات التحفيز ──
@@ -92,88 +105,135 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
                 .eq("pharmacy_id", pharmacyId)
                 .order("effective_from", { ascending: true }),
             supabase.from("incentive_overrides").select("*").eq("pharmacy_id", pharmacyId),
-        ]).then(([i, c, m, t, th, ov]) => {
-            if (i.data) setIncentiveList(i.data);
-            if (c.data) setIncentiveConfig((prev) => ({ ...prev, allowedCategories: c.data.allowed_categories || [] }));
-            if (m.data) setManufacturers(m.data);
-            if (t.data) setTiers(t.data.map((r) => ({ id: r.id, threshold: r.margin_threshold, rate: r.rate })));
-            if (th.data) setTierThresholdHistory(th.data);
-            if (ov.data) setIncentiveOverrides(ov.data);
+        ]).then(async ([i, c, m, t, th, ov]) => {
+            // أصناف التحفيز
+            if (!i.error && i.data) {
+                setIncentiveList(i.data);
+                try { await window.offlineAPI?.refreshIncentiveProductsCache?.({ pharmacyId, rows: i.data }); }
+                catch (err) { console.error("refreshIncentiveProductsCache failed:", err); }
+            } else {
+                try {
+                    const cached = await window.offlineAPI?.getIncentiveProductsCache?.(pharmacyId);
+                    if (cached) setIncentiveList(cached);
+                } catch (err) { console.error("getIncentiveProductsCache failed:", err); }
+            }
+
+            // إعدادات التحفيز
+            if (!c.error && c.data) {
+                setIncentiveConfig((prev) => ({ ...prev, allowedCategories: c.data.allowed_categories || [] }));
+                try { await window.offlineAPI?.upsertIncentiveConfigCache?.({ pharmacyId, allowedCategories: c.data.allowed_categories }); }
+                catch (err) { console.error("upsertIncentiveConfigCache failed:", err); }
+            } else if (c.error) {
+                try {
+                    const cached = await window.offlineAPI?.getIncentiveConfigCache?.(pharmacyId);
+                    if (cached) setIncentiveConfig((prev) => ({ ...prev, allowedCategories: cached.allowed_categories || [] }));
+                } catch (err) { console.error("getIncentiveConfigCache failed:", err); }
+            }
+
+            // المصنّعين
+            if (!m.error && m.data) {
+                setManufacturers(m.data);
+                try { await window.offlineAPI?.refreshManufacturersCache?.({ pharmacyId, rows: m.data }); }
+                catch (err) { console.error("refreshManufacturersCache failed:", err); }
+            } else {
+                try {
+                    const cached = await window.offlineAPI?.getManufacturersCache?.(pharmacyId);
+                    if (cached) setManufacturers(cached);
+                } catch (err) { console.error("getManufacturersCache failed:", err); }
+            }
+
+            // الـ tiers
+            if (!t.error && t.data) {
+                setTiers(t.data.map((r) => ({ id: r.id, threshold: r.margin_threshold, rate: r.rate })));
+                try {
+                    for (const r of t.data) {
+                        await window.offlineAPI?.upsertIncentiveTierCache?.({ id: r.id, pharmacyId, threshold: r.margin_threshold, rate: r.rate });
+                    }
+                } catch (err) { console.error("upsertIncentiveTierCache failed:", err); }
+            } else if (t.error) {
+                try {
+                    const cached = await window.offlineAPI?.getIncentiveTiersCache?.(pharmacyId);
+                    if (cached) setTiers(cached);
+                } catch (err) { console.error("getIncentiveTiersCache failed:", err); }
+            }
+
+            // تاريخ حدود الـ tiers
+            if (!th.error && th.data) {
+                setTierThresholdHistory(th.data);
+                // append-only، فمش هنعمل mirror هنا عشان منكررش صفوف قديمة كل تحميل —
+                // بيتكتب بس وقت upsertIncentiveTier نفسها (أونلاين أو أوفلاين)
+            } else if (th.error) {
+                try {
+                    const cached = await window.offlineAPI?.getTierThresholdHistoryCache?.(pharmacyId);
+                    if (cached) setTierThresholdHistory(cached);
+                } catch (err) { console.error("getTierThresholdHistoryCache failed:", err); }
+            }
+
+            // استثناءات التحفيز
+            if (!ov.error && ov.data) {
+                setIncentiveOverrides(ov.data);
+                try {
+                    for (const row of ov.data) await window.offlineAPI?.upsertIncentiveOverrideCache?.(row);
+                } catch (err) { console.error("upsertIncentiveOverrideCache failed:", err); }
+            } else if (ov.error) {
+                try {
+                    const cached = await window.offlineAPI?.getIncentiveOverridesCache?.(pharmacyId);
+                    if (cached) setIncentiveOverrides(cached);
+                } catch (err) { console.error("getIncentiveOverridesCache failed:", err); }
+            }
         });
     }, [pharmacyId]);
 
     // ── حفظ الفئات المسموحة (إعداد عام واحد يطبق على كل الـ Tiers) ──
     const saveAllowedCategories = async (cats: string[]) => {
-        const { error } = await supabase.from("incentive_config").upsert({
-            pharmacy_id: pharmacyId,
-            allowed_categories: cats,
-        }, { onConflict: "pharmacy_id" });
-        if (error) { showToast("خطأ في حفظ الفئات: " + error.message, "error"); return; }
+        await saveIncentiveConfig({ allowed_categories: cats }, pharmacyId);
         setIncentiveConfig((p) => ({ ...p, allowedCategories: cats }));
         showToast("تم حفظ الفئات المسموحة ✓");
     };
 
-    // ── إضافة / تعديل Tier ──
     const saveTier = async () => {
         const threshold = +tierForm.threshold, rate = +tierForm.rate;
         if (!threshold || !rate) { showToast("أدخل الهامش والنسبة", "error"); return; }
+
+        const { tierId } = await upsertIncentiveTier(
+            pharmacyId, editingTierId, threshold, rate, currentUser?.name || currentUser?.email || ""
+        );
+
         if (editingTierId) {
-            const { error } = await supabase.from("incentive_tiers")
-                .update({ rate }).eq("id", editingTierId).eq("pharmacy_id", pharmacyId);
-            if (error) { showToast("خطأ: " + error.message, "error"); return; }
-            const current = tiers.find((t) => t.id === editingTierId);
-            setTiers((p) => p.map((t) => (t.id === editingTierId ? { ...t, rate } : t)));
-            if (current && current.threshold !== threshold) await updateTierThreshold(editingTierId, threshold);
+            setTiers((p) => p.map((t) => (t.id === editingTierId ? { ...t, threshold, rate } : t)));
         } else {
-            const { data, error } = await supabase.from("incentive_tiers")
-                .insert({ pharmacy_id: pharmacyId, margin_threshold: threshold, rate }).select().single();
-            if (error) { showToast("خطأ: " + error.message, "error"); return; }
-            setTiers((p) => [...p, { id: data.id, threshold, rate }]);
-            const now = new Date().toISOString();
-            await supabase.from("incentive_tier_threshold_history").insert({
-                pharmacy_id: pharmacyId, tier_id: data.id, threshold, effective_from: now,
-                created_by: currentUser?.name || currentUser?.email || "",
-            });
-            setTierThresholdHistory((p) => [...p, { tier_id: data.id, threshold, effective_from: now }]);
+            setTiers((p) => [...p, { id: tierId, threshold, rate }]);
         }
+        setTierThresholdHistory((p) => {
+            const current = editingTierId ? p.find((h) => h.tier_id === editingTierId) : null;
+            // نضيف صف history في الـ UI بس لو فعليًا كان هيتضاف على السيرفر (تير جديد أو threshold اتغيّر)
+            const isNewOrChanged = !editingTierId || tiers.find((t) => t.id === editingTierId)?.threshold !== threshold;
+            return isNewOrChanged
+                ? [...p, { tier_id: tierId, threshold, effective_from: new Date().toISOString() }]
+                : p;
+        });
+
         setTierForm({ threshold: "", rate: "" });
         setEditingTierId(null);
         setShowTierForm(false);
         showToast("تم حفظ الـ Tier ✓");
     };
 
-    // ── تغيير حد هامش Tier مع حفظ التاريخ (لمنع الأثر الرجعي على المبيعات القديمة) ──
-    const updateTierThreshold = async (tierId: string, newThreshold: number) => {
-        const now = new Date().toISOString();
-        const { error } = await supabase.from("incentive_tier_threshold_history").insert({
-            pharmacy_id: pharmacyId, tier_id: tierId, threshold: newThreshold, effective_from: now,
-            created_by: currentUser?.name || currentUser?.email || "",
-        });
-        if (error) { showToast("خطأ في حفظ الهامش: " + error.message, "error"); return; }
-        setTierThresholdHistory((prev) => [...prev, { tier_id: tierId, threshold: newThreshold, effective_from: now }]);
-        setTiers((p) => p.map((t) => (t.id === tierId ? { ...t, threshold: newThreshold } : t)));
-    };
-
     const deleteTier = async (tierId: string) => {
-        const { error } = await supabase.from("incentive_tiers").delete().eq("id", tierId).eq("pharmacy_id", pharmacyId);
-        if (error) { showToast("خطأ: " + error.message, "error"); return; }
+        await deleteIncentiveTier(tierId, pharmacyId);
         setTiers((p) => p.filter((t) => t.id !== tierId));
         showToast("تم حذف الـ Tier ✓");
     };
 
-    // ── استثناء صنف مستوفي تلقائياً، أو إضافة صنف استثنائياً لـ Tier معين ──
     const addIncentiveOverride = async (productId: string, type: "include" | "exclude", tierId?: string) => {
-        const { data, error } = await supabase.from("incentive_overrides")
-            .upsert({ pharmacy_id: pharmacyId, product_id: productId, type, tier_id: tierId || null }, { onConflict: "pharmacy_id,product_id" })
-            .select().single();
-        if (error) { showToast("خطأ: " + error.message, "error"); return; }
-        setIncentiveOverrides((p) => [...p.filter((o) => o.product_id !== productId), data]);
+        const row = { pharmacy_id: pharmacyId, product_id: productId, type, tier_id: tierId || null };
+        await upsertIncentiveOverride(row, pharmacyId);
+        setIncentiveOverrides((p) => [...p.filter((o) => o.product_id !== productId), row]);
         showToast(type === "exclude" ? "تم حذف الصنف من القائمة ✓" : "تم نقل الصنف ✓");
     };
 
     const removeIncentiveOverride = async (id: string) => {
-        const { error } = await supabase.from("incentive_overrides").delete().eq("id", id).eq("pharmacy_id", pharmacyId);
-        if (error) { showToast("خطأ: " + error.message, "error"); return; }
+        await deleteIncentiveOverride(id, pharmacyId);
         setIncentiveOverrides((p) => p.filter((o) => o.id !== id));
     };
 
@@ -319,17 +379,10 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
             month: monthKey,
             target_amount: +editValue,
         };
-        const { data, error } = await supabase
-            .from("monthly_targets")
-            .upsert([row], { onConflict: "pharmacy_id,pharmacist_name,month" })
-            .select();
-        if (error) {
-            showToast("خطأ: " + error.message, "error");
-            return;
-        }
+        await upsertMonthlyTarget(row, pharmacyId);
         setTargets((prev) => {
             const others = prev.filter((t) => !(t.pharmacist_name === name && t.month === monthKey));
-            return [...others, data[0]];
+            return [...others, row];
         });
         setEditing(null);
         setEditValue("");
