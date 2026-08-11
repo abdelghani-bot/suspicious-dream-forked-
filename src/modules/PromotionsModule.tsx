@@ -11,6 +11,98 @@ import { DEFAULT_AUTO_PROMO_CONFIG, PROMO_TYPES, blankPromoDetails, computeAutoP
 import { openWhatsApp } from "../lib/whatsapp";
 import { trendConfig, vipConfig } from "./CustomersModule";
 import { Btn, Input, Modal } from "../ui/primitives";
+import { printHTML } from "../lib/printHelper";
+
+// ==================== بناء HTML ملصقات الرفوف (منفصلة عشان تتستخدم في المعاينة والطباعة الفعلية) ====================
+function buildShelfLabelHtml(items, offerName, columns = 2) {
+    const labelsHTML = items.map((item) => {
+        const priceUnchanged = Math.abs((item.discountedPrice ?? 0) - (item.originalPrice ?? 0)) < 0.001;
+        const badgeHTML = !priceUnchanged
+            ? `<div class="discount-badge">خصم ${item.discount}%</div>`
+            : `<div class="discount-badge promo-text">${item.promoLabel || "عرض خاص"}</div>`;
+        const pricesHTML = !priceUnchanged
+            ? `<div class="prices">
+            <div class="old-price-box">
+              <div class="old-price-label">السعر قبل</div>
+              <div class="old-price">${item.originalPrice.toFixed(2)}</div>
+            </div>
+            <div class="arrow">◄</div>
+            <div class="new-price-box">
+              <div class="new-price-label">السعر بعد</div>
+              <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
+            </div>
+          </div>`
+            : `<div class="prices">
+            <div class="single-price-box">
+              <div class="old-price-label">السعر</div>
+              <div class="new-price">${item.originalPrice.toFixed(2)}</div>
+            </div>
+          </div>`;
+        return `
+      <div class="label">
+        ${offerName ? `<div class="offer-name">${offerName}</div>` : ""}
+        <div class="product-name">${item.name}</div>
+        ${badgeHTML}
+        ${pricesHTML}
+        ${item.endDate ? `<div class="end-date">ينتهي العرض: ${item.endDate}</div>` : ""}
+      </div>
+    `;
+    }).join("");
+
+    return `
+      <!DOCTYPE html>
+      <html dir="rtl">
+      <head>
+        <meta charset="UTF-8"/>
+        <title>Shelf Labels</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
+          .page {
+            display: grid;
+            grid-template-columns: repeat(${columns}, 1fr);
+            gap: 8mm;
+            padding: 10mm;
+            width: 210mm;
+          }
+          .label {
+            background: transparent;
+            border: 3px solid #e6b800;
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-height: ${Math.round(220 / columns)}mm;
+            justify-content: center;
+          }
+          .offer-name { font-size: 15px; color: #7a6000; font-weight: 900; letter-spacing: 0.5px; background: transparent; border: 1px dashed #cc9900; border-radius: 8px; padding: 3px 12px; text-align: center; }
+          .product-name { font-size: 18px; font-weight: 900; color: #1a1a00; text-align: center; line-height: 1.3; }
+          .discount-badge { background: #cc0000; color: #fff; font-size: 20px; font-weight: 900; padding: 4px 20px; border-radius: 20px; }
+          .discount-badge.promo-text { font-size: 14px; padding: 6px 14px; text-align: center; line-height: 1.3; max-width: 90%; }
+          .prices { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: center; margin-top: 4px; }
+          .single-price-box { background: #1a5c00; border-radius: 10px; padding: 10px 20px; text-align: center; }
+          .old-price-box { background: #cc0000; border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; }
+          .old-price-label { color: #ffaaaa; font-size: 11px; margin-bottom: 2px; }
+          .old-price { color: #fff; font-size: 22px; font-weight: 900; text-decoration: line-through; text-decoration-color: #ffaaaa; text-decoration-thickness: 3px; }
+          .arrow { color: #7a6000; font-size: 22px; }
+          .new-price-box { background: #1a5c00; border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; }
+          .new-price-label { color: #aaffaa; font-size: 11px; margin-bottom: 2px; }
+          .new-price { color: #fff; font-size: 28px; font-weight: 900; }
+          .end-date { font-size: 12px; color: #5a4400; background: #fff3; padding: 3px 10px; border-radius: 6px; }
+          @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            @page { size: A4; margin: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page">${labelsHTML}</div>
+      </body>
+      </html>
+    `;
+}
 
 // 🆕 promos/discountRules/autoPromoConfig بقوا جايين كـ props من App (نفس الحالة اللي نقطة البيع
 // posPromos/posDiscountRules/posAutoPromoConfig بتقرا منها) — عشان أي إضافة/تعديل/حذف هنا يظهر فورًا
@@ -59,6 +151,7 @@ export function PromotionsModule({
 
     // ── سجل الطباعة — عشان تقدر تعيد طباعة أي عرض (تلقائي أو يدوي) لاحقًا ──
     const [printHistory, setPrintHistory] = useState<any[]>([]);
+    const [labelPreview, setLabelPreview] = useState<{ items: any[]; offerName?: string; columns: number } | null>(null);
     const [autoOfferName, setAutoOfferName] = useState(""); // اسم/مناسبة العرض التلقائي قبل الطباعة
     const [selectedAutoIds, setSelectedAutoIds] = useState<string[]>([]); // الأصناف المختارة من التلقائي للطباعة
 
@@ -134,7 +227,7 @@ export function PromotionsModule({
         return acc;
     }, []).sort((a, b) => b.autoDiscount - a.autoDiscount);
 
-    // ── دالة طباعة Shelf Label ──
+    // ── دالة طباعة Shelf Label — دلوقتي بتفتح معاينة أول (بدل ما تطبع على طول) ──
     // offerName: اسم/مناسبة العرض (عروض العيد، اليوم الوطني، رمضان...) بيظهر في مكان اسم الصيدلية القديم
     const printShelfLabel = (items: {
         name: string;
@@ -145,102 +238,7 @@ export function PromotionsModule({
         isAuto?: boolean;
         promoLabel?: string; // نص وصفي للعرض (مهم لأنماط BOGO/الهدية اللي السعر فيها مش بيتغيّر)
     }[], offerName?: string) => {
-        const labelsHTML = items.map((item) => {
-            const priceUnchanged = Math.abs((item.discountedPrice ?? 0) - (item.originalPrice ?? 0)) < 0.001;
-            // لو السعر متغيّر فعليًا (نسبة/قيمة ثابتة/كمية/باقة) نعرض قبل/بعد + نسبة الخصم.
-            // لو السعر مش بيتغيّر (BOGO/هدية مجانية) نعرض النص الوصفي للعرض بدل "خصم 0%" وسعر واحد بس.
-            const badgeHTML = !priceUnchanged
-                ? `<div class="discount-badge">خصم ${item.discount}%</div>`
-                : `<div class="discount-badge promo-text">${item.promoLabel || "عرض خاص"}</div>`;
-            const pricesHTML = !priceUnchanged
-                ? `<div class="prices">
-            <div class="old-price-box">
-              <div class="old-price-label">السعر قبل</div>
-              <div class="old-price">${item.originalPrice.toFixed(2)}</div>
-            </div>
-            <div class="arrow">◄</div>
-            <div class="new-price-box">
-              <div class="new-price-label">السعر بعد</div>
-              <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
-            </div>
-          </div>`
-                : `<div class="prices">
-            <div class="single-price-box">
-              <div class="old-price-label">السعر</div>
-              <div class="new-price">${item.originalPrice.toFixed(2)}</div>
-            </div>
-          </div>`;
-            return `
-      <div class="label">
-        ${offerName ? `<div class="offer-name">${offerName}</div>` : ""}
-        <div class="product-name">${item.name}</div>
-        ${badgeHTML}
-        ${pricesHTML}
-        ${item.endDate ? `<div class="end-date">ينتهي العرض: ${item.endDate}</div>` : ""}
-      </div>
-    `;
-        }).join("");
-
-        const win = window.open("", "_blank");
-        if (!win) return;
-
-        win.document.write(`
-      <!DOCTYPE html>
-      <html dir="rtl">
-      <head>
-        <meta charset="UTF-8"/>
-        <title>Shelf Labels</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
-          .page {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8mm;
-            padding: 10mm;
-            width: 210mm;
-          }
-          .label {
-            background: #FFD700;
-            border: 3px solid #e6b800;
-            border-radius: 12px;
-            padding: 14px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-            min-height: 120mm;
-            justify-content: center;
-          }
-          .offer-name { font-size: 15px; color: #7a6000; font-weight: 900; letter-spacing: 0.5px; background: #fff8dc; border: 1px dashed #cc9900; border-radius: 8px; padding: 3px 12px; text-align: center; }
-          .product-name { font-size: 18px; font-weight: 900; color: #1a1a00; text-align: center; line-height: 1.3; }
-          .discount-badge { background: #cc0000; color: #fff; font-size: 20px; font-weight: 900; padding: 4px 20px; border-radius: 20px; }
-          .discount-badge.promo-text { font-size: 14px; padding: 6px 14px; text-align: center; line-height: 1.3; max-width: 90%; }
-          .prices { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: center; margin-top: 4px; }
-          .single-price-box { background: #1a5c00; border-radius: 10px; padding: 10px 20px; text-align: center; }
-          .old-price-box { background: #cc0000; border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; }
-          .old-price-label { color: #ffaaaa; font-size: 11px; margin-bottom: 2px; }
-          .old-price { color: #fff; font-size: 22px; font-weight: 900; text-decoration: line-through; text-decoration-color: #ffaaaa; text-decoration-thickness: 3px; }
-          .arrow { color: #7a6000; font-size: 22px; }
-          .new-price-box { background: #1a5c00; border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; }
-          .new-price-label { color: #aaffaa; font-size: 11px; margin-bottom: 2px; }
-          .new-price { color: #fff; font-size: 28px; font-weight: 900; }
-          .end-date { font-size: 12px; color: #5a4400; background: #fff3; padding: 3px 10px; border-radius: 6px; }
-          @media print {
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            @page { size: A4; margin: 0; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="page">${labelsHTML}</div>
-        <script>
-          window.onload = () => { window.print(); window.onafterprint = () => window.close(); };
-        </script>
-      </body>
-      </html>
-    `);
-        win.document.close();
+        setLabelPreview({ items, offerName, columns: 2 });
     };
 
     // ── تسجيل عملية طباعة في السجل (عشان تقدر تعيد الطباعة لاحقًا سواء كان العرض تلقائي أو يدوي) ──
@@ -1493,6 +1491,92 @@ export function PromotionsModule({
                     </div>
                 )}
             </Modal>
+
+            {/* 🆕 معاينة ملصقات الرفوف قبل الطباعة الفعلية - بتحكم في عدد الأعمدة */}
+            {labelPreview && (
+                <Modal
+                    open
+                    onClose={() => setLabelPreview(null)}
+                    title="معاينة طباعة الملصقات"
+                    wide
+                >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        <label style={{ fontSize: 13, color: COLORS.textDim }}>
+                            عدد الملصقات في الصف:
+                        </label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={4}
+                            value={labelPreview.columns}
+                            onChange={(e) =>
+                                setLabelPreview((p) => ({
+                                    ...p,
+                                    columns: Math.max(1, Math.min(4, +e.target.value || 1)),
+                                }))
+                            }
+                            style={{
+                                width: 60,
+                                padding: "4px 8px",
+                                borderRadius: 6,
+                                border: `1px solid ${COLORS.border}`,
+                                textAlign: "center",
+                            }}
+                        />
+                        <span style={{ fontSize: 12, color: COLORS.textDim }}>
+                            ({labelPreview.items.length} ملصق)
+                        </span>
+                    </div>
+
+                    <div
+                        style={{
+                            border: `1px solid ${COLORS.border}`,
+                            borderRadius: 8,
+                            overflow: "auto",
+                            height: 500,
+                            background: "#525659",
+                        }}
+                    >
+                        <iframe
+                            title="label-preview"
+                            srcDoc={buildShelfLabelHtml(
+                                labelPreview.items,
+                                labelPreview.offerName,
+                                labelPreview.columns
+                            )}
+                            style={{
+                                width: "210mm",
+                                minHeight: "100%",
+                                border: "none",
+                                background: "#fff",
+                                display: "block",
+                                margin: "0 auto",
+                            }}
+                        />
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+                        <Btn variant="ghost" onClick={() => setLabelPreview(null)}>
+                            إلغاء
+                        </Btn>
+                        <Btn
+                            icon="print"
+                            onClick={async () => {
+                                await printHTML(
+                                    buildShelfLabelHtml(
+                                        labelPreview.items,
+                                        labelPreview.offerName,
+                                        labelPreview.columns
+                                    )
+                                );
+                                setLabelPreview(null);
+                            }}
+                        >
+                            طباعة
+                        </Btn>
+                    </div>
+                </Modal>
+            )}
         </div>
     );
 }

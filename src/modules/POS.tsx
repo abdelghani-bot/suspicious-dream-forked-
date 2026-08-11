@@ -9,7 +9,7 @@ import { sellFromBatches } from "../lib/inventoryUtils";
 import { CART_AREA_HEIGHT, DEFAULT_DOSE_TEMPLATES, DOSAGE_LABEL_SIZES, MAX_INVOICES, emptyInvoice, playWarningBeep } from "../lib/posConstants";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { calcPromoLineTotal, getEffectivePrice, recalcCartLinePrice } from "../lib/promoUtils";
-import { earnLoyaltyPoints, redeemLoyaltyPoints, logInventoryVariance, createZeroStockDraftPurchase } from "../lib/offlineAPI";
+import { earnLoyaltyPoints, redeemLoyaltyPoints, logInventoryVariance, createZeroStockDraftPurchase, addItemToZeroStockDraftPurchase, queueEvent, getPharmacySettings, getCustomerLoyaltyPoints } from "../lib/offlineAPI";
 import { PrintReceipt } from "./PrintReceipt";
 import { RasdQueue } from "../services/rasdService";
 import { Btn, IC, Modal, Select } from "../ui/primitives";
@@ -93,17 +93,17 @@ export function POS({
 
     useEffect(() => {
         if (!pharmacyId) return;
-        supabase.from("pharmacy_settings").select("*").eq("pharmacy_id", pharmacyId).single()
-            .then(({ data }) => {
-                if (data) {
-                    setPharmSettingsPOS(data);
-                    setDoseTemplates(
-                        Array.isArray(data.dosage_templates) && data.dosage_templates.length > 0
-                            ? data.dosage_templates
-                            : DEFAULT_DOSE_TEMPLATES
-                    );
-                }
-            });
+        getPharmacySettings(pharmacyId).then(({ data, fromCache }) => {
+            if (data) {
+                setPharmSettingsPOS(data);
+                setDoseTemplates(
+                    Array.isArray(data.dosage_templates) && data.dosage_templates.length > 0
+                        ? data.dosage_templates
+                        : DEFAULT_DOSE_TEMPLATES
+                );
+                if (fromCache) showToast("📴 الإعدادات محمّلة من الكاش المحلي", "warning");
+            }
+        });
     }, [pharmacyId]);
 
     const saveDoseTemplate = async (text) => {
@@ -115,7 +115,7 @@ export function POS({
         if (pharmacyId) {
             // 🆕 عبر طابور الأوفلاين بدل الكتابة المباشرة — لو مفيش نت، التعديل بيتخزن محليًا
             // ويتزامن لما النت يرجع بدل ما يضيع بصمت
-            const result = await window.offlineAPI.queueEvent({
+            const result = await queueEvent({
                 id: crypto.randomUUID(),
                 type: "DOSE_TEMPLATES_UPDATE",
                 timestamp: new Date().toISOString(),
@@ -134,7 +134,7 @@ export function POS({
         const updated = doseTemplates.filter((t) => t !== text);
         setDoseTemplates(updated);
         if (pharmacyId) {
-            await window.offlineAPI.queueEvent({
+            await queueEvent({
                 id: crypto.randomUUID(),
                 type: "DOSE_TEMPLATES_UPDATE",
                 timestamp: new Date().toISOString(),
@@ -411,7 +411,41 @@ export function POS({
     const [zeroStockStep, setZeroStockStep] = useState("ask"); // "ask" | "supplier_qty"
     const [zeroStockSupplier, setZeroStockSupplier] = useState("");
     const [zeroStockQty, setZeroStockQty] = useState("");
+    // 🆕 batch_number/expiry_date الحقيقيين بيتدخلوا هنا وقت المسودة (مش قيم فاضية زي الأول)،
+    // عشان يتحفظوا في صف الصنف وينتقلوا للبيع، ومنه للرصد لاحقًا.
+    const [zeroStockBatchNumber, setZeroStockBatchNumber] = useState("");
+    const [zeroStockExpiry, setZeroStockExpiry] = useState("");
     const [zeroStockSaving, setZeroStockSaving] = useState(false);
+    // 🆕 تتبّع "الفاتورة المسودة المفتوحة" لكل مورد — لو الصيدلي باع صنف تاني (رصيده صفر
+    // برضه) من نفس المورد في نفس اليوم، نضيف بند جديد لنفس الفاتورة دي بدل ما نفتح فاتورة
+    // مسودة جداد لكل صنف. متخزّنة في localStorage عشان تفضل موجودة حتى لو حصل refresh
+    // للصفحة، وبتنتهي صلاحيتها آخر اليوم (لو الفاتورة كملت بياناتها من شاشة المشتريات
+    // في يوم لاحق، منحاولش نضيف عليها تاني بعد كده).
+    // الشكل: { [supplierId]: { poId, items: [...], date: "YYYY-MM-DD" } }
+    const zeroStockDraftsKey = `pharmacypro_pos_zero_stock_drafts_${pharmacyId}`;
+    const [openZeroStockDrafts, setOpenZeroStockDrafts] = useState<Record<string, { poId: string; items: any[]; date: string }>>(() => {
+        try {
+            const raw = localStorage.getItem(zeroStockDraftsKey);
+            const parsed = raw ? JSON.parse(raw) : {};
+            const today = todayLocal();
+            // نفلتر أي مورد الفاتورة بتاعه مش من نفس اليوم عشان مانضيفش على فاتورة قديمة
+            const fresh: Record<string, { poId: string; items: any[]; date: string }> = {};
+            Object.keys(parsed || {}).forEach((sid) => {
+                if (parsed[sid]?.date === today) fresh[sid] = parsed[sid];
+            });
+            return fresh;
+        } catch {
+            return {};
+        }
+    });
+    const persistOpenZeroStockDrafts = (next: Record<string, { poId: string; items: any[]; date: string }>) => {
+        setOpenZeroStockDrafts(next);
+        try {
+            localStorage.setItem(zeroStockDraftsKey, JSON.stringify(next));
+        } catch {
+            /* أوفلاين/كامل — مش حرج، هيتحسب فاتورة جديدة في المرة الجاية وبس */
+        }
+    };
 
     const addToCart = (p, opts: any = {}) => {
         if (!p.isMissed && !p.isJoker) {
@@ -423,10 +457,19 @@ export function POS({
                 // opts.skipZeroStockCheck بتتحدد يدويًا لما إحنا بنعيد نداء addToCart بعد
                 // ما زودنا الرصيد فعليًا عبر الفاتورة المؤقتة، عشان منلفش في حلقة لا نهائية.
                 if (p._scannedViaBarcode && !opts.skipZeroStockCheck) {
+                    // 🆕 لو السكانر (GS1) كان قاري batch/expiry فعلاً وقت المسح، نعبّي بيهم المودال
+                    // تلقائيًا بدل ما نسيبهم فاضيين يتكتبوا يدوي — الحقول تفضل قابلة للتعديل بس
+                    // كـ تصحيح/احتياطي (مثلاً باركود عادي/custom مالوش batch أو expiry أصلاً).
+                    const rawExpiry = p._scannedExpiryRaw || p.expiry || "";
                     setZeroStockPrompt(p);
                     setZeroStockStep("ask");
                     setZeroStockSupplier("");
                     setZeroStockQty("");
+                    setZeroStockBatchNumber(p.batch || "");
+                    // 🆕 input[type=date] محتاج "YYYY-MM-DD" كاملة — لو القيمة اللي جاية من السكان
+                    // بدقة شهر بس ("YYYY-MM"، حالة نادرة لو الباركود مالوش يوم)، منسيبهاش تتفرض في
+                    // الحقل غلط، نسيبها فاضية والصيدلي يدخلها هو بنفسه.
+                    setZeroStockExpiry(/^\d{4}-\d{2}-\d{2}$/.test(rawExpiry) ? rawExpiry : "");
                     return;
                 }
                 showToast("المخزون نفد!", "error");
@@ -482,34 +525,43 @@ export function POS({
         }
         p = { ...p, expiry: effectiveExpiry, _expiryConfirmed: undefined };
 
+        if (!p.batch && effectiveExpiry) {
+            const prodBatchesForResolve = products.find((x) => x.id === p.id)?.batches || [];
+            const matchedForBatch = prodBatchesForResolve.find((b) => b.expiry_date === effectiveExpiry);
+            if (matchedForBatch?.batch_number) {
+                p = { ...p, batch: matchedForBatch.batch_number };
+            }
+        }
         // كل سطر في السلة بيتحدد بالصنف + تاريخ الصلاحية + رقم التشغيلة معًا،
         // عشان لو نفس الصنف موجود ع الرف بأكتر من تاريخ صلاحية يقدر الكاشير يبيعهم كسطرين منفصلين
         // بدل ما يتجمعوا غصب على بعض تحت تاريخ واحد.
         const lineId = p.lineId || `${p.id}::${p.expiry || ""}::${p.batch || ""}`;
 
+        let cartAfterAdd = null; // 🛠️ هنلقط شكل السلة النهائي بعد الإضافة، عشان نحسب عليه خيارات التاريخ صح
+
         setInv((prev) => {
             const ex = prev.cart.find((i) => i.lineId === lineId);
             if (ex) {
                 const prod = products.find((x) => x.id === p.id);
-                if (ex.qty + 1 > (prod?.stock || 99)) {
-                    showToast("لا يوجد مخزون كافٍ", "error");
+                const matchedBatch = (prod?.batches || []).find(
+                    (b) => b.expiry_date === ex.expiry && (!ex.batch || b.batch_number === ex.batch)
+                );
+                const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 99);
+                if (ex.qty + 1 > availableQty) {
+                    showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
+                    cartAfterAdd = prev.cart;
                     return prev;
                 }
                 const newQty = ex.qty + 1;
-                // 🆕 لو السطر ده أصلاً بيتجمّع من كذا سكان (نفس الصنف/التشغيلة/الصلاحية)، لازم نحتفظ
-                // بسيريال كل علبة على حدة جوه مصفوفة "serials"، مش نفقد سيريال العلبة التانية والتالتة...
-                // لأن ده أصل مشكلة "منع تكرار السيريال بيشتغل بس على أول علبة" — كانت العلب بعد الأولى
-                // بتتجمّع في نفس السطر من غير ما سيريالها يتسجل في أي حتة.
                 const existingSerials = ex.serials && ex.serials.length ? ex.serials : (ex.serial ? [ex.serial] : []);
                 const newSerials = p.serial ? [...existingSerials, p.serial] : existingSerials;
-                return {
-                    ...prev,
-                    cart: prev.cart.map((i) =>
-                        i.lineId === lineId
-                            ? { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty), serials: newSerials }
-                            : i
-                    ),
-                };
+                const updatedCart = prev.cart.map((i) =>
+                    i.lineId === lineId
+                        ? { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty), serials: newSerials }
+                        : i
+                );
+                cartAfterAdd = updatedCart;
+                return { ...prev, cart: updatedCart };
             }
             // صنف جديد
             const initQty = p.qty !== undefined && !isNaN(p.qty) && !p.isPartial
@@ -519,8 +571,6 @@ export function POS({
                 ? { price: p.price, discountPct: 0, source: null }
                 : getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig);
 
-            // السعر الكامل للحساب، سعر الوحدة للعرض
-            // أنماط مرتبطة بالكمية (BOGO / كمية / باقة) بيتغيّر متوسط سعر الوحدة حسب عدد القطع
             const isQtyDependentPromo = !p.isPartial && ["bogo", "quantity", "bundle"].includes(effective.promoType);
             const cartPrice = p.isPartial
                 ? p.price
@@ -535,7 +585,6 @@ export function POS({
                 ...p,
                 lineId,
                 qty: initQty,
-                // 🆕 أول علبة في السطر ده — تبدأ مصفوفة السيريالات بيها
                 serials: p.serial ? [p.serial] : (p.serials || []),
                 dose: "",
                 price: cartPrice,
@@ -548,7 +597,6 @@ export function POS({
                 promoLabel: p.isPartial ? null : effective.promoLabel || null,
             };
 
-            // ── هدية مجانية: لو الصنف مرتبط بعرض هدية، ضيف سطر الهدية تلقائيًا (مرة واحدة لكل عرض) ──
             let newCart = [...prev.cart, newLine];
             if (!p.isPartial && effective.promoType === "free_gift" && effective.promo?.gift_product_id) {
                 const giftAlready = newCart.some((i) => i.isGift && i.giftFromPromoId === effective.promo.id);
@@ -573,6 +621,7 @@ export function POS({
                 }
             }
 
+            cartAfterAdd = newCart;
             return { ...prev, cart: newCart };
         });
 
@@ -582,7 +631,13 @@ export function POS({
             const validExpiries = Array.from(
                 new Set(
                     prodBatches
-                        .filter((b) => b.qty > 0 && b.expiry_date)
+                        .filter((b) => {
+                            if (!b.expiry_date) return false;
+                            const reserved = (cartAfterAdd || []) // 🛠️ نطرح المحجوز فعليًا في السلة بعد الإضافة
+                                .filter((i) => i.id === p.id && i.expiry === b.expiry_date)
+                                .reduce((sum, i) => sum + (i.qty || 0), 0);
+                            return (b.qty || 0) - reserved > 0;
+                        })
                         .map((b) => b.expiry_date)
                 )
             ).sort();
@@ -668,6 +723,10 @@ export function POS({
                     batch: scan.batch,
                     serial: scan.serial,
                     expiry: finalExpiry,
+                    // 🆕 finalExpiry ممكن تتقص لدقة الشهر (norm) لو مفيش batch متسجل يتطابق معاه —
+                    // وده بالظبط سيناريو "رصيد صفر" (مفيش batches أصلاً). فبنحتفظ بالتاريخ الكامل
+                    // زي ما اتقرا من الباركود عشان مودال المسودة يستخدمه بدل النسخة المقصوصة.
+                    _scannedExpiryRaw: scan.expiry || null,
                     // ✅ الباركود نفسه قرا/أكد تاريخ الصلاحية (واتقارن مع التشغيلات المسجلة فوق)،
                     // فمفيش داعي نجبر الكاشير يختار تاني من نافذة الاختيار — بس لو فعلاً في تاريخ مقروء.
                     _expiryConfirmed: !!finalExpiry,
@@ -712,7 +771,7 @@ export function POS({
                 expiry_date: unmatchedScan.expiry || null,
             }
             : null;
-        const linkResult = await window.offlineAPI.queueEvent({
+        const linkResult = await queueEvent({
             id: crypto.randomUUID(),
             type: "BARCODE_LINK",
             timestamp: new Date().toISOString(),
@@ -759,42 +818,118 @@ export function POS({
         showToast("المخزون نفد! تم تسجيل الصنف في قائمة الأصناف اللي محتاجة تسوية", "error");
     };
 
+    // 🆕 دواء لازم تشغيلة/صلاحية حقيقية تتربط بيه (تتبع وسلامة المريض ورصد لاحقًا) —
+    // نفس تعريف isDrugItem المستخدم في addToCart.
+    const zeroStockIsDrug = zeroStockPrompt
+        ? (zeroStockPrompt.mainCategory || zeroStockPrompt.main_category || zeroStockPrompt.category) === "دواء"
+        : false;
+
     // ── "آه، طلبية وصلت" — فاتورة مسودة + إتمام البيع فورًا ──
     const handleZeroStockDraftConfirm = async () => {
         const p = zeroStockPrompt;
         if (!p || !zeroStockSupplier || !zeroStockQty || +zeroStockQty <= 0) return;
+        // 🆕 الصلاحية الحقيقية إجبارية للدواء (رقم التشغيلة اختياري لو مش متاح على العبوة)،
+        // عشان مايفضلش تاريخ صلاحية فاضي يعدّي على البيع ومنه للرصد.
+        if (zeroStockIsDrug && !zeroStockExpiry) return;
         setZeroStockSaving(true);
         try {
             const qty = Math.max(1, Math.round(+zeroStockQty));
             const sup = (suppliers || []).find((s) => s.id === zeroStockSupplier);
+            const batchNumber = zeroStockBatchNumber.trim() || null;
+            const expiryDate = zeroStockExpiry || null;
 
-            const result = await createZeroStockDraftPurchase({
-                pharmacyId,
-                productId: p.id,
-                productName: p.nameAr || p.name,
-                supplierId: zeroStockSupplier,
-                supplierName: sup?.name || "",
-                qty,
-                createdBy: currentUser?.name || null,
-            });
+            // 🆕 لو فيه فاتورة مسودة مفتوحة أصلاً من نفس المورد النهارده، نضيف الصنف كبند
+            // جديد فيها بدل ما نفتح فاتورة منفصلة لكل صنف.
+            const existingDraft = openZeroStockDrafts[zeroStockSupplier];
+            let result: { synced: boolean; batch: any; id?: string; items?: any[] };
+            if (existingDraft) {
+                result = await addItemToZeroStockDraftPurchase({
+                    pharmacyId,
+                    poId: existingDraft.poId,
+                    existingItems: existingDraft.items,
+                    supplierId: zeroStockSupplier,
+                    supplierName: sup?.name || "",
+                    productId: p.id,
+                    productName: p.nameAr || p.name,
+                    qty,
+                    createdBy: currentUser?.name || null,
+                    batchNumber,
+                    expiryDate,
+                });
+            } else {
+                result = await createZeroStockDraftPurchase({
+                    pharmacyId,
+                    productId: p.id,
+                    productName: p.nameAr || p.name,
+                    supplierId: zeroStockSupplier,
+                    supplierName: sup?.name || "",
+                    qty,
+                    createdBy: currentUser?.name || null,
+                    batchNumber,
+                    expiryDate,
+                });
+            }
             if (!result.synced) {
                 showToast("📴 الفاتورة المؤقتة اتحفظت محليًا - هتتزامن لما النت يرجع", "warning");
             }
 
+            // 🆕 تحديث/إنشاء تتبّع الفاتورة المسودة المفتوحة بتاعة نفس المورد ده — سواء كانت
+            // فاتورة اتضاف لها بند جديد دلوقتي، أو فاتورة اتعملت لأول مرة.
+            const poId = existingDraft ? existingDraft.poId : (result.id as string);
+            const newItemsList =
+                result.items ||
+                [...(existingDraft?.items || []), {
+                    id: p.id, name: p.nameAr || p.name, qty, bonusQty: 0, cost: 0,
+                    discount1: 0, discount2: 0, salePrice: 0, taxable: false,
+                    expiry_date: expiryDate, batch_number: batchNumber, batch_id: result.batch.id,
+                }];
+            persistOpenZeroStockDrafts({
+                ...openZeroStockDrafts,
+                [zeroStockSupplier]: { poId, items: newItemsList, date: todayLocal() },
+            });
+
             // تحديث فوري لرصيد الصنف في الـstate المحلي عشان البيع يكمل من غير انتظار الشبكة
+            // 🆕 + إضافة الـ batch الحقيقي (اللي رجع من createZeroStockDraftPurchase/addItemToZeroStockDraftPurchase)
+            // لمصفوفة batches بتاعة نفس الصنف في products state — ده اللي يخلي الرصيد الحقيقي القابل
+            // للبيع (على مستوى التشغيلة) يتطابق مع stock الإجمالي، ويخلي أي عملية بيع/تعديل
+            // لاحقة تلاقي التشغيلة الحقيقية دي جاهزة تتخصم منها.
             const bumpedStock = (p.stock || 0) + qty;
             setProducts((prev) =>
-                prev.map((x) => (x.id === p.id ? { ...x, stock: bumpedStock } : x))
+                prev.map((x) =>
+                    x.id === p.id
+                        ? { ...x, stock: bumpedStock, batches: [...(x.batches || []), result.batch] }
+                        : x
+                )
             );
 
             showToast(
-                `✅ اتضافت فاتورة مسودة من "${sup?.name || "المورد"}" - كمّل باقي بياناتها لاحقًا من شاشة المشتريات`,
+                existingDraft
+                    ? `✅ اتضاف الصنف لنفس الفاتورة المسودة المفتوحة من "${sup?.name || "المورد"}"`
+                    : `✅ اتضافت فاتورة مسودة من "${sup?.name || "المورد"}" - كمّل باقي بياناتها لاحقًا من شاشة المشتريات`,
                 "success"
             );
             setZeroStockPrompt(null);
 
             // إتمام إضافة الصنف الأصلي للسلة دلوقتي بعد ما الرصيد اتزود فعليًا
-            addToCart({ ...p, stock: bumpedStock }, { skipZeroStockCheck: true });
+            // 🆕 fromZeroStockDraft: التكلفة الحقيقية مش معروفة لحد ما الفاتورة المؤقتة دي تتكمّل
+            // يدويًا من شاشة المشتريات (سعر التكلفة/الخصومات لسه مالهاش قيمة حقيقية) — فلازم نستثني
+            // السطر ده من حساب نقاط الولاء في وضع "الربح"، وإلا هيتحسب الربح = السعر الكامل (100%) غلط.
+            // 🆕 batch/expiry: بنمررهم هنا مباشرة (مش نسيبهم يترصدوا من products.batches في addToCart)
+            // لأن setProducts فوق لسه ما اتطبقش على الـ render الحالي وقت النداء ده (React state
+            // بتتحدّث في الرندر الجاي) — فلو سبنا addToCart تدوّر في products.batches هتلاقيها
+            // لسه من غير الـ batch الجديد. بتمرير expiry/batch هنا صراحةً بنضمن إن أول سطر في
+            // السلة يبقى مربوط بالتشغيلة الحقيقية من أول لحظة.
+            addToCart(
+                {
+                    ...p,
+                    stock: bumpedStock,
+                    expiry: expiryDate || undefined,
+                    batch: batchNumber || undefined,
+                    _expiryConfirmed: !!expiryDate,
+                    fromZeroStockDraft: true,
+                },
+                { skipZeroStockCheck: true }
+            );
         } catch (err) {
             console.error("handleZeroStockDraftConfirm failed:", err);
             showToast("حصل خطأ أثناء حفظ الفاتورة المؤقتة", "error");
@@ -924,6 +1059,7 @@ export function POS({
         const newFifoResults = {};
         const runningBatches = {};
         for (const ci of inv.cart) {
+            if (ci.isMissed || ci.isJoker) continue; // ✅ دول مش بيخصموا من المخزون فعليًا (زي منطق stockEvents تحت)
             const prod = products.find((x) => x.id === ci.id);
             if (prod) {
                 const baseProd = runningBatches[ci.id]
@@ -969,7 +1105,7 @@ export function POS({
                     newFifoResults[i.lineId]?.soldBatches?.[0]?.expiry_date ||
                     null,
                 category: i.main_category || i.mainCategory || i.category || "أخرى",
-                excluded_from_points: isPromoLine(i) || !!i.isJoker || !!i.isMissed,
+                excluded_from_points: isPromoLine(i) || !!i.isJoker || !!i.isMissed || !!i.fromZeroStockDraft,
             })),
             subtotal,
             tax_amount: taxAmount,
@@ -1016,7 +1152,7 @@ export function POS({
         // queueEvent بتحاول تبعت مباشر لو فيه نت، ولو مفيش نت أو فشلت المحاولة (النت اتقطع
         // فعلاً أثناء الإرسال) بتخزن الحدث محليًا في IndexedDB وتتزامن تلقائيًا لما الاتصال
         // يرجع — من غير ما توقف البيع أو تحتاج نكرر منطق isOnline/try-catch في كل مكان.
-        const saleResult = await window.offlineAPI.queueEvent({
+        const saleResult = await queueEvent({
             id: crypto.randomUUID(),
             type: "SALE_INSERT",
             pharmacy_id: pharmacyId,
@@ -1052,7 +1188,7 @@ export function POS({
             }));
         });
         if (soldSerialRows.length) {
-            await window.offlineAPI.queueEvent({
+            await queueEvent({
                 id: crypto.randomUUID(),
                 type: "SOLD_SERIALS_INSERT",
                 pharmacy_id: pharmacyId,
@@ -1086,7 +1222,7 @@ export function POS({
         }
 
         if (stockEvents.length > 0) {
-            const stockResult = await window.offlineAPI.queueEvent({
+            const stockResult = await queueEvent({
                 id: crypto.randomUUID(),
                 type: "SALE_STOCK_BATCH",
                 pharmacy_id: pharmacyId,
@@ -1162,14 +1298,14 @@ export function POS({
 
         setProducts((p) =>
             p.map((x) => {
-                const ci = inv.cart.find((i) => i.id === x.id && !i.isMissed);
-                if (!ci) return x;
-                const { updatedBatches } = newFifoResults[x.id] || {};
+                const updatedBatches = runningBatches[x.id];
+                if (!updatedBatches) return x; // الصنف ده مالوش سطر في الفاتورة دي (أو missed/joker بس)
+                const newStock = updatedBatches.reduce((s, b) => s + (b.qty || 0), 0);
                 return {
                     ...x,
-                    stock: x.stock - ci.qty,
-                    batches: updatedBatches ?? x.batches ?? [],
-                    price: updatedBatches?.[0]?.salePrice ?? x.price,
+                    stock: newStock,
+                    batches: updatedBatches,
+                    price: updatedBatches[0]?.salePrice ?? x.price,
                 };
             })
         );
@@ -1217,7 +1353,7 @@ export function POS({
             // 🛠️ تصحيح الباج المتكرر: pharmacy_id لازم يكون على مستوى event نفسه (top-level)
             // مش بس جوا كل سجل في payload.records — من غيره منطق الـ sync (اللي بيدور على
             // event.pharmacy_id مباشرة) بيفشل بصمت زي ما ظهر في الـ console قبل كده
-            await window.offlineAPI.queueEvent({
+            await queueEvent({
                 id: crypto.randomUUID(),
                 type: "MISSED_SALES_INSERT",
                 timestamp: new Date().toISOString(),
@@ -1241,7 +1377,7 @@ export function POS({
                 );
                 if (existing) {
                     const newQty = (+existing.qty || 0) + (+i.qty || 1);
-                    await window.offlineAPI.queueEvent({
+                    await queueEvent({
                         id: crypto.randomUUID(),
                         type: "JOKER_UPDATE",
                         timestamp: new Date().toISOString(),
@@ -1262,7 +1398,7 @@ export function POS({
                         status: "pending",
                         created_at: new Date().toISOString(),
                     };
-                    await window.offlineAPI.queueEvent({
+                    await queueEvent({
                         id: crypto.randomUUID(),
                         type: "JOKER_INSERT",
                         timestamp: new Date().toISOString(),
@@ -1659,12 +1795,27 @@ export function POS({
                                     ↓↑ تنقل · Enter إضافة · Esc إلغاء
                                 </div>
                                 {filtered.slice(0, 8).map((p, idx) => {
+                                    const batchesWithRemaining = (p.batches || [])
+                                        .filter((b) => b.expiry_date)
+                                        .map((b) => {
+                                            const reserved = inv.cart
+                                                .filter((i) => i.id === p.id && i.expiry === b.expiry_date && (!i.batch || !b.batch_number || i.batch === b.batch_number))
+                                                .reduce((sum, i) => sum + (i.qty || 0), 0);
+                                            return { ...b, remaining: Math.max(0, (b.qty || 0) - reserved) };
+                                        })
+                                        .filter((b) => b.remaining > 0)
+                                        .sort((a, b) => (a.expiry_date || "").localeCompare(b.expiry_date || ""));
+
+                                    const remainingStock = batchesWithRemaining.length > 0
+                                        ? batchesWithRemaining.reduce((sum, b) => sum + b.remaining, 0)
+                                        : Math.max(0, (p.stock || 0) - inv.cart.filter((i) => i.id === p.id).reduce((sum, i) => sum + (i.qty || 0), 0));
+
                                     const effectiveStock =
-                                        p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
+                                        p.saleUnits > 1 ? remainingStock * p.saleUnits : remainingStock;
                                     const outOfStock = effectiveStock <= 0;
                                     const stockColor = outOfStock
                                         ? COLORS.red
-                                        : p.stock <= (p.minStock || 0)
+                                        : remainingStock <= (p.minStock || 0)
                                             ? COLORS.gold
                                             : COLORS.green;
                                     return (
@@ -1714,7 +1865,11 @@ export function POS({
                                                         {p.nameAr || p.name}
                                                     </div>
                                                     <div style={{ fontSize: 10, color: COLORS.textDim }}>
-                                                        {p.mainCategory || p.category} · مخزون: {p.stock}
+                                                        {p.mainCategory || p.category} · مخزون: {
+                                                            batchesWithRemaining.length > 0
+                                                                ? batchesWithRemaining.map((b) => `${b.remaining} (${b.expiry_date})`).join(" · ")
+                                                                : remainingStock
+                                                        }
                                                         {p.saleUnits > 1 && (
                                                             <span style={{ color: COLORS.gold }}>
                                                                 {" "}
@@ -1935,16 +2090,8 @@ export function POS({
                                         <div
                                             key={c.id}
                                             onMouseDown={async () => {
-                                                setInv((p) => ({
-                                                    ...p,
-                                                    selCustomer: c,
-                                                    customerSearch: c.name,
-                                                    customerSearchOpen: false,
-                                                }));
-                                                // جلب نقاط العميل فقط — إعدادات الولاء بقت جاية من الـ props على مستوى الـ App
-                                                const { data: lpData } = await supabase.from("loyalty_points").select("*")
-                                                    .eq("pharmacy_id", pharmacyId)
-                                                    .eq("customer_id", c.id).maybeSingle();
+                                                setInv((p) => ({ ...p, selCustomer: c, customerSearch: c.name, customerSearchOpen: false }));
+                                                const { data: lpData } = await getCustomerLoyaltyPoints(pharmacyId, c.id);
                                                 setCustomerLoyalty(lpData);
                                                 setUsePoints(false);
                                                 setPointsToRedeem(0);
@@ -2155,7 +2302,11 @@ export function POS({
                             <tbody>
                                 {inv.cart.map((item) => {
                                     const step = item.saleUnits > 1 ? 1 / item.saleUnits : 1;
-                                    const maxQty = products.find(x => x.id === item.id)?.stock || 99;
+                                    const prodForQty = products.find(x => x.id === item.id);
+                                    const matchedBatchForQty = (prodForQty?.batches || []).find(
+                                        (b) => b.expiry_date === item.expiry && (!item.batch || b.batch_number === item.batch)
+                                    );
+                                    const maxQty = matchedBatchForQty ? matchedBatchForQty.qty : (prodForQty?.stock || 99);
                                     // 🆕 السعر المعروض في صف السلة لازم يكون شامل الضريبة (زي سعر الرف/الملصق)،
                                     // ده مجرد عرض بصري بس - القيمة الأصلية (item.price) فاضلة زي ما هي وتحتها
                                     // بيتحسب "قبل الضريبة" و"ضريبة 15%" و"الإجمالي" في فوتر الفاتورة عادي.
@@ -2233,19 +2384,39 @@ export function POS({
                                                                 value={item.expiry || ""}
                                                                 onChange={(e) => {
                                                                     const newExpiry = e.target.value;
-                                                                    setInv((p) => ({
-                                                                        ...p,
-                                                                        cart: p.cart.map((i) =>
-                                                                            i.lineId === item.lineId
-                                                                                ? {
-                                                                                    ...i,
-                                                                                    expiry: newExpiry,
-                                                                                    // تحديث lineId عشان لو اتضاف نفس الصنف بنفس التاريخ الجديد يتجمع صح
-                                                                                    lineId: `${i.id}::${newExpiry || ""}::${i.batch || ""}`,
-                                                                                }
-                                                                                : i
-                                                                        ),
-                                                                    }));
+                                                                    const prod = products.find((x) => x.id === item.id);
+                                                                    const matchedBatch = (prod?.batches || []).find((b) => b.expiry_date === newExpiry);
+                                                                    const newBatchNumber = matchedBatch?.batch_number || "";
+                                                                    const newLineId = `${item.id}::${newExpiry || ""}::${newBatchNumber}`;
+                                                                    setInv((p) => {
+                                                                        const dup = p.cart.find((i) => i.lineId === newLineId && i.lineId !== item.lineId);
+                                                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 99);
+                                                                        const mergedQty = (dup ? dup.qty : 0) + item.qty;
+                                                                        if (mergedQty > availableQty) {
+                                                                            showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
+                                                                            return p;
+                                                                        }
+                                                                        if (dup) {
+                                                                            return {
+                                                                                ...p,
+                                                                                cart: p.cart
+                                                                                    .filter((i) => i.lineId !== item.lineId)
+                                                                                    .map((i) =>
+                                                                                        i.lineId === newLineId
+                                                                                            ? { ...i, qty: mergedQty, price: recalcCartLinePrice(i, mergedQty) }
+                                                                                            : i
+                                                                                    ),
+                                                                            };
+                                                                        }
+                                                                        return {
+                                                                            ...p,
+                                                                            cart: p.cart.map((i) =>
+                                                                                i.lineId === item.lineId
+                                                                                    ? { ...i, expiry: newExpiry, batch: newBatchNumber || i.batch, lineId: newLineId }
+                                                                                    : i
+                                                                            ),
+                                                                        };
+                                                                    });
                                                                 }}
                                                                 title="اختر التشغيلة (تاريخ الصلاحية) اللي هتبيع منها — القائمة بتعرض التشغيلات الموجودة فعلاً في المخزون بس"
                                                                 style={{ background: "transparent", border: "none", borderBottom: `1px solid ${tint(COLORS.blue, 0.35)}`, color: COLORS.gold, fontSize: 10, outline: "none", padding: "1px 0", colorScheme: "dark" }}
@@ -2374,8 +2545,16 @@ export function POS({
                                                             ...p,
                                                             cart: p.cart.map((i) => {
                                                                 if (i.lineId !== item.lineId) return i;
-                                                                const mx = products.find(x => x.id === i.id)?.stock || 99;
-                                                                const newQty = Math.min(i.qty + 1, mx);
+                                                                const prod = products.find(x => x.id === i.id);
+                                                                const matchedBatch = (prod?.batches || []).find(
+                                                                    (b) => b.expiry_date === i.expiry && (!i.batch || b.batch_number === i.batch)
+                                                                );
+                                                                const mx = matchedBatch ? matchedBatch.qty : (prod?.stock || 99);
+                                                                if (i.qty + 1 > mx) {
+                                                                    showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
+                                                                    return i;
+                                                                }
+                                                                const newQty = i.qty + 1;
                                                                 return { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty) };
                                                             }),
                                                         }))}
@@ -2871,15 +3050,44 @@ export function POS({
                                 key={exp}
                                 onClick={() => {
                                     const newExpiry = exp;
-                                    const newLineId = `${expiryPickerLine.productId}::${newExpiry}::`;
-                                    setInv((prev) => ({
-                                        ...prev,
-                                        cart: prev.cart.map((i) =>
-                                            i.lineId === expiryPickerLine.lineId
-                                                ? { ...i, expiry: newExpiry, lineId: newLineId }
-                                                : i
-                                        ),
-                                    }));
+                                    const prod = products.find((x) => x.id === expiryPickerLine.productId);
+                                    const matchedBatch = (prod?.batches || []).find((b) => b.expiry_date === newExpiry);
+                                    const newBatchNumber = matchedBatch?.batch_number || "";
+                                    const newLineId = `${expiryPickerLine.productId}::${newExpiry}::${newBatchNumber}`;
+
+                                    setInv((prev) => {
+                                        const currentLine = prev.cart.find((i) => i.lineId === expiryPickerLine.lineId);
+                                        const dup = prev.cart.find((i) => i.lineId === newLineId && i.lineId !== expiryPickerLine.lineId);
+                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 99);
+                                        const mergedQty = (dup ? dup.qty : 0) + (currentLine ? currentLine.qty : 0);
+
+                                        if (mergedQty > availableQty) {
+                                            showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
+                                            return prev;
+                                        }
+
+                                        if (dup) {
+                                            return {
+                                                ...prev,
+                                                cart: prev.cart
+                                                    .filter((i) => i.lineId !== expiryPickerLine.lineId)
+                                                    .map((i) =>
+                                                        i.lineId === newLineId
+                                                            ? { ...i, qty: mergedQty, price: recalcCartLinePrice(i, mergedQty) }
+                                                            : i
+                                                    ),
+                                            };
+                                        }
+
+                                        return {
+                                            ...prev,
+                                            cart: prev.cart.map((i) =>
+                                                i.lineId === expiryPickerLine.lineId
+                                                    ? { ...i, expiry: newExpiry, batch: newBatchNumber || i.batch, lineId: newLineId }
+                                                    : i
+                                            ),
+                                        };
+                                    });
                                     setExpiryPickerLine(null);
                                 }}
                                 style={{
@@ -3121,6 +3329,15 @@ export function POS({
                                         ...(suppliers || []).map((s) => ({ v: s.id, l: s.name })),
                                     ]}
                                 />
+                                {/* 🆕 شفافية للصيدلي: لو فيه فاتورة مسودة مفتوحة أصلاً من نفس المورد ده
+                                    النهارده، هيتضاف الصنف عليها بدل ما تتعمل فاتورة جديدة منفصلة. */}
+                                {zeroStockSupplier && openZeroStockDrafts[zeroStockSupplier] && (
+                                    <div style={{ color: COLORS.warning || "#d97706", fontSize: 12, marginTop: 6 }}>
+                                        ⚠️ فيه فاتورة مسودة مفتوحة أصلاً من المورد ده النهارده (
+                                        {openZeroStockDrafts[zeroStockSupplier].items.length} صنف) — هيتضاف الصنف ده عليها
+                                        بدل ما تتعمل فاتورة جديدة.
+                                    </div>
+                                )}
                             </div>
                             <div>
                                 <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
@@ -3138,13 +3355,51 @@ export function POS({
                                     }}
                                 />
                             </div>
+                            <div>
+                                <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                                    رقم التشغيلة (Batch) {zeroStockBatchNumber ? "— من الباركود" : "— مش متسجل في الباركود، ادخله يدويًا"}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={zeroStockBatchNumber}
+                                    onChange={(e) => setZeroStockBatchNumber(e.target.value)}
+                                    placeholder="زي ما هو مكتوب على العبوة"
+                                    style={{
+                                        width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                        borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13,
+                                        outline: "none", boxSizing: "border-box",
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                                    تاريخ الصلاحية {zeroStockExpiry ? "— من الباركود" : zeroStockIsDrug ? "(إجباري - مش متسجل في الباركود، ادخله يدويًا)" : "— اختياري"}
+                                </label>
+                                <input
+                                    type="date"
+                                    value={zeroStockExpiry}
+                                    onChange={(e) => setZeroStockExpiry(e.target.value)}
+                                    style={{
+                                        width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                        borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13,
+                                        outline: "none", boxSizing: "border-box",
+                                    }}
+                                />
+                            </div>
                             <div style={{ color: COLORS.textDim, fontSize: 12 }}>
-                                هيتعمل فاتورة شراء "مسودة" بالكمية دي عشان تقدر تكمل البيع دلوقتي، وتفضل الفاتورة
-                                بحاجة لإكمال باقي بياناتها (السعر والخصومات) من شاشة المشتريات لاحقًا.
+                                هيتعمل فاتورة شراء "مسودة" بالكمية والتشغيلة/الصلاحية دي عشان تقدر تكمل البيع دلوقتي
+                                من نفس التشغيلة الحقيقية، وتفضل الفاتورة بحاجة لإكمال باقي بياناتها (السعر والخصومات)
+                                من شاشة المشتريات لاحقًا.
                             </div>
                             <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
                                 <Btn
-                                    disabled={!zeroStockSupplier || !zeroStockQty || +zeroStockQty <= 0 || zeroStockSaving}
+                                    disabled={
+                                        !zeroStockSupplier ||
+                                        !zeroStockQty ||
+                                        +zeroStockQty <= 0 ||
+                                        (zeroStockIsDrug && !zeroStockExpiry) ||
+                                        zeroStockSaving
+                                    }
                                     onClick={handleZeroStockDraftConfirm}
                                     style={{ flex: 1, justifyContent: "center" }}
                                 >

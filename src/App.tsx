@@ -39,6 +39,7 @@ import { RasdQueue } from "./services/rasdService";
 import { IC, Toast } from "./ui/primitives";
 import { supabase } from "./lib/supabaseClient";
 import { initOfflineSync } from "./lib/offlineAPI";
+import { PharmaLogo } from "./components/PharmaLogo";
 
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
@@ -883,7 +884,7 @@ export default function PharmacyPro() {
                                 flexShrink: 0,
                             }}
                         >
-                            <IC n="pill" s={18} />
+                            <PharmaLogo size={20} variant="mark" markColor={COLORS.accent} />
                         </div>
                         <div>
                             <div
@@ -894,7 +895,7 @@ export default function PharmacyPro() {
                                     lineHeight: 1.2,
                                 }}
                             >
-                                صيدلية برو
+                                فارماجو 360
                             </div>
                             <div style={{ fontSize: 10, color: COLORS.textDim }}>نظام متكامل</div>
                         </div>
@@ -1003,7 +1004,9 @@ export default function PharmacyPro() {
                                                 width: "100%",
                                                 background: isActive ? `${group.color}18` : "transparent",
                                                 borderRight: isActive ? `3px solid ${group.color}` : "3px solid transparent",
-                                                border: "none",
+                                                borderTop: "none",
+                                                borderBottom: "none",
+                                                borderLeft: "none",
                                                 color: isActive ? group.color : COLORS.textDim,
                                                 fontSize: 12,
                                                 fontWeight: isActive ? 700 : 400,
@@ -1362,6 +1365,7 @@ export default function PharmacyPro() {
                             pharmacyId={pharmacyId}
                             treasuryEntries={treasuryEntries}
                             creditPayments={creditPayments}
+                            setTab={setTab}
                         />
                     )}
                     {tab === "tax_report" && canView("tax_report") && (

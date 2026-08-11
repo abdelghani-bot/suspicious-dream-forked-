@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { queueEvent, insertTreasuryEntry } from "../lib/offlineAPI";
+import { queueEvent, insertTreasuryEntry, getLoyaltyTransactions, reverseLoyaltyPointsForReturn } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { BarcodeScanner } from "../components/BarcodeScanner";
 import { TAX_RATE } from "../data/seedData";
@@ -479,6 +479,49 @@ export function ReturnsModule({
                         : s
                 )
             );
+
+            // ── 2ب) نقاط الولاء: خصم النقاط اللي اتكسبت وقت البيع بنسبة قيمة المرتجع ──
+            // بنستبعد نفس الأصناف المستبعدة أصلاً من احتساب النقاط وقت البيع (عروض/جوكر/فرص
+            // فائتة/فاتورة شراء مسودة برصيد صفر — علامة excluded_from_points المحفوظة على كل
+            // سطر فاتورة)، وبنحسب نسبة القيمة المرتجعة من القيمة المؤهلة الأصلية عشان نخصم
+            // نفس النسبة من النقاط الحقيقية اللي اتكسبت من الفاتورة دي (مش تخمين/إعادة حساب).
+            const customerIdForPoints = selCustomer?.id || selInvoice.customer;
+            if (customerIdForPoints) {
+                try {
+                    // ⚠️ مفيش فلترة بـ ref_sale_id في طبقة الكاش المحلي حاليًا، فبنجيب دفعة كبيرة
+                    // ونفلتر هنا. لو حجم حركات النقاط كبر جدًا، الأفضل نضيف query مخصصة بـ ref_sale_id.
+                    const allTx = await getLoyaltyTransactions(pharmacyId, 2000);
+                    const earnedForThisSale = (allTx || [])
+                        .filter((t) => t.ref_sale_id === selInvoice.id && t.type === "earn")
+                        .reduce((s, t) => s + (t.amount || 0), 0);
+
+                    if (earnedForThisSale > 0) {
+                        const eligibleOriginalValue = (selInvoice.items || [])
+                            .filter((it) => !it.excluded_from_points)
+                            .reduce((s, it) => s + (it.price || 0) * (it.qty || 0), 0);
+                        const eligibleReturnedValue = itemsToReturn
+                            .filter((it) => !it.excluded_from_points)
+                            .reduce((s, it) => s + (it.price || 0) * (it.returnQty || 0), 0);
+
+                        if (eligibleOriginalValue > 0 && eligibleReturnedValue > 0) {
+                            const pointsToDeduct =
+                                Math.round(earnedForThisSale * (eligibleReturnedValue / eligibleOriginalValue) * 100) / 100;
+                            if (pointsToDeduct > 0) {
+                                await reverseLoyaltyPointsForReturn(
+                                    pharmacyId,
+                                    customerIdForPoints,
+                                    pointsToDeduct,
+                                    selInvoice.id,
+                                    `خصم نقاط بسبب مرتجع بقيمة ${returnTotal.toFixed(2)} ر.س من فاتورة ${selInvoice.id}`
+                                );
+                                showToast(`↩️ تم خصم ${pointsToDeduct.toFixed(1)} نقطة من رصيد العميل`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("reverseLoyaltyPointsForReturn failed:", err);
+                }
+            }
         }
 
         // ── 3) مرتجع مشتريات: تحديث فاتورة الشراء (تراكمي) ──
@@ -517,6 +560,7 @@ export function ReturnsModule({
         const returnRow = {
             id: returnId,
             date: today,
+            created_at: nowISO,
             type,
             invoice_id: selInvoice?.id || null,
             purchase_invoice_id: purchaseInvoice?.id || null,

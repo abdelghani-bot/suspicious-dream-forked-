@@ -1,16 +1,16 @@
 {
   "ExpandedNodes": [
     "",
-    "\\electron",
-    "\\src",
-    "\\src\\components",
-    "\\src\\data",
+    "\\build",
+    "\\functions",
+    "\\public",
     "\\src\\hooks",
     "\\src\\lib",
     "\\src\\modules",
     "\\src\\services",
-    "\\src\\ui"
+    "\\src\\ui",
+    "\\src\\utils"
   ],
-  "SelectedNode": "\\src\\ui\\primitives.tsx",
+  "SelectedNode": "\\electron\\main.cjs",
   "PreviewInSolutionExplorer": false
 }

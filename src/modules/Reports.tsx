@@ -7,7 +7,7 @@ import { PrintReceipt } from "./PrintReceipt";
 import { Badge, Btn, Input, Modal, Pagination, Select, StatCard, Table } from "../ui/primitives";
 
 // ==================== REPORTS ====================
-export function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId, treasuryEntries = [], creditPayments = [] }) {
+export function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId, treasuryEntries = [], creditPayments = [], setTab }) {
   const [type, setType] = useState("sales");
   // 🆕 افتراضي "من" = أول الشهر الحالي بدل فاضي — كان بيخلي التقرير (لو المستخدم مسحتش "من")
   // يعرض كل فواتير الصيدلية من أول يوم فتحت فيه الحساب، وده بطيء وغير مفيد في أغلب الاستخدام.
@@ -663,155 +663,134 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
         </>
       )}
 
-      {/* تقرير السداد والمصروفات */}
-      {type === "payments" && (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
-            <StatCard label="💵 الداخل الفعلي للخزنة (نقدي/بطاقة/تحويل + تحصيل آجل + دخل إضافي)" value={cashBasisIncome.toFixed(2) + " ر.س"} icon="money" color={COLORS.green} />
-            <StatCard label="📤 إجمالي السداد والمصروفات" value={totalPayments.toFixed(2) + " ر.س"} icon="purchase" color={COLORS.coral} />
-            <StatCard label="⚖️ صافي الفرق المتوقع في الخزنة" value={expectedNetChange.toFixed(2) + " ر.س"} icon="tax" color={expectedNetChange >= 0 ? COLORS.blue : COLORS.red} />
-          </div>
-
-          <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: COLORS.blue, lineHeight: 1.9 }}>
-            ⚖️ <strong>صافي الفرق المتوقع</strong> = الداخل الفعلي للخزنة − إجمالي السداد والمصروفات، وده المفروض يطابق (زيادة/نقصان) رصيد الخزنة الفعلي في نفس الفترة.
-            <br />
-            🚫 مرتجعات المبيعات النقدية متخصومة أصلًا ضمن "الداخل الفعلي"، فمش متضمنة تاني هنا لتفادي الخصم المزدوج.
-            {totalExternalFunding > 0 && (
+          {/* تقرير السداد والمصروفات */}
+          {type === "payments" && (
               <>
-                <br />
-                💰 تنبيه: تم تسجيل <strong>{totalExternalFunding.toFixed(2)} ر.س</strong> كـ"رصيد أول مدة / تمويل" مُضاف للخزنة من خارج الدورة التشغيلية في هذه الفترة — <strong>هذا المبلغ غير محسوب</strong> ضمن الداخل الفعلي ولا ضمن صافي الفرق أعلاه عمدًا، لأنه مش دخل تشغيلي.
-              </>
-            )}
-          </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
+                      <StatCard label="💵 الداخل الفعلي للخزنة (نقدي/بطاقة/تحويل + تحصيل آجل + دخل إضافي)" value={cashBasisIncome.toFixed(2) + " ر.س"} icon="money" color={COLORS.green} />
+                      <StatCard label="📤 إجمالي السداد والمصروفات" value={totalPayments.toFixed(2) + " ر.س"} icon="purchase" color={COLORS.coral} />
+                      <StatCard label="⚖️ صافي الفرق المتوقع في الخزنة" value={expectedNetChange.toFixed(2) + " ر.س"} icon="tax" color={expectedNetChange >= 0 ? COLORS.blue : COLORS.red} />
+                  </div>
 
-          {/* 🆕 تكسير حسب طريقة الدفع — لمطابقة كل درج/محفظة لوحده */}
-          <div style={{ marginBottom: 16 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", color: COLORS.textPrimary }}>💳 تكسير حسب طريقة الدفع</h3>
-            <Table
-              headers={["الطريقة", "الداخل", "السداد/المصروفات", "الصافي"]}
-              rows={methodBreakdown.map((m) => [
-                m.method,
-                <span style={{ color: COLORS.green }}>{m.income.toFixed(2)} ر.س</span>,
-                <span style={{ color: COLORS.coral }}>{m.paid.toFixed(2)} ر.س</span>,
-                <span style={{ fontWeight: 700, color: (m.income - m.paid) >= 0 ? COLORS.blue : COLORS.red }}>{(m.income - m.paid).toFixed(2)} ر.س</span>,
-              ])}
-            />
-          </div>
+                  <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: COLORS.blue, lineHeight: 1.9 }}>
+                      ⚖️ <strong>صافي الفرق المتوقع</strong> = الداخل الفعلي للخزنة − إجمالي السداد والمصروفات، وده المفروض يطابق (زيادة/نقصان) رصيد الخزنة الفعلي في نفس الفترة.
+                      <br />
+                      🚫 مرتجعات المبيعات النقدية متخصومة أصلًا ضمن "الداخل الفعلي"، فمش متضمنة تاني هنا لتفادي الخصم المزدوج.
+                      {totalExternalFunding > 0 && (
+                          <>
+                              <br />
+                              💰 تنبيه: تم تسجيل <strong>{totalExternalFunding.toFixed(2)} ر.س</strong> كـ"رصيد أول مدة / تمويل" مُضاف للخزنة من خارج الدورة التشغيلية في هذه الفترة — <strong>هذا المبلغ غير محسوب</strong> ضمن الداخل الفعلي ولا ضمن صافي الفرق أعلاه عمدًا، لأنه مش دخل تشغيلي.
+                          </>
+                      )}
+                  </div>
 
-          {/* 🆕 مطابقة مع سجل تقفيل الخزنة — بيكشف الأيام اللي ما اتقفلتش لسه في الفترة (غير النهارده) */}
-          <div style={{
-            background: isReconciled ? COLORS.greenSoft : COLORS.redSoft,
-            border: `1px solid ${tint(isReconciled ? COLORS.green : COLORS.red, 0.35)}`,
-            borderRadius: 8, padding: "10px 14px", marginBottom: excludeUnclosedToday ? 8 : 16, fontSize: 12,
-            color: isReconciled ? COLORS.green : COLORS.red, lineHeight: 1.9,
-          }}>
-            {isReconciled ? (
-              <>✅ <strong>مطابق:</strong> نفس الرقم اتحسب من سجل تقفيل الخزنة الفعلي{excludeUnclosedToday ? " (للأيام المُقفّلة قبل النهارده)" : ""}، يعني كل أيام الفترة دي مُقفّلة وموثّقة صح.</>
-            ) : (
-              <>
-                ⚠️ <strong>فيه فرق {closedReconciliationVariance.toFixed(2)} ر.س</strong> بين "الصافي المحسوب من فواتير/مرتجعات الفترة" وبين "الصافي المسجّل فعليًا في سجل تقفيل الخزنة" لنفس الفترة{excludeUnclosedToday ? " (بعد استبعاد النهارده اللي لسه ما اتقفلش)" : ""}.
-                <br />
-                السبب الأرجح: فيه يوم أو أكتر في الفترة دي لسه ما اتقفلش (تقفيل الخزنة اليومي)، فقيود الدخل الخاصة بيه لسه ماتسجلتش. راجع أيام التقفيل الناقصة في تبويب "الخزنة".
+                  {/* 🆕 الكروت الخمسة + الجدول التفصيلي نقلوا لفوق مباشرة عشان يفضلوا جنب بعض بصريًا (الضغط على كارت بيفلتر الجدول) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 10 }}>
+                      {paymentGroupTotals.map((g) => (
+                          <div key={g.key} onClick={() => setSelectedPaymentGroup((p) => (p === g.key ? null : g.key))} style={{ cursor: "pointer" }}>
+                              <StatCard
+                                  label={g.label + (selectedPaymentGroup === g.key ? " ✓" : "")}
+                                  value={g.total.toFixed(2) + " ر.س"}
+                                  icon={g.icon}
+                                  color={g.color}
+                              />
+                          </div>
+                      ))}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>💡 اضغط على أي فئة فوق لتصفية الجدول بيها</div>
+                      {selectedPaymentGroup && (
+                          <button onClick={() => setSelectedPaymentGroup(null)} style={{ border: "none", background: "transparent", color: COLORS.blue, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                              إلغاء التصفية (عرض الكل)
+                          </button>
+                      )}
+                  </div>
+
+                  {(() => {
+                      const paymentRows = paymentEntries
+                          .filter((e) => {
+                              if (!selectedPaymentGroup) return true;
+                              const grp = PAYMENT_GROUPS.find((g) => g.key === selectedPaymentGroup);
+                              return grp ? grp.subs.includes(e.sub_type) : true;
+                          })
+                          .filter((e) => {
+                              if (!search.trim()) return true;
+                              const q = search.trim().toLowerCase();
+                              const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
+                              const inNote = (e.note || "").toLowerCase().includes(q);
+                              const inMethod = (e.method || "").toLowerCase().includes(q);
+                              const inCategory = (grp ? grp.label : e.sub_type || "").toLowerCase().includes(q);
+                              const inCreatedBy = (e.created_by || "").toLowerCase().includes(q);
+                              return inNote || inMethod || inCategory || inCreatedBy;
+                          })
+                          .slice()
+                          .sort((a, b) => new Date(b.date) - new Date(a.date));
+                      return (
+                          <>
+                              <Table
+                                  headers={["التاريخ", "الفئة", "التفاصيل", "الطريقة", "المبلغ", "بواسطة"]}
+                                  rows={paymentRows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map((e) => {
+                                      const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
+                                      return [
+                                          e.date,
+                                          <Badge color={COLORS.blueSoft} text={COLORS.blue}>{grp ? grp.label : e.sub_type}</Badge>,
+                                          e.note || "—",
+                                          e.method || "—",
+                                          <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(e.amount || 0).toFixed(2)} ر.س</span>,
+                                          e.created_by || "—",
+                                      ];
+                                  })}
+                              />
+                              <Pagination page={page} onPageChange={setPage} totalItems={paymentRows.length} pageSize={REPORT_PAGE_SIZE} />
+                          </>
+                      );
+                  })()}
+                  {paymentEntries.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مصروفات أو مدفوعات مسجّلة في هذه الفترة</div>}
+
+                  {/* 🆕 تكسير حسب طريقة الدفع — نزل تحت الجدول وبقى Collapsible (ثانوي، مش كل زيارة محتاجاه) */}
+                  <details style={{ marginTop: 22 }}>
+                      <summary style={{ cursor: "pointer", fontSize: 14, fontWeight: 700, color: COLORS.textPrimary, marginBottom: 8 }}>
+                          💳 تكسير حسب طريقة الدفع
+                      </summary>
+                      <div style={{ marginTop: 10 }}>
+                          <Table
+                              headers={["الطريقة", "الداخل", "السداد/المصروفات", "الصافي"]}
+                              rows={methodBreakdown.map((m) => [
+                                  m.method,
+                                  <span style={{ color: COLORS.green }}>{m.income.toFixed(2)} ر.س</span>,
+                                  <span style={{ color: COLORS.coral }}>{m.paid.toFixed(2)} ر.س</span>,
+                                  <span style={{ fontWeight: 700, color: (m.income - m.paid) >= 0 ? COLORS.blue : COLORS.red }}>{(m.income - m.paid).toFixed(2)} ر.س</span>,
+                              ])}
+                          />
+                      </div>
+                  </details>
+
+                  {/* 🆕 حالة المطابقة — سطر مختصر بس، من غير جدول التشخيص (اتنقل للخزنة جنب أداة التسوية الفعلية) */}
+                  <div style={{
+                      background: isReconciled ? COLORS.greenSoft : COLORS.redSoft,
+                      border: `1px solid ${tint(isReconciled ? COLORS.green : COLORS.red, 0.35)}`,
+                      borderRadius: 8, padding: "10px 14px", marginTop: 16, fontSize: 12,
+                      color: isReconciled ? COLORS.green : COLORS.red,
+                      display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8,
+                  }}>
+                      <span>
+                          {isReconciled
+                              ? `✅ مطابق مع سجل تقفيل الخزنة${excludeUnclosedToday ? " (للأيام المُقفّلة قبل النهارده)" : ""}`
+                              : `⚠️ فيه فرق ${closedReconciliationVariance.toFixed(2)} ر.س بين الفواتير وسجل التقفيل${excludeUnclosedToday ? " (بعد استبعاد النهارده)" : ""} — راجع الأيام غير المتطابقة في تبويب الخزنة`}
+                      </span>
+                      {!isReconciled && setTab && (
+                          <button onClick={() => setTab("treasury")} style={{ border: "none", background: COLORS.red, color: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                              مراجعة في الخزنة →
+                          </button>
+                      )}
+                  </div>
+                  {excludeUnclosedToday && (
+                      <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 6 }}>
+                          ℹ️ اليوم الحالي ({todayStr}) لسه ما اتقفلش، فمستبعد مؤقتًا من فحص المطابقة.
+                      </div>
+                  )}
               </>
-            )}
-          </div>
-          {excludeUnclosedToday && (
-            <div style={{
-              background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`,
-              borderRadius: 8, padding: "8px 14px", marginBottom: 16, fontSize: 12, color: COLORS.blue, lineHeight: 1.9,
-            }}>
-              ℹ️ اليوم الحالي ({todayStr}) لسه ما اتقفلش، فمستبعد مؤقتًا من كارت المطابقة فوق عشان محدش يتلبّس بتحذير غير حقيقي — هيدخل في المطابقة تلقائيًا أول ما تعمل "تقفيل اليوم".
-            </div>
           )}
-
-          {/* 🆕 تشخيص يوم بيوم — بيظهر بس لو فيه فرق فعلي، عشان يحدد اليوم بالظبط بدل التخمين */}
-          {!isReconciled && dailyReconciliation.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", color: COLORS.textPrimary }}>
-                🔎 الأيام اللي فيها فرق فعلي (بدل التخمين)
-              </h3>
-              <Table
-                headers={["التاريخ", "متوقع من الفواتير", "مسجّل في الخزنة", "الفرق", "مُقفّل؟"]}
-                rows={dailyReconciliation.map((r) => [
-                  r.date,
-                  r.expected.toFixed(2) + " ر.س",
-                  r.recorded.toFixed(2) + " ر.س",
-                  <span style={{ fontWeight: 700, color: COLORS.red }}>{r.diff.toFixed(2)} ر.س</span>,
-                  r.wasClosed ? "✅ مقفول" : "❌ غير مقفول",
-                ])}
-              />
-              <div style={{ fontSize: 12, color: COLORS.textDim, marginTop: 6, lineHeight: 1.8 }}>
-                لو اليوم "✅ مقفول" وبرضه فيه فرق، الاحتمال الأكبر إن فيه مبيعات/مرتجعات حصلت
-                في نفس اليوم <strong>بعد</strong> ما اتعمل "تقفيل اليوم"، ولسه ما اتضافتش كـ"تسوية" — وده حاليًا
-                زرار "إضافة كتسوية على تقفيل اليوم" شغال بس لليوم الحالي، مش لأي يوم سابق. ممكن كمان
-                يكون فيه تعديل يدوي حصل على جدول treasury_entries من الـ Table Editor مباشرة لنفس اليوم ده.
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 10 }}>
-            {paymentGroupTotals.map((g) => (
-              <div key={g.key} onClick={() => setSelectedPaymentGroup((p) => (p === g.key ? null : g.key))} style={{ cursor: "pointer" }}>
-                <StatCard
-                  label={g.label + (selectedPaymentGroup === g.key ? " ✓" : "")}
-                  value={g.total.toFixed(2) + " ر.س"}
-                  icon={g.icon}
-                  color={g.color}
-                />
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: COLORS.textDim }}>💡 اضغط على أي فئة فوق لتصفية الجدول بيها</div>
-            {selectedPaymentGroup && (
-              <button onClick={() => setSelectedPaymentGroup(null)} style={{ border: "none", background: "transparent", color: COLORS.blue, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                إلغاء التصفية (عرض الكل)
-              </button>
-            )}
-          </div>
-
-          {(() => {
-            const paymentRows = paymentEntries
-              .filter((e) => {
-                if (!selectedPaymentGroup) return true;
-                const grp = PAYMENT_GROUPS.find((g) => g.key === selectedPaymentGroup);
-                return grp ? grp.subs.includes(e.sub_type) : true;
-              })
-              .filter((e) => {
-                if (!search.trim()) return true;
-                const q = search.trim().toLowerCase();
-                const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
-                const inNote = (e.note || "").toLowerCase().includes(q);
-                const inMethod = (e.method || "").toLowerCase().includes(q);
-                const inCategory = (grp ? grp.label : e.sub_type || "").toLowerCase().includes(q);
-                const inCreatedBy = (e.created_by || "").toLowerCase().includes(q);
-                return inNote || inMethod || inCategory || inCreatedBy;
-              })
-              .slice()
-              .sort((a, b) => new Date(b.date) - new Date(a.date));
-            return (
-              <>
-                <Table
-                  headers={["التاريخ", "الفئة", "التفاصيل", "الطريقة", "المبلغ", "بواسطة"]}
-                  rows={paymentRows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE).map((e) => {
-                    const grp = PAYMENT_GROUPS.find((g) => g.subs.includes(e.sub_type));
-                    return [
-                      e.date,
-                      <Badge color={COLORS.blueSoft} text={COLORS.blue}>{grp ? grp.label : e.sub_type}</Badge>,
-                      e.note || "—",
-                      e.method || "—",
-                      <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(e.amount || 0).toFixed(2)} ر.س</span>,
-                      e.created_by || "—",
-                    ];
-                  })}
-                />
-                <Pagination page={page} onPageChange={setPage} totalItems={paymentRows.length} pageSize={REPORT_PAGE_SIZE} />
-              </>
-            );
-          })()}
-          {paymentEntries.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد مصروفات أو مدفوعات مسجّلة في هذه الفترة</div>}
-        </>
-      )}
 
       {/* Modal تفاصيل الفاتورة */}
       {showInvoiceDetail && (

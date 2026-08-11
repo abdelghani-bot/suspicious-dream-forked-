@@ -13,6 +13,7 @@ import { RasdQueue } from "../services/rasdService";
 import { Badge, Btn, IC, Modal, Pagination, Select, Table } from "../ui/primitives";
 import { queueEvent } from "../lib/offlineAPI";
 import { getDeviceId } from "../lib/deviceID";
+import { printHTML } from "../lib/printHelper";
 
 // 🆕 إعادة محاولة بسيطة لكتابات الكاش المحلي (SQLite) — دي مش مصدر الحقيقة (الـ pending_sync_events
 // هو المصدر)، بس لو فشلت لسبب عابر (قفل ملف، IO مؤقت) منستحقش نسيبها من أول مرة.
@@ -30,6 +31,57 @@ async function retryLocalWrite(fn, attempts = 3, delayMs = 300) {
     return lastResult;
 }
 
+// ==================== طباعة فاتورة الشراء (A4) ====================
+const doPrintPurchaseInvoice = async (invoice, supplierName) => {
+    const items = invoice.items || [];
+    const rowsHtml = items
+        .map(
+            (i) => `
+        <tr>
+            <td>${i.name || ""}</td>
+            <td style="text-align:center">${i.qty || 0}</td>
+            <td style="text-align:center">${i.bonusQty || 0}</td>
+            <td style="text-align:center">${(i.receivedCost ?? i.cost ?? 0).toFixed(2)}</td>
+            <td style="text-align:center">${((i.receivedCost ?? i.cost ?? 0) * (i.qty || 0)).toFixed(2)}</td>
+        </tr>`
+        )
+        .join("");
+
+    const fullHtml = `<html dir="rtl"><head><style>
+        @page{size:A4;margin:14mm}
+        body{font-family:'Tajawal',Arial,sans-serif;margin:0;color:#000;font-size:13px}
+        h2{margin:0 0 4px;font-size:20px;text-align:center}
+        .meta{display:flex;justify-content:space-between;margin:14px 0;font-size:13px;color:#333}
+        table{width:100%;border-collapse:collapse;margin-top:10px}
+        th,td{padding:8px;border-bottom:1px solid #ddd;font-size:12px;text-align:right}
+        thead tr{background:#f2f2f2}
+        .totals{margin-top:16px;width:280px;margin-right:0;margin-left:auto}
+        .totals div{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+        .totals .grand{font-weight:700;font-size:16px;border-top:1px solid #333;margin-top:6px;padding-top:8px}
+    </style></head><body>
+        <h2>فاتورة شراء</h2>
+        <div class="meta">
+            <span>رقم الفاتورة: ${invoice.id}</span>
+            <span>التاريخ: ${invoice.date}</span>
+            <span>المورد: ${supplierName || invoice.supplier_name || invoice.supplierName || "-"}</span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>الصنف</th><th>الكمية</th><th>بونص</th><th>تكلفة الوحدة</th><th>الإجمالي</th>
+                </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+        </table>
+        <div class="totals">
+            <div><span>الإجمالي قبل الضريبة</span><span>${(invoice.subtotal || 0).toFixed(2)} ر.س</span></div>
+            <div><span>الضريبة</span><span>${(invoice.tax_amount ?? invoice.taxAmount ?? 0).toFixed(2)} ر.س</span></div>
+            <div class="grand"><span>الإجمالي الكلي</span><span>${(invoice.total || 0).toFixed(2)} ر.س</span></div>
+        </div>
+    </body></html>`;
+
+    await printHTML(fullHtml); // من غير paperWidthMM = A4 تلقائي
+};
 export function PurchaseModule({
     products,
     setProducts,
@@ -114,6 +166,28 @@ export function PurchaseModule({
     const [editSupplier, setEditSupplier] = useState("");
     const [editManualSubtotal, setEditManualSubtotal] = useState("");
     const [editManualTax, setEditManualTax] = useState("");
+
+    // 🆕 بند فاتورة شراء محفوظة ممكن يكون خلاص اتباع منه شوية (كليًا أو جزئيًا) قبل ما
+    // الصيدلي يفتح شاشة التعديل. حذف البند أو تقليل كميته تحت الكمية المتباعة كان بيسمح
+    // بيه الكود من غير أي تحقق، وده بيعمل stockDelta سالب بيتطبّق على المخزون من غير ما
+    // يراعي إن جزء من الكمية دي خرج فعليًا لعميل بالفعل. الدالة دي بتحسب: من الكمية الأصلية
+    // اللي البند ده زوّدها وقت الحفظ، قد إيه لسه فاضل في نفس الـ batch (batch_id) دلوقتي —
+    // فالفرق هو اللي اتباع.
+    const getSoldQtyForPurchaseItem = (editedItem) => {
+        const original = (showDetail?.items || []).find((oi) => oi.id === editedItem.id);
+        if (!original) return 0; // بند جديد اتضاف في التعديل نفسه، معندوش تاريخ بيع خالص
+        if (!original.batch_id) {
+            // بند قديم من غير batch_id متسجل (قبل تتبع الباتشات) — منقدرش نحسب المتبقي
+            // بدقة على مستوى الشغلة، فبنرجّع 0 (يعني نسمح بالتعديل زي ما كان شغال قبل كده)
+            // بدل ما نمنع حاجة كانت متاحة أصلاً.
+            return 0;
+        }
+        const originalQty = (original.qty || 0) + (original.bonusQty || 0);
+        const product = (products || []).find((p) => p.id === editedItem.id);
+        const matchedBatch = (product?.batches || []).find((b) => b.id === original.batch_id);
+        const currentBatchQty = matchedBatch ? (matchedBatch.qty || 0) : 0;
+        return Math.max(0, originalQty - currentBatchQty);
+    };
     // 🆕 بحث وPagination لجدول فواتير الشراء — كان بيعرض كل الفواتير دفعة واحدة من غير أي وسيلة بحث.
     const [invoiceSearch, setInvoiceSearch] = useState("");
     const PURCHASE_PAGE_SIZE = 25;
@@ -1048,12 +1122,19 @@ export function PurchaseModule({
             return;
         }
         const sup = suppliers.find((s) => s.id === selSupplier);
+        // 🆕 batch.id واحد بيتولّد هنا لكل سطر في الفاتورة (بالـ index، مش بالـ id، عشان لو نفس
+        // الصنف اتكرر بسطرين مختلفين في نفس الفاتورة — كل سطر يبقى ليه batch مستقل صح) — ونفس
+        // الـ id ده هيتحفظ في بند الفاتورة نفسه (po.items[].batch_id) وفي الـ batch الفعلي جوه
+        // products.batches معًا، بدل ما يتولدوا منفصلين زي ما كان قبل كده (نفس مبدأ إصلاح مسار
+        // "رصيد صفر" في نقطة البيع). ده اللي بيخلي فحص "قد إيه اتباع من الشغلة دي" في شاشة
+        // التعديل يشتغل صح على أي فاتورة عادية، مش بس على مسودات نقطة البيع.
+        const batchIds = items.map(() => crypto.randomUUID());
         const po = {
             id: "PO-" + crypto.randomUUID(),
             date: todayLocal(),
             supplier: selSupplier,
             supplierName: sup.name,
-            items: items.map((i) => ({
+            items: items.map((i, idx) => ({
                 id: i.id,
                 name: i.name,
                 qty: i.qty,
@@ -1065,6 +1146,7 @@ export function PurchaseModule({
                 taxable: i.taxable,
                 expiry_date: i.expiry_date || null,
                 batch_number: i.batch_number || null,
+                batch_id: batchIds[idx], // 🆕 نفس id الـ batch الفعلي، مش placeholder
             })),
             subtotal,
             taxAmount: taxAmt,
@@ -1136,15 +1218,20 @@ export function PurchaseModule({
             description: `إضافة فاتورة شراء من "${po.supplierName}" بإجمالي ${po.total} ر.س`,
         });
 
-        // بنجهز الـ batches الجديدة لكل صنف كـ أحداث منفصلة (batch id يتولد هنا عشان الـ idempotency)
+        // بنجهز الـ batches الجديدة لكل صنف كـ أحداث منفصلة
         // ⚠️ رجّعت شكل الـ batch كـ object كامل زي الأصل — دالة apply_purchase_stock_batch بتقرا
         // qty/cost/salePrice/expiry_date/batch_number من جوه v_event->'batch' مباشرة، مش من حقول
         // مفرودة. الإضافة الوحيدة الصح هنا هي device_id (الدالة بتقراها: v_event->>'device_id').
         const newBatchesByProduct = {};
-        const stockEvents = items.map((ci) => {
+        const stockEvents = items.map((ci, idx) => {
             const product = products.find((x) => x.id === ci.id);
+            // 🆕 لو نفس الصنف اتكرر بأكتر من سطر في نفس الفاتورة (batch مختلف/expiry مختلف)،
+            // لازم نبني فوق آخر batches اتجمّعت من سطر سابق لنفس الصنف في نفس الحلقة دي —
+            // مش نرجع دايمًا لـ product.batches الأصلية وإلا الـ batch بتاع السطر الأول
+            // هيتمسح من الـ state المحلي (السيرفر كان سليم بس العرض المحلي كان بيغلط).
+            const baseBatches = newBatchesByProduct[ci.id] || product?.batches || [];
             const newBatch = {
-                id: crypto.randomUUID(),
+                id: batchIds[idx], // 🆕 نفس id اللي اتحفظ في po.items[idx].batch_id، مش عشوائي مستقل
                 qty: ci.qty + (ci.bonusQty || 0),
                 cost: ci.receivedCost,
                 salePrice: ci.newSalePrice,
@@ -1152,7 +1239,7 @@ export function PurchaseModule({
                 batch_number: ci.batch_number || null,
                 date: todayLocal(),
             };
-            newBatchesByProduct[ci.id] = [...(product?.batches || []), newBatch];
+            newBatchesByProduct[ci.id] = [...baseBatches, newBatch];
             return {
                 id: crypto.randomUUID(),
                 pharmacy_id: pharmacyId,
@@ -2425,15 +2512,26 @@ export function PurchaseModule({
                                                 type="number"
                                                 min="1"
                                                 value={item.qty}
-                                                onChange={(e) =>
+                                                onChange={(e) => {
+                                                    const newQty = +e.target.value;
+                                                    // 🆕 منع تقليل الكمية تحت اللي اتباع بالفعل من نفس الشغلة —
+                                                    // نفس منطق منع الحذف بالظبط، بس هنا جزئي مش كامل.
+                                                    const soldQty = getSoldQtyForPurchaseItem(item);
+                                                    if (soldQty > 0 && newQty < soldQty) {
+                                                        showToast(
+                                                            `مينفعش الكمية تقل عن ${soldQty} — ده اللي اتباع بالفعل من "${item.name}" من نفس الشغلة`,
+                                                            "error"
+                                                        );
+                                                        return;
+                                                    }
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
                                                             i.id === item.id
-                                                                ? { ...i, qty: +e.target.value }
+                                                                ? { ...i, qty: newQty }
                                                                 : i
                                                         )
-                                                    )
-                                                }
+                                                    );
+                                                }}
                                                 style={{
                                                     width: 55,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -2651,11 +2749,21 @@ export function PurchaseModule({
                                         </td>
                                         <td style={{ padding: "6px 8px" }}>
                                             <button
-                                                onClick={() =>
+                                                onClick={() => {
+                                                    // 🆕 منع حذف بند اتباع منه بالفعل — لازم يتحل عن طريق مرتجع بيع
+                                                    // للكمية دي الأول، مش بحذف صف الفاتورة وتصفير رصيد كان له مالك.
+                                                    const soldQty = getSoldQtyForPurchaseItem(item);
+                                                    if (soldQty > 0) {
+                                                        showToast(
+                                                            `مينفعش تحذف "${item.name}" — اتباع منه ${soldQty} وحدة بالفعل من نفس الشغلة. لو محتاج تصحيح، اعمل مرتجع بيع للكمية دي الأول من شاشة المرتجعات`,
+                                                            "error"
+                                                        );
+                                                        return;
+                                                    }
                                                     setEditItems((prev) =>
                                                         prev.filter((i) => i.id !== item.id)
-                                                    )
-                                                }
+                                                    );
+                                                }}
                                                 style={{
                                                     background: "transparent",
                                                     border: "none",
@@ -2783,6 +2891,13 @@ export function PurchaseModule({
                         <Btn variant="ghost" onClick={() => setShowDetail(null)}>
                             إلغاء
                         </Btn>
+                        <Btn
+                            variant="secondary"
+                            icon="print"
+                            onClick={() => doPrintPurchaseInvoice(showDetail, suppliers.find(s => s.id === editSupplier)?.name)}
+                        >
+                            طباعة
+                        </Btn>
                         <Btn variant="secondary" onClick={() => printLabels(
                             editItems.map((i) => ({ ...i, newSalePrice: i.salePrice || i.newSalePrice }))
                         )}>
@@ -2811,10 +2926,16 @@ export function PurchaseModule({
                                 const editTaxAmt =
                                     editManualTax !== "" ? +editManualTax : editCalcTax;
                                 const sup = suppliers.find((s) => s.id === editSupplier);
+                                // 🆕 الفاتورة دي لو كانت "مسودة" (جاية من سيناريو رصيد صفر في نقطة البيع)
+                                // وبيتكمّل بياناتها دلوقتي هنا (التكلفة/الخصومات الحقيقية)، فده بالظبط
+                                // معنى "اكتملت" — نحوّل حالتها لـ"مستلمة" زي أي فاتورة عادية، عشان
+                                // مش تفضل معلّقة "بحاجة لإكمال" للأبد حتى بعد ما فعلاً اتكملت.
+                                const wasDraft = showDetail.status === "مسودة";
                                 const updated = {
                                     ...showDetail,
                                     supplier: editSupplier,
                                     supplier_name: sup?.name || showDetail.supplier_name,
+                                    status: wasDraft ? "مستلمة" : showDetail.status,
                                     items: editItems.map((i) => ({
                                         id: i.id,
                                         name: i.name,
@@ -2826,6 +2947,12 @@ export function PurchaseModule({
                                         salePrice: i.newSalePrice,
                                         taxable: i.taxable,
                                         expiry_date: i.expiry_date || null,
+                                        // 🆕 كانوا بيتشالوا هنا من غير قصد — batch_id هو الرابط الوحيد بين
+                                        // بند الفاتورة دي وبين الـ batch الفعلي في products.batches (ومنه
+                                        // للبيع والرصد). لو اتشال، أي تعديل تاني على نفس الفاتورة بيفقد
+                                        // القدرة يحسب "قد إيه اتباع من الشغلة دي" (زي فحص الحذف/التقليل فوق).
+                                        batch_id: i.batch_id || null,
+                                        batch_number: i.batch_number || null,
                                     })),
                                     subtotal: editSubtotal,
                                     taxAmount: editTaxAmt,
@@ -2872,6 +2999,9 @@ export function PurchaseModule({
                                             subtotal: editSubtotal,
                                             tax_amount: editTaxAmt,
                                             total: editSubtotal + editTaxAmt,
+                                            // 🆕 لو كانت مسودة رصيد صفر، تتحول لـ"مستلمة" فعليًا على السيرفر كمان
+                                            // مش بس محليًا — وإلا هتفضل تظهر "بحاجة لإكمال" في أي جهاز/جلسة تانية.
+                                            ...(wasDraft ? { status: "مستلمة" } : {}),
                                         },
                                         stockDeltas,
                                     },
@@ -2907,6 +3037,31 @@ export function PurchaseModule({
                                 setPurchases((prev) =>
                                     prev.map((p) => (p.id === showDetail.id ? updated : p))
                                 );
+
+                                // 🆕 لو الفاتورة دي كانت مسودة رصيد صفر واتكمّلت دلوقتي، نمسح إشارة
+                                // "الفاتورة المفتوحة" بتاعة نفس المورد ده من localStorage اللي نقطة
+                                // البيع (POS.tsx) بتعتمد عليها — وإلا لو الصيدلي باع صنف تاني (رصيده
+                                // صفر) من نفس المورد بعد كده، هتحاول نقطة البيع تضيفه على الفاتورة دي
+                                // اللي خلاص اتقفلت، بدل ما تفتح فاتورة مسودة جديدة صح.
+                                // بنتأكد إن الإشارة المخزّنة بتخص نفس الفاتورة دي بالظبط (poId) قبل
+                                // ما نمسحها، عشان لو حصلت مسودة تانية أحدث لنفس المورد بعد كده منمسحهاش.
+                                if (wasDraft) {
+                                    try {
+                                        const key = `pharmacypro_pos_zero_stock_drafts_${pharmacyId}`;
+                                        const raw = localStorage.getItem(key);
+                                        if (raw) {
+                                            const parsed = JSON.parse(raw);
+                                            const supplierKey = showDetail.supplier; // المورد الأصلي وقت إنشاء المسودة
+                                            if (parsed[supplierKey]?.poId === showDetail.id) {
+                                                delete parsed[supplierKey];
+                                                localStorage.setItem(key, JSON.stringify(parsed));
+                                            }
+                                        }
+                                    } catch (err) {
+                                        console.error("clearing POS zero-stock draft marker failed:", err);
+                                    }
+                                }
+
                                 setShowDetail(null);
                                 showToast("تم التعديل ✓");
                             }}

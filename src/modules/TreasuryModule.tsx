@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { insertTreasuryEntry, insertTreasuryEntries } from "../lib/offlineAPI";
-import { COLORS, tint } from "../theme";
+import { COLORS, SHADOW, tint } from "../theme";
 import { AUDIT_ENTITY_LABELS, logAudit } from "../lib/auditLog";
 import { todayLocal } from "../lib/dateUtils";
 import { calcEndOfServiceBenefit, calcGosi, calcLeaveBalanceDays, calcWeeklyScheduledHours, computeMonthlyAttendanceStats, computeStaffCommissionForMonth } from "../lib/hrUtils";
 import { computeAvailableForPayment, computeTreasuryBalance } from "../lib/treasuryUtils";
 import { Btn, Input, Modal, Select } from "../ui/primitives";
+import { printHTML } from "../lib/printHelper";
 
 // ==================== TREASURY MODULE ====================
 export function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, users = [], showToast, shifts, entries, setEntries, returns = [], products = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
@@ -238,6 +239,17 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const postClosingNet = postClosingSalesTotal;
     const hasPostClosingActivity = postClosingSales.length > 0;
 
+    // 🆕 حارس تكرار: بيتأكد إن نفس الفواتير دي ما اتضافتش قبل كده كتسوية (closing_adjustment) لنفس
+    // اليوم والصيدلية، حتى لو الكيرسر ما اتحركش لأي سبب (bug تاني، تأخير مزامنة، ريفريش، إلخ).
+    // بيراجع نص كل تسوية سابقة وبيشوف لو كل الفواتير المطلوب إضافتها دلوقتي متضمنة فيه بالفعل.
+    const isDuplicateAdjustment = (dateVal, saleIds) => {
+        if (saleIds.length === 0) return false;
+        const priorAdjustments = (entries || []).filter(
+            (e) => e.pharmacy_id === pharmacyId && e.date === dateVal && e.sub_type === "closing_adjustment"
+        );
+        return priorAdjustments.some((e) => saleIds.every((sid) => (e.note || "").includes(String(sid))));
+    };
+
     const [addingAdjustment, setAddingAdjustment] = useState(false);
     const addingAdjustmentRef = useRef(false); // 🆕 حماية فورية من الضغط المتكرر (state وحده مش كفاية لأن التحديث async)
     const addClosingAdjustment = async () => {
@@ -253,10 +265,17 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             showToast(`❌ يوجد ${openShiftsNow.length} شفت مفتوح — أقفل الشفت أولاً قبل إضافة التسوية`, "error");
             return;
         }
+        const postClosingSaleIds = postClosingSales.map((s) => s.id);
+        // 🆕 حارس التكرار — لو نفس الفواتير دي اتسجلت في تسوية سابقة، امنع الإضافة تاني
+        if (isDuplicateAdjustment(today, postClosingSaleIds)) {
+            showToast("⚠️ يبدو أن هذه الفواتير سبق إضافتها كتسوية — تم منع الإضافة المكررة", "error");
+            return;
+        }
         addingAdjustmentRef.current = true;
         setAddingAdjustment(true);
-        const invoiceIds = postClosingSales.map((s) => s.id).join("، ");
+        const invoiceIds = postClosingSaleIds.join("، ");
         const adjNote = `تسوية مبيعات جديدة بعد تقفيل اليوم — فواتير: ${invoiceIds}`;
+        const nowIso = new Date().toISOString(); // 🆕 لازم نثبته هنا عشان نستخدمه في القيد المحلي فورًا
         const { id } = await insertTreasuryEntry({
             type: "income",
             sub_type: "closing_adjustment",
@@ -266,11 +285,15 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             date: today,
             pharmacy_id: pharmacyId,
             created_by: currentUser?.name || "",
+            created_at: nowIso,
         });
         setAddingAdjustment(false);
         addingAdjustmentRef.current = false; // 🆕
         if (setEntries) {
-            setEntries((p) => [{ id, type: "income", sub_type: "closing_adjustment", method: "نقدي", amount: postClosingNet, note: adjNote, date: today, pharmacy_id: pharmacyId, created_by: currentUser?.name || "" }, ...p]);
+            // 🆕 لازم نبعت created_at هنا وإلا الكيرسر (postClosingCursor) ما يتحركش محليًا،
+            // وتفضل نفس الفواتير شكلها "معلّقة" لسه وتسمح بضغط الزر تاني وتكرار التسوية
+            // (ده كان السبب الفعلي في تكرار تسوية يوم 7 أغسطس).
+            setEntries((p) => [{ id, type: "income", sub_type: "closing_adjustment", method: "نقدي", amount: postClosingNet, note: adjNote, date: today, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", created_at: nowIso }, ...p]);
         }
         showToast(navigator.onLine ? "✅ تمت إضافة التسوية لتقفيل اليوم" : "✅ تم تسجيل التسوية محليًا (ستُرفع عند توفر الاتصال)");
     };
@@ -285,6 +308,20 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const closedDaysList = Array.from(
         new Set((entries || []).filter((e) => e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing").map((e) => e.date))
     ).sort().reverse();
+    // 🆕 نفس تشخيص "الأيام اللي فيها فرق فعلي" اللي كان في تقرير السداد والمصروفات —
+    // اتنقل هنا عشان يبقى جنب أداة التسوية الفعلية، فيقدر المستخدم يتصرف فورًا بدل ما يقرأ تحذير في شاشة تانية.
+    const fullyReturnedSaleIdsForDiag = new Set((sales || []).filter((s) => s.returned).map((s) => s.id));
+    const closedDaysDiagnostics = closedDaysList.map((d) => {
+        const expected =
+            (sales || []).filter((s) => s.date === d && !s.returned && s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0)
+            - (returns || []).filter((r) => r.type === "sales" && r.date === d && r.refund_method && !(r.invoice_id && fullyReturnedSaleIdsForDiag.has(r.invoice_id))).reduce((a, r) => a + (r.total || 0), 0)
+            + (creditPayments || []).filter((p) => p.date === d).reduce((a, p) => a + (p.amount || 0), 0)
+            + (entries || []).filter((e) => e && e.type === "income" && e.sub_type === "other" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
+        const recorded =
+            (entries || []).filter((e) => e && e.type === "income" && e.sub_type !== "opening_balance" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0)
+            - (entries || []).filter((e) => e && e.type === "expense" && e.sub_type === "sales_return" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
+        return { date: d, diff: expected - recorded };
+    }).filter((r) => Math.abs(r.diff) > 0.01);
     const [reviewDate, setReviewDate] = useState("");
     const reviewClosingRecord = reviewDate
         ? (entries || []).find((e) => e.pharmacy_id === pharmacyId && e.date === reviewDate && e.sub_type === "daily_closing")
@@ -320,10 +357,17 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             showToast(`❌ يوجد ${openShiftsNow.length} شفت مفتوح — أقفل الشفت أولاً قبل إضافة التسوية`, "error");
             return;
         }
+        const reviewPostClosingSaleIds = reviewPostClosingSales.map((s) => s.id);
+        // 🆕 حارس التكرار — نفس المنطق المستخدم في تسوية اليوم الحالي
+        if (isDuplicateAdjustment(reviewDate, reviewPostClosingSaleIds)) {
+            showToast("⚠️ يبدو أن هذه الفواتير سبق إضافتها كتسوية — تم منع الإضافة المكررة", "error");
+            return;
+        }
         addingReviewAdjustmentRef.current = true;
         setAddingReviewAdjustment(true);
-        const invoiceIds = reviewPostClosingSales.map((s) => s.id).join("، ");
+        const invoiceIds = reviewPostClosingSaleIds.join("، ");
         const reviewNote = `تسوية مبيعات جديدة بعد تقفيل يوم ${reviewDate} — فواتير: ${invoiceIds}`;
+        const nowIso = new Date().toISOString(); // 🆕
         const { id } = await insertTreasuryEntry({
             type: "income",
             sub_type: "closing_adjustment",
@@ -333,11 +377,13 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             date: reviewDate,
             pharmacy_id: pharmacyId,
             created_by: currentUser?.name || "",
+            created_at: nowIso,
         });
         setAddingReviewAdjustment(false);
         addingReviewAdjustmentRef.current = false;
         if (setEntries) {
-            setEntries((p) => [{ id, type: "income", sub_type: "closing_adjustment", method: "نقدي", amount: reviewPostClosingNet, note: reviewNote, date: reviewDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "" }, ...p]);
+            // 🆕 نفس سبب إضافة created_at فوق — عشان reviewPostClosingCursor يتحرك فورًا
+            setEntries((p) => [{ id, type: "income", sub_type: "closing_adjustment", method: "نقدي", amount: reviewPostClosingNet, note: reviewNote, date: reviewDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", created_at: nowIso }, ...p]);
         }
         showToast(navigator.onLine ? `✅ تمت إضافة التسوية لتقفيل يوم ${reviewDate}` : "✅ تم تسجيل التسوية محليًا (ستُرفع عند توفر الاتصال)");
     };
@@ -645,12 +691,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
           <div>توقيع المسؤول</div>
         </div>
       </body></html>`;
-        const w = window.open("", "_blank", "width=480,height=640");
-        if (!w) { showToast("امنع المتصفح النافذة المنبثقة — اسمح بها وجرّب تاني", "error"); return; }
-        w.document.write(html);
-        w.document.close();
-        w.focus();
-        setTimeout(() => w.print(), 300);
+        printHTML(html);
     };
 
     const saveSalaryPayment = async (emp) => {
@@ -832,9 +873,13 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const todayReturnsSales = (returns || []).filter((r) => r.type === "sales" && r.date === today && r.refund_method !== null);
     // 🆕 إجمالي مرتجعات اليوم (كامل + جزئي) عشان يتخصم من "إجمالي اليوم" في الخزنة، بنفس منطق كل شفت
     const todayReturnsSalesTotal = todayReturnsSales.reduce((a, r) => a + (r.total || 0), 0);
-    const getShiftReturns = (shiftId) =>
+    const getShiftReturns = (shift) =>
         todayReturnsSales
-            .filter((r) => salesById[r.invoice_id]?.shift === shiftId)
+            .filter((r) =>
+                r.created_at &&
+                new Date(r.created_at).getTime() >= new Date(shift.start_time).getTime() &&
+                (!shift.end_time || new Date(r.created_at).getTime() <= new Date(shift.end_time).getTime())
+            )
             .reduce((a, r) => a + (r.total || 0), 0);
 
     const getShiftSales = (shiftId) => {
@@ -953,6 +998,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             const closingEntryPayload = {
                 type: "closing", sub_type: "daily_closing", method: "نقدي",
                 amount: 0, note: "تقفيل اليوم", date: today,
+                created_at: new Date().toISOString(), // 🆕 عشان الداشبورد يلقط لحظة التقفيل فورًا
                 pharmacy_id: pharmacyId, created_by: currentUser.name,
             };
             const closingResults = await insertTreasuryEntries([closingEntryPayload]);
@@ -1040,8 +1086,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         <td style="text-align:left; font-weight:bold; color:${sign > 0 ? "#0a7a3a" : "#a30f0f"}">${sign > 0 ? "+" : "-"}${(e.amount || 0).toFixed(2)}</td>
       </tr>`).join("");
 
-        const win = window.open("", "_blank");
-        win.document.write(`
+        const dayClosingHtml = `
       <html dir="rtl">
       <head>
         <meta charset="utf-8">
@@ -1063,14 +1108,9 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
           .box .val { font-size:16px; font-weight:bold; }
           .total-line { display:flex; justify-content:space-between; font-size:15px; font-weight:bold; border-top:2px solid #222; padding-top:8px; margin-top:8px; }
           .meta { color:#555; font-size:11px; margin-top:20px; border-top:1px dashed #999; padding-top:8px; }
-          @media print { .no-print { display:none; } }
         </style>
       </head>
       <body>
-        <div class="no-print" style="text-align:center; padding:10px;">
-          <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">🖨️ طباعة</button>
-          <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-right:10px;">✕ إغلاق</button>
-        </div>
         <div class="header">
           <h1>${pharmInfo.name || "الصيدلية"}</h1>
           <div class="sub">${pharmInfo.address || ""}${pharmInfo.taxNumber ? " · الرقم الضريبي: " + pharmInfo.taxNumber : ""}</div>
@@ -1103,8 +1143,8 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         </div>
       </body>
       </html>
-    `);
-        win.document.close();
+    `;
+        printHTML(dayClosingHtml);
     };
 
     // ── تقفيل يوم سابق بأثر رجعي (نسخة مبسطة: بترحّل دخل المبيعات + مصروف إجمالي اختياري + علامة التقفيل) ──
@@ -1433,7 +1473,8 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                         </div>
                     )}
                     {upcomingLicenses.length > 0 && (
-                        <div style={{ background: "#1a0a1a", border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: 12, padding: 12 }}>
+
+                        <div style={{ background: COLORS.purpleSoft, border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: 12, padding: 12 }}>
                             <div style={{ color: COLORS.purple, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📋 تراخيص قريبة التجديد</div>
                             {upcomingLicenses.map((l) => {
                                 const days = Math.ceil((new Date(l.renew_date) - new Date()) / (1000 * 60 * 60 * 24));
@@ -1465,13 +1506,18 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                 const visible = row.filter((t) => t.allowed);
                 if (visible.length === 0) return null;
                 return (
-                    <div key={i} style={{ display: "flex", gap: 4, marginBottom: i === 0 ? 6 : 16, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 4 }}>
+                    <div key={i} style={{ display: "flex", gap: 6, marginBottom: i === 0 ? 6 : 16, background: COLORS.appBg, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 4 }}>
+                        {/* غيّرنا خلفية الحاوية لـ appBg (أغمق شوية من surfaceAlt) + حد خارجي عشان تبقى فاترينة واضحة */}
                         {visible.map((t) => (
                             <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
-                                flex: 1, padding: "9px 6px", borderRadius: 8, border: "none",
-                                background: activeTab === t.k ? COLORS.surface : "transparent",
-                                color: activeTab === t.k ? COLORS.blue : COLORS.textDim,
-                                fontSize: 11, fontWeight: activeTab === t.k ? 700 : 400, cursor: "pointer",
+                                flex: 1, padding: "9px 6px", borderRadius: 8,
+                                // كل تاب (حتى الغير مفعّل) بقى ليه خلفية وحد خفيف، مش شفاف بالكامل زي قبل
+                                border: `1px solid ${activeTab === t.k ? COLORS.borderStrong : "transparent"}`,
+                                background: activeTab === t.k ? COLORS.surface : tint(COLORS.textPrimary, 0.04),
+                                color: activeTab === t.k ? COLORS.accent : COLORS.textDim,
+                                fontSize: 11, fontWeight: activeTab === t.k ? 800 : 600, cursor: "pointer",
+                                boxShadow: activeTab === t.k ? SHADOW.card : "none", // التاب المفعّل بيبان "مرفوع"
+                                transition: "all 0.15s ease",
                             }}>{t.l}</button>
                         ))}
                     </div>
@@ -1559,6 +1605,24 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                     <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 10, lineHeight: 1.8 }}>
                         اختار يوم مقفول عشان تتأكد مفيش مبيعات/مرتجعات حصلت فيه بعد وقت التقفيل ولسه ما اتضافتش كتسوية.
                     </div>
+                    {closedDaysDiagnostics.length > 0 && (
+                        <div style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: 12, color: COLORS.red, fontWeight: 700, marginBottom: 6 }}>
+                                ⚠️ الأيام دي فيها فرق فعلي بين الفواتير وسجل التقفيل — يستاهلوا مراجعة أول حاجة:
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {closedDaysDiagnostics.map((r) => (
+                                    <button key={r.date} onClick={() => setReviewDate(r.date)}
+                                        style={{
+                                            border: `1px solid ${tint(COLORS.red, 0.35)}`, background: COLORS.redSoft, color: COLORS.red,
+                                            borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                                        }}>
+                                        {r.date} ({r.diff > 0 ? "+" : ""}{r.diff.toFixed(2)} ر.س)
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <select
                         value={reviewDate}
                         onChange={(e) => setReviewDate(e.target.value)}

@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { getPendingZeroStockVariance } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { useEssentialAlerts } from "../hooks/useEssentialAlerts";
 import { todayLocal } from "../lib/dateUtils";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { calcAutoDiscount, describePromo, isPromoFulfillable } from "../lib/promoUtils";
 import { PromotionsModule } from "./PromotionsModule";
+import { computeCustomerStats } from "./CustomersModule";
+import { openWhatsApp } from "../lib/whatsapp";
 import { Badge, Modal } from "../ui/primitives";
 
 export function AlertRow({ text, badge, color, VAR }) {
@@ -138,29 +141,20 @@ export function Dashboard({
     // ══════════ سجل فروقات المخزون المعلّقة (أصناف تحتاج تسوية رصيد) ══════════
     // المصدر الأساسي دلوقتي: محاولة بيع صنف بالسكانر ورصيده صفر بالنظام (POS)،
     // وقابل للتوسع لاحقًا (تسوية يدوية، عجز/زيادة شفت) بنفس الجدول والمنطق.
-    // ⚠️ فحص أونلاين بس دلوقتي (زي مركز التنبيهات في مجمله) — مفيش كاش محلي ليها
-    // لسه، فمش هتظهر تحديثات لحظية وأنت أوفلاين. لو ده مهم لاحقًا، محتاج نضيف
-    // upsertVarianceLogCache/getVarianceLogCache في offlineAPI زي نمط missed_sales.
+    // 🆕 بقت أوفلاين-أول: بتستخدم getPendingZeroStockVariance من offlineAPI (نفس الفانكشن
+    // المستخدمة في كشف المخزون) بدل الاستدعاء المباشر لـ Supabase — أونلاين بترجع من السيرفر
+    // وتكتب كاش محلي، أوفلاين/فشل بترجع من الكاش المحلي (fromCache: true) بدل ما الكارت يفضل فاضي.
     const [pendingVariance, setPendingVariance] = useState([]);
     useEffect(() => {
         if (!pharmacyId) return;
         let active = true;
-        const fetchVariance = async () => {
-            try {
-                const { data, error } = await supabase
-                    .from("inventory_variance_log")
-                    .select("id, product_id, event_type, created_at, notes")
-                    .eq("pharmacy_id", pharmacyId)
-                    .eq("status", "pending")
-                    .order("created_at", { ascending: false })
-                    .limit(50);
-                if (error) throw error;
-                if (active && data) setPendingVariance(data);
-            } catch (err) {
-                console.error("fetchVariance failed:", err);
-            }
-        };
-        fetchVariance();
+        getPendingZeroStockVariance(pharmacyId)
+            .then(({ data }) => {
+                if (active) setPendingVariance(data || []);
+            })
+            .catch((err) => {
+                console.error("getPendingZeroStockVariance failed:", err);
+            });
         return () => { active = false; };
     }, [pharmacyId]);
 
@@ -469,6 +463,24 @@ export function Dashboard({
         });
         return { customer: c, daysLeft: oldestDaysLeft, isOverdue, remainingTotal };
     }).filter((d) => d.isOverdue);
+
+    // ══════════ تصنيف العملاء (تاب العملاء) — شامل مقابل متخصص، عبر computeCustomerStats المشتركة ══════════
+    const customerClassification = (() => {
+        const withStats = (customers || [])
+            .map((c) => ({ customer: c, stats: computeCustomerStats(c, sales, creditPayments) }))
+            .filter((x) => x.stats); // العملاء اللي مالهمش فواتير لسه بيرجع null من الدالة
+        const comprehensive = withStats.filter((x) => x.stats.isComprehensiveBuyer);
+        const specialized = withStats.filter((x) => !x.stats.isComprehensiveBuyer);
+        const totalDebt = customerDues.reduce((a, d) => a + d.remainingTotal, 0);
+        return {
+            comprehensiveCount: comprehensive.length,
+            specializedCount: specialized.length,
+            totalClassified: withStats.length,
+            comprehensivePct: withStats.length > 0 ? (comprehensive.length / withStats.length) * 100 : 0,
+            overdueCustomers: customerDues,
+            totalOverdueDebt: totalDebt,
+        };
+    })();
 
     // موعد إقفال الإقرار الضريبي الربعي (نهاية الشهر التالي لنهاية الربع - نظام ضريبة القيمة المضافة السعودي)
     const taxDeadlineInfo = (() => {
@@ -781,6 +793,15 @@ export function Dashboard({
     const [openCard, setOpenCard] = useState("sales"); // 🆕 كارت "المبيعات والفرص" مفتوح افتراضيًا عشان أهم رقم يبان أول ما تدخل الصفحة
     const toggleCard = (key) => setOpenCard((prev) => (prev === key ? null : key));
 
+    // 🆕 تابات الداشبورد — كل tab بيعرض مجموعة كروت محددة بدل ما كل الكروت تتزاحم في شبكة واحدة
+    const [activeTab, setActiveTab] = useState("overview");
+    const DASHBOARD_TABS = [
+        { key: "overview", label: "نظرة عامة" },
+        { key: "sales", label: "المبيعات والقرص" },
+        { key: "inventory", label: "المخزون" },
+        { key: "customers", label: "العملاء" },
+    ];
+
     // غلاف كارت قابل للطي: عنوان + أيقونة + شارة عدد (اختياري) + سهم، والمحتوى يظهر فقط لو الكارت مفتوح
     // 🆕 urgent: بوردر/توهج أحمر لما يكون الكارت فيه حاجة تحتاج انتباه فوري (زي وجود تنبيهات فعلية)
     // 🆕 wide: الكارت ياخد عرض عمودين حتى وهو مقفول (لأهم كارت في الداشبورد)
@@ -883,10 +904,30 @@ export function Dashboard({
                 ))}
             </div>
 
-            {/* ── الكروت الرئيسية: مضغوطة وتتفتح بالضغط ── */}
-            <div style={{ fontSize: 11, fontWeight: 600, color: VAR.muted, letterSpacing: "0.08em", marginBottom: 12 }}>
-                نظرة عامة
+            {/* ── شريط التابات: بدل ما كل الكروت تتزاحم مع بعض في شبكة واحدة ── */}
+            <div style={{
+                display: "flex", gap: 6, marginBottom: 16,
+                borderBottom: `1px solid ${VAR.border}`,
+                maxWidth: 1100, marginLeft: "auto", marginRight: "auto",
+            }}>
+                {DASHBOARD_TABS.map((t) => (
+                    <button
+                        key={t.key}
+                        onClick={() => setActiveTab(t.key)}
+                        style={{
+                            padding: "10px 16px", fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+                            background: "transparent", border: "none", cursor: "pointer",
+                            color: activeTab === t.key ? VAR.accent : VAR.muted,
+                            borderBottom: activeTab === t.key ? `2px solid ${VAR.accent}` : "2px solid transparent",
+                            transition: "color 0.15s, border-color 0.15s",
+                        }}
+                    >
+                        {t.label}
+                    </button>
+                ))}
             </div>
+
+            {/* ── الكروت الرئيسية: مضغوطة وتتفتح بالضغط، مفلترة حسب التاب النشط ── */}
             <div style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(4, 1fr)",
@@ -898,26 +939,28 @@ export function Dashboard({
             }}>
 
                 {/* 1) المبيعات والفرص */}
-                <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent} wide>
-                    <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
-                        {SALES_TABS.map((t) => (
-                            <button
-                                key={t.key}
-                                onClick={(e) => { e.stopPropagation(); setSalesTab(t.key); }}
-                                style={{
-                                    fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
-                                    background: salesTab === t.key ? VAR.accent : "transparent",
-                                    color: salesTab === t.key ? VAR.bg : VAR.muted,
-                                    border: "none", cursor: "pointer", fontFamily: "inherit",
-                                    transition: "all 0.15s",
-                                }}
-                            >
-                                {t.label}
-                            </button>
-                        ))}
-                    </div>
-                    {renderSalesStats()}
-                </CollapsibleCard>
+                {activeTab === "sales" && (
+                    <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent} wide>
+                        <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
+                            {SALES_TABS.map((t) => (
+                                <button
+                                    key={t.key}
+                                    onClick={(e) => { e.stopPropagation(); setSalesTab(t.key); }}
+                                    style={{
+                                        fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                                        background: salesTab === t.key ? VAR.accent : "transparent",
+                                        color: salesTab === t.key ? VAR.bg : VAR.muted,
+                                        border: "none", cursor: "pointer", fontFamily: "inherit",
+                                        transition: "all 0.15s",
+                                    }}
+                                >
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
+                        {renderSalesStats()}
+                    </CollapsibleCard>
+                )}
 
                 <Modal
                     open={showMissedModal}
@@ -968,577 +1011,664 @@ export function Dashboard({
                 </Modal>
 
                 {/* مبيعات الأقسام — يومي/شهري مع نسبة وقيمة الربح */}
-                <CollapsibleCard
-                    cardKey="departments"
-                    icon="🏬"
-                    title="مبيعات الأقسام"
-                    badge={`${(deptTab === "today" ? deptStatsToday.totalRevenue : deptStatsMonth.totalRevenue).toFixed(0)} ر.س`}
-                    badgeColor={VAR.accent2}
-                >
-                    <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
-                        {[{ key: "today", label: "اليوم" }, { key: "month", label: "الشهر" }].map((t) => (
-                            <button
-                                key={t.key}
-                                onClick={(e) => { e.stopPropagation(); setDeptTab(t.key); }}
-                                style={{
-                                    fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
-                                    background: deptTab === t.key ? VAR.accent2 : "transparent",
-                                    color: deptTab === t.key ? VAR.bg : VAR.muted,
-                                    border: "none", cursor: "pointer", fontFamily: "inherit",
-                                    transition: "all 0.15s",
-                                }}
-                            >
-                                {t.label}
-                            </button>
-                        ))}
-                    </div>
+                {activeTab === "sales" && (
+                    <CollapsibleCard
+                        cardKey="departments"
+                        icon="🏬"
+                        title="مبيعات الأقسام"
+                        badge={`${(deptTab === "today" ? deptStatsToday.totalRevenue : deptStatsMonth.totalRevenue).toFixed(0)} ر.س`}
+                        badgeColor={VAR.accent2}
+                    >
+                        <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
+                            {[{ key: "today", label: "اليوم" }, { key: "month", label: "الشهر" }].map((t) => (
+                                <button
+                                    key={t.key}
+                                    onClick={(e) => { e.stopPropagation(); setDeptTab(t.key); }}
+                                    style={{
+                                        fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                                        background: deptTab === t.key ? VAR.accent2 : "transparent",
+                                        color: deptTab === t.key ? VAR.bg : VAR.muted,
+                                        border: "none", cursor: "pointer", fontFamily: "inherit",
+                                        transition: "all 0.15s",
+                                    }}
+                                >
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
 
-                    {(() => {
-                        const stats = deptTab === "today" ? deptStatsToday : deptStatsMonth;
-                        if (stats.rows.length === 0) {
+                        {(() => {
+                            const stats = deptTab === "today" ? deptStatsToday : deptStatsMonth;
+                            if (stats.rows.length === 0) {
+                                return (
+                                    <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "24px 0" }}>
+                                        لا توجد مبيعات مسجّلة {deptTab === "today" ? "اليوم" : "هذا الشهر"} بعد
+                                    </div>
+                                );
+                            }
+                            const overallProfitPct = stats.totalRevenue > 0 ? (stats.totalProfit / stats.totalRevenue) * 100 : 0;
                             return (
-                                <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "24px 0" }}>
-                                    لا توجد مبيعات مسجّلة {deptTab === "today" ? "اليوم" : "هذا الشهر"} بعد
-                                </div>
-                            );
-                        }
-                        const overallProfitPct = stats.totalRevenue > 0 ? (stats.totalProfit / stats.totalRevenue) * 100 : 0;
-                        return (
-                            <>
-                                {/* ملخص علوي */}
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, padding: "14px 14px 6px" }}>
-                                    <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(VAR.accent, 0.08), border: `1px solid ${tint(VAR.accent, 0.28)}` }}>
-                                        <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>إجمالي الإيراد</div>
-                                        <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: VAR.accent }}>{S(stats.totalRevenue.toFixed(0) + " ر.س")}</div>
+                                <>
+                                    {/* ملخص علوي */}
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, padding: "14px 14px 6px" }}>
+                                        <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(VAR.accent, 0.08), border: `1px solid ${tint(VAR.accent, 0.28)}` }}>
+                                            <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>إجمالي الإيراد</div>
+                                            <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: VAR.accent }}>{S(stats.totalRevenue.toFixed(0) + " ر.س")}</div>
+                                        </div>
+                                        <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.green, 0.08), border: `1px solid ${tint(COLORS.green, 0.28)}` }}>
+                                            <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>إجمالي الربح</div>
+                                            <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: COLORS.green }}>{S(stats.totalProfit.toFixed(0) + " ر.س")}</div>
+                                        </div>
+                                        <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.gold, 0.08), border: `1px solid ${tint(COLORS.gold, 0.28)}` }}>
+                                            <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>نسبة الربح</div>
+                                            <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: COLORS.gold }}>{overallProfitPct.toFixed(1)}%</div>
+                                        </div>
                                     </div>
-                                    <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.green, 0.08), border: `1px solid ${tint(COLORS.green, 0.28)}` }}>
-                                        <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>إجمالي الربح</div>
-                                        <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: COLORS.green }}>{S(stats.totalProfit.toFixed(0) + " ر.س")}</div>
-                                    </div>
-                                    <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.gold, 0.08), border: `1px solid ${tint(COLORS.gold, 0.28)}` }}>
-                                        <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>نسبة الربح</div>
-                                        <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: COLORS.gold }}>{overallProfitPct.toFixed(1)}%</div>
-                                    </div>
-                                </div>
 
-                                {/* كروت زجاجية ملونة لكل قسم — عرض الشريط بنسبة الحصة من الإيراد */}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px 14px" }}>
-                                    {stats.rows.map((r, i) => {
-                                        const color = CATEGORY_COLORS[r.category] || DEPT_PALETTE[i % DEPT_PALETTE.length];
-                                        return (
-                                            <div
-                                                key={r.category}
-                                                style={{
-                                                    position: "relative", borderRadius: 10, overflow: "hidden",
-                                                    background: `linear-gradient(135deg, ${tint(color, 0.16)}, ${tint(color, 0.04)})`,
-                                                    backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                                                    border: `1px solid ${tint(color, 0.32)}`,
-                                                    padding: "10px 12px",
-                                                }}
-                                            >
-                                                {/* شريط تقدّم زجاجي بنسبة الحصة من إجمالي إيراد الفترة */}
-                                                <div style={{
-                                                    position: "absolute", top: 0, bottom: 0, right: 0,
-                                                    width: `${Math.max(r.share, 3)}%`,
-                                                    background: `linear-gradient(90deg, transparent, ${tint(color, 0.22)})`,
-                                                    transition: "width 0.4s",
-                                                }} />
-                                                <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                        <span style={{ width: 8, height: 8, borderRadius: 99, background: color, boxShadow: `0 0 8px ${color}` }} />
-                                                        <span style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{r.category}</span>
+                                    {/* كروت زجاجية ملونة لكل قسم — عرض الشريط بنسبة الحصة من الإيراد */}
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px 14px" }}>
+                                        {stats.rows.map((r, i) => {
+                                            const color = CATEGORY_COLORS[r.category] || DEPT_PALETTE[i % DEPT_PALETTE.length];
+                                            return (
+                                                <div
+                                                    key={r.category}
+                                                    style={{
+                                                        position: "relative", borderRadius: 10, overflow: "hidden",
+                                                        background: `linear-gradient(135deg, ${tint(color, 0.16)}, ${tint(color, 0.04)})`,
+                                                        backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                                        border: `1px solid ${tint(color, 0.32)}`,
+                                                        padding: "10px 12px",
+                                                    }}
+                                                >
+                                                    {/* شريط تقدّم زجاجي بنسبة الحصة من إجمالي إيراد الفترة */}
+                                                    <div style={{
+                                                        position: "absolute", top: 0, bottom: 0, right: 0,
+                                                        width: `${Math.max(r.share, 3)}%`,
+                                                        background: `linear-gradient(90deg, transparent, ${tint(color, 0.22)})`,
+                                                        transition: "width 0.4s",
+                                                    }} />
+                                                    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                            <span style={{ width: 8, height: 8, borderRadius: 99, background: color, boxShadow: `0 0 8px ${color}` }} />
+                                                            <span style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{r.category}</span>
+                                                        </div>
+                                                        <span style={{ fontSize: 10, color: VAR.muted, fontFamily: "monospace" }}>{r.share.toFixed(0)}%</span>
                                                     </div>
-                                                    <span style={{ fontSize: 10, color: VAR.muted, fontFamily: "monospace" }}>{r.share.toFixed(0)}%</span>
-                                                </div>
-                                                <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
-                                                    <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color }}>{S(r.revenue.toFixed(0) + " ر.س")}</span>
-                                                    <span style={{ fontSize: 11, color: VAR.muted }}>
-                                                        ربح {S(r.profit.toFixed(0) + " ر.س")}{" "}
-                                                        <span style={{ color: r.profitPct >= 0 ? COLORS.green : COLORS.red, fontWeight: 700 }}>
-                                                            ({r.profitPct.toFixed(0)}%)
+                                                    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
+                                                        <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color }}>{S(r.revenue.toFixed(0) + " ر.س")}</span>
+                                                        <span style={{ fontSize: 11, color: VAR.muted }}>
+                                                            ربح {S(r.profit.toFixed(0) + " ر.س")}{" "}
+                                                            <span style={{ color: r.profitPct >= 0 ? COLORS.green : COLORS.red, fontWeight: 700 }}>
+                                                                ({r.profitPct.toFixed(0)}%)
+                                                            </span>
                                                         </span>
-                                                    </span>
-                                                </div>
-                                                {r.returnValue > 0 && (
-                                                    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-                                                        <span style={{ fontSize: 11, color: COLORS.red }}>↩️ مرتجعات {S(r.returnValue.toFixed(0) + " ر.س")}</span>
-                                                        <span style={{ fontSize: 11, color: COLORS.red, fontWeight: 700 }}>({r.returnPct.toFixed(1)}%)</span>
                                                     </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </>
-                        );
-                    })()}
-                </CollapsibleCard>
+                                                    {r.returnValue > 0 && (
+                                                        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                                                            <span style={{ fontSize: 11, color: COLORS.red }}>↩️ مرتجعات {S(r.returnValue.toFixed(0) + " ر.س")}</span>
+                                                            <span style={{ fontSize: 11, color: COLORS.red, fontWeight: 700 }}>({r.returnPct.toFixed(1)}%)</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            );
+                        })()}
+                    </CollapsibleCard>
+                )}
 
                 {/* 🆕 أكثر الأصناف مبيعًا — يومي/شهري مع تحديد عدد الأصناف المعروضة */}
-                <CollapsibleCard cardKey="topProducts" icon="⭐" title="أكثر الأصناف مبيعًا" badgeColor={VAR.accent2}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 6, margin: "10px 14px 0" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                            <div style={{ display: "flex", borderRadius: 6, gap: 2 }}>
-                                {[{ key: "today", label: "اليوم" }, { key: "month", label: "الشهر" }].map((t) => (
-                                    <button
-                                        key={t.key}
-                                        onClick={(e) => { e.stopPropagation(); setTopProductsTab(t.key); }}
-                                        style={{
-                                            fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
-                                            background: topProductsTab === t.key ? VAR.accent2 : "transparent",
-                                            color: topProductsTab === t.key ? VAR.bg : VAR.muted,
-                                            border: "none", cursor: "pointer", fontFamily: "inherit",
-                                            transition: "all 0.15s",
-                                        }}
-                                    >
-                                        {t.label}
-                                    </button>
-                                ))}
+                {activeTab === "overview" && (
+                    <CollapsibleCard cardKey="topProducts" icon="⭐" title="أكثر الأصناف مبيعًا" badgeColor={VAR.accent2}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 6, margin: "10px 14px 0" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <div style={{ display: "flex", borderRadius: 6, gap: 2 }}>
+                                    {[{ key: "today", label: "اليوم" }, { key: "month", label: "الشهر" }].map((t) => (
+                                        <button
+                                            key={t.key}
+                                            onClick={(e) => { e.stopPropagation(); setTopProductsTab(t.key); }}
+                                            style={{
+                                                fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                                                background: topProductsTab === t.key ? VAR.accent2 : "transparent",
+                                                color: topProductsTab === t.key ? VAR.bg : VAR.muted,
+                                                border: "none", cursor: "pointer", fontFamily: "inherit",
+                                                transition: "all 0.15s",
+                                            }}
+                                        >
+                                            {t.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <select
+                                    value={topProductsCount}
+                                    onChange={(e) => { e.stopPropagation(); setTopProductsCount(Number(e.target.value)); }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${VAR.border}`, background: VAR.bg, color: VAR.text, fontSize: 11, fontFamily: "inherit" }}
+                                >
+                                    {[5, 10, 15, 20, 30].map((n) => (
+                                        <option key={n} value={n}>أعلى {n} صنف</option>
+                                    ))}
+                                </select>
                             </div>
-                            <select
-                                value={topProductsCount}
-                                onChange={(e) => { e.stopPropagation(); setTopProductsCount(Number(e.target.value)); }}
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${VAR.border}`, background: VAR.bg, color: VAR.text, fontSize: 11, fontFamily: "inherit" }}
-                            >
-                                {[5, 10, 15, 20, 30].map((n) => (
-                                    <option key={n} value={n}>أعلى {n} صنف</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 10, color: VAR.muted }}>الترتيب حسب:</span>
-                            <div style={{ display: "flex", borderRadius: 6, gap: 2 }}>
-                                {[{ key: "qty", label: "الكمية المباعة" }, { key: "revenue", label: "قيمة المبيعات" }].map((t) => (
-                                    <button
-                                        key={t.key}
-                                        onClick={(e) => { e.stopPropagation(); setTopProductsSortBy(t.key); }}
-                                        style={{
-                                            fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
-                                            background: topProductsSortBy === t.key ? VAR.accent2 : "transparent",
-                                            color: topProductsSortBy === t.key ? VAR.bg : VAR.muted,
-                                            border: "none", cursor: "pointer", fontFamily: "inherit",
-                                            transition: "all 0.15s",
-                                        }}
-                                    >
-                                        {t.label}
-                                    </button>
-                                ))}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 10, color: VAR.muted }}>الترتيب حسب:</span>
+                                <div style={{ display: "flex", borderRadius: 6, gap: 2 }}>
+                                    {[{ key: "qty", label: "الكمية المباعة" }, { key: "revenue", label: "قيمة المبيعات" }].map((t) => (
+                                        <button
+                                            key={t.key}
+                                            onClick={(e) => { e.stopPropagation(); setTopProductsSortBy(t.key); }}
+                                            style={{
+                                                fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                                                background: topProductsSortBy === t.key ? VAR.accent2 : "transparent",
+                                                color: topProductsSortBy === t.key ? VAR.bg : VAR.muted,
+                                                border: "none", cursor: "pointer", fontFamily: "inherit",
+                                                transition: "all 0.15s",
+                                            }}
+                                        >
+                                            {t.label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    {(() => {
-                        const topList = topProductsTab === "today" ? topProductsToday : topProductsMonth;
-                        if (topList.length === 0) {
+                        {(() => {
+                            const topList = topProductsTab === "today" ? topProductsToday : topProductsMonth;
+                            if (topList.length === 0) {
+                                return (
+                                    <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "24px 0" }}>
+                                        لا توجد مبيعات مسجّلة {topProductsTab === "today" ? "اليوم" : "هذا الشهر"} بعد
+                                    </div>
+                                );
+                            }
+                            const maxQty = Math.max(...topList.map((p) => p.qty), 1);
                             return (
-                                <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "24px 0" }}>
-                                    لا توجد مبيعات مسجّلة {topProductsTab === "today" ? "اليوم" : "هذا الشهر"} بعد
+                                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px 14px" }}>
+                                    {topList.map((p, i) => (
+                                        <div
+                                            key={p.id}
+                                            style={{
+                                                position: "relative", borderRadius: 10, overflow: "hidden",
+                                                background: tint(COLORS.accent, 0.06),
+                                                border: `1px solid ${tint(COLORS.accent, 0.22)}`,
+                                                padding: "8px 12px",
+                                            }}
+                                        >
+                                            <div style={{
+                                                position: "absolute", top: 0, bottom: 0, right: 0,
+                                                width: `${Math.max((p.qty / maxQty) * 100, 4)}%`,
+                                                background: tint(COLORS.accent, 0.14),
+                                            }} />
+                                            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                                                    <span style={{ fontSize: 11, fontWeight: 700, color: VAR.muted, width: 18 }}>{i + 1}</span>
+                                                    <span style={{ fontSize: 12, fontWeight: 700, color: VAR.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                                                </div>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                                                    <span style={{ fontSize: 12, color: VAR.muted }}>{S(p.revenue.toFixed(0) + " ر.س")}</span>
+                                                    <Badge color={COLORS.accent + "22"} text={COLORS.accent}>{p.qty} وحدة</Badge>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             );
-                        }
-                        const maxQty = Math.max(...topList.map((p) => p.qty), 1);
-                        return (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px 14px" }}>
-                                {topList.map((p, i) => (
-                                    <div
-                                        key={p.id}
-                                        style={{
-                                            position: "relative", borderRadius: 10, overflow: "hidden",
-                                            background: tint(COLORS.accent, 0.06),
-                                            border: `1px solid ${tint(COLORS.accent, 0.22)}`,
-                                            padding: "8px 12px",
-                                        }}
-                                    >
-                                        <div style={{
-                                            position: "absolute", top: 0, bottom: 0, right: 0,
-                                            width: `${Math.max((p.qty / maxQty) * 100, 4)}%`,
-                                            background: tint(COLORS.accent, 0.14),
-                                        }} />
-                                        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 700, color: VAR.muted, width: 18 }}>{i + 1}</span>
-                                                <span style={{ fontSize: 12, fontWeight: 700, color: VAR.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                                            </div>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                                                <span style={{ fontSize: 12, color: VAR.muted }}>{S(p.revenue.toFixed(0) + " ر.س")}</span>
-                                                <Badge color={COLORS.accent + "22"} text={COLORS.accent}>{p.qty} وحدة</Badge>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        );
-                    })()}
-                </CollapsibleCard>
+                        })()}
+                    </CollapsibleCard>
+                )}
 
                 {/* 2) تارجت الشهر */}
-                <CollapsibleCard cardKey="target" icon="🎯" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
-                    <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-                        {myTarget === null ? (
-                            <div style={{ color: VAR.muted, fontSize: 12 }}>جاري التحميل...</div>
-                        ) : myTarget === 0 ? (
-                            <div style={{ color: VAR.muted, fontSize: 12 }}>لم يتم تحديد تارجت لك هذا الشهر</div>
-                        ) : (
-                            <>
-                                <div>
-                                    <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
-                                        {S(`${targetProgress.toFixed(0)}%`)}
-                                    </div>
-                                    <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>
-                                        {S(`من ${myTarget.toLocaleString()} ريال`)}
-                                    </div>
-                                </div>
-                                <div style={{ height: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 99, overflow: "hidden" }}>
-                                    <div style={{
-                                        height: "100%", width: `${targetProgress}%`, borderRadius: 99,
-                                        background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
-                                        boxShadow: "0 0 8px rgba(0,200,150,0.4)",
-                                    }} />
-                                </div>
-                                <div style={{ fontSize: 11, color: VAR.muted }}>
-                                    متبقي <strong style={{ color: VAR.warn }}>{S(`${targetRemaining.toFixed(0)} ريال`)}</strong> في {daysLeftInMonth} يوم
-                                </div>
-                                <div style={{ borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
-                                    <div style={{ fontSize: 10, color: VAR.muted, marginBottom: 4 }}>المطلوب يومياً</div>
-                                    <div style={{ fontFamily: "monospace", fontSize: 22, color: VAR.warn, fontWeight: 700 }}>
-                                        {S(requiredDaily.toFixed(0))} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </CollapsibleCard>
-
-                {/* 3) مركز التنبيهات */}
-                <CollapsibleCard cardKey="alerts" icon="🔔" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger} urgent={totalAlertsCount > 0}>
-                    <div>
-                        {totalAlertsCount === 0 && (
-                            <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
-                                لا توجد تنبيهات حالياً ✅
-                            </div>
-                        )}
-                        {alertCenterGroups.filter((g) => g.count > 0).map((g) => (
-                            <div key={g.key}>
-                                <div
-                                    onClick={() => setExpandedAlertGroup(expandedAlertGroup === g.key ? null : g.key)}
-                                    style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12, cursor: "pointer" }}
-                                >
-                                    <span style={{ fontSize: 14 }}>{g.icon}</span>
-                                    <div style={{ flex: 1, color: VAR.text, fontWeight: 600 }}>{g.label}</div>
-                                    <div style={{
-                                        fontSize: 10, padding: "2px 8px", borderRadius: 99, fontWeight: 700, fontFamily: "monospace",
-                                        background: g.count > 0 ? `${g.color}26` : "rgba(125,133,144,0.12)",
-                                        color: g.count > 0 ? g.color : VAR.muted,
-                                    }}>
-                                        {g.count}
-                                    </div>
-                                    <span style={{ color: VAR.muted, fontSize: 11 }}>{expandedAlertGroup === g.key ? "▲" : "▼"}</span>
-                                    <span onClick={(e) => { e.stopPropagation(); setTab(g.tab); }} style={{ color: VAR.accent2, fontSize: 11 }}>فتح →</span>
-                                </div>
-                                {expandedAlertGroup === g.key && (
-                                    <div style={{ background: VAR.bg, padding: "8px 14px 12px" }}>
-                                        {g.key === "essential" && (
-                                            alerts.length === 0 ? <EmptyAlertRow text="لا توجد أدوية أساسية ناقصة ✅" muted={VAR.muted} /> :
-                                                alerts.map((a, i) => (
-                                                    <AlertRow key={i} text={a.name} badge={a.type === "danger" ? "نافذ" : `متبقي ${a.stock}`} color={a.type === "danger" ? VAR.danger : VAR.warn} VAR={VAR} />
-                                                ))
-                                        )}
-                                        {g.key === "variance" && (
-                                            pendingVariance.length === 0 ? <EmptyAlertRow text="لا توجد أصناف تحتاج تسوية ✅" muted={VAR.muted} /> :
-                                                pendingVariance.slice(0, 8).map((v) => {
-                                                    const prod = products.find((p) => p.id === v.product_id);
-                                                    const eventLabel = v.event_type === "scan_zero_stock" ? "رصيد صفر بالسكانر"
-                                                        : v.event_type === "manual_adjustment" ? "تسوية يدوية"
-                                                            : v.event_type === "shift_variance" ? "عجز/زيادة شفت"
-                                                                : v.event_type;
-                                                    return (
-                                                        <AlertRow
-                                                            key={v.id}
-                                                            text={prod?.nameAr || prod?.name || "صنف محذوف/غير معروف"}
-                                                            badge={eventLabel}
-                                                            color={VAR.danger}
-                                                            VAR={VAR}
-                                                        />
-                                                    );
-                                                })
-                                        )}
-                                        {g.key === "lowstock" && (
-                                            lowStock.length === 0 ? <EmptyAlertRow text="لا يوجد مخزون منخفض ✅" muted={VAR.muted} /> :
-                                                lowStock.slice(0, 8).map((p) => (
-                                                    <AlertRow key={p.id} text={p.name} badge={`${p.stock} / ${p.min_stock || p.minStock || 0}`} color={VAR.warn} VAR={VAR} />
-                                                ))
-                                        )}
-                                        {g.key === "expiry" && (
-                                            expiringSoon.length === 0 ? <EmptyAlertRow text="لا توجد أصناف قرب الانتهاء ✅" muted={VAR.muted} /> :
-                                                expiringSoon.slice(0, 8).map((p) => {
-                                                    const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
-                                                    return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={VAR.warn} VAR={VAR} />;
-                                                })
-                                        )}
-                                        {g.key === "supplier" && (
-                                            supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :
-                                                supplierDues.slice(0, 8).map((d) => (
-                                                    <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? VAR.danger : VAR.warn} VAR={VAR} />
-                                                ))
-                                        )}
-                                        {g.key === "custdebt" && (
-                                            customerDues.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء متأخرين في السداد ✅" muted={VAR.muted} /> :
-                                                customerDues.slice(0, 8).map((d) => (
-                                                    <AlertRow key={d.customer.id} text={d.customer.name} badge={`متأخر ${Math.abs(d.daysLeft)} يوم • ${d.remainingTotal.toFixed(0)} ر.س`} color={VAR.danger} VAR={VAR} />
-                                                ))
-                                        )}
-                                        {g.key === "newcust" && (
-                                            newCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء جدد هذا الأسبوع" muted={VAR.muted} /> :
-                                                newCustomers.slice(0, 8).map((c) => (
-                                                    <AlertRow key={c.id} text={c.name} badge="جديد" color={VAR.accent} VAR={VAR} />
-                                                ))
-                                        )}
-                                        {g.key === "lostcust" && (
-                                            disappearedCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء مختفون" muted={VAR.muted} /> :
-                                                disappearedCustomers.slice(0, 8).map((c) => (
-                                                    <AlertRow key={c.id} text={c.name} badge={`آخر زيارة ${c.lastVisit}`} color={VAR.muted} VAR={VAR} />
-                                                ))
-                                        )}
-                                        {g.key === "tax" && (
-                                            <AlertRow text="الإقرار الضريبي الربعي القادم" badge={`خلال ${taxDeadlineInfo.daysLeft} يوم`} color={taxDeadlineInfo.daysLeft <= 7 ? VAR.danger : VAR.warn} VAR={VAR} />
-                                        )}
-                                        {g.key === "appoint" && (
-                                            <>
-                                                <AlertRow text="تجديد الرخصة التجارية" badge="18 يوم" color={VAR.accent} VAR={VAR} />
-                                                <AlertRow text="إيجار الصيدلية" badge="غداً" color={VAR.warn} VAR={VAR} />
-                                            </>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </CollapsibleCard>
-
-                {/* 4) قيمة المخزون حسب التصنيف الرئيسي */}
-                <CollapsibleCard
-                    cardKey="stockCategory"
-                    icon="🥧"
-                    title="قيمة المخزون حسب التصنيف"
-                    badge={stockByCategory.total.toFixed(0) + " ر.س"}
-                    badgeColor={COLORS.purple}
-                >
-                    <div style={{ display: "flex", alignItems: "center", gap: 20, padding: 16, flexWrap: "wrap" }}>
-                        {/* الدونات */}
-                        <div style={{ position: "relative", width: 140, height: 140, flexShrink: 0, margin: "0 auto" }}>
-                            <div
-                                style={{
-                                    width: "100%", height: "100%", borderRadius: "50%",
-                                    background: stockByCategory.rows.length
-                                        ? `conic-gradient(${stockDonutGradient})`
-                                        : VAR.surface2,
-                                    boxShadow: `0 0 24px ${tint(COLORS.purple, 0.25)}, inset 0 0 0 1px ${VAR.border}`,
-                                    transition: "background 0.4s",
-                                }}
-                            />
-                            <div
-                                style={{
-                                    position: "absolute", inset: 18, borderRadius: "50%",
-                                    background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                                    border: `1px solid ${VAR.border}`,
-                                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                                }}
-                            >
-                                <div style={{ fontSize: 9, color: VAR.muted, fontWeight: 600 }}>إجمالي</div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: VAR.text, fontFamily: "monospace" }}>
-                                    {stockByCategory.total.toFixed(0)}
-                                </div>
-                                <div style={{ fontSize: 9, color: VAR.muted }}>ر.س</div>
-                            </div>
-                        </div>
-
-                        {/* المفتاح (Legend) */}
-                        <div style={{ flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 8 }}>
-                            {stockByCategory.rows.length === 0 && (
-                                <div style={{ fontSize: 12, color: VAR.muted, textAlign: "center", padding: "10px 0" }}>
-                                    لا توجد بيانات مخزون بعد
-                                </div>
-                            )}
-                            {stockByCategory.rows.map((r) => (
-                                <div key={r.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                        <div style={{ width: 9, height: 9, borderRadius: "50%", background: r.color, flexShrink: 0, boxShadow: `0 0 6px ${r.color}` }} />
-                                        <div style={{ flex: 1, fontSize: 12, color: VAR.text }}>{r.label}</div>
-                                        <div style={{ fontSize: 11, color: VAR.muted, fontFamily: "monospace" }}>{r.value.toFixed(0)} ر.س</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: r.color, fontFamily: "monospace", minWidth: 38, textAlign: "left" }}>
-                                            {r.pct.toFixed(1)}%
+                {activeTab === "overview" && (
+                    <CollapsibleCard cardKey="target" icon="🎯" title="تارجت الشهر" badge={myTarget ? `${targetProgress.toFixed(0)}%` : null} badgeColor={VAR.accent2}>
+                        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                            {myTarget === null ? (
+                                <div style={{ color: VAR.muted, fontSize: 12 }}>جاري التحميل...</div>
+                            ) : myTarget === 0 ? (
+                                <div style={{ color: VAR.muted, fontSize: 12 }}>لم يتم تحديد تارجت لك هذا الشهر</div>
+                            ) : (
+                                <>
+                                    <div>
+                                        <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: VAR.accent, lineHeight: 1 }}>
+                                            {S(`${targetProgress.toFixed(0)}%`)}
+                                        </div>
+                                        <div style={{ fontSize: 12, color: VAR.muted, marginTop: 4 }}>
+                                            {S(`من ${myTarget.toLocaleString()} ريال`)}
                                         </div>
                                     </div>
-                                    {/* 🆕 شريط تقدّم مصغّر بنفس روح كارت مبيعات الأقسام — يوحّد اللغة البصرية بين الكارتين */}
-                                    <div style={{ height: 4, borderRadius: 99, background: VAR.surface2, overflow: "hidden", marginRight: 17 }}>
+                                    <div style={{ height: 6, background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 99, overflow: "hidden" }}>
                                         <div style={{
-                                            height: "100%", width: `${Math.max(r.pct, 2)}%`,
-                                            background: `linear-gradient(90deg, ${tint(r.color, 0.35)}, ${r.color})`,
-                                            borderRadius: 99, transition: "width 0.4s",
+                                            height: "100%", width: `${targetProgress}%`, borderRadius: 99,
+                                            background: `linear-gradient(90deg, ${VAR.accent2}, ${VAR.accent})`,
+                                            boxShadow: "0 0 8px rgba(0,200,150,0.4)",
                                         }} />
                                     </div>
+                                    <div style={{ fontSize: 11, color: VAR.muted }}>
+                                        متبقي <strong style={{ color: VAR.warn }}>{S(`${targetRemaining.toFixed(0)} ريال`)}</strong> في {daysLeftInMonth} يوم
+                                    </div>
+                                    <div style={{ borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
+                                        <div style={{ fontSize: 10, color: VAR.muted, marginBottom: 4 }}>المطلوب يومياً</div>
+                                        <div style={{ fontFamily: "monospace", fontSize: 22, color: VAR.warn, fontWeight: 700 }}>
+                                            {S(requiredDaily.toFixed(0))} <span style={{ fontSize: 12, color: VAR.muted }}>ريال</span>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </CollapsibleCard>
+                )}
+
+                {/* 3) مركز التنبيهات */}
+                {activeTab === "overview" && (
+                    <CollapsibleCard cardKey="alerts" icon="🔔" title="مركز التنبيهات" badge={totalAlertsCount} badgeColor={VAR.danger} urgent={totalAlertsCount > 0}>
+                        <div>
+                            {totalAlertsCount === 0 && (
+                                <div style={{ textAlign: "center", color: VAR.muted, fontSize: 12, padding: "20px 0" }}>
+                                    لا توجد تنبيهات حالياً ✅
+                                </div>
+                            )}
+                            {alertCenterGroups.filter((g) => g.count > 0).map((g) => (
+                                <div key={g.key}>
+                                    <div
+                                        onClick={() => setExpandedAlertGroup(expandedAlertGroup === g.key ? null : g.key)}
+                                        style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 10, borderBottom: `1px solid ${VAR.border}`, fontSize: 12, cursor: "pointer" }}
+                                    >
+                                        <span style={{ fontSize: 14 }}>{g.icon}</span>
+                                        <div style={{ flex: 1, color: VAR.text, fontWeight: 600 }}>{g.label}</div>
+                                        <div style={{
+                                            fontSize: 10, padding: "2px 8px", borderRadius: 99, fontWeight: 700, fontFamily: "monospace",
+                                            background: g.count > 0 ? `${g.color}26` : "rgba(125,133,144,0.12)",
+                                            color: g.count > 0 ? g.color : VAR.muted,
+                                        }}>
+                                            {g.count}
+                                        </div>
+                                        <span style={{ color: VAR.muted, fontSize: 11 }}>{expandedAlertGroup === g.key ? "▲" : "▼"}</span>
+                                        <span onClick={(e) => { e.stopPropagation(); setTab(g.tab); }} style={{ color: VAR.accent2, fontSize: 11 }}>فتح →</span>
+                                    </div>
+                                    {expandedAlertGroup === g.key && (
+                                        <div style={{ background: VAR.bg, padding: "8px 14px 12px" }}>
+                                            {g.key === "essential" && (
+                                                alerts.length === 0 ? <EmptyAlertRow text="لا توجد أدوية أساسية ناقصة ✅" muted={VAR.muted} /> :
+                                                    alerts.map((a, i) => (
+                                                        <AlertRow key={i} text={a.name} badge={a.type === "danger" ? "نافذ" : `متبقي ${a.stock}`} color={a.type === "danger" ? VAR.danger : VAR.warn} VAR={VAR} />
+                                                    ))
+                                            )}
+                                            {g.key === "variance" && (
+                                                pendingVariance.length === 0 ? <EmptyAlertRow text="لا توجد أصناف تحتاج تسوية ✅" muted={VAR.muted} /> :
+                                                    pendingVariance.slice(0, 8).map((v) => {
+                                                        const prod = products.find((p) => p.id === v.product_id);
+                                                        const eventLabel = v.event_type === "scan_zero_stock" ? "رصيد صفر بالسكانر"
+                                                            : v.event_type === "manual_adjustment" ? "تسوية يدوية"
+                                                                : v.event_type === "shift_variance" ? "عجز/زيادة شفت"
+                                                                    : v.event_type;
+                                                        return (
+                                                            <AlertRow
+                                                                key={v.id}
+                                                                text={prod?.nameAr || prod?.name || "صنف محذوف/غير معروف"}
+                                                                badge={eventLabel}
+                                                                color={VAR.danger}
+                                                                VAR={VAR}
+                                                            />
+                                                        );
+                                                    })
+                                            )}
+                                            {g.key === "lowstock" && (
+                                                lowStock.length === 0 ? <EmptyAlertRow text="لا يوجد مخزون منخفض ✅" muted={VAR.muted} /> :
+                                                    lowStock.slice(0, 8).map((p) => (
+                                                        <AlertRow key={p.id} text={p.name} badge={`${p.stock} / ${p.min_stock || p.minStock || 0}`} color={VAR.warn} VAR={VAR} />
+                                                    ))
+                                            )}
+                                            {g.key === "expiry" && (
+                                                expiringSoon.length === 0 ? <EmptyAlertRow text="لا توجد أصناف قرب الانتهاء ✅" muted={VAR.muted} /> :
+                                                    expiringSoon.slice(0, 8).map((p) => {
+                                                        const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+                                                        return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={VAR.warn} VAR={VAR} />;
+                                                    })
+                                            )}
+                                            {g.key === "supplier" && (
+                                                supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :
+                                                    supplierDues.slice(0, 8).map((d) => (
+                                                        <AlertRow key={d.supplier.id} text={d.supplier.name} badge={d.isOverdue ? `متأخر ${Math.abs(d.daysLeft)} يوم` : `خلال ${d.daysLeft} يوم`} color={d.isOverdue ? VAR.danger : VAR.warn} VAR={VAR} />
+                                                    ))
+                                            )}
+                                            {g.key === "custdebt" && (
+                                                customerDues.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء متأخرين في السداد ✅" muted={VAR.muted} /> :
+                                                    customerDues.slice(0, 8).map((d) => (
+                                                        <AlertRow key={d.customer.id} text={d.customer.name} badge={`متأخر ${Math.abs(d.daysLeft)} يوم • ${d.remainingTotal.toFixed(0)} ر.س`} color={VAR.danger} VAR={VAR} />
+                                                    ))
+                                            )}
+                                            {g.key === "newcust" && (
+                                                newCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء جدد هذا الأسبوع" muted={VAR.muted} /> :
+                                                    newCustomers.slice(0, 8).map((c) => (
+                                                        <AlertRow key={c.id} text={c.name} badge="جديد" color={VAR.accent} VAR={VAR} />
+                                                    ))
+                                            )}
+                                            {g.key === "lostcust" && (
+                                                disappearedCustomers.length === 0 ? <EmptyAlertRow text="لا يوجد عملاء مختفون" muted={VAR.muted} /> :
+                                                    disappearedCustomers.slice(0, 8).map((c) => (
+                                                        <AlertRow key={c.id} text={c.name} badge={`آخر زيارة ${c.lastVisit}`} color={VAR.muted} VAR={VAR} />
+                                                    ))
+                                            )}
+                                            {g.key === "tax" && (
+                                                <AlertRow text="الإقرار الضريبي الربعي القادم" badge={`خلال ${taxDeadlineInfo.daysLeft} يوم`} color={taxDeadlineInfo.daysLeft <= 7 ? VAR.danger : VAR.warn} VAR={VAR} />
+                                            )}
+                                            {g.key === "appoint" && (
+                                                <>
+                                                    <AlertRow text="تجديد الرخصة التجارية" badge="18 يوم" color={VAR.accent} VAR={VAR} />
+                                                    <AlertRow text="إيجار الصيدلية" badge="غداً" color={VAR.warn} VAR={VAR} />
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
-                    </div>
-                </CollapsibleCard>
+                    </CollapsibleCard>
+                )}
+
+                {/* 4) قيمة المخزون حسب التصنيف الرئيسي */}
+                {activeTab === "inventory" && (
+                    <CollapsibleCard
+                        cardKey="stockCategory"
+                        icon="🥧"
+                        title="قيمة المخزون حسب التصنيف"
+                        badge={stockByCategory.total.toFixed(0) + " ر.س"}
+                        badgeColor={COLORS.purple}
+                    >
+                        <div style={{ display: "flex", alignItems: "center", gap: 20, padding: 16, flexWrap: "wrap" }}>
+                            {/* الدونات */}
+                            <div style={{ position: "relative", width: 140, height: 140, flexShrink: 0, margin: "0 auto" }}>
+                                <div
+                                    style={{
+                                        width: "100%", height: "100%", borderRadius: "50%",
+                                        background: stockByCategory.rows.length
+                                            ? `conic-gradient(${stockDonutGradient})`
+                                            : VAR.surface2,
+                                        boxShadow: `0 0 24px ${tint(COLORS.purple, 0.25)}, inset 0 0 0 1px ${VAR.border}`,
+                                        transition: "background 0.4s",
+                                    }}
+                                />
+                                <div
+                                    style={{
+                                        position: "absolute", inset: 18, borderRadius: "50%",
+                                        background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+                                        border: `1px solid ${VAR.border}`,
+                                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                                    }}
+                                >
+                                    <div style={{ fontSize: 9, color: VAR.muted, fontWeight: 600 }}>إجمالي</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: VAR.text, fontFamily: "monospace" }}>
+                                        {stockByCategory.total.toFixed(0)}
+                                    </div>
+                                    <div style={{ fontSize: 9, color: VAR.muted }}>ر.س</div>
+                                </div>
+                            </div>
+
+                            {/* المفتاح (Legend) */}
+                            <div style={{ flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 8 }}>
+                                {stockByCategory.rows.length === 0 && (
+                                    <div style={{ fontSize: 12, color: VAR.muted, textAlign: "center", padding: "10px 0" }}>
+                                        لا توجد بيانات مخزون بعد
+                                    </div>
+                                )}
+                                {stockByCategory.rows.map((r) => (
+                                    <div key={r.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                            <div style={{ width: 9, height: 9, borderRadius: "50%", background: r.color, flexShrink: 0, boxShadow: `0 0 6px ${r.color}` }} />
+                                            <div style={{ flex: 1, fontSize: 12, color: VAR.text }}>{r.label}</div>
+                                            <div style={{ fontSize: 11, color: VAR.muted, fontFamily: "monospace" }}>{r.value.toFixed(0)} ر.س</div>
+                                            <div style={{ fontSize: 11, fontWeight: 700, color: r.color, fontFamily: "monospace", minWidth: 38, textAlign: "left" }}>
+                                                {r.pct.toFixed(1)}%
+                                            </div>
+                                        </div>
+                                        {/* 🆕 شريط تقدّم مصغّر بنفس روح كارت مبيعات الأقسام — يوحّد اللغة البصرية بين الكارتين */}
+                                        <div style={{ height: 4, borderRadius: 99, background: VAR.surface2, overflow: "hidden", marginRight: 17 }}>
+                                            <div style={{
+                                                height: "100%", width: `${Math.max(r.pct, 2)}%`,
+                                                background: `linear-gradient(90deg, ${tint(r.color, 0.35)}, ${r.color})`,
+                                                borderRadius: 99, transition: "width 0.4s",
+                                            }} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </CollapsibleCard>
+                )}
 
                 {/* 5) العروض المتوفرة */}
-                <CollapsibleCard cardKey="promos" icon="🏷️" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
-                    <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
-                        {activePromos.length === 0 && autoPromoProducts.length === 0 && (
-                            <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد عروض نشطة</div>
-                        )}
-                        {/* العروض اليدوية */}
-                        {activePromos.map((p) => {
-                            const prod = products.find((pr) => pr.id === p.product_id);
-                            const desc = describePromo(p, prod);
-                            return (
-                                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-                                    <div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{prod?.name_ar || prod?.name || p.product_id}</div>
-                                        <div style={{ fontSize: 10, color: VAR.muted }}>حتى {p.end_date}</div>
+                {activeTab === "sales" && (
+                    <CollapsibleCard cardKey="promos" icon="🏷️" title="العروض المتوفرة" badge={activePromos.length + autoPromoProducts.length} badgeColor={VAR.accent}>
+                        <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
+                            {activePromos.length === 0 && autoPromoProducts.length === 0 && (
+                                <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد عروض نشطة</div>
+                            )}
+                            {/* العروض اليدوية */}
+                            {activePromos.map((p) => {
+                                const prod = products.find((pr) => pr.id === p.product_id);
+                                const desc = describePromo(p, prod);
+                                return (
+                                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                                        <div>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{prod?.name_ar || prod?.name || p.product_id}</div>
+                                            <div style={{ fontSize: 10, color: VAR.muted }}>حتى {p.end_date}</div>
+                                        </div>
+                                        <span style={{ background: COLORS.tealSoft || "rgba(0,200,150,0.12)", color: VAR.accent, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
+                                            {desc.label}
+                                        </span>
                                     </div>
-                                    <span style={{ background: COLORS.tealSoft || "rgba(0,200,150,0.12)", color: VAR.accent, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
-                                        {desc.label}
-                                    </span>
-                                </div>
-                            );
-                        })}
-                        {/* العروض التلقائية (قرب الصلاحية) */}
-                        {autoPromoProducts.map((p) => {
-                            const daysLeft = Math.ceil((new Date(p.expiry).getTime() - Date.now()) / 86400000);
-                            return (
-                                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-                                    <div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{p.name_ar || p.name}</div>
-                                        <div style={{ fontSize: 10, color: COLORS.gold }}>⏳ صلاحية: {daysLeft} يوم · مخزون: {p.stock}</div>
+                                );
+                            })}
+                            {/* العروض التلقائية (قرب الصلاحية) */}
+                            {autoPromoProducts.map((p) => {
+                                const daysLeft = Math.ceil((new Date(p.expiry).getTime() - Date.now()) / 86400000);
+                                return (
+                                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                                        <div>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{p.name_ar || p.name}</div>
+                                            <div style={{ fontSize: 10, color: COLORS.gold }}>⏳ صلاحية: {daysLeft} يوم · مخزون: {p.stock}</div>
+                                        </div>
+                                        <span style={{ background: COLORS.goldSoft || "#fef3c7", color: COLORS.gold, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
+                                            تلقائي
+                                        </span>
                                     </div>
-                                    <span style={{ background: COLORS.goldSoft || "#fef3c7", color: COLORS.gold, borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700 }}>
-                                        تلقائي
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </CollapsibleCard>
+                                );
+                            })}
+                        </div>
+                    </CollapsibleCard>
+                )}
 
                 {/* 6) تغيرات الأسعار */}
-                <CollapsibleCard cardKey="prices" icon="💰" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
-                    <div style={{ fontSize: 10, color: VAR.muted, padding: "8px 14px 0" }}>آخر 7 أيام</div>
-                    <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
-                        {recentPriceChanges.length === 0 && (
-                            <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد تغيرات في الأسعار هذا الأسبوع</div>
-                        )}
-                        {recentPriceChanges.map((c, i) => (
-                            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-                                <div>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{c.name}</div>
-                                    <div style={{ fontSize: 10, color: VAR.muted }}>{c.date} · {c.oldPrice} ← {c.newPrice} ر.س</div>
+                {activeTab === "sales" && (
+                    <CollapsibleCard cardKey="prices" icon="💰" title="تغيرات الأسعار" badge={recentPriceChanges.length} badgeColor={VAR.accent2}>
+                        <div style={{ fontSize: 10, color: VAR.muted, padding: "8px 14px 0" }}>آخر 7 أيام</div>
+                        <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
+                            {recentPriceChanges.length === 0 && (
+                                <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا توجد تغيرات في الأسعار هذا الأسبوع</div>
+                            )}
+                            {recentPriceChanges.map((c, i) => (
+                                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                                    <div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{c.name}</div>
+                                        <div style={{ fontSize: 10, color: VAR.muted }}>{c.date} · {c.oldPrice} ← {c.newPrice} ر.س</div>
+                                    </div>
+                                    <span style={{
+                                        background: c.diff > 0 ? (COLORS.redSoft || "#fde8e8") : (COLORS.greenSoft || "#d1fae5"),
+                                        color: c.diff > 0 ? COLORS.red : COLORS.green,
+                                        borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700,
+                                    }}>
+                                        {c.diff > 0 ? "▲" : "▼"} {Math.abs(c.diff)}%
+                                    </span>
                                 </div>
-                                <span style={{
-                                    background: c.diff > 0 ? (COLORS.redSoft || "#fde8e8") : (COLORS.greenSoft || "#d1fae5"),
-                                    color: c.diff > 0 ? COLORS.red : COLORS.green,
-                                    borderRadius: 6, fontSize: 11, padding: "2px 8px", fontWeight: 700,
-                                }}>
-                                    {c.diff > 0 ? "▲" : "▼"} {Math.abs(c.diff)}%
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </CollapsibleCard>
+                            ))}
+                        </div>
+                    </CollapsibleCard>
+                )}
 
                 {/* 7) بطاقة الصيدلي */}
-                <CollapsibleCard cardKey="shift" icon="👤" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
-                        <div style={{
-                            width: 32, height: 32, borderRadius: "50%",
-                            background: `linear-gradient(135deg, ${VAR.accent}, ${VAR.accent2})`,
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 14, fontWeight: 700, color: VAR.bg, flexShrink: 0,
-                        }}>
-                            {currentUser?.name?.[0] || "م"}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 10, color: VAR.muted }}>
-                                {currentShift ? `شفت نشط · بدأ ${new Date(currentShift.start_time).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}` : "لا يوجد شفت مفتوح"}
+                {activeTab === "overview" && (
+                    <CollapsibleCard cardKey="shift" icon="👤" title={currentUser?.name || "الصيدلي"} badge={shiftSales.length} badgeColor={VAR.accent}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                            <div style={{
+                                width: 32, height: 32, borderRadius: "50%",
+                                background: `linear-gradient(135deg, ${VAR.accent}, ${VAR.accent2})`,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 14, fontWeight: 700, color: VAR.bg, flexShrink: 0,
+                            }}>
+                                {currentUser?.name?.[0] || "م"}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 10, color: VAR.muted }}>
+                                    {currentShift ? `شفت نشط · بدأ ${new Date(currentShift.start_time).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}` : "لا يوجد شفت مفتوح"}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 1, background: VAR.border }}>
-                        {[
-                            { label: "فواتير الشفت", val: shiftSales.length },
-                            { label: "متوسط الأصناف/فاتورة", val: avgItemsPerInvoice },
-                            { label: "عملاء مسجلين", val: shiftSales.filter((s) => s.customer_id).length + " / " + shiftSales.length },
-                            { label: "مبيعات الشفت", val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
-                            { label: "مرتجع الشفت", val: S(shiftReturnsTotal.toFixed(0) + " ر.س"), color: VAR.danger },
-                        ].map((stat, i) => (
-                            <div key={i} style={{ background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", padding: "8px 10px" }}>
-                                <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
-                                <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: stat.color || VAR.text, marginTop: 2 }}>{stat.val}</div>
-                            </div>
-                        ))}
-                    </div>
-                </CollapsibleCard>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 1, background: VAR.border }}>
+                            {[
+                                { label: "فواتير الشفت", val: shiftSales.length },
+                                { label: "متوسط الأصناف/فاتورة", val: avgItemsPerInvoice },
+                                { label: "عملاء مسجلين", val: shiftSales.filter((s) => s.customer_id).length + " / " + shiftSales.length },
+                                { label: "مبيعات الشفت", val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
+                                { label: "مرتجع الشفت", val: S(shiftReturnsTotal.toFixed(0) + " ر.س"), color: VAR.danger },
+                            ].map((stat, i) => (
+                                <div key={i} style={{ background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", padding: "8px 10px" }}>
+                                    <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
+                                    <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: stat.color || VAR.text, marginTop: 2 }}>{stat.val}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </CollapsibleCard>
+                )}
 
                 {/* 8) خزنة اليوم */}
-                <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
-                    <div style={{ padding: 16 }}>
-                        {[
-                            { label: "مبيعات كاش", val: todayCashOnlySalesForTreasury.toFixed(0), type: "in" },
-                            { label: "شبكة / صراف", val: todayNetworkSalesForTreasury.toFixed(0), type: "in" },
-                            { label: "سداد الآجل", val: todayCreditPaid.toFixed(0), type: "in" },
-                            { label: "مصاريف نثرية", val: todayPettyExpenses.toFixed(0), type: "out" },
-                            { label: "مرتجعات", val: todayReturnsForDash.toFixed(0), type: "out" },
-                        ].map((row, i) => (
-                            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
-                                <span style={{ color: VAR.muted }}>{row.label}</span>
-                                <span style={{ fontFamily: "monospace", fontWeight: 600, color: row.type === "in" ? VAR.accent : VAR.danger }}>
-                                    {row.type === "in" ? "+" : "-"} {S(row.val)}
+                {activeTab === "sales" && (
+                    <CollapsibleCard cardKey="treasury" icon="💵" title="خزنة اليوم" badge={(todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0) + " ر.س"} badgeColor={VAR.accent}>
+                        <div style={{ padding: 16 }}>
+                            {[
+                                { label: "مبيعات كاش", val: todayCashOnlySalesForTreasury.toFixed(0), type: "in" },
+                                { label: "شبكة / صراف", val: todayNetworkSalesForTreasury.toFixed(0), type: "in" },
+                                { label: "سداد الآجل", val: todayCreditPaid.toFixed(0), type: "in" },
+                                { label: "مصاريف نثرية", val: todayPettyExpenses.toFixed(0), type: "out" },
+                                { label: "مرتجعات", val: todayReturnsForDash.toFixed(0), type: "out" },
+                            ].map((row, i) => (
+                                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${VAR.border}`, fontSize: 12 }}>
+                                    <span style={{ color: VAR.muted }}>{row.label}</span>
+                                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: row.type === "in" ? VAR.accent : VAR.danger }}>
+                                        {row.type === "in" ? "+" : "-"} {S(row.val)}
+                                    </span>
+                                </div>
+                            ))}
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
+                                <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
+                                <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
+                                    + {S((todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0))}
                                 </span>
                             </div>
-                        ))}
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", fontSize: 13, marginTop: 4, borderTop: `1px solid ${VAR.accent}` }}>
-                            <span style={{ color: VAR.text, fontWeight: 700 }}>صافي اليوم</span>
-                            <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.text, fontSize: 16 }}>
-                                + {S((todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses).toFixed(0))}
-                            </span>
                         </div>
-                    </div>
-                </CollapsibleCard>
+                    </CollapsibleCard>
+                )}
 
                 {/* 9) إجراءات سريعة */}
-                <CollapsibleCard cardKey="actions" icon="⚡" title="إجراءات سريعة">
-                    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                        {[
-                            { icon: "💊", label: "فاتورة بيع جديدة", tab: "pos", bg: "rgba(0,200,150,0.15)" },
-                            { icon: "📦", label: "استلام مشتريات", tab: "purchase", bg: "rgba(59,130,246,0.15)" },
-                            { icon: "🔄", label: "تسجيل مرتجع مبيعات", tab: "sales_returns", bg: "rgba(245,158,11,0.15)" },
-                            { icon: "🔒", label: "تقفيل الشفت", tab: "shift", bg: "rgba(239,68,68,0.15)" },
-                        ].map((btn) => (
-                            <button
-                                key={btn.tab}
-                                onClick={() => setTab(btn.tab)}
-                                style={{
-                                    display: "flex", alignItems: "center", gap: 10,
-                                    padding: "8px 12px", borderRadius: 8,
-                                    background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`,
-                                    cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-                                    color: VAR.text, fontWeight: 600, transition: "border-color 0.15s",
-                                    textAlign: "right",
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.borderColor = VAR.accent}
-                                onMouseLeave={(e) => e.currentTarget.style.borderColor = VAR.border}
-                            >
-                                <div style={{ width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, background: btn.bg }}>
-                                    {btn.icon}
+                {activeTab === "overview" && (
+                    <CollapsibleCard cardKey="actions" icon="⚡" title="إجراءات سريعة">
+                        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                            {[
+                                { icon: "💊", label: "فاتورة بيع جديدة", tab: "pos", bg: "rgba(0,200,150,0.15)" },
+                                { icon: "📦", label: "استلام مشتريات", tab: "purchase", bg: "rgba(59,130,246,0.15)" },
+                                { icon: "🔄", label: "تسجيل مرتجع مبيعات", tab: "sales_returns", bg: "rgba(245,158,11,0.15)" },
+                                { icon: "🔒", label: "تقفيل الشفت", tab: "shift", bg: "rgba(239,68,68,0.15)" },
+                            ].map((btn) => (
+                                <button
+                                    key={btn.tab}
+                                    onClick={() => setTab(btn.tab)}
+                                    style={{
+                                        display: "flex", alignItems: "center", gap: 10,
+                                        padding: "8px 12px", borderRadius: 8,
+                                        background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`,
+                                        cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                                        color: VAR.text, fontWeight: 600, transition: "border-color 0.15s",
+                                        textAlign: "right",
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.borderColor = VAR.accent}
+                                    onMouseLeave={(e) => e.currentTarget.style.borderColor = VAR.border}
+                                >
+                                    <div style={{ width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, background: btn.bg }}>
+                                        {btn.icon}
+                                    </div>
+                                    {btn.label}
+                                </button>
+                            ))}
+                        </div>
+                    </CollapsibleCard>
+                )}
+
+                {/* 10) تصنيف العملاء — شامل مقابل متخصص (مستورد من computeCustomerStats المشتركة) */}
+                {activeTab === "customers" && (
+                    <CollapsibleCard cardKey="customerClassification" icon="🌐" title="تصنيف العملاء" badge={`${customerClassification.comprehensivePct.toFixed(0)}% شامل`} badgeColor={COLORS.green}>
+                        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.green, 0.08), border: `1px solid ${tint(COLORS.green, 0.28)}` }}>
+                                    <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>🌐 عملاء شاملين</div>
+                                    <div style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 700, color: COLORS.green }}>{customerClassification.comprehensiveCount}</div>
                                 </div>
-                                {btn.label}
-                            </button>
-                        ))}
-                    </div>
-                </CollapsibleCard>
+                                <div style={{ padding: "10px 12px", borderRadius: 10, background: tint(COLORS.blue, 0.08), border: `1px solid ${tint(COLORS.blue, 0.28)}` }}>
+                                    <div style={{ fontSize: 10, color: VAR.muted, fontWeight: 600 }}>🎯 عملاء متخصصين</div>
+                                    <div style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 700, color: COLORS.blue }}>{customerClassification.specializedCount}</div>
+                                </div>
+                            </div>
+                            <div style={{ height: 6, background: VAR.surface2, borderRadius: 99, overflow: "hidden" }}>
+                                <div style={{
+                                    height: "100%", width: `${customerClassification.comprehensivePct}%`, borderRadius: 99,
+                                    background: `linear-gradient(90deg, ${COLORS.green}, ${tint(COLORS.green, 0.3)})`,
+                                }} />
+                            </div>
+                            <div style={{ fontSize: 11, color: VAR.muted }}>
+                                من إجمالي {customerClassification.totalClassified} عميل ليهم فواتير مسجّلة
+                            </div>
+                        </div>
+                    </CollapsibleCard>
+                )}
+
+                {/* 11) الديون المتأخرة */}
+                {activeTab === "customers" && (
+                    <CollapsibleCard cardKey="customerDebt" icon="💳" title="الديون المتأخرة" badge={customerClassification.overdueCustomers.length} badgeColor={VAR.danger} urgent={customerClassification.overdueCustomers.length > 0}>
+                        <div>
+                            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${VAR.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontSize: 12, color: VAR.muted }}>إجمالي المديونية المتأخرة</span>
+                                <span style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: VAR.danger }}>{S(customerClassification.totalOverdueDebt.toFixed(0) + " ر.س")}</span>
+                            </div>
+                            <div style={{ maxHeight: 260, overflowY: "auto", padding: "4px 0" }}>
+                                {customerClassification.overdueCustomers.length === 0 ? (
+                                    <div style={{ padding: "20px 14px", color: VAR.muted, fontSize: 12, textAlign: "center" }}>لا يوجد عملاء متأخرين في السداد ✅</div>
+                                ) : (
+                                    customerClassification.overdueCustomers
+                                        .sort((a, b) => b.remainingTotal - a.remainingTotal)
+                                        .map((d) => (
+                                            <div key={d.customer.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", borderBottom: `1px solid ${VAR.border}` }}>
+                                                <div>
+                                                    <div style={{ fontSize: 12, fontWeight: 700, color: VAR.text }}>{d.customer.name}</div>
+                                                    <div style={{ fontSize: 10, color: VAR.danger }}>متأخر {Math.abs(d.daysLeft)} يوم</div>
+                                                </div>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: VAR.danger, fontSize: 13 }}>{S(d.remainingTotal.toFixed(0) + " ر.س")}</span>
+                                                    {d.customer.phone && (
+                                                        <button
+                                                            onClick={() => openWhatsApp?.(d.customer.phone, `تذكير بمديونية متأخرة: ${d.remainingTotal.toFixed(0)} ر.س`)}
+                                                            style={{ background: "rgba(37,211,102,0.15)", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 12 }}
+                                                            title="تذكير واتساب"
+                                                        >
+                                                            💬
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))
+                                )}
+                            </div>
+                        </div>
+                    </CollapsibleCard>
+                )}
             </div>
 
             {/* ── تايم لاين حركة اليوم — أسفل الداشبورد بعرض كامل ── */}

@@ -108,4 +108,13 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     upsertMissedSalesCache: (payload) => ipcRenderer.invoke("offline:upsertMissedSalesCache", payload),
     getTodayMissedSalesCache: (params) => ipcRenderer.invoke("offline:getTodayMissedSalesCache", params),
     getMissedSalesMonthCache: (params) => ipcRenderer.invoke("offline:getMissedSalesMonthCache", params),
+    getPharmacySettingsCache: (pharmacyId) => ipcRenderer.invoke("offline:getPharmacySettingsCache", pharmacyId),
+    upsertPharmacySettingsCache: (payload) => ipcRenderer.invoke("offline:upsertPharmacySettingsCache", payload),
+    replaceVarianceLogCache: (args) => ipcRenderer.invoke("offline:replaceVarianceLogCache", args),
+    getVarianceLogCache: (pharmacyId) => ipcRenderer.invoke("offline:getVarianceLogCache", pharmacyId),
+    addVarianceLogCacheEntry: (row) => ipcRenderer.invoke("offline:addVarianceLogCacheEntry", row),
+    removeVarianceLogCacheByProduct: (args) => ipcRenderer.invoke("offline:removeVarianceLogCacheByProduct", args),
+});
+contextBridge.exposeInMainWorld("printAPI", {
+    printHTML: (html, options) => ipcRenderer.invoke("print:html", { html, options }),
 });

@@ -113,7 +113,7 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             break;
         }
         case "INVENTORY_COUNT_SAVE": {
-            const { logData, adjustments, productUpdates } = event.payload;
+            const { logData, adjustments, productUpdates, resolveVariance } = event.payload;
 
             const { error: logErr } = await supabase.from("inventory_logs").insert(logData);
             if (logErr) throw logErr;
@@ -130,6 +130,23 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
                     .eq("id", u.id)
                     .eq("pharmacy_id", u.pharmacy_id);
                 if (error) throw error;
+            }
+
+            if (resolveVariance && resolveVariance.length > 0) {
+                for (const r of resolveVariance) {
+                    const { error: varErr } = await supabase
+                        .from("inventory_variance_log")
+                        .update({
+                            status: "resolved",
+                            resolved_by: r.resolvedBy || null,
+                            resolved_at: new Date().toISOString(),
+                            resolution_notes: r.resolutionNotes || null,
+                        })
+                        .eq("pharmacy_id", event.pharmacy_id)
+                        .eq("product_id", r.productId)
+                        .eq("status", "pending");
+                    if (varErr) console.error("resolveVariance in INVENTORY_COUNT_SAVE failed:", varErr);
+                }
             }
             break;
         }
@@ -796,6 +813,24 @@ export async function deleteIncentiveOverride(id: string, pharmacyId: string) {
         payload: { id, pharmacy_id: pharmacyId },
     });
 }
+
+// 🆕 نقاط ولاء عميل واحد: أونلاين لو ممكن، وإلا نلاقط الرقم من خريطة الكاش المحلي
+export async function getCustomerLoyaltyPoints(pharmacyId: string, customerId: string) {
+    try {
+        const { data, error } = await supabase.from("loyalty_points").select("*")
+            .eq("pharmacy_id", pharmacyId).eq("customer_id", customerId).maybeSingle();
+        if (error) throw error;
+        return { data, fromCache: false };
+    } catch (err) {
+        if (window.offlineAPI) {
+            const map = await window.offlineAPI.getLoyaltyPointsCache(pharmacyId);
+            const c = map?.[customerId];
+            return { data: c ? { customer_id: customerId, ...c } : null, fromCache: true };
+        }
+        return { data: null, fromCache: false };
+    }
+}
+
 // ==================== نقاط الولاء ====================
 // 🆕 نقطة كتابة موحّدة لأي حركة نقاط (كسب/استبدال/تعديل) — بتحدّث الكاش فورًا بالـ delta
 // + queueEvent للمزامنة. pharmacy_id متكرر عمدًا top-level وجوه الـ payload (راجع تعليق
@@ -856,6 +891,23 @@ export async function redeemLoyaltyPoints(pharmacyId: string, customerId: string
     return applyLoyaltyDelta({ pharmacyId, customerId, delta: -amount, type: "redeem", note: "استبدال نقدي" });
 }
 
+// 🆕 خصم نقاط مرتبطة بفاتورة معينة بسبب مرتجع (كامل أو جزئي) — بتستخدم نفس نوع "adjust"
+// (لتفادي أي CHECK constraint على عمود type في الـ RPC/الجدول) لكن بتحتفظ بـ ref_sale_id
+// عشان يفضل واضح إن الخصم ده ناتج عن مرتجع فاتورة معينة مش تعديل يدوي عشوائي.
+export async function reverseLoyaltyPointsForReturn(
+    pharmacyId: string,
+    customerId: string,
+    points: number,
+    saleId: string,
+    note?: string
+) {
+    if (!customerId || points <= 0) return { synced: true, points: 0 };
+    return applyLoyaltyDelta({
+        pharmacyId, customerId, delta: -points, type: "adjust",
+        refSaleId: saleId, note: note || `خصم نقاط بسبب مرتجع من فاتورة ${saleId}`,
+    });
+}
+
 export async function adjustLoyaltyPoints(pharmacyId: string, customerId: string, amount: number, note?: string) {
     return applyLoyaltyDelta({ pharmacyId, customerId, delta: amount, type: "adjust", note: note || "تعديل يدوي" });
 }
@@ -877,6 +929,26 @@ export async function getLoyaltyTransactions(pharmacyId: string, limit = 200) {
         return [];
     }
 }
+
+// 🆕 إعدادات الصيدلية: أونلاين لو النت موجود (وبيحدّث الكاش فورًا)، وإلا يقرا من الكاش المحلي
+export async function getPharmacySettings(pharmacyId: string) {
+    try {
+        const { data, error } = await supabase.from("pharmacy_settings")
+            .select("*").eq("pharmacy_id", pharmacyId).single();
+        if (error) throw error;
+        if (data && window.offlineAPI) {
+            await window.offlineAPI.upsertPharmacySettingsCache({ pharmacyId, settings: data });
+        }
+        return { data, fromCache: false };
+    } catch (err) {
+        if (window.offlineAPI) {
+            const cached = await window.offlineAPI.getPharmacySettingsCache(pharmacyId);
+            return { data: cached, fromCache: true };
+        }
+        return { data: null, fromCache: false };
+    }
+}
+
 // ==================== سجل فروقات المخزون (Variance Log) ====================
 // نقطة كتابة موحّدة لأي ملحوظة "رصيد الصنف مش مظبوط". المصدر المفعّل دلوقتي هو
 // محاولة بيع صنف بالسكانر ورصيده صفر بالنظام (POS)، وقابلة للتوسع لاحقًا لمصادر
@@ -901,6 +973,15 @@ export async function logInventoryVariance(params: {
         created_at: new Date().toISOString(),
     };
 
+    // 🆕
+    if (eventType === "scan_zero_stock") {
+        try {
+            await window.offlineAPI?.addVarianceLogCacheEntry?.(row);
+        } catch (err) {
+            console.error("addVarianceLogCacheEntry failed:", err);
+        }
+    }
+
     const result = await queueEvent({
         id,
         type: "VARIANCE_LOG_INSERT",
@@ -912,6 +993,32 @@ export async function logInventoryVariance(params: {
     return { id, synced: result.synced };
 }
 
+// 🆕 بترجع كل سجلات "pending" في inventory_variance_log مهما كان event_type (رصيد صفر
+// بالسكانر / تسوية يدوية / عجز شفت) — مش scan_zero_stock بس زي ما كانت قبل كده. آمن للاستخدام
+// من InventoryStatement (اللي أصلاً بيستبعد أي منتج ظاهر بالفعل في baseRows بغض النظر عن
+// event_type) ومن Dashboard (اللي محتاج كل الأنواع مع event_type نفسه لعرض البادج الصح).
+export async function getPendingZeroStockVariance(pharmacyId: string): Promise<{ data: any[]; fromCache: boolean }> {
+    try {
+        const { data, error } = await supabase
+            .from("inventory_variance_log")
+            .select("id, product_id, event_type, notes, created_at")
+            .eq("pharmacy_id", pharmacyId)
+            .eq("status", "pending");
+        if (error) throw error;
+        try {
+            await window.offlineAPI?.replaceVarianceLogCache?.({ pharmacyId, rows: data || [] });
+        } catch (err) {
+            console.error("replaceVarianceLogCache failed:", err);
+        }
+        return { data: data || [], fromCache: false };
+    } catch (err) {
+        if (window.offlineAPI) {
+            const cached = await window.offlineAPI.getVarianceLogCache(pharmacyId);
+            return { data: cached || [], fromCache: true };
+        }
+        return { data: [], fromCache: false };
+    }
+}
 // ==================== فاتورة شراء مؤقتة (Draft) ====================
 // سيناريو: صنف رصيده صفر بالنظام لكن اتمسح بالباركود سكانر، والصيدلي أكّد إنها
 // طلبية مورد وصلت فعليًا ولسه ملحقتش تتسجل. بتعمل بالظبط نفس اللي savePurchase
@@ -927,10 +1034,22 @@ export async function createZeroStockDraftPurchase(params: {
     supplierName: string;
     qty: number;
     createdBy?: string | null;
-}): Promise<{ id: string; synced: boolean }> {
-    const { pharmacyId, productId, productName, supplierId, supplierName, qty, createdBy } = params;
+    // 🆕 batch_number/expiry_date الحقيقيين بيتدخلوا يدويًا وقت تأكيد المسودة (مش placeholder
+    // زي ما كان قبل كده)، عشان يتحفظوا في بند الفاتورة نفسه وفي الـ batch الفعلي اللي هيتباع
+    // منه، فيبقوا صح من نقطة الإنشاء لحد الرصد لاحقًا.
+    batchNumber?: string | null;
+    expiryDate?: string | null;
+}): Promise<{
+    id: string;
+    synced: boolean;
+    batch: { id: string; qty: number; cost: number; salePrice: number; expiry_date: string | null; batch_number: string | null; date: string };
+}> {
+    const { pharmacyId, productId, productName, supplierId, supplierName, qty, createdBy, batchNumber, expiryDate } = params;
     const poId = "PO-" + crypto.randomUUID();
     const nowIso = new Date().toISOString();
+    // 🆕 نفس الـ batch.id بيتولّد هنا مرة واحدة ويتحفظ في بند الفاتورة نفسها (items[0].batch_id)
+    // وفي stockEvent.batch.id، عشان الفاتورة وبند المخزون الفعلي يتطابقوا بـ id مش تخمين لاحق.
+    const newBatchId = crypto.randomUUID();
 
     const purchaseInvoice = {
         id: poId,
@@ -947,8 +1066,9 @@ export async function createZeroStockDraftPurchase(params: {
             discount2: 0,
             salePrice: 0,
             taxable: false,
-            expiry_date: null,
-            batch_number: null,
+            expiry_date: expiryDate || null,
+            batch_number: batchNumber || null,
+            batch_id: newBatchId, // 🆕 نفس id الـ batch الفعلي، مش placeholder
         }],
         subtotal: 0,
         tax_amount: 0,
@@ -997,12 +1117,12 @@ export async function createZeroStockDraftPurchase(params: {
         pharmacy_id: pharmacyId,
         product_id: productId,
         batch: {
-            id: crypto.randomUUID(),
+            id: newBatchId, // 🆕 نفس id اللي اتحفظ في بند الفاتورة، مش عشوائي مستقل
             qty,
             cost: 0,
             salePrice: 0,
-            expiry_date: null,
-            batch_number: null,
+            expiry_date: expiryDate || null,
+            batch_number: batchNumber || null,
             date: purchaseInvoice.date,
         },
         reference_id: poId,
@@ -1027,7 +1147,121 @@ export async function createZeroStockDraftPurchase(params: {
         console.error("applyProductStockDeltaCache (zero-stock draft) failed:", err);
     }
 
-    return { id: poId, synced: invoiceResult.synced };
+    return { id: poId, synced: invoiceResult.synced, batch: stockEvent.batch };
+}
+
+// 🆕 لو الصيدلي بيبيع صنف تاني (رصيده صفر برضه) من نفس المورد واللي أصلاً ليه فاتورة
+// "مسودة" لسه مفتوحة (اتعملت بنفس الآلية فوق وماكملتش بياناتها بعد)، الأصح إننا نضيف
+// بند جديد لنفس الفاتورة دي بدل ما نفتح فاتورة مسودة جداد لكل صنف — غير كده هيبقى عندك
+// 5 فواتير "بحاجة لإكمال" من نفس المورد في نفس اليوم بدل فاتورة واحدة فيها كل الأصناف.
+export async function addItemToZeroStockDraftPurchase(params: {
+    pharmacyId: string;
+    poId: string; // 🆕 id الفاتورة المسودة المفتوحة أصلاً (من نداء createZeroStockDraftPurchase سابق)
+    existingItems: any[]; // 🆕 بنود الفاتورة الحالية (بتتفضل متتبّعة في POS.tsx) — بنضيف عليها البند الجديد
+    supplierId: string;
+    supplierName: string;
+    productId: string;
+    productName: string;
+    qty: number;
+    createdBy?: string | null;
+    batchNumber?: string | null;
+    expiryDate?: string | null;
+}): Promise<{
+    synced: boolean;
+    items: any[];
+    batch: { id: string; qty: number; cost: number; salePrice: number; expiry_date: string | null; batch_number: string | null; date: string };
+}> {
+    const { pharmacyId, poId, existingItems, supplierId, supplierName, productId, productName, qty, createdBy, batchNumber, expiryDate } = params;
+    const nowIso = new Date().toISOString();
+    const invoiceDate = nowIso.slice(0, 10);
+    // 🆕 نفس مبدأ createZeroStockDraftPurchase: batch.id واحد بيتحفظ في البند وفي حركة
+    // المخزون معًا، مش عشوائي منفصل.
+    const newBatchId = crypto.randomUUID();
+
+    const newItem = {
+        id: productId,
+        name: productName,
+        qty,
+        bonusQty: 0,
+        cost: 0,
+        discount1: 0,
+        discount2: 0,
+        salePrice: 0,
+        taxable: false,
+        expiry_date: expiryDate || null,
+        batch_number: batchNumber || null,
+        batch_id: newBatchId,
+    };
+    const updatedItems = [...(existingItems || []), newItem];
+
+    const updateResult = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "PURCHASE_UPDATE", // case عامة موجودة أصلاً في executeSyncedEvent — بتعمل update على أي عمود
+        pharmacy_id: pharmacyId,
+        timestamp: nowIso,
+        payload: { id: poId, pharmacy_id: pharmacyId, updates: { items: updatedItems } },
+    });
+
+    // نفس نمط try/catch البسيط المستخدم فوق — الكاش هنا لقراءة سريعة أوفلاين بس، مش مصدر الحقيقة
+    try {
+        await window.offlineAPI?.insertPurchaseInvoiceCache?.({
+            id: poId,
+            pharmacy_id: pharmacyId,
+            supplier_id: supplierId,
+            supplier_name: supplierName,
+            invoice_number: null,
+            invoice_date: invoiceDate,
+            created_at: nowIso,
+            items: updatedItems,
+            subtotal: 0,
+            tax_amount: 0,
+            total: 0,
+            paid_amount: 0,
+            payment_status: "unpaid",
+            notes: "أُنشئت تلقائيًا من نقطة البيع — رصيد صفر بالنظام وطلبية وصلت لسه ملحقتش تتسجل",
+            created_by: createdBy || null,
+            returned: false,
+        });
+    } catch (err) {
+        console.error("insertPurchaseInvoiceCache (append to zero-stock draft) failed:", err);
+    }
+
+    const stockEvent = {
+        id: crypto.randomUUID(),
+        pharmacy_id: pharmacyId,
+        product_id: productId,
+        batch: {
+            id: newBatchId,
+            qty,
+            cost: 0,
+            salePrice: 0,
+            expiry_date: expiryDate || null,
+            batch_number: batchNumber || null,
+            date: invoiceDate,
+        },
+        reference_id: poId, // 🆕 نفس poId الأصلي — الحركة دي بتتبع لنفس فاتورة الشراء المفتوحة
+        created_at: nowIso,
+        device_id: getDeviceId(),
+    };
+
+    await queueEvent({
+        id: crypto.randomUUID(),
+        type: "PURCHASE_STOCK_ADD",
+        pharmacy_id: pharmacyId,
+        timestamp: nowIso,
+        payload: { events: [stockEvent] },
+    });
+
+    try {
+        await window.offlineAPI?.applyProductStockDeltaCache?.({
+            pharmacyId,
+            deltas: [{ id: productId, delta: qty }],
+        });
+    } catch (err) {
+        console.error("applyProductStockDeltaCache (append to zero-stock draft) failed:", err);
+    }
+
+    return { synced: updateResult.synced, items: updatedItems, batch: stockEvent.batch };
 }
 // ═══════════════════════════════════════════════════════════════════
 // 🆕 نقطة كتابة موحّدة لأي قيد خزنة (تستخدمها كل الموديولات: مرتجعات، موردين، شفتات، تقفيل).

@@ -6,7 +6,7 @@ const { randomUUID } = require("crypto");
 const Database = require("better-sqlite3");
 const bcrypt = require("bcryptjs");
 const isDev = !app.isPackaged;
-
+console.log("✅ print:html handler registered successfully");
 let mainWindow;
 
 function createWindow() {
@@ -17,6 +17,8 @@ function createWindow() {
         minHeight: 700,
         show: false,
         autoHideMenuBar: true,
+        icon: path.join(__dirname, "../build/icon.ico"),
+        title: "PharmaGo 360",
         webPreferences: {
             preload: path.join(__dirname, "preload.cjs"),
             contextIsolation: true,
@@ -391,6 +393,14 @@ CREATE TABLE IF NOT EXISTS loyalty_transactions_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_loyalty_tx_cache_pharmacy ON loyalty_transactions_cache(pharmacy_id, created_at);
 
+-- 🆕 كاش إعدادات الصيدلية محلياً — صف واحد لكل صيدلية، data = الإعدادات كاملة كـ JSON
+-- (نفس فلسفة customers_cache) عشان أي حقل يتضاف في pharmacy_settings مستقبلاً منحتاجش تعديل schema
+CREATE TABLE IF NOT EXISTS pharmacy_settings_cache (
+  pharmacy_id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- ==================== كاش موديول الحضور والانصراف ====================
 -- 🆕 سجلات الحضور اليومية — أعمدة حقيقية عشان فلترة التاريخ (اليوم/الشهر) تبقى سريعة
 CREATE TABLE IF NOT EXISTS attendance_logs_cache (
@@ -505,6 +515,12 @@ CREATE INDEX IF NOT EXISTS idx_attendance_gaps_cache_pharmacy ON attendance_gaps
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_missed_sales_cache_pharmacy_date ON missed_sales_cache(pharmacy_id, date);
+  CREATE TABLE IF NOT EXISTS variance_log_cache (
+  id TEXT PRIMARY KEY,
+  pharmacy_id TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT);
 `);
 
 ipcMain.handle("app:getVersion", () => app.getVersion());
@@ -1423,6 +1439,30 @@ ipcMain.handle("offline:getLoyaltyTransactionsCache", (_event, { pharmacyId, lim
     ).all(pharmacyId, limit || 200);
 });
 
+// ==================== كاش إعدادات الصيدلية محلياً (pharmacy_settings_cache) ====================
+ipcMain.handle("offline:getPharmacySettingsCache", (_event, pharmacyId) => {
+    const row = db.prepare("SELECT * FROM pharmacy_settings_cache WHERE pharmacy_id = ?").get(pharmacyId);
+    return row ? JSON.parse(row.data) : null;
+});
+
+// بيتنادى بعد كل تحميل ناجح من Supabase (نفس نمط upsertLoyaltyPointsCache)
+ipcMain.handle("offline:upsertPharmacySettingsCache", (_event, { pharmacyId, settings }) => {
+    try {
+        db.prepare(`
+      INSERT INTO pharmacy_settings_cache (pharmacy_id, data, updated_at)
+      VALUES (@pharmacy_id, @data, @updated_at)
+      ON CONFLICT(pharmacy_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at
+    `).run({
+            pharmacy_id: pharmacyId,
+            data: JSON.stringify(settings),
+            updated_at: new Date().toISOString(),
+        });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
 // ==================== كاش موديول الحضور والانصراف ====================
 // سجلات الحضور — insert وقت check-in، update وقت check-out/auto-close
 ipcMain.handle("offline:upsertAttendanceLogCache", (_event, log) => {
@@ -1737,6 +1777,126 @@ ipcMain.handle("offline:getMissedSalesMonthCache", (_event, { pharmacyId, monthK
     ).all(pharmacyId, `${monthKey}-01`, `${monthKey}-31`);
 });
 
+ipcMain.handle("offline:replaceVarianceLogCache", (event, { pharmacyId, rows }) => {
+    try {
+        const del = db.prepare("DELETE FROM variance_log_cache WHERE pharmacy_id = ?");
+        const ins = db.prepare(
+            "INSERT OR REPLACE INTO variance_log_cache (id, pharmacy_id, product_id, notes, created_at) VALUES (?, ?, ?, ?, ?)"
+        );
+        const tx = db.transaction((rows) => {
+            del.run(pharmacyId);
+            for (const r of rows) ins.run(r.id, pharmacyId, r.product_id, r.notes || null, r.created_at || null);
+        });
+        tx(rows);
+        return { success: true };
+    } catch (err) {
+        console.error("replaceVarianceLogCache failed:", err);
+        return { success: false };
+    }
+});
+
+ipcMain.handle("offline:getVarianceLogCache", (event, pharmacyId) => {
+    try {
+        return db.prepare(
+            "SELECT id, product_id, notes, created_at FROM variance_log_cache WHERE pharmacy_id = ?"
+        ).all(pharmacyId);
+    } catch (err) {
+        console.error("getVarianceLogCache failed:", err);
+        return [];
+    }
+});
+
+ipcMain.handle("offline:addVarianceLogCacheEntry", (event, row) => {
+    try {
+        db.prepare(
+            "INSERT OR REPLACE INTO variance_log_cache (id, pharmacy_id, product_id, notes, created_at) VALUES (?, ?, ?, ?, ?)"
+        ).run(row.id, row.pharmacy_id, row.product_id, row.notes || null, row.created_at || null);
+        return { success: true };
+    } catch (err) {
+        console.error("addVarianceLogCacheEntry failed:", err);
+        return { success: false };
+    }
+});
+
+ipcMain.handle("offline:removeVarianceLogCacheByProduct", (event, { pharmacyId, productId }) => {
+    try {
+        db.prepare("DELETE FROM variance_log_cache WHERE pharmacy_id = ? AND product_id = ?").run(pharmacyId, productId);
+        return { success: true };
+    } catch (err) {
+        console.error("removeVarianceLogCacheByProduct failed:", err);
+        return { success: false };
+    }
+});
+
+// ==================== الطباعة عبر نافذة مخفية (بديل window.open) ====================
+ipcMain.handle("print:html", async (_event, { html, options }) => {
+    return new Promise((resolve) => {
+        const printWin = new BrowserWindow({
+            show: false, // مخفية تمامًا - المستخدم مش هيشوفها
+            webPreferences: {
+                sandbox: true,
+                contextIsolation: true,
+            },
+        });
+
+        printWin.webContents.on("did-finish-load", async () => {
+            try {
+                // نحسب الطول الفعلي للمحتوى (بالبكسل) عشان نبني مقاس ورقة مضبوط
+                // بدل ما نسيب Chromium يستخدم مقاس افتراضي (A4/Letter) وياخد المحتوى مساحة صغيرة منه
+                const contentHeightPx = await printWin.webContents.executeJavaScript(
+                    "document.body.scrollHeight"
+                );
+
+                let pageSize;
+                if (options?.paperWidthMM) {
+                    // ورق حراري (58/80مم) - العرض ثابت، الطول بيتحسب من المحتوى الفعلي
+                    const MICRONS_PER_PX = 25400 / 96; // تحويل بكسل (96 DPI) لميكرون
+                    const widthMicrons = Math.round(options.paperWidthMM * 1000);
+                    const heightMicrons = Math.max(
+                        Math.round(contentHeightPx * MICRONS_PER_PX) + 5000, // + هامش أمان 5مم
+                        140000 // حد أدنى 140مم (14سم) للفاتورة حتى لو صنف واحد بس
+                    );
+                    pageSize = { width: widthMicrons, height: heightMicrons };
+                } else {
+                    // مستندات A4 عادية (تقارير، فواتير شراء، جرد...)
+                    pageSize = "A4";
+                }
+
+                printWin.webContents.print(
+                    {
+                        silent: options?.silent ?? false,
+                        printBackground: true,
+                        pageSize,
+                        margins: { marginType: "none" },
+                        ...options,
+                        pageSize, // نضمن إن pageSize بتاعنا ماتتلخبطش لو موجودة في options برضه
+                    },
+                    (success, errorType) => {
+                        printWin.close();
+                        if (success) {
+                            resolve({ success: true });
+                        } else {
+                            resolve({ success: false, error: errorType });
+                        }
+                    }
+                );
+            } catch (err) {
+                printWin.close();
+                resolve({ success: false, error: String(err) });
+            }
+        });
+
+        printWin.webContents.on("did-fail-load", (_e, code, desc) => {
+            printWin.close();
+            resolve({ success: false, error: `${code}: ${desc}` });
+        });
+
+        printWin.loadURL(
+            `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+        );
+    });
+});
+console.log("🚀 main.cjs is loading from:", __filename);
 // ==================== أوفلاين تسجيل الدخول ====================
 // بيحفظ نسخة محلية من بيانات الدخول (hash فقط، مش الباسورد نفسها) بعد أي دخول أونلاين ناجح
 ipcMain.handle("offline:cacheCredentials", async (_event, payload) => {

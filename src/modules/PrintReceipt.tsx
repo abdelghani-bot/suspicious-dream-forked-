@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../lib/supabaseClient";
 import { buildZatcaQR } from "../lib/zatca";
 import { Btn, Modal } from "../ui/primitives";
+import { printHTML } from "../lib/printHelper";
 
 // ==================== PRINT RECEIPT ====================
 export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
@@ -39,20 +40,14 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
         }
     }, [pharmacyId]);
 
-  const doPrint = () => {
-    const isA4 = paperWidth === "A4";
-    const pageCSS = isA4
-      ? `@page{size:A4;margin:14mm}html,body{width:auto}`
-      : `@page{size:${paperWidth}mm auto;margin:0}html,body{width:${paperWidth}mm}`;
-    const w = window.open("", "_blank", "width=400,height=700");
-    w.document.write(
-      `<html dir="rtl"><head><style>${pageCSS}body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:8px 10px;font-size:13px;color:#000;background:#fff}h2{margin:4px 0;font-size:16px}table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid #ddd;font-size:12px}hr{border:1px dashed #999}.total{font-weight:700;font-size:15px}.dose{font-size:11px;color:#555;font-style:italic}.header{text-align:center;margin-bottom:12px}@media print{body{padding:0 6px}}</style></head><body>${printArea.current.innerHTML}</body></html>`
-    );
-    w.document.close();
-    w.focus();
-    w.print();
-    w.close();
-  };
+    const doPrint = async () => {
+        const isA4 = paperWidth === "A4";
+        const pageCSS = isA4
+            ? `@page{size:A4;margin:14mm}html,body{width:auto}`
+            : `@page{size:${paperWidth}mm auto;margin:0}html,body{width:${paperWidth}mm}`;
+        const fullHtml = `<html dir="rtl"><head><style>${pageCSS}body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:8px 10px;font-size:13px;color:#000;background:#fff}h2{margin:4px 0;font-size:16px}table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid #ddd;font-size:12px}hr{border:1px dashed #999}.total{font-weight:700;font-size:15px}.dose{font-size:11px;color:#555;font-style:italic}.header{text-align:center;margin-bottom:12px}@media print{body{padding:0 6px}}</style></head><body>${printArea.current.innerHTML}</body></html>`;
+        await printHTML(fullHtml);
+    };
   const shareOnWhatsapp = () => {
     const phone = String(customerPhone || "").replace(/\D/g, "");
     if (!phone) return;

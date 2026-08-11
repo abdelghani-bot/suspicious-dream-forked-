@@ -111,12 +111,13 @@ export const GRADIENT = {
 // 🆕 جاهز للّصق مباشرة على أي كارد لإحساس عمق فوري
 // مثال: <div style={cardStyle3D}>...</div>
 export const cardStyle3D = {
-  background: GRADIENT.surface,
-  borderRadius: RADIUS.lg,
-  borderTop: `1px solid ${COLORS.highlightTop}`,
-  borderBottom: `1px solid ${COLORS.shadowBottom}`,
-  border: `1px solid ${COLORS.border}`,
-  boxShadow: SHADOW.raised,
+    background: GRADIENT.surface,
+    borderRadius: RADIUS.lg,
+    borderTop: `1px solid ${COLORS.highlightTop}`,
+    borderBottom: `1px solid ${COLORS.shadowBottom}`,
+    borderLeft: `1px solid ${COLORS.border}`,
+    borderRight: `1px solid ${COLORS.border}`,
+    boxShadow: SHADOW.raised,
 } as const;
 
 // ============================================================

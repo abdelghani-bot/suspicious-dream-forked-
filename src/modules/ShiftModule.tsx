@@ -49,7 +49,12 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         : [];
     const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
     const shiftPartialReturns = currentShift
-        ? (returns || []).filter((r) => r.type === "sales" && r.refund_method !== null && salesById[r.invoice_id]?.shift === currentShift.id)
+        ? (returns || []).filter((r) =>
+            r.type === "sales" &&
+            r.refund_method !== null &&
+            r.created_at &&
+            new Date(r.created_at).getTime() >= new Date(currentShift.start_time).getTime()
+        )
         : [];
     const shiftReturnsTotal = shiftPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
     const shiftCashSales = shiftSalesRaw
