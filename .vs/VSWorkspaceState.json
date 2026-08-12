@@ -11,6 +11,6 @@
     "\\src\\services",
     "\\src\\ui"
   ],
-  "SelectedNode": "\\electron\\main.cjs",
+  "SelectedNode": "\\src\\lib\\printHelper.ts",
   "PreviewInSolutionExplorer": false
 }

@@ -15,6 +15,7 @@ import { RasdQueue } from "../services/rasdService";
 import { Btn, IC, Modal, Select } from "../ui/primitives";
 import { getDeviceId } from "../lib/deviceID";
 import { computeCustomerStats, trendConfig } from "../modules/CustomersModule"; // 🆕 مسار الاستيراد ده افتراضي — عدّله لو مكان الملف مختلف عندك
+import { printHTML } from "../lib/printHelper";
 
 // 🆕 ضغط/تصغير صورة الوصفة قبل تحويلها لـ base64 وتخزينها —
 // عشان الصورة متبقاش تضخّم صف الفاتورة أو ملف الـ SQLite المحلي وهي بتتزامن مع Supabase.
@@ -160,7 +161,7 @@ export function POS({
         });
     };
 
-    const printDoseLabel = () => {
+    const printDoseLabel = async () => {
         const it = doseLabelItem;
         if (!it) return;
         const now = new Date();
@@ -169,8 +170,7 @@ export function POS({
         const size = DOSAGE_LABEL_SIZES.find((s) => s.id === (it._labelSize || "80x60")) || DOSAGE_LABEL_SIZES[2];
         const patientName = (inv.patientName || "").trim() || inv.selCustomer?.name || "";
 
-        const win = window.open("", "_blank");
-        win.document.write(`
+        const html = `
       <html dir="rtl">
       <head>
         <meta charset="utf-8">
@@ -203,10 +203,6 @@ export function POS({
         </style>
       </head>
       <body>
-        <div class="no-print" style="padding:10px; text-align:center;">
-          <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">🖨️ طباعة</button>
-          <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-right:10px;">✕ إغلاق</button>
-        </div>
         <div class="label">
           <div class="pharmacy-row">
             <span>${pharmSettingsPOS.name_ar || ""}</span>
@@ -226,13 +222,14 @@ export function POS({
         </div>
       </body>
       </html>
-    `);
-        win.document.close();
+    `;
+        const result = await printHTML(html, { paperWidthMM: size.w });
+        if (!result.success) showToast("فشلت طباعة الملصق ⚠️", "error");
         setDoseLabelItem(null);
     };
 
     // ── طباعة كل ملصقات الجرعة للسلة دفعة واحدة ──
-    const printAllDoseLabels = (sizeId) => {
+    const printAllDoseLabels = async (sizeId) => {
         const items = inv.cart.filter((i) => !i.isGift);
         if (items.length === 0) return;
         const size = DOSAGE_LABEL_SIZES.find((s) => s.id === sizeId) || DOSAGE_LABEL_SIZES[2];
@@ -263,8 +260,7 @@ export function POS({
             )
             .join("");
 
-        const win = window.open("", "_blank");
-        win.document.write(`
+        const html = `
       <html dir="rtl">
       <head>
         <meta charset="utf-8">
@@ -299,15 +295,12 @@ export function POS({
         </style>
       </head>
       <body>
-        <div class="no-print" style="padding:10px; text-align:center;">
-          <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">🖨️ طباعة الكل (${items.length})</button>
-          <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-right:10px;">✕ إغلاق</button>
-        </div>
         ${labelsHtml}
       </body>
       </html>
-    `);
-        win.document.close();
+    `;
+        const result = await printHTML(html, { paperWidthMM: size.w });
+        if (!result.success) showToast("فشلت طباعة الملصقات ⚠️", "error");
         setShowBulkDoseModal(false);
     };
 
