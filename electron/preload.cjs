@@ -117,4 +117,5 @@ contextBridge.exposeInMainWorld("offlineAPI", {
 });
 contextBridge.exposeInMainWorld("printAPI", {
     printHTML: (html, options) => ipcRenderer.invoke("print:html", { html, options }),
+    listPrinters: () => ipcRenderer.invoke("printer:list"), // 🆕
 });

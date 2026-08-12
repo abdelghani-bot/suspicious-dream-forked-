@@ -6,9 +6,37 @@ const { randomUUID } = require("crypto");
 const Database = require("better-sqlite3");
 const bcrypt = require("bcryptjs");
 const isDev = !app.isPackaged;
+const http = require("http");
+const fs = require("fs");
 console.log("✅ print:html handler registered successfully");
 let mainWindow;
 
+const LOCAL_SERVER_PORT = 5175; // بورت ثابت — يفضل زي ما هو دايمًا
+
+function startLocalServer() {
+    const distPath = path.join(__dirname, "../dist");
+
+    const server = http.createServer((req, res) => {
+        const cleanUrl = req.url.split("?")[0];
+        let filePath = path.join(distPath, cleanUrl === "/" ? "index.html" : cleanUrl);
+
+        if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+            filePath = path.join(distPath, "index.html"); // fallback لأي راوت SPA
+        }
+
+        const ext = path.extname(filePath);
+        const types = {
+            ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
+            ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml",
+            ".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2",
+        };
+        res.setHeader("Content-Type", types[ext] || "application/octet-stream");
+        fs.createReadStream(filePath).pipe(res);
+    });
+
+    server.listen(LOCAL_SERVER_PORT, "127.0.0.1");
+    return `http://localhost:${LOCAL_SERVER_PORT}`;
+}
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
@@ -31,7 +59,8 @@ function createWindow() {
         mainWindow.loadURL("http://localhost:5173");
         mainWindow.webContents.openDevTools();
     } else {
-        mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+        const localUrl = startLocalServer();
+        mainWindow.loadURL(localUrl);
     }
 
     mainWindow.once("ready-to-show", () => mainWindow.show());
@@ -1859,7 +1888,7 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
                     pageSize = { width: widthMicrons, height: heightMicrons };
                 } else {
                     // مستندات A4 عادية (تقارير، فواتير شراء، جرد...)
-                    pageSize = "A4";
+                    pageSize = { width: 210000, height: 297000 };
                 }
 
                 printWin.webContents.print(
@@ -1868,6 +1897,7 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
                         printBackground: true,
                         pageSize,
                         margins: { marginType: "none" },
+                        deviceName: options?.deviceName, // 🆕 يجبر طابعة معينة بدل آخر طابعة مختارة في النظام
                         ...options,
                         pageSize, // نضمن إن pageSize بتاعنا ماتتلخبطش لو موجودة في options برضه
                     },
@@ -1896,7 +1926,22 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
         );
     });
 });
-console.log("🚀 main.cjs is loading from:", __filename);
+
+// ==================== جلب قائمة الطابعات المتاحة على الجهاز ====================
+ipcMain.handle("printer:list", async () => {
+    try {
+        const printers = await mainWindow.webContents.getPrintersAsync();
+        return printers.map((p) => ({
+            name: p.name,
+            displayName: p.displayName,
+            isDefault: p.isDefault,
+        }));
+    } catch (err) {
+        console.error("printer:list failed:", err);
+        return [];
+    }
+});
+
 // ==================== أوفلاين تسجيل الدخول ====================
 // بيحفظ نسخة محلية من بيانات الدخول (hash فقط، مش الباسورد نفسها) بعد أي دخول أونلاين ناجح
 ipcMain.handle("offline:cacheCredentials", async (_event, payload) => {

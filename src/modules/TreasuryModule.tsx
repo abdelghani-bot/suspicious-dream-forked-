@@ -10,6 +10,14 @@ import { Btn, Input, Modal, Select } from "../ui/primitives";
 import { printHTML } from "../lib/printHelper";
 
 // ==================== TREASURY MODULE ====================
+// 🆕 مدفوعات/قيود بتخص رصيد الخزنة المتراكم مباشرة (مش دخل/مصروف اليوم أو الشهر الفعلي) — زي
+// سداد الموردين والمصاريف الثابتة والتراخيص والرواتب ومستحقات نهاية الخدمة وصرف رصيد الإجازات
+// (مدفوعات خارجة من الرصيد)، وكمان رصيد أول المدة (تمويل داخل للرصيد، مش دخل مبيعات). لو اتحسبت
+// ضمن دخل/مصروف اليوم العادي (جنب المبيعات/النثريات/المصروفات المتغيرة)، هيطلع "صافي اليوم"
+// مضلل رغم إن الفلوس دي مالهاش علاقة بأداء اليوم أو الشهر أصلاً. عشان كده بنستبعدها من حساب
+// الصافي اليومي/الشهري في تاب "السجل"، ونعرضها في بند منفصل بدل ما تتخلط بحركة اليوم الفعلية.
+const TREASURY_BALANCE_SUBTYPES = new Set(["supplier_payment", "fixed", "license", "salary", "leave_cashout", "end_of_service", "opening_balance", "balance_settlement"]);
+
 export function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, users = [], showToast, shifts, entries, setEntries, returns = [], products = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
     const canViewDayClosing = canViewSub("day_closing");
     const canEditDayClosing = canEditSub("day_closing");
@@ -143,13 +151,34 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const [fixedPayMethod, setFixedPayMethod] = useState({}); // 🆕 طريقة السداد لكل مصروف ثابت { [expenseId]: "نقدي" | "بطاقة" | "تحويل" }
     const printRef = useRef(null);
 
-    // 🆕 بيانات الصيدلية (اسم/عنوان/رقم ضريبي) لعرضها في رأس تقرير التقفيل المطبوع
-    const [pharmInfo, setPharmInfo] = useState({ name: "", address: "", taxNumber: "" });
+    // 🆕 بيانات الصيدلية (اسم/عنوان/رقم ضريبي + طابعة التقارير) لتقرير التقفيل المطبوع
+    const [pharmInfo, setPharmInfo] = useState({ name: "", address: "", taxNumber: "", reportsPrinterName: "" });
     useEffect(() => {
         if (!pharmacyId) return;
-        supabase.from("pharmacy_settings").select("name_ar, address, tax_number").eq("pharmacy_id", pharmacyId).maybeSingle()
-            .then(({ data }) => {
-                if (data) setPharmInfo({ name: data.name_ar || "", address: data.address || "", taxNumber: data.tax_number || "" });
+        supabase.from("pharmacy_settings")
+            .select("name_ar, address, tax_number, reports_printer_name")
+            .eq("pharmacy_id", pharmacyId).maybeSingle()
+            .then(({ data, error }) => {
+                if (data) {
+                    setPharmInfo({
+                        name: data.name_ar || "",
+                        address: data.address || "",
+                        taxNumber: data.tax_number || "",
+                        reportsPrinterName: data.reports_printer_name || "", // 🆕
+                    });
+                } else if (error && window.offlineAPI?.getPharmacySettingsCache) {
+                    // 🆕 fallback أوفلاين — نفس فلسفة باقي الكاش-أولاً في التطبيق
+                    window.offlineAPI.getPharmacySettingsCache(pharmacyId).then((cached) => {
+                        if (cached) {
+                            setPharmInfo({
+                                name: cached.name_ar || "",
+                                address: cached.address || "",
+                                taxNumber: cached.tax_number || "",
+                                reportsPrinterName: cached.reports_printer_name || "",
+                            });
+                        }
+                    }).catch(() => { });
+                }
             });
     }, [pharmacyId]);
 
@@ -1072,12 +1101,21 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         }
         const dayEntries = groupedByDay[dateStr] || [];
         const closingEntry = dayEntries.find((e) => e.sub_type === "daily_closing");
-        const incomeRows = dayEntries.filter((e) => e.type === "income");
-        const expenseRows = dayEntries.filter((e) => e.type === "expense");
+        // 🆕 نفس فصل "حركة اليوم" عن "مدفوعات رصيد الخزنة" المطبّق في تاب السجل — بدل ما التقرير
+        // المطبوع يجمعهم في صافي واحد مضلل، بنفصلهم هنا كمان: صافي اليوم بيعكس أداء اليوم الفعلي
+        // بس (مبيعات/نثريات/مصروفات متغيرة/مرتجعات)، ومدفوعات الرصيد (موردين/رواتب/ثابتة/تراخيص/
+        // رصيد أول المدة/تسوية) بتتعرض في قسم منفصل بصافيها الخاص.
+        const incomeRows = dayEntries.filter((e) => e.type === "income" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+        const expenseRows = dayEntries.filter((e) => e.type === "expense" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+        const balanceIncomeRows = dayEntries.filter((e) => e.type === "income" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+        const balanceExpenseRows = dayEntries.filter((e) => e.type === "expense" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
         const totalIncomeRec = incomeRows.reduce((a, e) => a + (e.amount || 0), 0);
         const totalExpenseRec = expenseRows.reduce((a, e) => a + (e.amount || 0), 0);
+        const totalBalanceIncomeRec = balanceIncomeRows.reduce((a, e) => a + (e.amount || 0), 0);
+        const totalBalanceExpenseRec = balanceExpenseRows.reduce((a, e) => a + (e.amount || 0), 0);
         const t = computeDayTotals(dateStr);
         const netCashRec = totalIncomeRec - totalExpenseRec;
+        const balanceNetRec = totalBalanceIncomeRec - totalBalanceExpenseRec;
 
         const rowsHtml = (rows, sign) => rows.map((e) => `
       <tr>
@@ -1107,6 +1145,10 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
           .box .lbl { font-size:11px; color:#666; margin-bottom:4px; }
           .box .val { font-size:16px; font-weight:bold; }
           .total-line { display:flex; justify-content:space-between; font-size:15px; font-weight:bold; border-top:2px solid #222; padding-top:8px; margin-top:8px; }
+          .balance-section { border:1px solid #b39ddb; border-radius:8px; padding:10px 12px; margin-top:18px; background:#f6f3fb; }
+          .balance-section h2 { border-right-color:#7e57c2; margin-top:0; }
+          .balance-note { color:#5e4b8b; font-size:11px; margin-bottom:8px; }
+          .balance-total { display:flex; justify-content:space-between; font-size:13px; font-weight:bold; color:#5e4b8b; border-top:1px dashed #b39ddb; padding-top:6px; margin-top:4px; }
           .meta { color:#555; font-size:11px; margin-top:20px; border-top:1px dashed #999; padding-top:8px; }
         </style>
       </head>
@@ -1134,9 +1176,23 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         <tbody>${rowsHtml(expenseRows, -1)}</tbody></table>` : ""}
 
         <div class="total-line">
-          <span>صافي الخزنة لهذا اليوم</span>
+          <span>صافي حركة اليوم</span>
           <span>${netCashRec.toFixed(2)} ر.س</span>
         </div>
+
+        ${(balanceIncomeRows.length > 0 || balanceExpenseRows.length > 0) ? `
+        <div class="balance-section">
+          <h2>🏦 مدفوعات من رصيد الخزنة</h2>
+          <div class="balance-note">سداد موردين / رواتب / مصاريف ثابتة / تراخيص / رصيد أول المدة / تسوية رصيد — لا تدخل ضمن صافي حركة اليوم فوق</div>
+          ${balanceIncomeRows.length > 0 ? `<table><thead><tr><th>البيان</th><th>طريقة الدفع</th><th>المبلغ</th></tr></thead>
+          <tbody>${rowsHtml(balanceIncomeRows, 1)}</tbody></table>` : ""}
+          ${balanceExpenseRows.length > 0 ? `<table><thead><tr><th>البيان</th><th>طريقة الدفع</th><th>المبلغ</th></tr></thead>
+          <tbody>${rowsHtml(balanceExpenseRows, -1)}</tbody></table>` : ""}
+          <div class="balance-total">
+            <span>صافي حركة الرصيد</span>
+            <span>${balanceNetRec >= 0 ? "+" : ""}${balanceNetRec.toFixed(2)} ر.س</span>
+          </div>
+        </div>` : ""}
 
         <div class="meta">
           ${closingEntry ? `تم التقفيل بواسطة: ${closingEntry.created_by || "—"} — ${closingEntry.note || ""}${closingEntry.created_at ? " — " + new Date(closingEntry.created_at).toLocaleString("ar-SA") : ""}` : ""}
@@ -1144,7 +1200,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
       </body>
       </html>
     `;
-        printHTML(dayClosingHtml);
+        printHTML(dayClosingHtml, { deviceName: pharmInfo.reportsPrinterName || undefined });
     };
 
     // ── تقفيل يوم سابق بأثر رجعي (نسخة مبسطة: بترحّل دخل المبيعات + مصروف إجمالي اختياري + علامة التقفيل) ──
@@ -1186,8 +1242,13 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const monthEntries = safeEntries.filter((e) => e.date?.startsWith(monthKey));
     const monthIncome = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned && s.payment !== "آجل").reduce((a, s) => a + s.total, 0)
         + creditPayments.filter((p) => p.date?.startsWith(monthKey)).reduce((a, p) => a + p.amount, 0)
-        + monthEntries.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
-    const monthExpenses = monthEntries.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+        + monthEntries.filter((e) => e.type === "income" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+    // 🆕 مصروفات الشهر بقت مقسومة: مصروفات حركة يومية عادية (بتأثر على صافي الأداء)،
+    // ومدفوعات/قيود رصيد الخزنة المتراكم (سداد موردين/رواتب/ثابتة/تراخيص/رصيد أول المدة...) بتتعرض في بند مستقل كصافي حركة
+    const monthExpenses = monthEntries.filter((e) => e.type === "expense" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+    const monthBalanceIncome = monthEntries.filter((e) => e.type === "income" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+    const monthBalanceExpense = monthEntries.filter((e) => e.type === "expense" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+    const monthBalanceNet = monthBalanceIncome - monthBalanceExpense;
 
     const cardStyle = (border = COLORS.border) => ({
         background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${border}`, borderRadius: 14, padding: 16, marginBottom: 12,
@@ -1963,7 +2024,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             {activeTab === "history" && canViewOverview && (
                 <div>
                     {/* ملخص الشهر */}
-                    <div style={{ ...cardStyle(COLORS.surfaceAlt), display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div style={{ ...cardStyle(COLORS.surfaceAlt), display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
                         <div style={{ textAlign: "center" as const }}>
                             <div style={{ color: COLORS.textDim, fontSize: 11 }}>دخل الشهر</div>
                             <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{monthIncome.toFixed(0)} ر.س</div>
@@ -1978,12 +2039,26 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                 {(monthIncome - monthExpenses).toFixed(0)} ر.س
                             </div>
                         </div>
+                        {/* 🆕 صافي حركة رصيد الخزنة (موردين/رواتب/ثابتة/تراخيص/رصيد أول المدة) — منفصل عن صافي أداء الشهر */}
+                        <div style={{ textAlign: "center" as const }}>
+                            <div style={{ color: COLORS.textDim, fontSize: 11 }}>🏦 من رصيد الخزنة</div>
+                            <div style={{ color: COLORS.purple, fontWeight: 900, fontSize: 18 }}>
+                                {monthBalanceNet >= 0 ? "+" : ""}{monthBalanceNet.toFixed(0)} ر.س
+                            </div>
+                        </div>
                     </div>
 
                     {sortedDays.slice(0, 30).map((day) => {
                         const dayEnt = groupedByDay[day];
-                        const dayIncome = dayEnt.filter((e) => e.type === "income").reduce((a, e) => a + e.amount, 0);
-                        const dayExp = dayEnt.filter((e) => e.type === "expense").reduce((a, e) => a + e.amount, 0);
+                        // 🆕 دخل/مصروف اليوم بيتحسبوا من الحركة اليومية العادية بس (مبيعات/نثريات/مصروفات متغيرة/مرتجعات...)
+                        // من غير قيود رصيد الخزنة (موردين/رواتب/ثابتة/تراخيص/رصيد أول المدة/تسوية الرصيد)، عشان
+                        // "صافي اليوم" يعكس أداء اليوم الفعلي مش يطلع مضلل بسبب حركة على مستوى الرصيد مالهاش علاقة بيه
+                        const dayIncome = dayEnt.filter((e) => e.type === "income" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+                        const dayExp = dayEnt.filter((e) => e.type === "expense" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+                        // 🆕 صافي حركة رصيد الخزنة لليوم ده (دخول زي رصيد أول المدة/تسوية موجبة، ناقص خروج زي سداد موردين/رواتب...)
+                        const dayBalanceIncome = dayEnt.filter((e) => e.type === "income" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+                        const dayBalanceExpense = dayEnt.filter((e) => e.type === "expense" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type)).reduce((a, e) => a + e.amount, 0);
+                        const dayBalanceNet = dayBalanceIncome - dayBalanceExpense;
                         const isOpen = selectedDay === day;
                         return (
                             <div key={day} style={cardStyle()}>
@@ -2008,6 +2083,15 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                             </div>
                                             <div style={{ color: COLORS.textDim, fontSize: 10 }}>صافي</div>
                                         </div>
+                                        {/* 🆕 بند منفصل لصافي حركة رصيد الخزنة اليوم ده (موردين/رواتب/ثابتة/تراخيص/رصيد أول المدة/تسوية)، من غير ما تأثر على الصافي فوق */}
+                                        {dayBalanceNet !== 0 && (
+                                            <div style={{ textAlign: "center" as const }}>
+                                                <div style={{ color: COLORS.purple, fontWeight: 700 }}>
+                                                    {dayBalanceNet >= 0 ? "+" : ""}{dayBalanceNet.toFixed(0)}
+                                                </div>
+                                                <div style={{ color: COLORS.textDim, fontSize: 10 }}>🏦 من الرصيد</div>
+                                            </div>
+                                        )}
                                         <span style={{ color: COLORS.textDim }}>{isOpen ? "▲" : "▼"}</span>
                                         {closedDaySet.has(day) && (
                                             <button
@@ -2020,21 +2104,45 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                         )}
                                     </div>
                                 </div>
-                                {isOpen && (
-                                    <div style={{ marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
-                                        {dayEnt.map((e) => (
-                                            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12 }}>
-                                                <div>
-                                                    <span style={{ color: COLORS.textDim }}>{e.note || e.sub_type}</span>
-                                                    {e.method && <span style={{ color: COLORS.border, fontSize: 10, marginRight: 8 }}>({e.method})</span>}
-                                                </div>
-                                                <span style={{ color: e.type === "income" ? COLORS.green : COLORS.coral, fontWeight: 700 }}>
-                                                    {e.type === "income" ? "+" : "-"}{e.amount} ر.س
-                                                </span>
+                                {isOpen && (() => {
+                                    // 🆕 فصل حقيقي لقيود اليوم لقسمين منفصلين بصريًا بدل قايمة واحدة مختلطة:
+                                    // (1) حركة اليوم — اللي بتكوّن دخل/مصروف/صافي اليوم فوق
+                                    // (2) مدفوعات من رصيد الخزنة — مالهاش علاقة بأداء اليوم، بس اتسددت من الرصيد المتراكم في نفس اليوم
+                                    const flowEntries = dayEnt.filter((e) => !TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+                                    const balanceEntries = dayEnt.filter((e) => TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+                                    const entryRow = (e) => (
+                                        <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12 }}>
+                                            <div>
+                                                <span style={{ color: COLORS.textDim }}>{e.note || e.sub_type}</span>
+                                                {e.method && <span style={{ color: COLORS.border, fontSize: 10, marginRight: 8 }}>({e.method})</span>}
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
+                                            <span style={{ color: e.type === "income" ? COLORS.green : COLORS.coral, fontWeight: 700 }}>
+                                                {e.type === "income" ? "+" : "-"}{e.amount} ر.س
+                                            </span>
+                                        </div>
+                                    );
+                                    return (
+                                        <div style={{ marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
+                                            {flowEntries.length > 0 && (
+                                                <div style={{ marginBottom: balanceEntries.length > 0 ? 12 : 0 }}>
+                                                    <div style={{ color: COLORS.textDim, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>📌 حركة اليوم (تؤثر على الصافي)</div>
+                                                    {flowEntries.map(entryRow)}
+                                                </div>
+                                            )}
+                                            {balanceEntries.length > 0 && (
+                                                <div style={{
+                                                    background: tint(COLORS.purple, 0.06), border: `1px solid ${tint(COLORS.purple, 0.25)}`,
+                                                    borderRadius: 8, padding: "8px 10px",
+                                                }}>
+                                                    <div style={{ color: COLORS.purple, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
+                                                        🏦 مدفوعات من رصيد الخزنة (لا تؤثر على صافي اليوم)
+                                                    </div>
+                                                    {balanceEntries.map(entryRow)}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         );
                     })}

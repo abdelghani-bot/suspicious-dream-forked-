@@ -5,6 +5,8 @@
 
 interface PrintOptions {
     silent?: boolean; // true = يطبع مباشرة من غير ديالوج اختيار طابعة
+    paperWidthMM?: number; // 🆕 عرض ورق حراري (58/80مم) - لو مش موجودة يتطبع A4
+    deviceName?: string; // 🆕 اسم الطابعة (name مش displayName) المطلوب إجبارها
 }
 
 interface PrintResult {
@@ -34,7 +36,6 @@ export async function printHTML(
             return { success: false, error: String(err) };
         }
     }
-
     // نسخة المتصفح - fallback للسلوك القديم
     const w = window.open("", "_blank", "width=400,height=700");
     if (!w) {
@@ -47,4 +48,18 @@ export async function printHTML(
     w.print();
     w.close();
     return { success: true };
+}
+export async function listPrinters(): Promise<
+    { name: string; displayName: string; isDefault: boolean }[]
+> {
+    const printAPI = (window as any).printAPI;
+    if (printAPI?.listPrinters) {
+        try {
+            return await printAPI.listPrinters();
+        } catch (err) {
+            console.error("فشل جلب قائمة الطابعات:", err);
+            return [];
+        }
+    }
+    return []; // نسخة المتصفح - مفيش طابعات نظام متاحة
 }

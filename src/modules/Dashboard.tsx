@@ -790,8 +790,28 @@ export function Dashboard({
     })();
 
     // ── حالة طي/فتح الكروت الكبيرة ──
-    const [openCard, setOpenCard] = useState("sales"); // 🆕 كارت "المبيعات والفرص" مفتوح افتراضيًا عشان أهم رقم يبان أول ما تدخل الصفحة
-    const toggleCard = (key) => setOpenCard((prev) => (prev === key ? null : key));
+    // 🆕 كانت openCard قيمة واحدة (string) يعني كارت واحد بس مفتوح في نفس الوقت (أكورديون).
+    // عشان تاب المخزون يقدر يفتح "قيمة المخزون" و"مبيعات الأقسام" مع بعض للمقارنة البصرية،
+    // حولناها لـ Set من المفاتيح المفتوحة، وكل كارت بيتفتح/يتقفل لوحده من غير ما يقفل غيره.
+    const [openCards, setOpenCards] = useState(new Set(["sales"])); // 🆕 كارت "المبيعات والفرص" مفتوح افتراضيًا عشان أهم رقم يبان أول ما تدخل الصفحة
+
+    // 🆕 openCards واحدة مشتركة بين كل التابات (مش لكل تاب حالته الخاصة)، فلو مسيبناها
+    // زي ما هي، بمجرد ما تدخل تاب المخزون مفيش أي cardKey فيها بيساوي "sales"
+    // فكل الكروت تفضل مقفولة. عشان كده لازم نحدد "الكروت الافتراضية" لكل تاب (ممكن أكتر من كارت)،
+    // ونطبّقها في نفس اللحظة اللي بيتغيّر فيها التاب مش بس أول تحميل للصفحة.
+    const DEFAULT_OPEN_CARDS_BY_TAB = { sales: ["sales"], inventory: ["stockCategory", "departments"] };
+
+    const toggleCard = (key) => setOpenCards((prev) => {
+        // 🆕 السماح بأكتر من كارت مفتوح مع بعض مقصور على تاب المخزون بس (عشان
+        // مقارنة قيمة المخزون بمبيعات الأقسام)؛ باقي التابات ترجع لسلوك الأكورديون
+        // الأصلي: فتح كارت يقفل أي كارت تاني كان مفتوح.
+        if (activeTab === "inventory") {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key); else next.add(key);
+            return next;
+        }
+        return new Set(prev.has(key) ? [] : [key]);
+    });
 
     // 🆕 تابات الداشبورد — كل tab بيعرض مجموعة كروت محددة بدل ما كل الكروت تتزاحم في شبكة واحدة
     const [activeTab, setActiveTab] = useState("overview");
@@ -802,11 +822,18 @@ export function Dashboard({
         { key: "customers", label: "العملاء" },
     ];
 
+    // 🆕 عند التنقل بين التابات: نفتح الكارت الافتراضي بتاع التاب الجديد (لو معرّف)،
+    // وإلا نقفل الكل — بدل ما يفضل openCard شايل قيمة كارت من تاب تاني مش موجود هنا أصلاً
+    const handleTabChange = (key) => {
+        setActiveTab(key);
+        setOpenCards(new Set(DEFAULT_OPEN_CARDS_BY_TAB[key] ?? []));
+    };
+
     // غلاف كارت قابل للطي: عنوان + أيقونة + شارة عدد (اختياري) + سهم، والمحتوى يظهر فقط لو الكارت مفتوح
     // 🆕 urgent: بوردر/توهج أحمر لما يكون الكارت فيه حاجة تحتاج انتباه فوري (زي وجود تنبيهات فعلية)
     // 🆕 wide: الكارت ياخد عرض عمودين حتى وهو مقفول (لأهم كارت في الداشبورد)
     const CollapsibleCard = ({ cardKey, icon, title, badge, badgeColor, children, urgent = false, wide = false }) => {
-        const isOpen = openCard === cardKey;
+        const isOpen = openCards.has(cardKey);
         return (
             <div style={{
                 ...card, display: "flex", flexDirection: "column",
@@ -888,7 +915,7 @@ export function Dashboard({
                 ].map((m) => (
                     <div
                         key={m.label}
-                        onClick={() => m.label === "تنبيهات تحتاج تدخل" ? setOpenCard("alerts") : setOpenCard("sales")}
+                        onClick={() => setOpenCards(new Set([m.label === "تنبيهات تحتاج تدخل" ? "alerts" : "sales"]))}
                         style={{
                             ...card, padding: "14px 16px", cursor: "pointer",
                             borderColor: tint(m.color, 0.3),
@@ -913,7 +940,7 @@ export function Dashboard({
                 {DASHBOARD_TABS.map((t) => (
                     <button
                         key={t.key}
-                        onClick={() => setActiveTab(t.key)}
+                        onClick={() => handleTabChange(t.key)}
                         style={{
                             padding: "10px 16px", fontSize: 13, fontWeight: 600, fontFamily: "inherit",
                             background: "transparent", border: "none", cursor: "pointer",
@@ -1010,8 +1037,10 @@ export function Dashboard({
                     })()}
                 </Modal>
 
-                {/* مبيعات الأقسام — يومي/شهري مع نسبة وقيمة الربح */}
-                {activeTab === "sales" && (
+                {/* مبيعات الأقسام — يومي/شهري مع نسبة وقيمة الربح — 🆕 اتنقلت من تاب المبيعات لتاب المخزون
+                    عشان تبان جنب كارت "قيمة المخزون حسب التصنيف" وتدي مقارنة بصرية مباشرة
+                    بين حجم المخزون في كل قسم وحركة بيعه الفعلية */}
+                {activeTab === "inventory" && (
                     <CollapsibleCard
                         cardKey="departments"
                         icon="🏬"

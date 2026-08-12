@@ -11,6 +11,17 @@ export function PharmacySettings({ showToast, pharmacyId }) {
     const [templateId, setTemplateId] = useState("");
     const [cloning, setCloning] = useState(false);
     const [confirmClone, setConfirmClone] = useState(false);
+    const [availablePrinters, setAvailablePrinters] = useState([]);
+
+    useEffect(() => {
+        (async () => {
+            const printAPI = window.printAPI;
+            if (printAPI?.listPrinters) {
+                const list = await printAPI.listPrinters();
+                setAvailablePrinters(list);
+            }
+        })();
+    }, []);
 
     const cloneFromTemplate = async () => {
         if (!templateId.trim()) { showToast("يرجى إدخال معرف صيدلية القالب", "error"); return; }
@@ -69,7 +80,9 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         labelDpi: data.label_dpi || "203",
                         barcodeMarginMm: data.barcode_margin_mm ?? 2.5,
                         receiptPaperWidth: data.receipt_paper_width || "80",
-                        supportsCardRefund: !!data.supports_card_refund, // 🆕 هل الصيدلية بتقدر ترجّع فلوس شبكة (reversal) فعليًا؟
+                        supportsCardRefund: !!data.supports_card_refund,// 🆕 هل الصيدلية بتقدر ترجّع فلوس شبكة (reversal) فعليًا؟
+                        reportsPrinterName: data.reports_printer_name || "",
+                        thermalPrinterName: data.thermal_printer_name || "",
                     };
                     setSettings(fresh);
                     // 🆕 نحدّث الكاش المحلي بأحدث نسخة من السيرفر كل ما التحميل ينجح،
@@ -132,6 +145,8 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             barcode_margin_mm: settings.barcodeMarginMm != null ? Number(settings.barcodeMarginMm) : 2.5,
             receipt_paper_width: settings.receiptPaperWidth || "80",
             supports_card_refund: !!settings.supportsCardRefund, // 🆕
+            reports_printer_name: settings.reportsPrinterName || null,
+            thermal_printer_name: settings.thermalPrinterName || null,
         };
 
         // نحدّث الكاش المحلي فورًا (نفس شكل الفورم عشان أي قراءة تالية أوفلاين تلاقيه جاهز)
@@ -235,6 +250,57 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                     </div>
                 </div>
 
+                {/* 🆕 تحديد الطابعات الفعلية - يمنع اختلاط طابعة التقارير A4 مع الطابعة الحرارية */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+                        طابعة التقارير (A4) — تقفيل الخزنة، فواتير الشراء، الجرد...
+                    </label>
+                    <select
+                        value={settings.reportsPrinterName || ""}
+                        onChange={(e) => setSettings((p) => ({ ...p, reportsPrinterName: e.target.value }))}
+                        style={{
+                            width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                            border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                            padding: "8px 12px", color: COLORS.textPrimary,
+                            fontSize: 13, outline: "none", boxSizing: "border-box",
+                        }}
+                    >
+                        <option value="">— استخدم طابعة النظام الافتراضية —</option>
+                        {availablePrinters.map((p) => (
+                            <option key={p.name} value={p.name}>
+                                {p.displayName || p.name}{p.isDefault ? " (افتراضية)" : ""}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+                        طابعة الإيصالات الحرارية — POS
+                    </label>
+                    <select
+                        value={settings.thermalPrinterName || ""}
+                        onChange={(e) => setSettings((p) => ({ ...p, thermalPrinterName: e.target.value }))}
+                        style={{
+                            width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                            border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                            padding: "8px 12px", color: COLORS.textPrimary,
+                            fontSize: 13, outline: "none", boxSizing: "border-box",
+                        }}
+                    >
+                        <option value="">— استخدم طابعة النظام الافتراضية —</option>
+                        {availablePrinters.map((p) => (
+                            <option key={p.name} value={p.name}>
+                                {p.displayName || p.name}{p.isDefault ? " (افتراضية)" : ""}
+                            </option>
+                        ))}
+                    </select>
+                    {availablePrinters.length === 0 && (
+                        <p style={{ margin: "6px 0 0", fontSize: 11.5, color: COLORS.textDim }}>
+                            القائمة فاضية غالبًا لأنك بتفتح النسخة الأونلاين (متصفح) — الميزة دي متاحة على نسخة الديسكتوب بس.
+                        </p>
+                    )}
+                </div>
                 {/* هامش الباركود الجانبي - لو الباركود بيلزق في حواف الملصق زوّد الرقم ده */}
                 <div>
                     <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>

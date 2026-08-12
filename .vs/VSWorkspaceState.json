@@ -1,15 +1,15 @@
 {
   "ExpandedNodes": [
     "",
-    "\\build",
-    "\\functions",
-    "\\public",
+    "\\electron",
+    "\\src",
+    "\\src\\data",
     "\\src\\hooks",
     "\\src\\lib",
     "\\src\\modules",
+    "\\src\\modules\\customers",
     "\\src\\services",
-    "\\src\\ui",
-    "\\src\\utils"
+    "\\src\\ui"
   ],
   "SelectedNode": "\\electron\\main.cjs",
   "PreviewInSolutionExplorer": false
