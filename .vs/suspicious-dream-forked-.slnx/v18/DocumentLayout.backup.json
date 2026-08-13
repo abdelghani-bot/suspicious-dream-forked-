@@ -3,24 +3,28 @@
   "WorkspaceRootPath": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\main.cjs||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:electron\\main.cjs||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\POS.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\POS.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\TreasuryModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\TreasuryModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\SuppliersModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\SuppliersModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Dashboard.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\Dashboard.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\printHelper.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\lib\\printHelper.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PurchaseModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\PurchaseModule.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PharmacySettings.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\modules\\PharmacySettings.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\lib\\offlineAPI.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\main.cjs||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:electron\\main.cjs||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
     }
   ],
   "DocumentGroupContainers": [
@@ -30,71 +34,84 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 0,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "main.cjs",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\main.cjs",
-              "RelativeDocumentMoniker": "electron\\main.cjs",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\main.cjs",
-              "RelativeToolTip": "electron\\main.cjs",
-              "ViewState": "AgIAAC0AAAAAAAAAAAAIwD8AAAAFAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-08-12T00:46:08.405Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
               "DocumentIndex": 2,
-              "Title": "SuppliersModule.tsx",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\SuppliersModule.tsx",
-              "RelativeDocumentMoniker": "src\\modules\\SuppliersModule.tsx",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\SuppliersModule.tsx",
-              "RelativeToolTip": "src\\modules\\SuppliersModule.tsx",
-              "ViewState": "AgIAAL4BAAAAAAAAAAAAAM0BAAAJAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-08-11T22:49:28.149Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 3,
-              "Title": "Dashboard.tsx",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Dashboard.tsx",
-              "RelativeDocumentMoniker": "src\\modules\\Dashboard.tsx",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\Dashboard.tsx",
-              "RelativeToolTip": "src\\modules\\Dashboard.tsx",
-              "ViewState": "AgIAAMQGAAAAAAAAAAAcwNQGAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-08-11T22:05:17.434Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "TreasuryModule.tsx",
-              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\TreasuryModule.tsx",
-              "RelativeDocumentMoniker": "src\\modules\\TreasuryModule.tsx",
-              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\TreasuryModule.tsx",
-              "RelativeToolTip": "src\\modules\\TreasuryModule.tsx",
-              "ViewState": "AgIAAKUKAAAAAAAAAAAcwLUKAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-08-11T17:11:50.11Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
               "Title": "PurchaseModule.tsx",
               "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PurchaseModule.tsx",
               "RelativeDocumentMoniker": "src\\modules\\PurchaseModule.tsx",
               "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PurchaseModule.tsx",
               "RelativeToolTip": "src\\modules\\PurchaseModule.tsx",
-              "ViewState": "AgIAAPALAAAAAAAAAAAswPYLAAAhAAAAAAAAAA==",
+              "ViewState": "AgIAAPULAAAAAAAAAAAAAP4LAAAaAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-08-11T17:02:21.622Z",
+              "WhenOpened": "2026-08-12T21:07:16.323Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "PharmacySettings.tsx",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PharmacySettings.tsx",
+              "RelativeDocumentMoniker": "src\\modules\\PharmacySettings.tsx",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\PharmacySettings.tsx",
+              "RelativeToolTip": "src\\modules\\PharmacySettings.tsx",
+              "ViewState": "AgIAAMoBAAAAAAAAAAAAAM0BAAAlAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-08-12T20:00:47.65Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "POS.tsx",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\POS.tsx",
+              "RelativeDocumentMoniker": "src\\modules\\POS.tsx",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\modules\\POS.tsx",
+              "RelativeToolTip": "src\\modules\\POS.tsx",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAABAAAACQAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-08-12T20:00:24.403Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "printHelper.ts",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\printHelper.ts",
+              "RelativeDocumentMoniker": "src\\lib\\printHelper.ts",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\printHelper.ts",
+              "RelativeToolTip": "src\\lib\\printHelper.ts",
+              "ViewState": "AgIAAGoAAAAAAAAAAAAqwH8AAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-08-12T20:00:00.736Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "offlineAPI.ts",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts",
+              "RelativeDocumentMoniker": "src\\lib\\offlineAPI.ts",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\src\\lib\\offlineAPI.ts",
+              "RelativeToolTip": "src\\lib\\offlineAPI.ts",
+              "ViewState": "AgIAADIFAAAAAAAAAAAAADsFAAAYAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-08-12T19:59:35.587Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "main.cjs",
+              "DocumentMoniker": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\main.cjs",
+              "RelativeDocumentMoniker": "electron\\main.cjs",
+              "ToolTip": "C:\\Users\\KIZEN\\Documents\\Projects\\suspicious-dream-forked-\\electron\\main.cjs",
+              "RelativeToolTip": "electron\\main.cjs",
+              "ViewState": "AgIAAAYIAAAAAAAAAAAAAAoIAABTAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2026-08-12T19:58:36.509Z",
               "EditorCaption": ""
             }
           ]

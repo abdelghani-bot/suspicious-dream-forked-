@@ -83,6 +83,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         supportsCardRefund: !!data.supports_card_refund,// 🆕 هل الصيدلية بتقدر ترجّع فلوس شبكة (reversal) فعليًا؟
                         reportsPrinterName: data.reports_printer_name || "",
                         thermalPrinterName: data.thermal_printer_name || "",
+                        doseLabelPrinterName: data.dose_label_printer_name || "",
                     };
                     setSettings(fresh);
                     // 🆕 نحدّث الكاش المحلي بأحدث نسخة من السيرفر كل ما التحميل ينجح،
@@ -147,6 +148,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             supports_card_refund: !!settings.supportsCardRefund, // 🆕
             reports_printer_name: settings.reportsPrinterName || null,
             thermal_printer_name: settings.thermalPrinterName || null,
+            dose_label_printer_name: settings.doseLabelPrinterName || null,
         };
 
         // نحدّث الكاش المحلي فورًا (نفس شكل الفورم عشان أي قراءة تالية أوفلاين تلاقيه جاهز)
@@ -300,6 +302,28 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                             القائمة فاضية غالبًا لأنك بتفتح النسخة الأونلاين (متصفح) — الميزة دي متاحة على نسخة الديسكتوب بس.
                         </p>
                     )}
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+                        طابعة ملصقات الجرعة — POS
+                    </label>
+                    <select
+                        value={settings.doseLabelPrinterName || ""}
+                        onChange={(e) => setSettings((p) => ({ ...p, doseLabelPrinterName: e.target.value }))}
+                        style={{
+                            width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                            border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                            padding: "8px 12px", color: COLORS.textPrimary,
+                            fontSize: 13, outline: "none", boxSizing: "border-box",
+                        }}
+                    >
+                        <option value="">— استخدم طابعة النظام الافتراضية —</option>
+                        {availablePrinters.map((p) => (
+                            <option key={p.name} value={p.name}>
+                                {p.displayName || p.name}{p.isDefault ? " (افتراضية)" : ""}
+                            </option>
+                        ))}
+                    </select>
                 </div>
                 {/* هامش الباركود الجانبي - لو الباركود بيلزق في حواف الملصق زوّد الرقم ده */}
                 <div>

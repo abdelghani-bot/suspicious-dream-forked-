@@ -1872,15 +1872,19 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
             try {
                 // نحسب الطول الفعلي للمحتوى (بالبكسل) عشان نبني مقاس ورقة مضبوط
                 // بدل ما نسيب Chromium يستخدم مقاس افتراضي (A4/Letter) وياخد المحتوى مساحة صغيرة منه
-                const contentHeightPx = await printWin.webContents.executeJavaScript(
-                    "document.body.scrollHeight"
-                );
+                const widthMicrons = options?.paperWidthMM ? Math.round(options.paperWidthMM * 1000) : null;
 
                 let pageSize;
-                if (options?.paperWidthMM) {
-                    // ورق حراري (58/80مم) - العرض ثابت، الطول بيتحسب من المحتوى الفعلي
+                if (options?.paperHeightMM && widthMicrons) {
+                    // 🆕 مقاس ثابت ومعروف بالظبط (ملصقات) - من غير حد أدنى ومن غير حساب scrollHeight،
+                    // عشان محتوى الملصق ميتطبعش على صفحة أطول من الملصق الفعلي ويطلع مكانه غلط.
+                    pageSize = { width: widthMicrons, height: Math.round(options.paperHeightMM * 1000) };
+                } else if (widthMicrons) {
+                    // ورق حراري (58/80مم) - العرض ثابت، الطول بيتحسب من المحتوى الفعلي (رول متصل)
+                    const contentHeightPx = await printWin.webContents.executeJavaScript(
+                        "document.body.scrollHeight"
+                    );
                     const MICRONS_PER_PX = 25400 / 96; // تحويل بكسل (96 DPI) لميكرون
-                    const widthMicrons = Math.round(options.paperWidthMM * 1000);
                     const heightMicrons = Math.max(
                         Math.round(contentHeightPx * MICRONS_PER_PX) + 5000, // + هامش أمان 5مم
                         140000 // حد أدنى 140مم (14سم) للفاتورة حتى لو صنف واحد بس

@@ -15,7 +15,7 @@ import { RasdQueue } from "../services/rasdService";
 import { Btn, IC, Modal, Select } from "../ui/primitives";
 import { getDeviceId } from "../lib/deviceID";
 import { computeCustomerStats, trendConfig } from "../modules/CustomersModule"; // 🆕 مسار الاستيراد ده افتراضي — عدّله لو مكان الملف مختلف عندك
-import { printHTML } from "../lib/printHelper";
+import { printHTML, loadZebraScripts, canvasToZPLGraphic, sendZPL } from "../lib/printHelper";
 
 // 🆕 ضغط/تصغير صورة الوصفة قبل تحويلها لـ base64 وتخزينها —
 // عشان الصورة متبقاش تضخّم صف الفاتورة أو ملف الـ SQLite المحلي وهي بتتزامن مع Supabase.
@@ -93,6 +93,10 @@ export function POS({
     const [bulkLabelSize, setBulkLabelSize] = useState("80x60");
 
     useEffect(() => {
+        loadZebraScripts();
+    }, []);
+
+    useEffect(() => {
         if (!pharmacyId) return;
         getPharmacySettings(pharmacyId).then(({ data, fromCache }) => {
             if (data) {
@@ -121,7 +125,7 @@ export function POS({
                 type: "DOSE_TEMPLATES_UPDATE",
                 timestamp: new Date().toISOString(),
                 pharmacy_id: pharmacyId,   // 🛠️ مضاف على مستوى event (كان جوا payload بس)
-                payload: { dosage_templates: updated },
+                payload: { dosage_templates: updated, pharmacy_id: pharmacyId },
             });
             if (!result.synced) {
                 showToast("📴 القالب اتحفظ محليًا - هيتزامن لما النت يرجع", "warning");
@@ -140,7 +144,7 @@ export function POS({
                 type: "DOSE_TEMPLATES_UPDATE",
                 timestamp: new Date().toISOString(),
                 pharmacy_id: pharmacyId,   // 🛠️ مضاف على مستوى event
-                payload: { dosage_templates: updated },
+                payload: { dosage_templates: updated, pharmacy_id: pharmacyId },
             });
         }
     };
@@ -160,147 +164,153 @@ export function POS({
             return next;
         });
     };
+    const renderDoseLabelCanvas = (it, size, extra) => {
+        return new Promise<HTMLCanvasElement>((resolve) => {
+            const dpi = Number(pharmSettingsPOS.label_dpi) || 203;
+            const dotsPerMm = dpi / 25.4;
+            const w = Math.round(size.w * dotsPerMm);
+            const h = Math.round(size.h * dotsPerMm);
+
+            // 🆕 معامل تحجيم: بناءً على أضيق بُعد (مش المساحة) عشان النص يتظبط
+            // حتى لو aspect ratio الملصق مختلف عن الـ base (80x60)
+            const baseW = 80 * (203 / 25.4);
+            const baseH = 60 * (203 / 25.4);
+            const scale = Math.min(w / baseW, h / baseH);
+            const px = (n) => Math.round(n * scale);
+
+            // 🆕 أحجام خط البيانات اللي فوق اسم الدواء — مجمّعة هنا عشان تتظبط بسهولة
+            const fPharmacy = px(16);   // اسم الصيدلية (كان 13)
+            const fLicense = px(13);    // رقم الترخيص (كان 11)
+            const fMeta = px(12);       // الصيدلي + تاريخ/وقت الصرف (كان 10)
+            const fPatient = px(14);    // اسم المريض (كان 12)
+
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d")!;
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = "#000";
+            ctx.direction = "rtl";
+
+            const pad = Math.round(3 * dotsPerMm);
+            let y = pad + px(12);
+
+            // صف الصيدلية
+            ctx.font = `bold ${fPharmacy}px Arial`;
+            ctx.textAlign = "right";
+            ctx.fillText(pharmSettingsPOS.name_ar || "", w - pad, y, w - pad * 2);
+            if (pharmSettingsPOS.license_number) {
+                ctx.textAlign = "left";
+                ctx.font = `${fLicense}px Arial`;
+                ctx.fillText("رقم الصيدلية: " + pharmSettingsPOS.license_number, pad, y, (w - pad * 2) / 2);
+            }
+            y += px(6);
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = Math.max(1, px(1));
+            ctx.beginPath();
+            ctx.moveTo(pad, y);
+            ctx.lineTo(w - pad, y);
+            ctx.stroke();
+            y += px(16);
+
+            // الميتاداتا
+            ctx.textAlign = "center";
+            ctx.font = `${fMeta}px Arial`;
+            ctx.fillText(`الصيدلي: ${currentUser?.name || ""}  |  تاريخ الصرف: ${extra.dateStr} ${extra.timeStr}`, w / 2, y, w - pad * 2);
+            y += px(16);
+
+            // المريض
+            if (extra.patientName) {
+                ctx.font = `bold ${fPatient}px Arial`;
+                ctx.fillText(`👤 المريض: ${extra.patientName}`, w / 2, y, w - pad * 2);
+                y += px(16);
+            }
+
+            // اسم المنتج
+            ctx.font = `bold ${px(16)}px Arial`;
+            ctx.fillText(it.name || "", w / 2, y, w - pad * 2);
+            y += px(20);
+
+            // مربع الجرعة
+            const doseText = it._dose ?? it.dose ?? "";
+            const boxTop = y;
+            const boxBottom = h - pad - px(30);
+            const boxHeight = Math.max(px(30), boxBottom - boxTop);
+            ctx.strokeRect(pad, boxTop, w - pad * 2, boxHeight);
+            ctx.font = `bold ${px(17)}px Arial`;
+            const lines = (doseText || "بدون جرعة محددة").split("\n");
+            const lineHeight = px(20);
+            const startY = boxTop + boxHeight / 2 - ((lines.length - 1) * lineHeight) / 2 + px(6);
+            lines.forEach((line, i) => ctx.fillText(line, w / 2, startY + i * lineHeight, w - pad * 2 - px(10)));
+            y = boxBottom + px(14);
+
+            // ملاحظات
+            const notesText = it._notes ?? it.notes ?? "";
+            if (notesText) {
+                ctx.font = `${px(10)}px Arial`;
+                ctx.fillText(`📝 ملاحظات: ${notesText}`, w / 2, y, w - pad * 2);
+            }
+
+            // صلاحية / بعد الفتح
+            ctx.font = `${px(9)}px Arial`;
+            if (it.expiry_date) {
+                ctx.textAlign = "right";
+                ctx.fillText("صلاحية: " + it.expiry_date, w - pad, h - pad - 4, (w - pad * 2) / 2);
+            }
+            if (extra.afterOpening) {
+                ctx.textAlign = "left";
+                ctx.fillText("بعد الفتح: " + extra.afterOpening, pad, h - pad - 4, (w - pad * 2) / 2);
+            }
+
+            resolve(canvas);
+        });
+    };
 
     const printDoseLabel = async () => {
         const it = doseLabelItem;
         if (!it) return;
+        if (!(window as any).BrowserPrint) {
+            showToast("⚠️ تطبيق Zebra Browser Print مش شغال. شغّله وحاول تاني", "error");
+            return;
+        }
         const now = new Date();
         const dateStr = now.toLocaleDateString("ar-EG");
         const timeStr = now.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
         const size = DOSAGE_LABEL_SIZES.find((s) => s.id === (it._labelSize || "80x60")) || DOSAGE_LABEL_SIZES[2];
         const patientName = (inv.patientName || "").trim() || inv.selCustomer?.name || "";
 
-        const html = `
-      <html dir="rtl">
-      <head>
-        <meta charset="utf-8">
-        <title>ملصق الجرعة</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          @page { size: ${size.w}mm ${size.h}mm; margin: 0; }
-          body { font-family: Arial, sans-serif; }
-          .label {
-            width: ${size.w}mm; height: ${size.h}mm; padding: 3mm;
-            display: flex; flex-direction: column;
-          }
-          .pharmacy-row {
-            display: flex; justify-content: space-between; align-items: center;
-            font-size: 8pt; font-weight: 800; border-bottom: 1px solid #000;
-            padding-bottom: 1.5mm; margin-bottom: 1.5mm;
-          }
-          .meta { font-size: 7pt; color: #333; }
-          .patient { font-size: 8pt; font-weight: 700; margin: 1mm 0; }
-          .product { font-size: 11pt; font-weight: 800; text-align: center; margin: 1.5mm 0; }
-          .dose-box {
-            border: 1.5px solid #000; border-radius: 2mm; padding: 2mm;
-            text-align: center; font-size: 12pt; font-weight: 800;
-            margin: 1.5mm 0; flex-grow: 1; display: flex;
-            align-items: center; justify-content: center; line-height: 1.4;
-          }
-          .notes { font-size: 8pt; margin-top: 1mm; }
-          .row { display: flex; justify-content: space-between; font-size: 7.5pt; margin-top: 1mm; border-top: 1px dashed #999; padding-top: 1mm; }
-          @media print { .no-print { display: none; } body { margin: 0; } }
-        </style>
-      </head>
-      <body>
-        <div class="label">
-          <div class="pharmacy-row">
-            <span>${pharmSettingsPOS.name_ar || ""}</span>
-            <span>${pharmSettingsPOS.license_number ? "رقم الصيدلية: " + pharmSettingsPOS.license_number : ""}</span>
-          </div>
-          <div class="meta">
-            الصيدلي: ${currentUser?.name || ""} &nbsp;|&nbsp; تاريخ الصرف: ${dateStr} ${timeStr}
-          </div>
-          ${patientName ? `<div class="patient">👤 المريض: ${patientName}</div>` : ""}
-          <div class="product">${it.name || ""}</div>
-          <div class="dose-box">${(it._dose || "بدون جرعة محددة").replace(/\n/g, "<br>")}</div>
-          ${it._notes ? `<div class="notes">📝 ملاحظات: ${it._notes}</div>` : ""}
-          <div class="row">
-            <span>${it.expiry_date ? "صلاحية: " + it.expiry_date : ""}</span>
-            <span>${it._afterOpening ? "بعد الفتح: " + it._afterOpening : ""}</span>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-        const result = await printHTML(html, { paperWidthMM: size.w });
-        if (!result.success) showToast("فشلت طباعة الملصق ⚠️", "error");
+        const canvas = await renderDoseLabelCanvas(it, size, { dateStr, timeStr, patientName, afterOpening: it._afterOpening });
+        const { totalBytes, bytesPerRow, hex } = canvasToZPLGraphic(canvas);
+        const zpl = `^XA^PW${canvas.width}^LL${canvas.height}^FO0,0^GFA,${totalBytes},${totalBytes},${bytesPerRow},${hex}^XZ`;
+
+        const result = await sendZPL(zpl);
+        if (!result.success) showToast("فشلت طباعة الملصق ⚠️ " + (result.error || ""), "error");
         setDoseLabelItem(null);
     };
 
-    // ── طباعة كل ملصقات الجرعة للسلة دفعة واحدة ──
     const printAllDoseLabels = async (sizeId) => {
         const items = inv.cart.filter((i) => !i.isGift);
         if (items.length === 0) return;
+        if (!(window as any).BrowserPrint) {
+            showToast("⚠️ تطبيق Zebra Browser Print مش شغال. شغّله وحاول تاني", "error");
+            return;
+        }
         const size = DOSAGE_LABEL_SIZES.find((s) => s.id === sizeId) || DOSAGE_LABEL_SIZES[2];
         const now = new Date();
         const dateStr = now.toLocaleDateString("ar-EG");
         const timeStr = now.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
         const patientName = (inv.patientName || "").trim() || inv.selCustomer?.name || "";
 
-        const labelsHtml = items
-            .map(
-                (it) => `
-        <div class="label">
-          <div class="pharmacy-row">
-            <span>${pharmSettingsPOS.name_ar || ""}</span>
-            <span>${pharmSettingsPOS.license_number ? "رقم الصيدلية: " + pharmSettingsPOS.license_number : ""}</span>
-          </div>
-          <div class="meta">
-            الصيدلي: ${currentUser?.name || ""} &nbsp;|&nbsp; تاريخ الصرف: ${dateStr} ${timeStr}
-          </div>
-          ${patientName ? `<div class="patient">👤 المريض: ${patientName}</div>` : ""}
-          <div class="product">${it.name || ""}</div>
-          <div class="dose-box">${(it.dose || "بدون جرعة محددة").replace(/\n/g, "<br>")}</div>
-          ${it.notes ? `<div class="notes">📝 ملاحظات: ${it.notes}</div>` : ""}
-          <div class="row">
-            <span>${it.expiry_date ? "صلاحية: " + it.expiry_date : ""}</span>
-          </div>
-        </div>`
-            )
-            .join("");
+        let fullZPL = "";
+        for (const it of items) {
+            const canvas = await renderDoseLabelCanvas(it, size, { dateStr, timeStr, patientName, afterOpening: null });
+            const { totalBytes, bytesPerRow, hex } = canvasToZPLGraphic(canvas);
+            fullZPL += `^XA^PW${canvas.width}^LL${canvas.height}^FO0,0^GFA,${totalBytes},${totalBytes},${bytesPerRow},${hex}^XZ`;
+        }
 
-        const html = `
-      <html dir="rtl">
-      <head>
-        <meta charset="utf-8">
-        <title>ملصقات الجرعة</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          @page { size: ${size.w}mm ${size.h}mm; margin: 0; }
-          body { font-family: Arial, sans-serif; }
-          .label {
-            width: ${size.w}mm; height: ${size.h}mm; padding: 3mm;
-            display: flex; flex-direction: column;
-            page-break-after: always;
-          }
-          .label:last-child { page-break-after: auto; }
-          .pharmacy-row {
-            display: flex; justify-content: space-between; align-items: center;
-            font-size: 8pt; font-weight: 800; border-bottom: 1px solid #000;
-            padding-bottom: 1.5mm; margin-bottom: 1.5mm;
-          }
-          .meta { font-size: 7pt; color: #333; }
-          .patient { font-size: 8pt; font-weight: 700; margin: 1mm 0; }
-          .product { font-size: 11pt; font-weight: 800; text-align: center; margin: 1.5mm 0; }
-          .dose-box {
-            border: 1.5px solid #000; border-radius: 2mm; padding: 2mm;
-            text-align: center; font-size: 12pt; font-weight: 800;
-            margin: 1.5mm 0; flex-grow: 1; display: flex;
-            align-items: center; justify-content: center; line-height: 1.4;
-          }
-          .notes { font-size: 8pt; margin-top: 1mm; }
-          .row { display: flex; justify-content: space-between; font-size: 7.5pt; margin-top: 1mm; border-top: 1px dashed #999; padding-top: 1mm; }
-          @media print { .no-print { display: none; } body { margin: 0; } }
-        </style>
-      </head>
-      <body>
-        ${labelsHtml}
-      </body>
-      </html>
-    `;
-        const result = await printHTML(html, { paperWidthMM: size.w });
-        if (!result.success) showToast("فشلت طباعة الملصقات ⚠️", "error");
+        const result = await sendZPL(fullZPL);
+        if (!result.success) showToast("فشلت طباعة الملصقات ⚠️ " + (result.error || ""), "error");
         setShowBulkDoseModal(false);
     };
 

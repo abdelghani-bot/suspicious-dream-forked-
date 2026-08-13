@@ -11,6 +11,6 @@
     "\\src\\services",
     "\\src\\ui"
   ],
-  "SelectedNode": "\\src\\lib\\printHelper.ts",
+  "SelectedNode": "\\src\\modules\\POS.tsx",
   "PreviewInSolutionExplorer": false
 }
