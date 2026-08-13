@@ -209,7 +209,7 @@ export function recalcCartLinePrice(item, newQty) {
 // ==================== EFFECTIVE PRICE (عروض تلقائية + يدوية) ====================
 // sales و autoPromoConfig اختياريين (توافقية للخلف)، لكن لازم يتوفروا عشان العرض التلقائي
 // (خصوصًا خصم "الراكد" وشروط استبعاد الفئات/المخزون/أقل خصم) يتطابق فعليًا مع اللي بيتحاسب في نقطة البيع
-export function getEffectivePrice(product, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig) {
+export function getEffectivePrice(product, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig, productFirstStocked) {
   const today = todayLocal();
   // 1. عروض يدوية نشطة (بأي نمط) وقابلة للتطبيق فعليًا حسب المخزون المتبقي
   const manualPromo = (promos || []).find(
@@ -236,7 +236,8 @@ export function getEffectivePrice(product, promos, discountRules, productEarlies
   // يبقى هو نفسه اللي بيتحاسب بيه العميل في نقطة البيع.
   if (autoPromoConfig) {
     const expiry = (productEarliestExpiry || {})[product.id] || product.expiry || null;
-    const auto = computeAutoPromoForProduct(product, discountRules, expiry, sales, autoPromoConfig);
+    const firstStockedAt = (productFirstStocked || {})[product.id] || null;
+    const auto = computeAutoPromoForProduct(product, discountRules, expiry, sales, autoPromoConfig, firstStockedAt);
     if (auto) {
       return {
         price: +(product.price * (1 - auto.autoDiscount / 100)).toFixed(2),
@@ -292,7 +293,7 @@ export function calcAutoDiscount(expiryDate, rules?) {
 //  1) noSaleFlag: مفيش أي بيع للصنف من مدة أطول من الحد المسموح (noSaleDays) — أو مفيش بيع خالص في السجل المتاح
 //  2) wontSelloutFlag: معاه صلاحية، ومعدل بيعه الحالي (آخر velocityWindowDays يوم) بطيء جدًا لدرجة إن المخزون
 //     الحالي مش هيخلص قبل ما ينتهي — يعني هيتحول لهالك لو استنينا للعرض العادي حسب قرب الصلاحية بس
-export function getStagnationInfo(product, sales, expiry, cfg) {
+export function getStagnationInfo(product, sales, expiry, cfg, firstStockedAt) {
   const now = new Date();
   let lastSaleDate = null;
   (sales || []).forEach((s) => {
@@ -304,7 +305,13 @@ export function getStagnationInfo(product, sales, expiry, cfg) {
   });
   const daysSinceLastSale = lastSaleDate ? Math.floor((now - lastSaleDate) / (1000 * 60 * 60 * 24)) : null;
   // معيار 1: عدم وجود مبيعات من مدة كافية (أو الصنف لم يُبع نهائيًا في السجل المتاح رغم وجود مخزون)
-  const noSaleFlag = daysSinceLastSale === null ? (product.stock || 0) > 0 : daysSinceLastSale >= cfg.noSaleDays;
+  const daysSinceStocked = firstStockedAt
+    ? Math.floor((now - new Date(firstStockedAt)) / (1000 * 60 * 60 * 24))
+    : null;
+
+  const noSaleFlag = daysSinceLastSale === null
+    ? (daysSinceStocked !== null ? daysSinceStocked >= cfg.noSaleDays : false)
+    : daysSinceLastSale >= cfg.noSaleDays;
 
   // معيار 2: هيفضل مخزون لما الصنف ينتهي حسب معدل البيع الحالي
   let wontSelloutFlag = false;
@@ -333,7 +340,7 @@ export function getStagnationInfo(product, sales, expiry, cfg) {
 // دالة موحّدة لحساب الخصم التلقائي (صلاحية + راكد) لصنف واحد — نفس المنطق مستخدم في معاينة تبويب
 // "العروض التلقائية" وفي حساب السعر الفعلي بنقطة البيع (getEffectivePrice)، عشان السعر يفضل متطابق
 // في المكانين ومايحصلش "العرض ظاهر في الشاشة بس مبيتطبقش وقت البيع".
-export function computeAutoPromoForProduct(product, discountRules, expiry, sales, autoPromoConfig) {
+export function computeAutoPromoForProduct(product, discountRules, expiry, sales, autoPromoConfig, firstStockedAt) {
   if (!product || !autoPromoConfig) return null;
   const cat = product.main_category || product.category || "";
   if ((autoPromoConfig.excludeCategories || []).includes(cat)) return null;
@@ -346,9 +353,8 @@ export function computeAutoPromoForProduct(product, discountRules, expiry, sales
     ? getStagnationInfo(product, sales, expiry, {
         noSaleDays: autoPromoConfig.stagnantNoSaleDays,
         velocityWindowDays: autoPromoConfig.stagnantVelocityWindowDays,
-      })
-    : { isStagnant: false };
-  const reasonStagnant = stagInfo.isStagnant;
+      }, firstStockedAt)
+    : { isStagnant: false };Info.isStagnant;
 
   if (!reasonExpiry && !reasonStagnant) return null;
 
