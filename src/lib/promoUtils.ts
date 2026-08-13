@@ -304,18 +304,22 @@ export function getStagnationInfo(product, sales, expiry, cfg, firstStockedAt) {
     }
   });
   const daysSinceLastSale = lastSaleDate ? Math.floor((now - lastSaleDate) / (1000 * 60 * 60 * 24)) : null;
-  // معيار 1: عدم وجود مبيعات من مدة كافية (أو الصنف لم يُبع نهائيًا في السجل المتاح رغم وجود مخزون)
+
   const daysSinceStocked = firstStockedAt
     ? Math.floor((now - new Date(firstStockedAt)) / (1000 * 60 * 60 * 24))
     : null;
 
+  // معيار 1: عدم وجود مبيعات من مدة كافية (أو الصنف لم يُبع نهائيًا رغم وجود مخزون)
   const noSaleFlag = daysSinceLastSale === null
     ? (daysSinceStocked !== null ? daysSinceStocked >= cfg.noSaleDays : false)
     : daysSinceLastSale >= cfg.noSaleDays;
 
+  // 🆕 لو الصنف لسه أقل من noSaleDays من إدخاله، لسه بدري نحكم عليه بمعيار السرعة
+  const recentlyStocked = daysSinceStocked !== null && daysSinceStocked < cfg.noSaleDays;
+
   // معيار 2: هيفضل مخزون لما الصنف ينتهي حسب معدل البيع الحالي
   let wontSelloutFlag = false;
-  if (expiry) {
+  if (expiry && !recentlyStocked) {
     const windowStart = new Date();
     windowStart.setDate(windowStart.getDate() - cfg.velocityWindowDays);
     let qtySold = 0;
@@ -334,7 +338,6 @@ export function getStagnationInfo(product, sales, expiry, cfg, firstStockedAt) {
 
   return { isStagnant: noSaleFlag || wontSelloutFlag, daysSinceLastSale, wontSelloutFlag, noSaleFlag };
 }
-
 
 
 // دالة موحّدة لحساب الخصم التلقائي (صلاحية + راكد) لصنف واحد — نفس المنطق مستخدم في معاينة تبويب
