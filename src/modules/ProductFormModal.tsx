@@ -376,20 +376,21 @@ export function ProductFormModal({
     let productId = form.id;
     const editing = !!editingId;
 
+   let productId = form.id;
+    const editing = !!editingId;
+
     if (editing) {
       const oldProduct = products.find((x) => x.id === editingId);
-      const { error } = await supabase.from("products").update(p).eq("id", editingId).eq("pharmacy_id", pharmacyId);
-      if (error) { showToast("خطأ في التعديل: " + error.message, "error"); return; }
-      // 🔧 لازم نحدّث كمان النسخة camelCase (saleUnits/packageType) اللي بتتقرا في نقطة البيع،
-      // مش بس الحقول الخام (snake_case) من "p" — لأن أول تحميل بس هو اللي كان بيعمل الماب ده،
-      // فأي تعديل بعد كده (زي عدد وحدات البيع) كان فاضل في القيمة القديمة في الميموري لحد ما تعمل refresh.
+      const result = await saveProduct(p, pharmacyId, true);
+      if (!result.synced && result.error) {
+        showToast("خطأ في التعديل: " + result.error, "error"); return;
+      }
       setProducts((prev) => prev.map((x) => (x.id === editingId ? {
         ...x,
         ...p,
         saleUnits: p.sale_units || x.saleUnits || null,
         packageType: p.package_type || x.packageType || "",
       } : x)));
-      // 🆕 نسجل أي تغيير في أي حقل من حقول الصنف، مش بس السعر/التكلفة
       if (oldProduct) {
         const trackedFields = ["name", "price", "cost", "barcode", "category", "mainCategory", "supplier_id", "is_essential", "is_chronic", "not_available_market"];
         const oldSnap: any = {}; const newSnap: any = {};
@@ -407,16 +408,16 @@ export function ProductFormModal({
         }
       }
     } else {
-      const { data, error } = await supabase.from("products").insert({ ...p, pharmacy_id: pharmacyId }).select();
-      if (error) { showToast("خطأ في الإضافة: " + error.message, "error"); return; }
-      productId = data[0].id;
-      // 🔧 نفس مشكلة التعديل: صف supabase الراجع من insert فيه الحقول الخام (snake_case) بس،
-      // لازم نضيف النسخة camelCase يدويًا (saleUnits/packageType) عشان نقطة البيع تشتغل
-      // على الصنف الجديد من غير ما نحتاج نعمل refresh للصفحة الأول.
+      const result = await saveProduct(p, pharmacyId, false);
+      if (!result.synced && result.error) {
+        showToast("خطأ في الإضافة: " + result.error, "error"); return;
+      }
+      productId = p.id;
       setProducts((prev) => [...prev, {
-        ...data[0],
-        saleUnits: data[0].sale_units || null,
-        packageType: data[0].package_type || "",
+        ...p,
+        pharmacy_id: pharmacyId,
+        saleUnits: p.sale_units || null,
+        packageType: p.package_type || "",
       }]);
       logAudit({
         pharmacyId, userName: currentUser?.name, action: "create", entityType: "product",
@@ -426,34 +427,25 @@ export function ProductFormModal({
       });
     }
 
-    if (editing) await supabase.from("product_barcodes").delete().eq("product_id", productId);
-    // ── صفوف الدفعات (batch/serial/expiry) بس — الـ GTIN نفسه راح مباشرة على products.barcode فوق ──
     const validBarcodes = barcodes.filter((b) => (b.batch_number || "").trim() || (b.serial_number || "").trim() || (b.expiry_date || "").trim());
-    if (validBarcodes.length > 0) {
-      await supabase.from("product_barcodes").insert(validBarcodes.map((b) => ({
-        batch_number: b.batch_number || null,
-        serial_number: b.serial_number || null,
-        expiry_date: b.expiry_date || null,
-        base_barcode: form.gtin.trim(), // نفس الـ GTIN الثابت مكرر لكل صف دفعة، عشان توافق أي كود قديم بيقرا من العمود ده
-        product_id: productId, pharmacy_id: pharmacyId,
-      })));
-    }
+    await replaceProductBarcodes(productId, pharmacyId, validBarcodes.map((b) => ({
+      batch_number: b.batch_number || null,
+      serial_number: b.serial_number || null,
+      expiry_date: b.expiry_date || null,
+      base_barcode: form.gtin.trim(),
+      product_id: productId, pharmacy_id: pharmacyId,
+    })));
 
-    if (editing) await supabase.from("product_ingredients").delete().eq("product_id", productId);
-    if (selectedIngredients.length > 0) {
-      await supabase.from("product_ingredients").insert(selectedIngredients.map((x) => ({ product_id: productId, ingredient_id: x.ingredient_id, concentration: x.concentration, pharmacy_id: pharmacyId })));
-    }
+    await replaceProductIngredients(productId, pharmacyId, selectedIngredients.map((x) => ({
+      product_id: productId, ingredient_id: x.ingredient_id, concentration: x.concentration, pharmacy_id: pharmacyId,
+    })));
 
-    // 🆕 لو الصيدلي وافق يربط الصنف الجديد بجوكر معلّق قديم — نقفل الجوكر ونربطه بالصنف الجديد،
-    // عشان الاسم السريع القديم يتجاهل ويعتمد الاسم الجديد الكامل من هنا وبعده
     if (jokerLinkChoice) {
       await supabase.from("joker_pending_items").update({ status: "linked", linked_product_id: productId }).eq("id", jokerLinkChoice);
       setJokerPendingItems((prev) => prev.map((j) => (j.id === jokerLinkChoice ? { ...j, status: "linked", linked_product_id: productId } : j)));
     }
 
     showToast(editing ? "تم تعديل الصنف" : "تمت إضافة الصنف ✓");
-    // لازم نصفّر الفورم فورًا بعد نجاح "الإضافة" (مش التعديل) قبل الإغلاق، لأن الكومبوننت
-    // ده فاضل mounted طول الوقت (بيتفتح/يتقفل بس بـ open prop).
     if (!editing) {
       setForm({ ...blank, id: "P" + Date.now() });
       setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
@@ -461,6 +453,8 @@ export function ProductFormModal({
       setJokerLinkChoice(null);
       setDismissedJokerSuggestion(false);
     }
+    if (onSaved) onSaved({ ...p, id: productId });
+    onClose();
     if (onSaved) onSaved({ ...p, id: productId });
     onClose();
   };
