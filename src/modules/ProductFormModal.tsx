@@ -375,10 +375,6 @@ export function ProductFormModal({
 
     let productId = form.id;
     const editing = !!editingId;
-
-   let productId = form.id;
-    const editing = !!editingId;
-
     if (editing) {
       const oldProduct = products.find((x) => x.id === editingId);
       const result = await saveProduct(p, pharmacyId, true);
