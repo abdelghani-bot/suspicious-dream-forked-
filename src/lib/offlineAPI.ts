@@ -555,6 +555,37 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             if (error) throw error;
             break;
         }
+         case "PRODUCT_SAVE": {
+    const { product, editing, pharmacy_id } = event.payload;
+    if (editing) {
+        const { error } = await supabase.from("products")
+            .update(product).eq("id", product.id).eq("pharmacy_id", pharmacy_id);
+        if (error) throw error;
+    } else {
+        const { error } = await supabase.from("products")
+            .insert({ ...product, pharmacy_id });
+        if (error) throw error;
+    }
+    break;
+}
+case "PRODUCT_BARCODES_REPLACE": {
+    const { productId, rows } = event.payload;
+    await supabase.from("product_barcodes").delete().eq("product_id", productId);
+    if (rows.length > 0) {
+        const { error } = await supabase.from("product_barcodes").insert(rows);
+        if (error) throw error;
+    }
+    break;
+}
+case "PRODUCT_INGREDIENTS_REPLACE": {
+    const { productId, rows } = event.payload;
+    await supabase.from("product_ingredients").delete().eq("product_id", productId);
+    if (rows.length > 0) {
+        const { error } = await supabase.from("product_ingredients").insert(rows);
+        if (error) throw error;
+    }
+    break;
+}   
         case "PHARMACY_SETTINGS_UPDATE": {
             const { error } = await supabase.from("pharmacy_settings")
                 .update(event.payload.updates)
@@ -1262,6 +1293,36 @@ export async function addItemToZeroStockDraftPurchase(params: {
     }
 
     return { synced: updateResult.synced, items: updatedItems, batch: stockEvent.batch };
+}
+export async function saveProduct(product: any, pharmacyId: string, editing: boolean) {
+    await window.offlineAPI?.upsertProductsCache?.({ pharmacyId, products: [product] });
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "PRODUCT_SAVE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId, // top-level — لازم لـ SQLite NOT NULL
+        payload: { product, editing, pharmacy_id: pharmacyId }, // 🔧 مكرر هنا كمان — نفس القيمة، مصدرين مختلفين للقراءة
+    });
+}
+
+export async function replaceProductBarcodes(productId: string, pharmacyId: string, rows: any[]) {
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "PRODUCT_BARCODES_REPLACE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { productId, rows, pharmacy_id: pharmacyId },
+    });
+}
+
+export async function replaceProductIngredients(productId: string, pharmacyId: string, rows: any[]) {
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "PRODUCT_INGREDIENTS_REPLACE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { productId, rows, pharmacy_id: pharmacyId },
+    });
 }
 // ═══════════════════════════════════════════════════════════════════
 // 🆕 نقطة كتابة موحّدة لأي قيد خزنة (تستخدمها كل الموديولات: مرتجعات، موردين، شفتات، تقفيل).
