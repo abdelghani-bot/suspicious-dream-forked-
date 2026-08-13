@@ -330,6 +330,19 @@ export default function PharmacyPro() {
         });
         return map;
     }, [purchases, products]);
+    const posProductFirstStocked = useMemo(() => {
+        const map = {};
+        (purchases || []).forEach((pu) => {
+            const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
+            items.forEach((item) => {
+                if (!item.id) return;
+                const d = pu.date || pu.created_at;
+                if (!d) return;
+                if (!map[item.id] || d < map[item.id]) map[item.id] = d;
+            });
+        });
+        return map;
+    }, [purchases]);
     // تحميل العروض وقواعد الخصم وإعدادات العروض التلقائية للـ POS
     // 🆕 كل استعلام هنا بيتحقق من error بشكل صريح (زي loadData الرئيسية بالظبط)، لأن
     // supabase-js مش بيرمي على فشل الشبكة — بيرجع { data: null, error }. لو فشل، بنقرا
@@ -1196,6 +1209,7 @@ export default function PharmacyPro() {
                             promos={posPromos}
                             discountRules={posDiscountRules}
                             productEarliestExpiry={posProductEarliestExpiry}
+                            productFirstStocked={posProductFirstStocked}
                             autoPromoConfig={posAutoPromoConfig}
                             loyaltySettings={loyaltySettings}
                             onLoyaltySettingsChange={setLoyaltySettings}
