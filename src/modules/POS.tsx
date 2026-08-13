@@ -1937,7 +1937,7 @@ export function POS({
                                                             }}
                                                         >
                                                             {(() => {
-                                                                const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig);
+                                                                const eff = getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig, productFirstStocked);
                                                                 return eff.discountPct > 0 ? (
                                                                     <span>
                                                                         <span style={{ textDecoration: "line-through", color: COLORS.textDim, fontSize: 10, marginLeft: 4 }}>{p.price?.toFixed(2)}</span>
