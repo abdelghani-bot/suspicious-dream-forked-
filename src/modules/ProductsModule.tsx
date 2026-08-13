@@ -6,6 +6,7 @@ import { extractPrimaryBarcode, normGtin } from "../lib/barcodeUtils";
 import { computeStockoutForecast } from "../lib/inventoryUtils";
 import { ProductFormModal } from "./ProductFormModal";
 import { Badge, Btn, Modal, Pagination, StatCard, Table } from "../ui/primitives";
+import { saveProduct, replaceProductBarcodes, replaceProductIngredients } from "../lib/offlineAPI";
 
 export function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId, currentUser, canAdd = true, canDelete = true, canEdit = true, jokerPendingItems = [], setJokerPendingItems = () => {} }) {
   const [search, setSearch] = useState("");
