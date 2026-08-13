@@ -209,14 +209,26 @@ export function PromotionsModule({
         });
         return map;
     }, [purchases, products]);
-
+const productFirstStocked = useMemo(() => {
+        const map = {};
+        (purchases || []).forEach((pu) => {
+            const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
+            items.forEach((item) => {
+                if (!item.id) return;
+                const d = pu.date || pu.created_at;
+                if (!d) return;
+                if (!map[item.id] || d < map[item.id]) map[item.id] = d;
+            });
+        });
+        return map;
+    }, [purchases]);
     const getProductExpiry = (p) =>
         productEarliestExpiry[p.id] || p.expiry || null;
 
     const autoPromoProducts = products.reduce((acc, p) => {
         const expiry = getProductExpiry(p);
         // 🆕 نفس الدالة بالظبط اللي بتحسب سعر نقطة البيع (computeAutoPromoForProduct) — مفيش أي اختلاف منطق
-        const result = computeAutoPromoForProduct(p, discountRules, expiry, sales, autoPromoConfig);
+        const result = computeAutoPromoForProduct(p, discountRules, expiry, sales, autoPromoConfig, productFirstStocked[p.id] || null);
         if (!result) return acc;
 
         acc.push({
