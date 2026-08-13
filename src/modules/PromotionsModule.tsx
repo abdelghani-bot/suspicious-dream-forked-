@@ -5,6 +5,7 @@ import {
     replacePromoRules, logPromoPrint, savePromoSettings,
 } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
+import { todayLocal } from "../lib/dateUtils";
 import { DEFAULT_AUTO_PROMO_CONFIG, PROMO_TYPES, blankPromoDetails, computeAutoPromoForProduct, describePromo, detectSupplierOfferPattern, getPromoMinRequiredQty, getPromoTypeConfig, isPromoFulfillable } from "../lib/promoUtils";
 import { openWhatsApp } from "../lib/whatsapp";
 import { trendConfig, vipConfig } from "./CustomersModule";
