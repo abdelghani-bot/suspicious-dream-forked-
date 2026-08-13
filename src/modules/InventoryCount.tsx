@@ -6,7 +6,7 @@ import { logAudit } from "../lib/auditLog";
 import { normGtin } from "../lib/barcodeUtils";
 import { todayLocal } from "../lib/dateUtils";
 import { Badge, Btn, Input, Modal, Table } from "../ui/primitives";
-import { queueEvent } from "../lib/offlineApi"; // 🆕 عدّل المسار حسب مكان الملف عندك
+import { queueEvent } from "../lib/offlineAPI"; // 🆕 عدّل المسار حسب مكان الملف عندك
 
 export function InventoryCount({
     products,
