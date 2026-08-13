@@ -67,6 +67,7 @@ export function POS({
     promos,
     discountRules,
     productEarliestExpiry,
+    productFirstStocked,
     autoPromoConfig,
     loyaltySettings, // 🆕 جاي من الـ App دلوقتي (مشترك بين POS وموديول الولاء)، مبقاش بيتجاب هنا
 }) {
@@ -572,7 +573,7 @@ export function POS({
                 : 1;
             const effective = p.isMissed || p.isJoker
                 ? { price: p.price, discountPct: 0, source: null }
-                : getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig);
+                : getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig, productFirstStocked);
 
             const isQtyDependentPromo = !p.isPartial && ["bogo", "quantity", "bundle"].includes(effective.promoType);
             const cartPrice = p.isPartial
