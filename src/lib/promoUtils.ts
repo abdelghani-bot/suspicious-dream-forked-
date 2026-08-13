@@ -354,8 +354,8 @@ export function computeAutoPromoForProduct(product, discountRules, expiry, sales
         noSaleDays: autoPromoConfig.stagnantNoSaleDays,
         velocityWindowDays: autoPromoConfig.stagnantVelocityWindowDays,
       }, firstStockedAt)
-    : { isStagnant: false };Info.isStagnant;
-
+    : { isStagnant: false };
+  const reasonStagnant = stagInfo.isStagnant;
   if (!reasonExpiry && !reasonStagnant) return null;
 
   // لو الصنف واقع تحت الاتنين، ناخد أعلى خصم بينهم
