@@ -608,6 +608,21 @@ export async function syncQueue() {
         // تأكد من صلاحية الجلسة قبل أي محاولة مزامنة
         let { data: { session } } = await supabase.auth.getSession();
 
+        // 🆕 مش بس نتأكد من وجود الـ session — نتأكد إنها لسه صالحة (أو قريبة من الانتهاء)
+        const isExpiredOrExpiringSoon = session?.expires_at
+            ? session.expires_at * 1000 < Date.now() + 60_000 // هامش دقيقة
+            : false;
+
+        if (session && isExpiredOrExpiringSoon) {
+            const { data: refreshedData, error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError || !refreshedData.session) {
+                console.warn("syncQueue: session refresh failed, falling back to silent re-auth");
+                session = null; // نسقطها عشان تدخل مسار الـ silent re-auth تحت
+            } else {
+                session = refreshedData.session;
+            }
+        }
+
         if (!session) {
             // 🆕 مفيش جلسة Supabase حقيقية — ده متوقع لو المستخدم دخل أوفلاين.
             // نجرب silent re-auth بالـ refresh_token المخزّن قبل ما نأجّل المزامنة
@@ -723,7 +738,7 @@ export async function savePromoSettings(row: any, pharmacyId: string) {
         type: "PROMO_SETTINGS_UPSERT",
         timestamp: new Date().toISOString(),
         pharmacy_id: pharmacyId,
-        payload: { row },
+        payload: { row: { ...row, pharmacy_id: pharmacyId } },
     });
 }
 

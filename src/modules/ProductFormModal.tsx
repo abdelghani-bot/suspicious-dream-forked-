@@ -8,6 +8,7 @@ import { nameSimilarity } from "../lib/dateUtils";
 import { MAIN_CATEGORIES, NON_DRUG_SIZE_UNITS, NON_DRUG_SIZE_UNITS_EN, NON_DRUG_TYPES, NON_DRUG_TYPES_EN, PACKAGE_TYPES, SUPPLY_CATEGORIES, buildNonDrugName, buildNonDrugNameEn } from "../lib/productConstants";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
 import { Btn, Input, Modal, Select } from "../ui/primitives";
+import { saveProduct, replaceProductBarcodes, replaceProductIngredients } from "../lib/offlineAPI";
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🆕 ProductFormModal — نافذة موحّدة لإضافة/تعديل صنف، قابلة للاستخدام من
