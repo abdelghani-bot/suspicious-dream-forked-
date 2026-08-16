@@ -1310,7 +1310,8 @@ export async function addItemToZeroStockDraftPurchase(params: {
     return { synced: updateResult.synced, items: updatedItems, batch: stockEvent.batch };
 }
 export async function saveProduct(product: any, pharmacyId: string, editing: boolean) {
-    await window.offlineAPI?.upsertProductsCache?.({ pharmacyId, products: [product] });
+    const productWithDefaults = { stock: 0, ...product };
+    await window.offlineAPI?.upsertProductsCache?.({ pharmacyId, products: [productWithDefaults] });
     return queueEvent({
         id: crypto.randomUUID(),
         type: "PRODUCT_SAVE",

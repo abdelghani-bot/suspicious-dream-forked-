@@ -537,7 +537,7 @@ export function PurchaseModule({
                     bonusQty: 0,
                     discount1: 0,
                     discount2: 0,
-                    receivedCost: p.cost,
+                    receivedCost: p.cost ?? 0,
                     newSalePrice: p.price,
                     expiry_date: expiry,
                     batch_number: batch,
@@ -562,7 +562,7 @@ export function PurchaseModule({
                 bonusQty: 0,
                 discount1: 0,
                 discount2: 0,
-                receivedCost: p.cost,
+                receivedCost: p.cost ?? 0,
                 newSalePrice: p.price,
                 expiry_date: expiry,
                 batch_number: batch,
@@ -593,7 +593,7 @@ export function PurchaseModule({
                     bonusQty: 0,
                     discount1: 0,
                     discount2: 0,
-                    receivedCost: p.cost,
+                    receivedCost: p.cost ?? 0,
                     newSalePrice: p.price,
                     expiry_date: expiry || "",
                     batch_number: batch || "",
@@ -614,7 +614,7 @@ export function PurchaseModule({
                 bonusQty: 0,
                 discount1: 0,
                 discount2: 0,
-                receivedCost: cost > 0 ? cost : p.cost,
+                receivedCost: cost > 0 ? cost : (p.cost ?? 0),
                 newSalePrice: p.price,
                 expiry_date: "",
                 batch_number: "",
@@ -1473,7 +1473,7 @@ export function PurchaseModule({
                     <BarcodeScanner
                         onScan={(scan) => {
                             const code = scan.type === "gs1" ? scan.gtin : scan.code;
-                            const expiry = scan.type === "gs1" || scan.type === "custom" ? (scan.expiry ? scan.expiry.slice(0, 7) : "") : "";
+                            const expiry = scan.type === "gs1" || scan.type === "custom" ? (scan.expiry || "") : "";
                             const batch = scan.type === "gs1" || scan.type === "custom" ? (scan.batch || "") : "";
                             const found = products.find((x) =>
                                 scan.type === "gs1"
@@ -1916,7 +1916,7 @@ export function PurchaseModule({
                                             type="number"
                                             min="0"
                                             step="0.0001"
-                                            value={+item.receivedCost.toFixed(4)}
+                                            value={+(item.receivedCost ?? 0).toFixed(4)}
                                             onChange={(e) =>
                                                 updateItem(item.id, "receivedCost", +e.target.value)
                                             }
@@ -2619,7 +2619,7 @@ export function PurchaseModule({
                                                 type="number"
                                                 min="0"
                                                 step="0.0001"
-                                                value={+item.receivedCost.toFixed(4)}
+                                                value={+(item.receivedCost ?? 0).toFixed(4)}
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
