@@ -550,7 +550,7 @@ export function POS({
                 const matchedBatch = (prod?.batches || []).find(
                     (b) => b.expiry_date === ex.expiry && (!ex.batch || b.batch_number === ex.batch)
                 );
-                const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 99);
+                const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0);
                 if (ex.qty + 1 > availableQty) {
                     showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
                     cartAfterAdd = prev.cart;
@@ -2310,7 +2310,7 @@ export function POS({
                                     const matchedBatchForQty = (prodForQty?.batches || []).find(
                                         (b) => b.expiry_date === item.expiry && (!item.batch || b.batch_number === item.batch)
                                     );
-                                    const maxQty = matchedBatchForQty ? matchedBatchForQty.qty : (prodForQty?.stock || 99);
+                                    const maxQty = matchedBatchForQty ? matchedBatchForQty.qty : (prodForQty?.stock || 0);
                                     // 🆕 السعر المعروض في صف السلة لازم يكون شامل الضريبة (زي سعر الرف/الملصق)،
                                     // ده مجرد عرض بصري بس - القيمة الأصلية (item.price) فاضلة زي ما هي وتحتها
                                     // بيتحسب "قبل الضريبة" و"ضريبة 15%" و"الإجمالي" في فوتر الفاتورة عادي.
@@ -2394,7 +2394,7 @@ export function POS({
                                                                     const newLineId = `${item.id}::${newExpiry || ""}::${newBatchNumber}`;
                                                                     setInv((p) => {
                                                                         const dup = p.cart.find((i) => i.lineId === newLineId && i.lineId !== item.lineId);
-                                                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 99);
+                                                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0);
                                                                         const mergedQty = (dup ? dup.qty : 0) + item.qty;
                                                                         if (mergedQty > availableQty) {
                                                                             showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
@@ -2553,7 +2553,7 @@ export function POS({
                                                                 const matchedBatch = (prod?.batches || []).find(
                                                                     (b) => b.expiry_date === i.expiry && (!i.batch || b.batch_number === i.batch)
                                                                 );
-                                                                const mx = matchedBatch ? matchedBatch.qty : (prod?.stock || 99);
+                                                                const mx = matchedBatch ? matchedBatch.qty : (prod?.stock || 0);
                                                                 if (i.qty + 1 > mx) {
                                                                     showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
                                                                     return i;
@@ -3062,7 +3062,7 @@ export function POS({
                                     setInv((prev) => {
                                         const currentLine = prev.cart.find((i) => i.lineId === expiryPickerLine.lineId);
                                         const dup = prev.cart.find((i) => i.lineId === newLineId && i.lineId !== expiryPickerLine.lineId);
-                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 99);
+                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0);
                                         const mergedQty = (dup ? dup.qty : 0) + (currentLine ? currentLine.qty : 0);
 
                                         if (mergedQty > availableQty) {
