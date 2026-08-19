@@ -1,7 +1,6 @@
 {
   "ExpandedNodes": [
     "",
-    "\\electron",
     "\\src",
     "\\src\\data",
     "\\src\\hooks",
@@ -9,8 +8,9 @@
     "\\src\\modules",
     "\\src\\modules\\customers",
     "\\src\\services",
-    "\\src\\ui"
+    "\\src\\ui",
+    "\\src\\utils"
   ],
-  "SelectedNode": "\\src\\modules\\InventoryStatement.tsx",
+  "SelectedNode": "\\src\\lib\\barcodeUtils.ts",
   "PreviewInSolutionExplorer": false
 }

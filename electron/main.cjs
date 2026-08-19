@@ -550,6 +550,15 @@ CREATE INDEX IF NOT EXISTS idx_attendance_gaps_cache_pharmacy ON attendance_gaps
   product_id TEXT NOT NULL,
   notes TEXT,
   created_at TEXT);
+  -- 🆕 كاش أنواع الأصناف (item_types) — upsert فردي + إمكانية full-refresh
+  CREATE TABLE IF NOT EXISTS item_types_cache (
+    id TEXT PRIMARY KEY,
+    pharmacy_id TEXT NOT NULL,
+    name_ar TEXT NOT NULL,
+    name_en TEXT,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_item_types_cache_pharmacy ON item_types_cache(pharmacy_id);
 `);
 
 ipcMain.handle("app:getVersion", () => app.getVersion());
@@ -1374,6 +1383,62 @@ ipcMain.handle("offline:getManufacturersCache", (_event, pharmacyId) => {
     return db.prepare("SELECT id, name FROM manufacturers_cache WHERE pharmacy_id = ? ORDER BY name").all(pharmacyId);
 });
 
+// ==================== كاش أنواع الأصناف (item_types) ====================
+// upsert فردي — بيتنادى لما تضيف نوع جديد أونلاين/أوفلاين، من غير ما يمسح الباقي
+// (بالظبط زي quickAddManufacturer لكن هنا بنكتب الصف فعليًا في الكاش المحلي كمان)
+ipcMain.handle("offline:upsertItemTypeCache", (_event, { pharmacyId, item }) => {
+    try {
+        const now = new Date().toISOString();
+        db.prepare(`
+      INSERT INTO item_types_cache (id, pharmacy_id, name_ar, name_en, updated_at)
+      VALUES (@id, @pharmacy_id, @name_ar, @name_en, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name_ar = excluded.name_ar,
+        name_en = excluded.name_en,
+        updated_at = excluded.updated_at
+    `).run({
+            id: item.id,
+            pharmacy_id: pharmacyId,
+            name_ar: item.name_ar,
+            name_en: item.name_en || null,
+            updated_at: now,
+        });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
+// full-replace — للـ sync الدوري لما يرجع النت (زي refreshManufacturersCache)
+ipcMain.handle("offline:refreshItemTypesCache", (_event, { pharmacyId, rows }) => {
+    try {
+        const now = new Date().toISOString();
+        const tx = db.transaction((items) => {
+            db.prepare("DELETE FROM item_types_cache WHERE pharmacy_id = ?").run(pharmacyId);
+            const stmt = db.prepare(`
+        INSERT INTO item_types_cache (id, pharmacy_id, name_ar, name_en, updated_at)
+        VALUES (@id, @pharmacy_id, @name_ar, @name_en, @updated_at)
+      `);
+            for (const it of items) {
+                stmt.run({
+                    id: it.id,
+                    pharmacy_id: pharmacyId,
+                    name_ar: it.name_ar,
+                    name_en: it.name_en || null,
+                    updated_at: now,
+                });
+            }
+        });
+        tx(rows || []);
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
+ipcMain.handle("offline:getItemTypesCache", (_event, pharmacyId) => {
+    return db.prepare("SELECT id, name_ar, name_en FROM item_types_cache WHERE pharmacy_id = ? ORDER BY name_ar").all(pharmacyId);
+});
 // ==================== كاش نقاط الولاء محلياً (loyalty_points_cache) ====================
 ipcMain.handle("offline:getLoyaltyPointsCache", (_event, pharmacyId) => {
     const rows = db.prepare("SELECT * FROM loyalty_points_cache WHERE pharmacy_id = ?").all(pharmacyId);

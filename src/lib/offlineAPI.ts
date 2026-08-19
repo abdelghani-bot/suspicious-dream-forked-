@@ -585,7 +585,12 @@ case "PRODUCT_INGREDIENTS_REPLACE": {
         if (error) throw error;
     }
     break;
-}   
+        }
+        case "ITEM_TYPE_INSERT": {
+            const { error } = await supabase.from("item_types").insert(event.payload.record);
+            if (error) throw error;
+            break;
+        }
         case "PHARMACY_SETTINGS_UPDATE": {
             const { error } = await supabase.from("pharmacy_settings")
                 .update(event.payload.updates)
@@ -1339,6 +1344,27 @@ export async function replaceProductIngredients(productId: string, pharmacyId: s
         pharmacy_id: pharmacyId,
         payload: { productId, rows, pharmacy_id: pharmacyId },
     });
+}
+export async function addItemType(nameAr: string, pharmacyId: string, nameEn?: string) {
+    const id = crypto.randomUUID();
+    const record = { id, name_ar: nameAr, name_en: nameEn || null, pharmacy_id: pharmacyId };
+
+    // كاش محلي فوري — يظهر في القايمة فورًا حتى لو أوفلاين
+    try {
+        await window.offlineAPI?.upsertItemTypeCache?.(record);
+    } catch (err) {
+        console.error("upsertItemTypeCache failed:", err);
+    }
+
+    const result = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "ITEM_TYPE_INSERT",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId, // top-level — لازم لـ SQLite NOT NULL
+        payload: { record, pharmacy_id: pharmacyId }, // مكرر هنا كمان
+    });
+
+    return { id, synced: result.synced, error: result.error };
 }
 // ═══════════════════════════════════════════════════════════════════
 // 🆕 نقطة كتابة موحّدة لأي قيد خزنة (تستخدمها كل الموديولات: مرتجعات، موردين، شفتات، تقفيل).

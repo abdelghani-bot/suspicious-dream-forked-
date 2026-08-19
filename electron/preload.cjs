@@ -114,6 +114,9 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     getVarianceLogCache: (pharmacyId) => ipcRenderer.invoke("offline:getVarianceLogCache", pharmacyId),
     addVarianceLogCacheEntry: (row) => ipcRenderer.invoke("offline:addVarianceLogCacheEntry", row),
     removeVarianceLogCacheByProduct: (args) => ipcRenderer.invoke("offline:removeVarianceLogCacheByProduct", args),
+    upsertItemTypeCache: (row) => ipcRenderer.invoke("offline:upsertItemTypeCache", row),
+    getItemTypesCache: (pharmacyId) => ipcRenderer.invoke("offline:getItemTypesCache", pharmacyId),
+    refreshItemTypesCache: (payload) => ipcRenderer.invoke("offline:refreshItemTypesCache", payload),
 });
 contextBridge.exposeInMainWorld("printAPI", {
     printHTML: (html, options) => ipcRenderer.invoke("print:html", { html, options }),

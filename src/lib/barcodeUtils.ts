@@ -12,7 +12,19 @@ export function isGS1Formatted(raw) {
 }
 
 
-
+function normalizeGs1ExpiryDate(yymmdd) {
+    const yy = yymmdd.slice(0, 2);
+    const mm = yymmdd.slice(2, 4);
+    let dd = yymmdd.slice(4, 6);
+    const year = 2000 + parseInt(yy, 10);
+    const month = parseInt(mm, 10);
+    if (dd === "00") {
+        // آخر يوم في الشهر: يوم 0 من الشهر الجاي = آخر يوم في الشهر الحالي
+        const lastDay = new Date(year, month, 0).getDate();
+        dd = String(lastDay).padStart(2, "0");
+    }
+    return `${year}-${mm}-${dd}`;
+}
 export function parseGS1Barcode(raw) {
   const result = {
     gtin: null,
@@ -38,9 +50,9 @@ export function parseGS1Barcode(raw) {
         // GTIN-14: 14 رقم
         result.gtin = value.substring(0, 14);
       } else if (ai === "17") {
-        // تاريخ الصلاحية YYMMDD
-        const d = value.substring(0, 6);
-        result.expiry = `20${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4, 6)}`;
+          // تاريخ الصلاحية YYMMDD
+          const d = value.substring(0, 6);
+          result.expiry = normalizeGs1ExpiryDate(d);
       } else if (ai === "10") {
         result.batch = value;
       } else if (ai === "21") {
@@ -72,9 +84,9 @@ export function parseGS1Barcode(raw) {
           result.gtin = s.substring(i + 2, i + 16);
           i += 16;
         } else if (ai === "17") {
-          const d = s.substring(i + 2, i + 8);
-          result.expiry = `20${d.slice(0,2)}-${d.slice(2,4)}-${d.slice(4,6)}`;
-          i += 8;
+            const d = s.substring(i + 2, i + 8);
+            result.expiry = normalizeGs1ExpiryDate(d);
+            i += 8;
         } else if (ai === "10") {
           const end = varEnd(i + 2);
           result.batch = s.substring(i + 2, end).trim();
