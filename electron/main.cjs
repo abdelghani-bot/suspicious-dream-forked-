@@ -272,6 +272,12 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_products_cache_pharmacy ON products_cache(pharmacy_id);
 
+  CREATE TABLE IF NOT EXISTS sub_categories2_cache (
+    id TEXT PRIMARY KEY, pharmacy_id TEXT NOT NULL, main_category TEXT NOT NULL,
+    name_ar TEXT NOT NULL, name_en TEXT, updated_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_sub_categories2_cache_pharmacy ON sub_categories2_cache(pharmacy_id);
+
   -- 🆕 كاش العملاء محلياً — schema مرن (data = العميل كامل كـ JSON) بنفس فلسفة products_cache،
   -- عشان أي حقل تضيفه على جدول customers مستقبلًا (زي حقول تصنيف العميل) يشتغل تلقائيًا
   -- من غير ما نعدّل هنا. ده جزء من نقل customers من localStorage (عبر useStorage) لـ SQLite
@@ -1439,6 +1445,50 @@ ipcMain.handle("offline:refreshItemTypesCache", (_event, { pharmacyId, rows }) =
 ipcMain.handle("offline:getItemTypesCache", (_event, pharmacyId) => {
     return db.prepare("SELECT id, name_ar, name_en FROM item_types_cache WHERE pharmacy_id = ? ORDER BY name_ar").all(pharmacyId);
 });
+ipcMain.handle("offline:upsertSubCategory2Cache", (_event, { pharmacyId, item }) => {
+    try {
+        const now = new Date().toISOString();
+        db.prepare(`
+          INSERT INTO sub_categories2_cache (id, pharmacy_id, main_category, name_ar, name_en, updated_at)
+          VALUES (@id, @pharmacy_id, @main_category, @name_ar, @name_en, @updated_at)
+          ON CONFLICT(id) DO UPDATE SET
+            main_category = excluded.main_category, name_ar = excluded.name_ar,
+            name_en = excluded.name_en, updated_at = excluded.updated_at
+        `).run({ id: item.id, pharmacy_id: pharmacyId, main_category: item.main_category, name_ar: item.name_ar, name_en: item.name_en || null, updated_at: now });
+        return { success: true };
+    } catch (err) { return { success: false, error: String(err) }; }
+});
+
+ipcMain.handle("offline:refreshSubCategories2Cache", (_event, { pharmacyId, rows }) => {
+    try {
+        const now = new Date().toISOString();
+        const tx = db.transaction((items) => {
+            db.prepare("DELETE FROM sub_categories2_cache WHERE pharmacy_id = ?").run(pharmacyId);
+            const stmt = db.prepare(`
+              INSERT INTO sub_categories2_cache (id, pharmacy_id, main_category, name_ar, name_en, updated_at)
+              VALUES (@id, @pharmacy_id, @main_category, @name_ar, @name_en, @updated_at)
+            `);
+            for (const it of items) stmt.run({ id: it.id, pharmacy_id: pharmacyId, main_category: it.main_category, name_ar: it.name_ar, name_en: it.name_en || null, updated_at: now });
+        });
+        tx(rows || []);
+        return { success: true };
+    } catch (err) { return { success: false, error: String(err) }; }
+});
+
+ipcMain.handle("offline:getSubCategories2Cache", (_event, pharmacyId) => {
+    return db.prepare("SELECT id, main_category, name_ar, name_en FROM sub_categories2_cache WHERE pharmacy_id = ? ORDER BY name_ar").all(pharmacyId);
+});
+
+// 🆕 حذف — لكل من item_types وsub_categories2
+ipcMain.handle("offline:deleteItemTypeCache", (_event, { pharmacyId, id }) => {
+    try { db.prepare("DELETE FROM item_types_cache WHERE id = ? AND pharmacy_id = ?").run(id, pharmacyId); return { success: true }; }
+    catch (err) { return { success: false, error: String(err) }; }
+});
+ipcMain.handle("offline:deleteSubCategory2Cache", (_event, { pharmacyId, id }) => {
+    try { db.prepare("DELETE FROM sub_categories2_cache WHERE id = ? AND pharmacy_id = ?").run(id, pharmacyId); return { success: true }; }
+    catch (err) { return { success: false, error: String(err) }; }
+});
+
 // ==================== كاش نقاط الولاء محلياً (loyalty_points_cache) ====================
 ipcMain.handle("offline:getLoyaltyPointsCache", (_event, pharmacyId) => {
     const rows = db.prepare("SELECT * FROM loyalty_points_cache WHERE pharmacy_id = ?").all(pharmacyId);

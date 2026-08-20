@@ -591,6 +591,24 @@ case "PRODUCT_INGREDIENTS_REPLACE": {
             if (error) throw error;
             break;
         }
+        case "SUB_CATEGORY2_INSERT": {
+    const { record, pharmacy_id } = event.payload;
+    const { error } = await supabase.from("sub_categories2").insert(record);
+    if (error) throw error;
+    break;
+}
+case "ITEM_TYPE_DELETE": {
+    const { id, pharmacy_id } = event.payload;
+    const { error } = await supabase.from("item_types").delete().eq("id", id).eq("pharmacy_id", pharmacy_id);
+    if (error) throw error;
+    break;
+}
+case "SUB_CATEGORY2_DELETE": {
+    const { id, pharmacy_id } = event.payload;
+    const { error } = await supabase.from("sub_categories2").delete().eq("id", id).eq("pharmacy_id", pharmacy_id);
+    if (error) throw error;
+    break;
+}
         case "PHARMACY_SETTINGS_UPDATE": {
             const { error } = await supabase.from("pharmacy_settings")
                 .update(event.payload.updates)
@@ -1365,6 +1383,58 @@ export async function addItemType(nameAr: string, pharmacyId: string, nameEn?: s
     });
 
     return { id, synced: result.synced, error: result.error };
+}
+export async function addSubCategory2(nameAr: string, mainCategory: string, pharmacyId: string, nameEn?: string) {
+    const id = crypto.randomUUID();
+    const record = { id, main_category: mainCategory, name_ar: nameAr, name_en: nameEn || null, pharmacy_id: pharmacyId };
+
+    try {
+        await window.offlineAPI?.upsertSubCategory2Cache?.({ pharmacyId, item: record });
+    } catch (err) {
+        console.error("upsertSubCategory2Cache failed:", err);
+    }
+
+    const result = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "SUB_CATEGORY2_INSERT",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { record, pharmacy_id: pharmacyId },
+    });
+
+    return { id, synced: result.synced, error: result.error };
+}
+
+export async function deleteItemType(id: string, pharmacyId: string) {
+    try {
+        await window.offlineAPI?.deleteItemTypeCache?.({ pharmacyId, id });
+    } catch (err) {
+        console.error("deleteItemTypeCache failed:", err);
+    }
+
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "ITEM_TYPE_DELETE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { id, pharmacy_id: pharmacyId },
+    });
+}
+
+export async function deleteSubCategory2(id: string, pharmacyId: string) {
+    try {
+        await window.offlineAPI?.deleteSubCategory2Cache?.({ pharmacyId, id });
+    } catch (err) {
+        console.error("deleteSubCategory2Cache failed:", err);
+    }
+
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "SUB_CATEGORY2_DELETE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { id, pharmacy_id: pharmacyId },
+    });
 }
 // ═══════════════════════════════════════════════════════════════════
 // 🆕 نقطة كتابة موحّدة لأي قيد خزنة (تستخدمها كل الموديولات: مرتجعات، موردين، شفتات، تقفيل).

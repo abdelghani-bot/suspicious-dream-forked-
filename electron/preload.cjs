@@ -117,6 +117,11 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     upsertItemTypeCache: (row) => ipcRenderer.invoke("offline:upsertItemTypeCache", row),
     getItemTypesCache: (pharmacyId) => ipcRenderer.invoke("offline:getItemTypesCache", pharmacyId),
     refreshItemTypesCache: (payload) => ipcRenderer.invoke("offline:refreshItemTypesCache", payload),
+    getSubCategories2Cache: (pharmacyId) => ipcRenderer.invoke("offline:getSubCategories2Cache", pharmacyId),
+    upsertSubCategory2Cache: (payload) => ipcRenderer.invoke("offline:upsertSubCategory2Cache", payload),
+    refreshSubCategories2Cache: (payload) => ipcRenderer.invoke("offline:refreshSubCategories2Cache", payload),
+    deleteItemTypeCache: (payload) => ipcRenderer.invoke("offline:deleteItemTypeCache", payload),
+    deleteSubCategory2Cache: (payload) => ipcRenderer.invoke("offline:deleteSubCategory2Cache", payload),
 });
 contextBridge.exposeInMainWorld("printAPI", {
     printHTML: (html, options) => ipcRenderer.invoke("print:html", { html, options }),

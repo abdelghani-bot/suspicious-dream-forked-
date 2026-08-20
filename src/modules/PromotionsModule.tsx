@@ -118,6 +118,7 @@ export function PromotionsModule({
     const [editPromoId, setEditPromoId] = useState(null);
     const [showRulesEditor, setShowRulesEditor] = useState(false);
     const [promoSearch, setPromoSearch] = useState("");
+    const [productPickerSearch, setProductPickerSearch] = useState("");
 
     // ── الشركات المنتجة ──
     const [manufacturers, setManufacturers] = useState([]);
@@ -270,17 +271,20 @@ const productFirstStocked = useMemo(() => {
     // ── طباعة يدوية لأصناف العروض التلقائية (بعد ما كانت بتتطبع أوتوماتيك) ──
     // بتاخد الأصناف المحددة (أو كل الأصناف لو معدش تحديد) + اسم/مناسبة العرض المكتوبة، وتسجلهم في سجل الطباعة
     const printAutoPromoItems = (items: typeof autoPromoProducts, offerName: string) => {
-        if (items.length === 0) return;
-        const labelItems = items.map((p) => ({
+    if (items.length === 0) return;
+    const labelItems = items.map((p) => {
+        const priceVat = withVat(p);
+        return {
             name: p.name || p.nameAr || "",
-            originalPrice: p.price,
-            discountedPrice: parseFloat((p.price * (1 - p.autoDiscount / 100)).toFixed(2)),
+            originalPrice: priceVat,
+            discountedPrice: parseFloat((priceVat * (1 - p.autoDiscount / 100)).toFixed(2)),
             discount: p.autoDiscount,
             isAuto: true,
-        }));
-        printShelfLabel(labelItems, offerName);
-        logPrintHistory(offerName, true, labelItems);
-    };
+        };
+    });
+    printShelfLabel(labelItems, offerName);
+    logPrintHistory(offerName, true, labelItems);
+};
 
     // التحقق من اكتمال الحقول المطلوبة لكل نمط عرض
     const validatePromoForm = () => {
@@ -356,19 +360,19 @@ const productFirstStocked = useMemo(() => {
 
         // طباعة ليبل الرف — للأنماط اللي ليها سعر وحدة واضح فقط
         const labelItems = productIds.map((pid) => {
-            const prod = products.find((p) => p.id === pid);
-            if (!prod) return null;
-            const desc = describePromo(baseRow, prod);
-            return {
-                name: prod.name || prod.nameAr || "",
-                originalPrice: prod.price,
-                discountedPrice: desc.newUnitPrice,
-                discount: baseRow.promo_type === "percent" ? baseRow.discount : 0,
-                promoLabel: desc.label,
-                endDate: promoForm.end_date,
-                isAuto: false,
-            };
-        }).filter(Boolean);
+    const prod = products.find((p) => p.id === pid);
+    if (!prod) return null;
+    const desc = describePromo(baseRow, productForLabel(prod)); // ← بنمرر السعر شامل الضريبة
+    return {
+        name: prod.name || prod.nameAr || "",
+        originalPrice: withVat(prod),
+        discountedPrice: desc.newUnitPrice,
+        discount: baseRow.promo_type === "percent" ? baseRow.discount : 0,
+        promoLabel: desc.label,
+        endDate: promoForm.end_date,
+        isAuto: false,
+    };
+}).filter(Boolean);
         if (labelItems.length) {
             printShelfLabel(labelItems, promoForm.offer_name);
             logPrintHistory(promoForm.offer_name, false, labelItems);
@@ -379,7 +383,10 @@ const productFirstStocked = useMemo(() => {
     const activePromos = dateValidPromos.filter((p) => isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
     const stockBlockedPromos = dateValidPromos.filter((p) => !isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
     const expiredPromos = promos.filter((p) => p.end_date < today);
-
+    const withVat = (prod) => prod?.taxable ? +(prod.price * 1.15).toFixed(2) : (prod?.price || 0);
+    // نستخدمها لما نحتاج نبني منتج "وهمي" سعره شامل الضريبة عشان نمرره لـ describePromo
+    // (بدل ما نضرب النتيجة النهائية في 1.15 على حسب نوع العرض، وده أدق خصوصًا لأنماط زي "خصم قيمة ثابتة")
+    const productForLabel = (prod) => ({ ...prod, price: withVat(prod) });
     const discountColor = (d) => d >= 50 ? COLORS.red : d >= 25 ? COLORS.coral : d >= 20 ? COLORS.gold : COLORS.gold;
 
     const cardStyle = (border = COLORS.border) => ({
@@ -443,13 +450,15 @@ const productFirstStocked = useMemo(() => {
     const setSuggestionEdit = (key, patch) =>
         setSuggestionEdits((prev) => ({ ...prev, [key]: { ...getSuggestionEdit({ key, buyQty: "", getQty: "" }), ...prev[key], ...patch } }));
 
-    const dismissedSuggestions = useMemo(() => {
+    const [dismissedSuggestions, setDismissedSuggestions] = useState(() => {
         try { return JSON.parse(localStorage.getItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`) || "[]"); } catch { return []; }
-    }, [pharmacyId]);
+    });
     const dismissSuggestion = (key) => {
-        const next = [...dismissedSuggestions, key];
-        try { localStorage.setItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`, JSON.stringify(next)); } catch { }
-        setSuggestionEdits((p) => ({ ...p })); // فورس ريندر
+        setDismissedSuggestions((prev) => {
+            const next = [...prev, key];
+            try { localStorage.setItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`, JSON.stringify(next)); } catch { }
+            return next;
+        });
     };
     const visibleSuggestions = supplierSuggestions.filter((s) => !dismissedSuggestions.includes(s.key));
 
@@ -1071,19 +1080,22 @@ const productFirstStocked = useMemo(() => {
                                                 <div style={{ color: daysLeft <= 3 ? COLORS.red : COLORS.textDim, fontSize: 11 }}>يتبقى {daysLeft} يوم</div>
                                                 <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                                                     {prod && (
-                                                        <button onClick={() => {
-                                                            const labelItem = {
-                                                                name: prod.name || prod.nameAr || "",
-                                                                originalPrice: prod.price,
-                                                                discountedPrice: desc?.newUnitPrice ?? prod.price,
-                                                                discount: promo.promo_type === "percent" ? promo.discount : 0,
-                                                                promoLabel: desc?.label,
-                                                                endDate: promo.end_date,
-                                                                isAuto: false,
-                                                            };
-                                                            printShelfLabel([labelItem], promo.offer_name);
-                                                            logPrintHistory(promo.offer_name, false, [labelItem]);
-                                                        }} style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>🖨️ طباعة</button>
+   
+                                                  <button onClick={() => {
+                                                    const priceVat = withVat(prod);
+                                                    const descVat = describePromo(promo, productForLabel(prod)); // ← نحسب desc تاني على السعر شامل الضريبة
+                                                    const labelItem = {
+                                                    name: prod.name || prod.nameAr || "",
+                                                    originalPrice: priceVat,
+                                                    discountedPrice: descVat?.newUnitPrice ?? priceVat,
+                                                    discount: promo.promo_type === "percent" ? promo.discount : 0,
+                                                     promoLabel: descVat?.label,
+                                                    endDate: promo.end_date,
+                                                    isAuto: false,
+                                                     };
+                                                     printShelfLabel([labelItem], promo.offer_name);
+                                                     logPrintHistory(promo.offer_name, false, [labelItem]);
+                                                     }} style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>🖨️ طباعة</button>
                                                     )}
                                                     <button onClick={() => openSendPanel(promo, prod)}
                                                         style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>📤 إرسال للعملاء</button>
@@ -1335,13 +1347,22 @@ const productFirstStocked = useMemo(() => {
                 {promoMode === "single" || editPromoId ? (
                     <div style={{ marginBottom: 12 }}>
                         <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
+                        <input
+                            type="text"
+                            placeholder="ابحث باسم الصنف..."
+                            value={productPickerSearch}
+                            onChange={(e) => setProductPickerSearch(e.target.value)}
+                            style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", marginBottom: 6, boxSizing: "border-box" }}
+                        />
                         <select value={promoForm.product_id}
                             onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
                             style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
                             <option value="">-- اختر صنفاً --</option>
-                            {products.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
-                            ))}
+                            {products
+                                .filter((p) => !productPickerSearch || (p.name_ar || p.name || p.nameAr || "").includes(productPickerSearch))
+                                .map((p) => (
+                                    <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
+                                ))}
                         </select>
                     </div>
                 ) : (

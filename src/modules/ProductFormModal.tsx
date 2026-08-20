@@ -8,7 +8,7 @@ import { nameSimilarity } from "../lib/dateUtils";
 import { MAIN_CATEGORIES, NON_DRUG_SIZE_UNITS, NON_DRUG_SIZE_UNITS_EN, NON_DRUG_TYPES_EN, PACKAGE_TYPES, SUPPLY_CATEGORIES, buildNonDrugName, buildNonDrugNameEn } from "../lib/productConstants";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
 import { Btn, Input, Modal, Select } from "../ui/primitives";
-import { saveProduct, replaceProductBarcodes, replaceProductIngredients, addItemType } from "../lib/offlineAPI";
+import { saveProduct, replaceProductBarcodes, replaceProductIngredients, addItemType, addSubCategory2, deleteItemType, deleteSubCategory2 } from "../lib/offlineAPI";
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🆕 ProductFormModal — نافذة موحّدة لإضافة/تعديل صنف، قابلة للاستخدام من
@@ -18,6 +18,7 @@ import { saveProduct, replaceProductBarcodes, replaceProductIngredients, addItem
 // 🆕 قيمة sentinel لخيار "إضافة نوع جديد" جوه Select النوع — لو المستخدم اختارها
 // بنفتح prompt بدل ما نحفظها كقيمة فعلية لخانة النوع.
 const ADD_NEW_TYPE = "➕ إضافة نوع جديد...";
+const ADD_NEW_SUB2 = "➕ إضافة شكل صيدلاني جديد...";
 
 export function ProductFormModal({
     open,
@@ -37,6 +38,11 @@ export function ProductFormModal({
 }) {
     const [manufacturers, setManufacturers] = useState([]);
     const [itemTypes, setItemTypes] = useState([]); // 🆕 أنواع الأصناف الغير دوائية — ديناميكية بدل hardcoded
+    const [subCategories2, setSubCategories2] = useState([]);
+    const [showSubCat2Prompt, setShowSubCat2Prompt] = useState(false);
+    const [subCat2PromptValue, setSubCat2PromptValue] = useState("");
+    const [subCat2PromptValueEn, setSubCat2PromptValueEn] = useState("");
+    const [showManageModal, setShowManageModal] = useState(null); // "itemType" | "subCat2" | null
     const [allIngredients, setAllIngredients] = useState([]);
     const [ingredientSearch, setIngredientSearch] = useState("");
     const [similarSearch, setSimilarSearch] = useState("");
@@ -62,7 +68,7 @@ export function ProductFormModal({
         notAvailableMarket: false,
         shortageReportUrl: "",
         // 🆕 حقول التسمية الموحّدة للأصناف الغير دوائية (كوزمتك/مستلزمات/إلخ)
-        brandName: "", itemType: "", sizeValue: "", sizeUnit: "مل",
+        brandName: "", brandNameEn: "", itemType: "", sizeValue: "", sizeUnit: "مل",
         variant: "", // 🆕 تمييز الصنف (مثلاً "لتساقط الشعر") — بيتضاف آخر الاسم بعد الحجم/الوحدة
         variantEn: "", // 🆕 نفس التمييز بس بالإنجليزي — الجزء الوحيد اللي محتاج ترجمة يدوية لأنه نص حر
         searchKeywords: "", // 🆕 مرادفات/كلمات بحث إضافية (مفصولة بفواصل) — بتساعد البحث من غير ما تأثر على الاسم المعروض
@@ -135,19 +141,39 @@ export function ProductFormModal({
     // (يعني أول مرة بس هتكتب "Nivea" بنفسك، وبعد كده أي صنف "نيفيا" جديد هياخدها تلقائي).
     // الحقل الوحيد اللي فاضل نص حر فعلي هو "تمييز الصنف بالإنجليزي" — وده بالظبط اللي طلبته.
     const brandEnMap = useMemo(() => {
-        const map = {};
-        products.forEach((p) => {
-            const cat = p.main_category || p.mainCategory || "";
-            const b = (p.brand_name || "").trim();
-            const en = (p.name_en || p.nameEn || "").trim();
-            if (cat !== "دواء" && b && en) {
-                const firstSeg = en.split(" - ")[0].trim();
-                if (firstSeg) map[b] = firstSeg;
-            }
-        });
-        return map;
-    }, [products]);
-    const brandEn = form.brandName ? (brandEnMap[form.brandName.trim()] || "") : "";
+    const map = {};
+    products.forEach((p) => {
+        const cat = p.main_category || p.mainCategory || "";
+        const b = (p.brand_name || "").trim();
+        const en = (p.brand_name_en || "").trim();
+        if (cat !== "دواء" && b && en) map[b] = en;
+    });
+    return map;
+}, [products]);
+// 🆕 البراند → الشركة المنتجة، بنفس منطق brandEnMap بالظبط
+const brandManufacturerMap = useMemo(() => {
+    const map = {};
+    products.forEach((p) => {
+        const cat = p.main_category || p.mainCategory || "";
+        const b = (p.brand_name || "").trim();
+        const mid = p.manufacturer_id;
+        if (cat !== "دواء" && b && mid && !map[b]) map[b] = mid;
+    });
+    return map;
+}, [products]);
+
+// 🆕 النوع → الشكل الصيدلاني الافتراضي، نفس المنطق — بس مجرد اقتراح مش إجبار
+const itemTypeSub2Map = useMemo(() => {
+    const map = {};
+    products.forEach((p) => {
+        const cat = p.main_category || p.mainCategory || "";
+        const t = (p.item_type || "").trim();
+        const s2 = (p.sub_category2 || "").trim();
+        if (cat !== "دواء" && t && s2 && !map[t]) map[t] = s2;
+    });
+    return map;
+}, [products]);
+    const brandEn = form.brandNameEn.trim() || (form.brandName ? (brandEnMap[form.brandName.trim()] || "") : "");
     // 🆕 الترجمة الإنجليزية للنوع: بندور الأول في جدول item_types الديناميكي (name_en لو
     // المستخدم سجّله وقت الإضافة)، وبنرجع لخريطة NON_DRUG_TYPES_EN القديمة كـ fallback —
     // عشان الأصناف اللي اتسجلت بأنواع قديمة (قبل التحويل للنوع الديناميكي) تفضل شغالة من غير migration.
@@ -164,7 +190,25 @@ export function ProductFormModal({
         }
         nameEnAutoRef.current = builtEn;
     }, [isNonDrug, brandEn, itemTypeEn, form.sizeValue, sizeUnitEn, form.variantEn]);
+const manufacturerAutoRef = useRef("");
+useEffect(() => {
+    if (!isNonDrug || !form.brandName) return;
+    const suggested = brandManufacturerMap[form.brandName.trim()] || "";
+    if (suggested && (form.manufacturer_id === "" || form.manufacturer_id === manufacturerAutoRef.current)) {
+        F("manufacturer_id", suggested);
+    }
+    manufacturerAutoRef.current = suggested;
+}, [isNonDrug, form.brandName, brandManufacturerMap]);
 
+const subCat2AutoRef = useRef("");
+useEffect(() => {
+    if (!isNonDrug || !form.itemType) return;
+    const suggested = itemTypeSub2Map[form.itemType] || "";
+    if (suggested && (form.subCategory2 === "" || form.subCategory2 === subCat2AutoRef.current)) {
+        F("subCategory2", suggested);
+    }
+    subCat2AutoRef.current = suggested;
+}, [isNonDrug, form.itemType, itemTypeSub2Map]);
     // 🆕 قائمة البراندات المستخدمة سابقًا (للأصناف الغير دوائية فقط) عشان الـ autocomplete
     const knownBrands = useMemo(() => {
         const set = new Set();
@@ -199,6 +243,17 @@ export function ProductFormModal({
                     try { await window.offlineAPI?.refreshItemTypesCache?.({ pharmacyId, rows: data }); } catch (err) { console.error("refreshItemTypesCache failed:", err); }
                 }
             }
+            try {
+            const cachedSub2 = await window.offlineAPI?.getSubCategories2Cache?.(pharmacyId);
+            if (cachedSub2 && cachedSub2.length > 0) setSubCategories2(cachedSub2);
+        } catch (err) { console.error("getSubCategories2Cache failed:", err); }
+        if (navigator.onLine) {
+            const { data: sub2Data, error: sub2Err } = await supabase.from("sub_categories2").select("*").eq("pharmacy_id", pharmacyId).order("name_ar");
+            if (!sub2Err && sub2Data) {
+                setSubCategories2(sub2Data);
+                try { await window.offlineAPI?.refreshSubCategories2Cache?.({ pharmacyId, rows: sub2Data }); } catch (err) { console.error("refreshSubCategories2Cache failed:", err); }
+            }
+        }
         })();
     }, [pharmacyId]);
 
@@ -242,6 +297,25 @@ export function ProductFormModal({
         F("itemType", trimmed);
         showToast(result.synced ? "تمت إضافة النوع ✓" : "تمت إضافة النوع محليًا — هتتزامن لما يرجع النت ✓");
     };
+     const handleSubCat2Change = (v) => {
+    if (v !== ADD_NEW_SUB2) { F("subCategory2", v); return; }
+    setSubCat2PromptValue(""); setSubCat2PromptValueEn("");
+    setShowSubCat2Prompt(true);
+};
+
+const confirmAddSubCat2 = async () => {
+    const trimmed = subCat2PromptValue.trim();
+    if (!trimmed) return;
+    const trimmedEn = subCat2PromptValueEn.trim();
+    setShowSubCat2Prompt(false);
+    const existing = subCategories2.find((s) => s.name_ar === trimmed && s.main_category === form.mainCategory);
+    if (existing) { F("subCategory2", trimmed); return; }
+    const result = await addSubCategory2(trimmed, form.mainCategory, pharmacyId, trimmedEn || undefined);
+    const newSub2 = { id: result.id, main_category: form.mainCategory, name_ar: trimmed, name_en: trimmedEn || null, pharmacy_id: pharmacyId };
+    setSubCategories2((prev) => [...prev, newSub2].sort((a, b) => a.name_ar.localeCompare(b.name_ar, "ar")));
+    F("subCategory2", trimmed);
+    showToast(result.synced ? "تمت الإضافة ✓" : "تمت الإضافة محليًا — هتتزامن لما يرجع النت ✓");
+};
 
     // ── تحميل بيانات الفورم كل ما تتفتح النافذة (إضافة أو تعديل) ──
     useEffect(() => {
@@ -270,6 +344,7 @@ export function ProductFormModal({
                 notAvailableMarket: p.not_available_market ?? false,
                 shortageReportUrl: p.shortage_report_url || "",
                 brandName: p.brand_name || "",
+                brandNameEn: p.brand_name_en || "",
                 itemType: p.item_type || "",
                 sizeValue: p.size_value != null ? String(p.size_value) : "",
                 sizeUnit: p.size_unit || "مل",
@@ -416,6 +491,7 @@ export function ProductFormModal({
             id: form.id,
             name: form.nameAr, name_ar: form.nameAr, name_en: form.nameEn,
             barcode: form.gtin.trim(),
+            stock: editingId ? undefined : 0,
             category: form.mainCategory, main_category: form.mainCategory,
             sub_category1: form.subCategory1, sub_category2: form.subCategory2,
             package_type: form.packageType || null,
@@ -433,6 +509,7 @@ export function ProductFormModal({
             shortage_report_url: form.shortageReportUrl || null,
             // 🆕 حقول التسمية الموحّدة — بتتسجل بس للأصناف الغير دوائية، وبتفضل فاضية للدواء
             brand_name: isNonDrug ? (form.brandName || null) : null,
+            brand_name_en: isNonDrug ? (form.brandNameEn || null) : null,
             item_type: isNonDrug ? (form.itemType || null) : null,
             size_value: isNonDrug && form.sizeValue ? +form.sizeValue : null,
             size_unit: isNonDrug ? (form.sizeUnit || null) : null,
@@ -554,10 +631,23 @@ export function ProductFormModal({
                                     {knownBrands.map((b) => <option key={b} value={b} />)}
                                 </datalist>
                             </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>البراند بالإنجليزي {!brandEnMap[form.brandName?.trim()] && "*"}</div>
+                            <input
+                             value={form.brandNameEn}
+                               onChange={(e) => F("brandNameEn", e.target.value)}
+                               placeholder="Nivea"
+                               dir="ltr" lang="en"
+                               style={inputStyle}
+                                      />
+                                   </div>
                             {/* 🆕 النوع بقى ديناميكي: مصدره جدول item_types بدل NON_DRUG_TYPES الثابتة —
                 آخر خيار في القايمة بيفتح إضافة نوع جديد (أوفلاين-فيرست، زي إضافة الصنف نفسه) */}
-                            <Select label="النوع *" value={form.itemType} onChange={handleItemTypeChange}
-                                options={["", ...itemTypes.map((t) => t.name_ar), ADD_NEW_TYPE]} />
+                            <div>
+                                <Select label="النوع *" value={form.itemType} onChange={handleItemTypeChange}
+                                    options={["", ...itemTypes.map((t) => t.name_ar), ADD_NEW_TYPE]} />
+                                <span onClick={() => setShowManageModal("itemType")} style={{ fontSize: 11, color: COLORS.blue, cursor: "pointer" }}>🗑 إدارة الأنواع</span>
+                            </div>
                             <div style={{ display: "flex", gap: 6 }}>
                                 <div style={{ flex: 2 }}>
                                     <Input label="الحجم/الوزن" value={form.sizeValue} onChange={(v) => F("sizeValue", v)} type="number" placeholder="400" />
@@ -583,10 +673,11 @@ export function ProductFormModal({
                 اتسجل قبل كده بالإنجليزي لصنف تاني بنفس البراند) — تقدر تعدّله يدويًا في أي وقت */}
                             <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Nivea Cream 400ml" dir="ltr" lang="en" />
                             {!brandEn && form.brandName && (
-                                <div style={{ gridColumn: "1 / -1", fontSize: 11, color: COLORS.gold, marginTop: -6 }}>
-                                    💡 أول مرة تستخدم براند "{form.brandName}" — اكتب اسمه بالإنجليزي هنا مرة واحدة، وبعد كده هيتملي لوحده تلقائيًا لأي صنف جديد بنفس البراند.
-                                </div>
-                            )}
+    <div style={{ gridColumn: "1 / -1", fontSize: 11, color: COLORS.gold, marginTop: -6 }}>
+        💡 أول مرة تستخدم براند "{form.brandName}" — اكتب اسمه بالإنجليزي في خانة "البراند بالإنجليزي"، وبعد كده هيتملي لوحده تلقائيًا لأي صنف جديد بنفس البراند.
+    </div>
+)}
+                            
                             {/* 🆕 مرادفات/كلمات بحث إضافية — اختياري، بيتخزن جنبًا ومش بيأثر على شكل الاسم المعروض */}
                             <div style={{ gridColumn: "1 / -1" }}>
                                 <Input
@@ -677,7 +768,24 @@ export function ProductFormModal({
                     <Select label="الفئة الرئيسية" value={form.mainCategory} onChange={handleMainCategoryChange} options={Object.keys(MAIN_CATEGORIES)} />
                     <Select label="فئة التوريد" value={form.supply_category} onChange={(v) => F("supply_category", v)} options={["", ...SUPPLY_CATEGORIES]} />
                     {currentCat.sub1.length > 0 && <Select label="المصدر" value={form.subCategory1} onChange={(v) => F("subCategory1", v)} options={currentCat.sub1} />}
-                    {currentCat.sub2.length > 0 && <Select label="الشكل الصيدلاني" value={form.subCategory2} onChange={(v) => F("subCategory2", v)} options={currentCat.sub2} />}
+                    {(() => {
+    const sub2Options = subCategories2.filter((s) => s.main_category === form.mainCategory).map((s) => s.name_ar);
+    const hasSub2 = isNonDrug ? sub2Options.length > 0 : currentCat.sub2.length > 0;
+    if (!hasSub2) return null;
+    const options = isNonDrug
+        ? ["", ...sub2Options, ADD_NEW_SUB2]
+        : currentCat.sub2; // 🆕 الدواء يفضل زي ما هو — مش مربوط بالجدول الديناميكي
+    return (
+        <div>
+            <Select label="الشكل الصيدلاني" value={form.subCategory2}
+                onChange={isNonDrug ? handleSubCat2Change : (v) => F("subCategory2", v)}
+                options={options} />
+            {isNonDrug && (
+                <span onClick={() => setShowManageModal("subCat2")} style={{ fontSize: 11, color: COLORS.blue, cursor: "pointer" }}>🗑 إدارة الأشكال</span>
+            )}
+        </div>
+    );
+})()}
 
                     {/* ── الشركة المنتجة ── */}
                     <div style={{ gridColumn: "1 / -1" }}>
@@ -926,7 +1034,38 @@ export function ProductFormModal({
                     </div>
                 </div>
             </Modal>
-
+            <Modal open={showSubCat2Prompt} onClose={() => setShowSubCat2Prompt(false)} title="➕ إضافة شكل صيدلاني جديد" zIndex={1200}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Input value={subCat2PromptValue} onChange={(v) => setSubCat2PromptValue(v)} placeholder="اسم الشكل بالعربي (مثال: عناية بالفم)" autoFocus onKeyDown={(e) => e.key === "Enter" && confirmAddSubCat2()} />
+        <Input value={subCat2PromptValueEn} onChange={(v) => setSubCat2PromptValueEn(v)} placeholder="الاسم بالإنجليزي (اختياري)" onKeyDown={(e) => e.key === "Enter" && confirmAddSubCat2()} />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowSubCat2Prompt(false)}>إلغاء</Btn>
+            <Btn icon="check" onClick={confirmAddSubCat2}>إضافة</Btn>
+        </div>
+    </div>
+</Modal>
+             <Modal open={!!showManageModal} onClose={() => setShowManageModal(null)} title={showManageModal === "itemType" ? "🗑 إدارة الأنواع" : "🗑 إدارة الأشكال الصيدلانية"} zIndex={1200}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+        {(showManageModal === "itemType" ? itemTypes : subCategories2.filter((s) => s.main_category === form.mainCategory)).map((item) => {
+            const inUse = products.some((p) => showManageModal === "itemType" ? p.item_type === item.name_ar : p.sub_category2 === item.name_ar);
+            return (
+                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <span>{item.name_ar}{inUse && <span style={{ color: COLORS.gold, fontSize: 11 }}> (مستخدم في أصناف حالية)</span>}</span>
+                    <Btn size="sm" variant="danger" onClick={async () => {
+                        if (inUse && !window.confirm(`"${item.name_ar}" مستخدم في أصناف حالية بالفعل. متأكد تحذفه من القائمة؟ (الأصناف الموجودة مش هتتأثر)`)) return;
+                        if (showManageModal === "itemType") {
+                            await deleteItemType(item.id, pharmacyId);
+                            setItemTypes((prev) => prev.filter((x) => x.id !== item.id));
+                        } else {
+                            await deleteSubCategory2(item.id, pharmacyId);
+                            setSubCategories2((prev) => prev.filter((x) => x.id !== item.id));
+                        }
+                    }}>حذف</Btn>
+                </div>
+            );
+        })}
+    </div>
+</Modal>  
             {/* 🆕 modal إضافة شركة منتجة سريعة — نفس السبب، بديل عن window.prompt() */}
             <Modal open={showMfrPrompt} onClose={() => setShowMfrPrompt(false)} title="🏭 إضافة شركة منتجة جديدة" zIndex={1200}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
