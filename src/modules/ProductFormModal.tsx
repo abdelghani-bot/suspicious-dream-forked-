@@ -35,6 +35,7 @@ export function ProductFormModal({
     prefillName = "",    // 🆕 اسم مبدئي يتحط في الفورم (مثلاً من صف فاتورة مورد لسه محتاج يتربط بصنف)
     jokerPendingItems = [],       // 🆕 أصناف الجوكر المعلقة — لاقتراح ربطها بالصنف الجديد
     setJokerPendingItems = () => { },
+    suppliers = [],       // 🆕 لازم لعرض قائمة الموردين المرشحين لفئة التوريد بتاعة الصنف
 }) {
     const [manufacturers, setManufacturers] = useState([]);
     const [itemTypes, setItemTypes] = useState([]); // 🆕 أنواع الأصناف الغير دوائية — ديناميكية بدل hardcoded
@@ -64,6 +65,9 @@ export function ProductFormModal({
         minStock: "", maxStock: "",
         isEssential: false, isChronic: false,
         supply_category: "",
+        // 🆕 موردين محددين مربوطين بالصنف صراحة (اختياري) — فاضية يعني "أي مورد في نفس الفئة"،
+        // مفيدة لصنف بيوره مورد واحد بعينه رغم إن الفئة عندها موردين تانيين
+        linkedSupplierIds: [],
         manufacturer_id: "",
         notAvailableMarket: false,
         shortageReportUrl: "",
@@ -340,6 +344,7 @@ const confirmAddSubCat2 = async () => {
                 isEssential: p.is_essential ?? p.isEssential ?? false,
                 isChronic: p.is_chronic ?? false,
                 supply_category: p.supply_category || "",
+                linkedSupplierIds: p.linked_supplier_ids || [],
                 manufacturer_id: p.manufacturer_id || "",
                 notAvailableMarket: p.not_available_market ?? false,
                 shortageReportUrl: p.shortage_report_url || "",
@@ -504,6 +509,7 @@ const confirmAddSubCat2 = async () => {
             concentration: selectedIngredients[0]?.concentration || "",
             is_essential: form.isEssential, is_chronic: form.isChronic,
             supply_category: form.supply_category,
+            linked_supplier_ids: form.linkedSupplierIds || [],
             manufacturer_id: form.manufacturer_id || null,
             not_available_market: form.notAvailableMarket,
             shortage_report_url: form.shortageReportUrl || null,
@@ -536,7 +542,7 @@ const confirmAddSubCat2 = async () => {
                 packageType: p.package_type || x.packageType || "",
             } : x)));
             if (oldProduct) {
-                const trackedFields = ["name", "price", "cost", "barcode", "category", "mainCategory", "supplier_id", "is_essential", "is_chronic", "not_available_market"];
+                const trackedFields = ["name", "price", "cost", "barcode", "category", "mainCategory", "supplier_id", "is_essential", "is_chronic", "not_available_market", "linked_supplier_ids"];
                 const oldSnap: any = {}; const newSnap: any = {};
                 trackedFields.forEach((k) => {
                     const ov = (oldProduct as any)[k]; const nv = (p as any)[k];
@@ -767,6 +773,33 @@ const confirmAddSubCat2 = async () => {
 
                     <Select label="الفئة الرئيسية" value={form.mainCategory} onChange={handleMainCategoryChange} options={Object.keys(MAIN_CATEGORIES)} />
                     <Select label="فئة التوريد" value={form.supply_category} onChange={(v) => F("supply_category", v)} options={["", ...SUPPLY_CATEGORIES]} />
+                    {/* 🆕 ربط الصنف بمورد/موردين محددين من داخل موردين نفس الفئة — مفيد لو فيه أكتر من مورد
+                        لنفس الفئة بس بعضهم بيورد شركات/منتجات معينة بس (مثلاً كوزمتك طبي) */}
+                    {form.supply_category && (() => {
+                        const categorySuppliers = suppliers.filter((s) => (s.supply_categories || []).includes(form.supply_category));
+                        if (categorySuppliers.length === 0) return null;
+                        return (
+                            <div style={{ gridColumn: "1 / -1" }}>
+                                <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>
+                                    الموردين المرتبطين بالصنف (اختياري — سيبها فاضية لو أي مورد في الفئة يقدر يوردّه)
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                    {categorySuppliers.map((s) => {
+                                        const selected = (form.linkedSupplierIds || []).includes(s.id);
+                                        return (
+                                            <button key={s.id} type="button" onClick={() => {
+                                                const current = form.linkedSupplierIds || [];
+                                                F("linkedSupplierIds", selected ? current.filter((id) => id !== s.id) : [...current, s.id]);
+                                            }}
+                                                style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: selected ? COLORS.blue : COLORS.border, background: selected ? COLORS.blueSoft : "transparent", color: selected ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: "pointer", fontWeight: selected ? 700 : 400 }}>
+                                                {selected ? "✓ " : ""}{s.name}{s.supplier_type === "متخصص" ? " (متخصص)" : ""}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })()}
                     {currentCat.sub1.length > 0 && <Select label="المصدر" value={form.subCategory1} onChange={(v) => F("subCategory1", v)} options={currentCat.sub1} />}
                     {(() => {
     const sub2Options = subCategories2.filter((s) => s.main_category === form.mainCategory).map((s) => s.name_ar);

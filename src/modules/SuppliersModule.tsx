@@ -81,6 +81,9 @@ export function SuppliersModule({
     opening_balance_details: [], // [{id, invoice_no, amount, due_days, note}]
     supply_categories: [],
     gln: "", // 🆕 رقم GLN الخاص بالمورد في نظام رصد — لازم عشان إشعارات مرتجع المشتريات (TOGLN)
+    // 🆕 "عام": بيورد أي صنف من فئاته بشكل عام. "متخصص": بيورد بس الأصناف المربوطة بيه صراحة
+    // (product.linked_supplier_ids) حتى لو باقي أصناف نفس الفئة مش متاحة عنده فعليًا.
+    supplier_type: "عام",
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -605,7 +608,13 @@ export function SuppliersModule({
       if (!belowMin) return false;
       if (supplierCategories.length === 0) return true;
       const productCategory = p.supply_category || "";
-      if (productCategory && supplierCategories.includes(productCategory)) return true;
+      if (productCategory && supplierCategories.includes(productCategory)) {
+        // 🆕 الصنف مربوط صراحة بموردين محددين — لازم المورد الحالي يكون من ضمنهم
+        const linkedSuppliers = p.linked_supplier_ids || [];
+        if (linkedSuppliers.length > 0) return linkedSuppliers.includes(targetSupplier.id);
+        // مفيش ربط صريح — مورد "متخصص" محتاج ربط صريح عشان يشوف أي صنف، أما "عام" فيشوفه زي العادة
+        return targetSupplier.supplier_type !== "متخصص";
+      }
       if (!productCategory) {
         const lastPurchase = purchases
           .filter((pu) => pu.items?.some((i) => i.id === p.id))
@@ -902,6 +911,7 @@ export function SuppliersModule({
       opening_balance_details: s.opening_balance_details || [],
       supply_categories: s.supply_categories || [],
       gln: s.gln || "",
+      supplier_type: s.supplier_type || "عام",
     });
     setShowForm(true);
   };
@@ -921,6 +931,7 @@ export function SuppliersModule({
             opening_balance: openingBal,
             opening_balance_details: form.opening_balance_details || [],
             gln: form.gln || null,
+            supplier_type: form.supplier_type || "عام",
         };
 
         if (editing) {
@@ -1746,7 +1757,9 @@ export function SuppliersModule({
               <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>لا توجد أصناف جوكر معلّقة 🎉</div>
             ) : (
               jokerPendingGroups.map((group) => {
-                const matchingSuppliers = suppliers.filter((s) => !group.category || (s.supply_categories || []).length === 0 || (s.supply_categories || []).includes(group.category));
+                // 🆕 أصناف الجوكر لسه مالهاش صنف حقيقي (وبالتالي مفيش linked_supplier_ids)، فمينفعش نتأكد
+                // إن مورد "متخصص" فعلاً بيورد الصنف ده — بنسيبه في "موردين آخرين" بدل الاقتراح المباشر
+                const matchingSuppliers = suppliers.filter((s) => s.supplier_type !== "متخصص" && (!group.category || (s.supply_categories || []).length === 0 || (s.supply_categories || []).includes(group.category)));
                 const otherSuppliers = suppliers.filter((s) => !matchingSuppliers.some((m) => m.id === s.id));
                 return (
                   <div key={group.key} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2043,6 +2056,27 @@ export function SuppliersModule({
                 );
               })}
             </div>
+          </div>
+
+          {/* 🆕 نوع المورد: عام (يشوف كل أصناف فئاته) أو متخصص (يشوف بس الأصناف المربوطة بيه صراحة من كرت الصنف) */}
+          <div>
+            <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 8 }}>نوع المورد</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["عام", "متخصص"].map((t) => {
+                const selected = (form.supplier_type || "عام") === t;
+                return (
+                  <button key={t} type="button" onClick={() => F("supplier_type", t)}
+                    style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: selected ? COLORS.blue : COLORS.border, background: selected ? COLORS.blueSoft : "transparent", color: selected ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: "pointer", fontWeight: selected ? 700 : 400 }}>
+                    {selected ? "✓ " : ""}{t}
+                  </button>
+                );
+              })}
+            </div>
+            {form.supplier_type === "متخصص" && (
+              <div style={{ fontSize: 11, color: COLORS.border, marginTop: 4 }}>
+                هيظهر له بس الأصناف اللي بتترّبط بيه صراحة من كرت الصنف، مش كل أصناف فئاته
+              </div>
+            )}
           </div>
         </div>
 

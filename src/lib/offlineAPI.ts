@@ -562,8 +562,11 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             .update(product).eq("id", product.id).eq("pharmacy_id", pharmacy_id);
         if (error) throw error;
     } else {
+        // 🆕 upsert بدل insert: لو event اتنفّذ فعلاً قبل كده (نجح على السيرفر بس الجهاز
+        // اتقطع قبل ما يتعلّم إنه اتزامن)، إعادة المحاولة كانت بتفشل بـ duplicate key (23505)
+        // وتفضل عالقة في القائمة تتكرر للأبد. upsert بيخلي إعادة المحاولة idempotent.
         const { error } = await supabase.from("products")
-            .insert({ ...product, pharmacy_id });
+            .upsert({ ...product, pharmacy_id }, { onConflict: "id" });
         if (error) throw error;
     }
     break;
@@ -678,7 +681,18 @@ export async function syncQueue() {
                 await executeEvent(event);
                 await window.offlineAPI.markSynced([event.id]);
             } catch (err) {
-                console.error("sync failed for event", event.id, event.type, err);
+                // 🆕 بدل ما نسيب الـ event يتكرر للأبد كل 30 ثانية، بنسجّل الفشل في SQLite
+                // (sync_attempts محفوظة، مش بتتصفّر لو التطبيق اتقفل). لو عدّى الحد الأقصى
+                // (5 محاولات)، main.cjs بيعلّمه dead-letter تلقائيًا فمش هيرجع في getPendingEvents تاني
+                const { attempts, deadLettered } = await window.offlineAPI.recordSyncFailure({
+                    id: event.id,
+                    error: err?.message || String(err),
+                });
+                if (deadLettered) {
+                    console.error(`event ${event.id} ${event.type} تجاوز الحد الأقصى للمحاولات (${attempts}) — تم إيقافه، يحتاج مراجعة يدوية`, err);
+                } else {
+                    console.error(`sync failed for event ${event.id} ${event.type} (محاولة ${attempts}/5)`, err);
+                }
             }
         }
     } finally {

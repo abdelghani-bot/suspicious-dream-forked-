@@ -148,6 +148,8 @@ export function PromotionsModule({
     // وضع الإضافة: صنف واحد أو منتجات شركة كاملة
     const [promoMode, setPromoMode] = useState("single"); // single | company
     const [companyProductIds, setCompanyProductIds] = useState<string[]>([]); // المنتجات المحددة من الشركة
+    const [selectedBrand, setSelectedBrand] = useState("");
+    const [brandProductIds, setBrandProductIds] = useState/** @type {string[]} */([]);
 
     // ── سجل الطباعة — عشان تقدر تعيد طباعة أي عرض (تلقائي أو يدوي) لاحقًا ──
     const [printHistory, setPrintHistory] = useState<any[]>([]);
@@ -297,6 +299,7 @@ const productFirstStocked = useMemo(() => {
         }
         if (promoMode === "single" && !promoForm.product_id) return "اختر الصنف";
         if (promoMode === "company" && companyProductIds.length === 0) return "اختر منتج واحد على الأقل من منتجات الشركة";
+        if (promoMode === "brand" && brandProductIds.length === 0) return "اختر منتج واحد على الأقل من هذا البراند";
         return null;
     };
 
@@ -347,7 +350,10 @@ const productFirstStocked = useMemo(() => {
 
         // منتج واحد أو مجموعة منتجات شركة — نبني سطر لكل منتج، مع id مولّد من العميل
         // (زي customers/sales) عشان الكاش المحلي يقدر يتخزن فورًا حتى لو أوفلاين
-        const productIds = promoMode === "company" ? companyProductIds : [promoForm.product_id];
+        const productIds =
+  promoMode === "company" ? companyProductIds :
+  promoMode === "brand" ? brandProductIds :
+  [promoForm.product_id];
         const rows = productIds.map((pid) => ({ ...baseRow, id: crypto.randomUUID(), product_id: pid }));
 
         await savePromotions(rows, pharmacyId);
@@ -355,6 +361,8 @@ const productFirstStocked = useMemo(() => {
         setPromoForm(blankPromo);
         setPromoMode("single");
         setCompanyProductIds([]);
+        setBrandProductIds([]);
+        setSelectedBrand("");
         setShowPromoForm(false);
         showToast(`تم إضافة ${rows.length > 1 ? rows.length + " عروض" : "العرض"} ✓`);
 
@@ -469,10 +477,17 @@ const productFirstStocked = useMemo(() => {
         const getQty = +edit.getQty || 0;
         if (buyQty <= 0 || getQty <= 0) { showToast("يرجى تحديد الكمية المطلوبة والمجانية", "error"); return; }
         if (!edit.endDate) { showToast("يرجى تحديد تاريخ نهاية العرض", "error"); return; }
+        // 🆕 زي buildPromoDetails بالظبط: الحقول الرقمية الغير مستخدمة في نمط bogo لازم تتسجل 0
+        // (مش "") والنصية null، وإلا Supabase بيرفضها بـ "invalid input syntax for type numeric"
+        const details = {};
+        Object.keys(blankPromoDetails).forEach((key) => {
+            if (key === "buy_qty" || key === "get_qty" || key === "get_discount_percent") return; // بتتحدد تحت
+            details[key] = typeof blankPromoDetails[key] === "number" ? 0 : null;
+        });
         const row = {
             id: crypto.randomUUID(),
             promo_type: "bogo",
-            ...blankPromoDetails,
+            ...details,
             buy_qty: buyQty, get_qty: getQty, get_discount_percent: 100,
             start_date: today, end_date: edit.endDate,
             note: s.source === "bonus" ? "عرض مورد تلقائي (بونص فاتورة شراء)" : `عرض مورد — كارت مرتبط: ${s.sourceCardName || ""}`,
@@ -1313,7 +1328,7 @@ const productFirstStocked = useMemo(() => {
             </Modal>
 
             {/* Modal إضافة/تعديل عرض يدوي */}
-            <Modal open={showPromoForm} onClose={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); setPromoMode("single"); setCompanyProductIds([]); }} title={editPromoId ? "✏️ تعديل عرض يدوي" : "➕ إضافة عرض يدوي"}>
+            <Modal open={showPromoForm} onClose={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); setPromoMode("single"); setCompanyProductIds([]); setBrandProductIds([]); setSelectedBrand(""); }} title={editPromoId ? "✏️ تعديل عرض يدوي" : "➕ إضافة عرض يدوي"}>
 
                 {/* نمط العرض */}
                 <div style={{ marginBottom: 12 }}>
@@ -1330,8 +1345,8 @@ const productFirstStocked = useMemo(() => {
                 {/* اختيار: صنف واحد أو منتجات شركة كاملة */}
                 {!editPromoId && (
                     <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                        {[{ id: "single", label: "🔹 صنف واحد" }, { id: "company", label: "🏭 منتجات شركة" }].map((m) => (
-                            <button key={m.id} onClick={() => { setPromoMode(m.id); setCompanyProductIds([]); }}
+                        {[{ id: "single", label: "🔹 صنف واحد" }, { id: "company", label: "🏭 منتجات شركة" }, { id: "brand", label: "🏷️ منتجات براند" }].map((m) => (
+                            <button key={m.id} onClick={() => { setPromoMode(m.id); setCompanyProductIds([]); setBrandProductIds([]); setSelectedBrand(""); }}
                                 style={{
                                     flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700,
                                     background: promoMode === m.id ? COLORS.blueSoft : COLORS.surfaceAlt,
@@ -1344,128 +1359,188 @@ const productFirstStocked = useMemo(() => {
                     </div>
                 )}
 
-                {promoMode === "single" || editPromoId ? (
-                    <div style={{ marginBottom: 12 }}>
-                        <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
-                        <input
-                            type="text"
-                            placeholder="ابحث باسم الصنف..."
-                            value={productPickerSearch}
-                            onChange={(e) => setProductPickerSearch(e.target.value)}
-                            style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", marginBottom: 6, boxSizing: "border-box" }}
-                        />
-                        <select value={promoForm.product_id}
-                            onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
-                            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
-                            <option value="">-- اختر صنفاً --</option>
-                            {products
-                                .filter((p) => !productPickerSearch || (p.name_ar || p.name || p.nameAr || "").includes(productPickerSearch))
-                                .map((p) => (
-                                    <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
-                                ))}
-                        </select>
-                    </div>
-                ) : (
-                    <div style={{ marginBottom: 12 }}>
-                        <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الشركة المصنّعة</label>
-                        <select value={promoForm.manufacturer_id}
-                            onChange={(e) => { setPromoForm((p) => ({ ...p, manufacturer_id: e.target.value })); setCompanyProductIds([]); }}
-                            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", marginBottom: 10 }}>
-                            <option value="">-- اختر شركة --</option>
-                            {manufacturers.map((m) => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                        </select>
+               {(promoMode === "single" || editPromoId) && (
+    <div style={{ marginBottom: 12 }}>
+        <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الصنف</label>
+        <input
+            type="text"
+            placeholder="ابحث باسم الصنف..."
+            value={productPickerSearch}
+            onChange={(e) => setProductPickerSearch(e.target.value)}
+            style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", marginBottom: 6, boxSizing: "border-box" }}
+        />
+        <select value={promoForm.product_id}
+            onChange={(e) => setPromoForm((p) => ({ ...p, product_id: e.target.value }))}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+            <option value="">-- اختر صنفاً --</option>
+            {products
+                .filter((p) => !productPickerSearch || (p.name_ar || p.name || p.nameAr || "").includes(productPickerSearch))
+                .map((p) => (
+                    <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
+                ))}
+        </select>
+    </div>
+)}
 
-                        {promoForm.manufacturer_id && (() => {
-                            const companyProducts = products.filter((p) => p.manufacturer_id === promoForm.manufacturer_id);
-                            if (companyProducts.length === 0) {
-                                return <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "center", padding: 10 }}>لا توجد منتجات مسجلة لهذه الشركة</div>;
-                            }
-                            const allSelected = companyProductIds.length === companyProducts.length;
-                            return (
-                                <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, maxHeight: 220, overflowY: "auto" }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                                        <span style={{ color: COLORS.textDim, fontSize: 12 }}>{companyProductIds.length} من {companyProducts.length} منتج محدد</span>
-                                        <button onClick={() => setCompanyProductIds(allSelected ? [] : companyProducts.map((p) => p.id))}
-                                            style={{ background: "transparent", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
-                                            {allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
-                                        </button>
-                                    </div>
-                                    {companyProducts.map((p) => {
-                                        const checked = companyProductIds.includes(p.id);
-                                        return (
-                                            <div key={p.id} onClick={() => setCompanyProductIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id])}
-                                                style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: checked ? COLORS.blueSoft : "transparent" }}>
-                                                <input type="checkbox" checked={checked} readOnly style={{ pointerEvents: "none" }} />
-                                                <span style={{ fontSize: 12, color: COLORS.textPrimary, flex: 1 }}>{p.name || p.nameAr}</span>
-                                                <span style={{ fontSize: 11, color: COLORS.textDim }}>{p.price} ر.س</span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            );
-                        })()}
-                    </div>
-                )}
+{promoMode === "company" && !editPromoId && (
+    <div style={{ marginBottom: 12 }}>
+        <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>الشركة المصنّعة</label>
+        <select value={promoForm.manufacturer_id}
+            onChange={(e) => { setPromoForm((p) => ({ ...p, manufacturer_id: e.target.value })); setCompanyProductIds([]); }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", marginBottom: 10 }}>
+            <option value="">-- اختر شركة --</option>
+            {manufacturers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+        </select>
 
-                {/* حقول خاصة بنمط العرض المختار */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    {getPromoTypeConfig(promoForm.promo_type).fields.map((f) => (
-                        f.type === "product_select" ? (
-                            <div key={f.key} style={{ gridColumn: "1/-1" }}>
-                                <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>{f.label}</label>
-                                <select value={promoForm[f.key]}
-                                    onChange={(e) => setPromoForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                                    style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
-                                    <option value="">-- اختر صنف الهدية --</option>
-                                    {products.map((p) => (
-                                        <option key={p.id} value={p.id}>{p.name || p.nameAr}</option>
-                                    ))}
-                                </select>
+        {promoForm.manufacturer_id && (() => {
+            const companyProducts = products.filter((p) => p.manufacturer_id === promoForm.manufacturer_id);
+            if (companyProducts.length === 0) {
+                return <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "center", padding: 10 }}>لا توجد منتجات مسجلة لهذه الشركة</div>;
+            }
+            const allSelected = companyProductIds.length === companyProducts.length;
+            return (
+                <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, maxHeight: 220, overflowY: "auto" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ color: COLORS.textDim, fontSize: 12 }}>{companyProductIds.length} من {companyProducts.length} منتج محدد</span>
+                        <button onClick={() => setCompanyProductIds(allSelected ? [] : companyProducts.map((p) => p.id))}
+                            style={{ background: "transparent", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
+                            {allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                        </button>
+                    </div>
+                    {companyProducts.map((p) => {
+                        const checked = companyProductIds.includes(p.id);
+                        return (
+                            <div key={p.id} onClick={() => setCompanyProductIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id])}
+                                style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: checked ? COLORS.blueSoft : "transparent" }}>
+                                <input type="checkbox" checked={checked} readOnly style={{ pointerEvents: "none" }} />
+                                <span style={{ fontSize: 12, color: COLORS.textPrimary, flex: 1 }}>{p.name || p.nameAr}</span>
+                                <span style={{ fontSize: 11, color: COLORS.textDim }}>{p.price} ر.س</span>
                             </div>
-                        ) : (
-                            <Input key={f.key} label={f.label} value={promoForm[f.key]} onChange={(v) => setPromoForm((p) => ({ ...p, [f.key]: v }))} type={f.type} placeholder={f.placeholder} />
-                        )
+                        );
+                    })}
+                </div>
+            );
+        })()}
+    </div>
+)}
+
+{promoMode === "brand" && !editPromoId && (
+    <div style={{ marginBottom: 12 }}>
+        <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>البراند</label>
+        <select value={selectedBrand}
+            onChange={(e) => { setSelectedBrand(e.target.value); setBrandProductIds([]); }}
+            style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", marginBottom: 10 }}>
+            <option value="">-- اختر براند --</option>
+            {(() => {
+                const brandMap = new Map();
+                products.forEach((p) => {
+                    if (!p.brand_name) return;
+                    if (!brandMap.has(p.brand_name)) brandMap.set(p.brand_name, p.brand_name_en || "");
+                });
+                return [...brandMap.entries()]
+                    .sort((a, b) => a[0].localeCompare(b[0], "ar"))
+                    .map(([ar, en]) => (
+                        <option key={ar} value={ar}>{ar}{en ? ` (${en})` : ""}</option>
+                    ));
+            })()}
+        </select>
+
+        {selectedBrand && (() => {
+            const brandProducts = products.filter((p) => p.brand_name === selectedBrand);
+            if (brandProducts.length === 0) {
+                return <div style={{ color: COLORS.textDim, fontSize: 12, textAlign: "center", padding: 10 }}>لا توجد أصناف مسجلة لهذا البراند</div>;
+            }
+            const allSelected = brandProductIds.length === brandProducts.length;
+            return (
+                <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, maxHeight: 220, overflowY: "auto" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ color: COLORS.textDim, fontSize: 12 }}>{brandProductIds.length} من {brandProducts.length} منتج محدد</span>
+                        <button onClick={() => setBrandProductIds(allSelected ? [] : brandProducts.map((p) => p.id))}
+                            style={{ background: "transparent", border: "none", color: COLORS.blue, fontSize: 12, cursor: "pointer" }}>
+                            {allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                        </button>
+                    </div>
+                    {brandProducts.map((p) => {
+                        const checked = brandProductIds.includes(p.id);
+                        return (
+                            <div key={p.id} onClick={() => setBrandProductIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id])}
+                                style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, cursor: "pointer", background: checked ? COLORS.blueSoft : "transparent" }}>
+                                <input type="checkbox" checked={checked} readOnly style={{ pointerEvents: "none" }} />
+                                <span style={{ fontSize: 12, color: COLORS.textPrimary, flex: 1 }}>{p.name || p.nameAr}</span>
+                                <span style={{ fontSize: 11, color: COLORS.textDim }}>{p.price} ر.س</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        })()}
+    </div>
+)}
+
+{/* حقول خاصة بنمط العرض المختار */}
+<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+    {getPromoTypeConfig(promoForm.promo_type).fields.map((f) => (
+        f.type === "product_select" ? (
+            <div key={f.key} style={{ gridColumn: "1/-1" }}>
+                <label style={{ color: COLORS.border, fontSize: 12, display: "block", marginBottom: 4 }}>{f.label}</label>
+                <select value={promoForm[f.key]}
+                    onChange={(e) => setPromoForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                    style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }}>
+                    <option value="">-- اختر صنف الهدية --</option>
+                    {products.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name || p.nameAr}</option>
                     ))}
-                    <Input label="تاريخ البداية" value={promoForm.start_date} onChange={(v) => setPromoForm((p) => ({ ...p, start_date: v }))} type="date" />
-                    <Input label="تاريخ النهاية" value={promoForm.end_date} onChange={(v) => setPromoForm((p) => ({ ...p, end_date: v }))} type="date" />
-                    <div style={{ gridColumn: "1/-1" }}>
-                        <Input label="اسم/مناسبة العرض (تظهر في الطباعة)" value={promoForm.offer_name} onChange={(v) => setPromoForm((p) => ({ ...p, offer_name: v }))} placeholder="مثلاً: عروض العيد، اليوم الوطني، عرض رمضان..." />
-                    </div>
-                    <div style={{ gridColumn: "1/-1" }}>
-                        <Input label="ملاحظة" value={promoForm.note} onChange={(v) => setPromoForm((p) => ({ ...p, note: v }))} placeholder="وصف العرض..." />
-                    </div>
-                </div>
+                </select>
+            </div>
+        ) : (
+            <Input key={f.key} label={f.label} value={promoForm[f.key]} onChange={(v) => setPromoForm((p) => ({ ...p, [f.key]: v }))} type={f.type} placeholder={f.placeholder} />
+        )
+    ))}
+    <Input label="تاريخ البداية" value={promoForm.start_date} onChange={(v) => setPromoForm((p) => ({ ...p, start_date: v }))} type="date" />
+    <Input label="تاريخ النهاية" value={promoForm.end_date} onChange={(v) => setPromoForm((p) => ({ ...p, end_date: v }))} type="date" />
+    <div style={{ gridColumn: "1/-1" }}>
+        <Input label="اسم/مناسبة العرض (تظهر في الطباعة)" value={promoForm.offer_name} onChange={(v) => setPromoForm((p) => ({ ...p, offer_name: v }))} placeholder="مثلاً: عروض العيد، اليوم الوطني، عرض رمضان..." />
+    </div>
+    <div style={{ gridColumn: "1/-1" }}>
+        <Input label="ملاحظة" value={promoForm.note} onChange={(v) => setPromoForm((p) => ({ ...p, note: v }))} placeholder="وصف العرض..." />
+    </div>
+</div>
 
-                {/* معاينة السعر — لصنف واحد فقط ولو الحقول مكتملة */}
-                {promoMode === "single" && promoForm.product_id && (() => {
-                    const prod = products.find((p) => p.id === promoForm.product_id);
-                    if (!prod) return null;
-                    const desc = describePromo({ ...promoForm, discount: +promoForm.discount, fixed_amount: +promoForm.fixed_amount, buy_qty: +promoForm.buy_qty, get_qty: +promoForm.get_qty, get_discount_percent: +promoForm.get_discount_percent, qty_discount_percent: +promoForm.qty_discount_percent, bundle_qty: +promoForm.bundle_qty, bundle_price: +promoForm.bundle_price }, prod);
-                    return (
-                        <div style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 8, padding: 10, marginTop: 10 }}>
-                            <span style={{ color: COLORS.textDim, fontSize: 12 }}>{desc.label}</span>
-                            {promoForm.promo_type !== "bogo" && promoForm.promo_type !== "free_gift" && (
-                                <div style={{ marginTop: 4 }}>
-                                    <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{desc.newUnitPrice} ر.س</span>
-                                    <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })()}
-                {promoMode === "company" && companyProductIds.length > 0 && (
-                    <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: 10, marginTop: 10, color: COLORS.blue, fontSize: 12 }}>
-                        هيتم تطبيق العرض على {companyProductIds.length} منتج من هذه الشركة
-                    </div>
-                )}
-
-                <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-                    <Btn variant="ghost" onClick={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); setPromoMode("single"); setCompanyProductIds([]); }}>إلغاء</Btn>
-                    <Btn icon="check" onClick={savePromo}>{editPromoId ? "حفظ التعديل" : "إضافة العرض"}</Btn>
+{/* معاينة السعر — لصنف واحد فقط ولو الحقول مكتملة */}
+{promoMode === "single" && promoForm.product_id && (() => {
+    const prod = products.find((p) => p.id === promoForm.product_id);
+    if (!prod) return null;
+    const desc = describePromo({ ...promoForm, discount: +promoForm.discount, fixed_amount: +promoForm.fixed_amount, buy_qty: +promoForm.buy_qty, get_qty: +promoForm.get_qty, get_discount_percent: +promoForm.get_discount_percent, qty_discount_percent: +promoForm.qty_discount_percent, bundle_qty: +promoForm.bundle_qty, bundle_price: +promoForm.bundle_price }, prod);
+    return (
+        <div style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 8, padding: 10, marginTop: 10 }}>
+            <span style={{ color: COLORS.textDim, fontSize: 12 }}>{desc.label}</span>
+            {promoForm.promo_type !== "bogo" && promoForm.promo_type !== "free_gift" && (
+                <div style={{ marginTop: 4 }}>
+                    <span style={{ color: COLORS.green, fontWeight: 900, fontSize: 16 }}>{desc.newUnitPrice} ر.س</span>
+                    <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>(بدلاً من {prod.price} ر.س)</span>
                 </div>
-            </Modal>
+            )}
+        </div>
+    );
+})()}
+{promoMode === "company" && companyProductIds.length > 0 && (
+    <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: 10, marginTop: 10, color: COLORS.blue, fontSize: 12 }}>
+        هيتم تطبيق العرض على {companyProductIds.length} منتج من هذه الشركة
+    </div>
+)}
+{promoMode === "brand" && brandProductIds.length > 0 && (
+    <div style={{ background: COLORS.blueSoft, border: `1px solid ${tint(COLORS.blue, 0.35)}`, borderRadius: 8, padding: 10, marginTop: 10, color: COLORS.blue, fontSize: 12 }}>
+        هيتم تطبيق العرض على {brandProductIds.length} منتج من هذا البراند
+    </div>
+)}
+
+<div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+    <Btn variant="ghost" onClick={() => { setShowPromoForm(false); setEditPromoId(null); setPromoForm(blankPromo); setPromoMode("single"); setCompanyProductIds([]); setBrandProductIds([]); setSelectedBrand(""); }}>إلغاء</Btn>
+    <Btn icon="check" onClick={savePromo}>{editPromoId ? "حفظ التعديل" : "إضافة العرض"}</Btn>
+</div>
+</Modal>
 
             {/* 🆕 نافذة إرسال العرض (أو عدة عروض) للعملاء المستهدفين — حسب نمط الشراء + حالة/اتجاه الشراء + قوة العميل */}
             <Modal open={!!sendTarget} onClose={() => setSendTarget(null)} title={sendTarget?.items?.length > 1 ? `📤 إرسال ${sendTarget.items.length} عروض للعملاء المستهدفين` : "📤 إرسال العرض للعملاء المستهدفين"}>

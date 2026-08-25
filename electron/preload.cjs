@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     persistEvent: (evt) => ipcRenderer.invoke("offline:queueEvent", evt),
     getPendingEvents: () => ipcRenderer.invoke("offline:getPendingEvents"),
     markSynced: (ids) => ipcRenderer.invoke("offline:markSynced", ids),
+    // 🆕 تسجيل فشل مزامنة event (بيزوّد sync_attempts وبيعلّمه dead-letter لو عدّى الحد الأقصى)
+    recordSyncFailure: (payload) => ipcRenderer.invoke("offline:recordSyncFailure", payload),
+    getDeadLetterEvents: () => ipcRenderer.invoke("offline:getDeadLetterEvents"),
     cacheCredentials: (payload) => ipcRenderer.invoke("offline:cacheCredentials", payload),
     verifyOfflineLogin: (payload) => ipcRenderer.invoke("offline:verifyOfflineLogin", payload),
     // جديد

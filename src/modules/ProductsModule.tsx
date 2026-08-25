@@ -348,6 +348,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                 showToast={showToast}
                 pharmacyId={pharmacyId}
                 currentUser={currentUser}
+                suppliers={suppliers}
                 pendingManufacturer={pendingManufacturerForForm}
                 onRequestAddManufacturer={() => { setMfrModalFromProductForm(true); setShowMfrModal(true); }}
                 jokerPendingItems={jokerPendingItems}

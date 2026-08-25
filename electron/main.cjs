@@ -856,6 +856,31 @@ ipcMain.handle("offline:markSynced", (event, ids) => {
     return { success: true };
 });
 
+// 🆕 بيتسجّل كل مرة executeEvent يفشل — بيزوّد sync_attempts ويسجّل آخر خطأ.
+// لو عدّى الحد الأقصى للمحاولات، بنعلّم الـ event كـ "dead letter" (synced = 2) عشان
+// getPendingEvents (اللي بيفلتر synced = 0) يوقف يرجّعه ويبطّل يتكرر للأبد في المزامنة.
+const MAX_SYNC_ATTEMPTS = 5;
+ipcMain.handle("offline:recordSyncFailure", (_event, { id, error }) => {
+    const row = db.prepare("SELECT sync_attempts FROM pending_sync_events WHERE id = ?").get(id);
+    if (!row) return { success: false, error: "event not found" };
+    const attempts = (row.sync_attempts || 0) + 1;
+    const isDead = attempts >= MAX_SYNC_ATTEMPTS;
+    db.prepare("UPDATE pending_sync_events SET sync_attempts = ?, last_error = ?, synced = ? WHERE id = ?")
+        .run(attempts, String(error || ""), isDead ? 2 : 0, id);
+    return { success: true, attempts, deadLettered: isDead };
+});
+
+// 🆕 قائمة الأحداث اللي استنفدت محاولاتها ومحتاجة مراجعة يدوية (لشاشة إدارية مثلاً)
+ipcMain.handle("offline:getDeadLetterEvents", () => {
+    const rows = db.prepare("SELECT * FROM pending_sync_events WHERE synced = 2").all();
+    return rows.map((r) => ({
+        ...r,
+        type: r.event_type,
+        timestamp: r.created_at,
+        payload: JSON.parse(r.payload)
+    }));
+});
+
 // ==================== كاش الشفتات محلياً (shifts_cache) ====================
 // بتتنادى بالتوازي مع offline:queueEvent وقت فتح/إغلاق الشفت — نفس نمط sales_cache تماماً.
 ipcMain.handle("offline:upsertShiftCache", (_event, shift) => {
