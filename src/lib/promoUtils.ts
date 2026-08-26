@@ -239,6 +239,9 @@ export function getEffectivePrice(product, promos, discountRules, productEarlies
     const firstStockedAt = (productFirstStocked || {})[product.id] || null;
     const auto = computeAutoPromoForProduct(product, discountRules, expiry, sales, autoPromoConfig, firstStockedAt);
     if (auto) {
+      // 🆕 الخصم التلقائي بيتحسب دايمًا (لعرضه في تبويب "محتاج اعتماد")، لكن ميتطبقش فعليًا في السعر
+   // إلا لو الصنف اتاعتمد صراحة — وبيفضل يتابع نفس السلسلة تلقائيًا (زيادة/نقصان النسبة) لحد ما حد يوقفه
+   if (auto && (autoPromoConfig.approvedProductIds || []).includes(product.id)) {
       return {
         price: +(product.price * (1 - auto.autoDiscount / 100)).toFixed(2),
         discountPct: auto.autoDiscount,
@@ -247,6 +250,7 @@ export function getEffectivePrice(product, promos, discountRules, productEarlies
         autoReasonStagnant: auto.reasonStagnant,
       };
     }
+  }
   } else {
     // ── توافقية للخلف: لو الطلب مبعتش autoPromoConfig، نرجع لمنطق الصلاحية القديم بس ──
     const cat = product.main_category || product.category || "";
@@ -382,4 +386,7 @@ export const DEFAULT_AUTO_PROMO_CONFIG = {
   stagnantNoSaleDays: 45,        // مفيش بيع من كام يوم يعتبر الصنف راكد
   stagnantVelocityWindowDays: 90, // نافذة حساب معدل البيع الحالي لتوقع "هيخلص قبل الانتهاء ولا لأ"
   stagnantDiscountPercent: 15,    // نسبة الخصم الثابتة للراكد
-};
+approvedProductIds: [],
+}
+
+

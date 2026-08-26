@@ -163,7 +163,19 @@ export function PromotionsModule({
     const saveAutoConfig = async (newConfig) => {
         await savePromoSettings({ auto_config: newConfig, updated_at: new Date().toISOString() }, pharmacyId);
     };
+     const approveAutoPromo = (productId) => {
+    const updated = { ...autoPromoConfig, approvedProductIds: [...(autoPromoConfig.approvedProductIds || []), productId] };
+    setAutoPromoConfig(updated);
+    saveAutoConfig(updated);
+    showToast("تم اعتماد العرض ✓");
+};
 
+const stopAutoPromo = (productId) => {
+    const updated = { ...autoPromoConfig, approvedProductIds: (autoPromoConfig.approvedProductIds || []).filter((id) => id !== productId) };
+    setAutoPromoConfig(updated);
+    saveAutoConfig(updated);
+    showToast("تم إيقاف العرض");
+};
     // تحميل البيانات
     useEffect(() => {
         if (!pharmacyId) return;
@@ -404,7 +416,8 @@ const productFirstStocked = useMemo(() => {
     const filteredAutoPromos = autoPromoProducts.filter((p) =>
         !promoSearch || (p.name || p.nameAr || "").includes(promoSearch)
     );
-
+    const pendingAutoPromos = filteredAutoPromos.filter((p) => !(autoPromoConfig.approvedProductIds || []).includes(p.id));
+    const approvedAutoPromos = filteredAutoPromos.filter((p) => (autoPromoConfig.approvedProductIds || []).includes(p.id));
     // ═══════════════════════════════════════════════════
     // 🆕 اقتراحات عروض من المورد — مصدرين مختلفين:
     // 1) bonusQty على نفس كارت الصنف (فاتورة شراء فيها كمية مجانية مسجّلة عادي)
@@ -447,6 +460,12 @@ const productFirstStocked = useMemo(() => {
                 buyQty: pattern.buyQty || "", getQty: pattern.getQty || "",
             });
         });
+         // مصدر 3: أصناف اتسجلت كـ"عرض مستقل" صراحة من فاتورة الشراء
+products.forEach((p) => {
+    if (!p.is_standalone_offer || seenProductIds.has(p.id) || hasActivePromoFor(p.id)) return;
+    seenProductIds.add(p.id);
+    list.push({ key: "standalone_" + p.id, product: p, source: "standalone", confidence: "high" });
+});
 
         return list;
     }, [purchases, products, promos, today]);
@@ -472,32 +491,52 @@ const productFirstStocked = useMemo(() => {
 
     // اعتماد اقتراح → عرض BOGO فعلي في جدول promotions
     const acceptSupplierSuggestion = async (s) => {
-        const edit = getSuggestionEdit(s);
-        const buyQty = +edit.buyQty || 0;
-        const getQty = +edit.getQty || 0;
-        if (buyQty <= 0 || getQty <= 0) { showToast("يرجى تحديد الكمية المطلوبة والمجانية", "error"); return; }
-        if (!edit.endDate) { showToast("يرجى تحديد تاريخ نهاية العرض", "error"); return; }
-        // 🆕 زي buildPromoDetails بالظبط: الحقول الرقمية الغير مستخدمة في نمط bogo لازم تتسجل 0
-        // (مش "") والنصية null، وإلا Supabase بيرفضها بـ "invalid input syntax for type numeric"
+    const edit = getSuggestionEdit(s);
+    if (!edit.endDate) { showToast("يرجى تحديد تاريخ نهاية العرض", "error"); return; }
+
+    if (s.source === "standalone") {
         const details = {};
         Object.keys(blankPromoDetails).forEach((key) => {
-            if (key === "buy_qty" || key === "get_qty" || key === "get_discount_percent") return; // بتتحدد تحت
             details[key] = typeof blankPromoDetails[key] === "number" ? 0 : null;
         });
         const row = {
             id: crypto.randomUUID(),
-            promo_type: "bogo",
+            promo_type: "percent",
             ...details,
-            buy_qty: buyQty, get_qty: getQty, get_discount_percent: 100,
+            discount: +edit.discount || 0,
             start_date: today, end_date: edit.endDate,
-            note: s.source === "bonus" ? "عرض مورد تلقائي (بونص فاتورة شراء)" : `عرض مورد — كارت مرتبط: ${s.sourceCardName || ""}`,
+            note: "عرض مورد — صنف عرض مستقل",
             offer_name: "عرض من المورد", manufacturer_id: null,
             pharmacy_id: pharmacyId, product_id: s.product.id,
         };
         await savePromotions([row], pharmacyId);
         setPromos((p) => [...p, row]);
         showToast("تم اعتماد العرض ✓");
+        return;
+    }
+
+    const buyQty = +edit.buyQty || 0;
+    const getQty = +edit.getQty || 0;
+    if (buyQty <= 0 || getQty <= 0) { showToast("يرجى تحديد الكمية المطلوبة والمجانية", "error"); return; }
+    const details = {};
+    Object.keys(blankPromoDetails).forEach((key) => {
+        if (key === "buy_qty" || key === "get_qty" || key === "get_discount_percent") return;
+        details[key] = typeof blankPromoDetails[key] === "number" ? 0 : null;
+    });
+    const row = {
+        id: crypto.randomUUID(),
+        promo_type: "bogo",
+        ...details,
+        buy_qty: buyQty, get_qty: getQty, get_discount_percent: 100,
+        start_date: today, end_date: edit.endDate,
+        note: s.source === "bonus" ? "عرض مورد تلقائي (بونص فاتورة شراء)" : `عرض مورد — كارت مرتبط: ${s.sourceCardName || ""}`,
+        offer_name: "عرض من المورد", manufacturer_id: null,
+        pharmacy_id: pharmacyId, product_id: s.product.id,
     };
+    await savePromotions([row], pharmacyId);
+    setPromos((p) => [...p, row]);
+    showToast("تم اعتماد العرض ✓");
+};
 
     // ── حذف عرض يدوي — دالة واحدة مستخدمة في المكانين (النشطة والمتوقفة مؤقتًا) بدل التكرار ──
     const handleDeletePromo = async (promoId: string) => {
@@ -904,71 +943,147 @@ const productFirstStocked = useMemo(() => {
                         </div>
                     )}
 
-                    {filteredAutoPromos.length === 0
-                        ? <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>✅ لا توجد أصناف تحتاج عروض تلقائية</div>
-                        : filteredAutoPromos.map((p) => {
-                            const days = p.expiry ? Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24)) : null;
-                            const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
-                            const checked = selectedAutoIds.includes(p.id);
-                            return (
-                                <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? COLORS.redSoft : p.autoDiscount >= 25 ? COLORS.coralSoft : COLORS.goldSoft)}>
-                                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                                        <div style={{ display: "flex", alignItems: "flex-start", flex: "1 1 220px", gap: 10, minWidth: 0 }}>
-                                            <input type="checkbox" checked={checked} onChange={() => {
-                                                setSelectedAutoIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id]);
-                                            }} style={{ marginTop: 4, cursor: "pointer" }} />
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
-                                                    <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
-                                                    <span style={{
-                                                        background: discountColor(p.autoDiscount), color: "#fff",
-                                                        borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
-                                                    }}>-{p.autoDiscount}%</span>
-                                                    {p.reasonExpiry && (
-                                                        <span style={{ background: COLORS.goldSoft, color: COLORS.gold, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>⏰ قرب انتهاء</span>
-                                                    )}
-                                                    {p.reasonStagnant && (
-                                                        <span style={{ background: COLORS.purpleSoft, color: COLORS.purple, border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>📦 راكد</span>
-                                                    )}
-                                                </div>
-                                                <div style={{ display: "flex", gap: 20, fontSize: 12, flexWrap: "wrap" }}>
-                                                    <span style={{ color: COLORS.textDim }}>الفئة: <span style={{ color: COLORS.textDim }}>{p.main_category || p.category}</span></span>
-                                                    <span style={{ color: COLORS.textDim }}>المخزون: <span style={{ color: COLORS.textPrimary }}>{p.stock}</span></span>
-                                                    {days !== null && (
-                                                        <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
-                                                    )}
-                                                    {p.reasonStagnant && (
-                                                        <span style={{ color: COLORS.textDim }}>
-                                                            آخر بيع: <span style={{ color: COLORS.purple }}>{p.daysSinceLastSale === null ? "لا يوجد" : `منذ ${p.daysSinceLastSale} يوم`}</span>
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div style={{ textAlign: "left", minWidth: 110, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-                                            <div style={{ color: COLORS.textDim, fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
-                                            <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
-                                            {p.expiry && <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>}
-                                            <div style={{ display: "flex", gap: 6 }}>
-                                                <button onClick={() => printAutoPromoItems([p], autoOfferName)}
-                                                    style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>
-                                                    🖨️ طباعة
-                                                </button>
-                                                {/* 🆕 نفس زرار "إرسال للعملاء" الموجود في العروض اليدوية — بيبني عرض وهمي بنسبة الخصم التلقائي عشان يستخدم نفس منطق الاستهداف */}
-                                                <button onClick={() => openSendPanel({ promo_type: "percent", discount: p.autoDiscount }, p)}
-                                                    style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
-                                                    📤 إرسال
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
+                   {pendingAutoPromos.length === 0 && approvedAutoPromos.length === 0 && (
+    <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>✅ لا توجد أصناف تحتاج عروض تلقائية</div>
+)}
+
+{pendingAutoPromos.length > 0 && (
+    <>
+        <div style={{ color: COLORS.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>⏳ بانتظار الاعتماد ({pendingAutoPromos.length})</div>
+        {pendingAutoPromos.map((p) => {
+            const days = p.expiry ? Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+            const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
+            const checked = selectedAutoIds.includes(p.id);
+            return (
+                <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? COLORS.redSoft : p.autoDiscount >= 25 ? COLORS.coralSoft : COLORS.goldSoft)}>
+                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", flex: "1 1 220px", gap: 10, minWidth: 0 }}>
+                            <input type="checkbox" checked={checked} onChange={() => {
+                                setSelectedAutoIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id]);
+                            }} style={{ marginTop: 4, cursor: "pointer" }} />
+                            <div style={{ flex: 1 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                                    <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
+                                    <span style={{
+                                        background: discountColor(p.autoDiscount), color: "#fff",
+                                        borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
+                                    }}>-{p.autoDiscount}%</span>
+                                    {p.reasonExpiry && (
+                                        <span style={{ background: COLORS.goldSoft, color: COLORS.gold, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>⏰ قرب انتهاء</span>
+                                    )}
+                                    {p.reasonStagnant && (
+                                        <span style={{ background: COLORS.purpleSoft, color: COLORS.purple, border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>📦 راكد</span>
+                                    )}
                                 </div>
-                            );
-                        })
-                    }
+                                <div style={{ display: "flex", gap: 20, fontSize: 12, flexWrap: "wrap" }}>
+                                    <span style={{ color: COLORS.textDim }}>الفئة: <span style={{ color: COLORS.textDim }}>{p.main_category || p.category}</span></span>
+                                    <span style={{ color: COLORS.textDim }}>المخزون: <span style={{ color: COLORS.textPrimary }}>{p.stock}</span></span>
+                                    {days !== null && (
+                                        <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
+                                    )}
+                                    {p.reasonStagnant && (
+                                        <span style={{ color: COLORS.textDim }}>
+                                            آخر بيع: <span style={{ color: COLORS.purple }}>{p.daysSinceLastSale === null ? "لا يوجد" : `منذ ${p.daysSinceLastSale} يوم`}</span>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ textAlign: "left", minWidth: 110, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                            <div style={{ color: COLORS.textDim, fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
+                            <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
+                            {p.expiry && <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>}
+                            <div style={{ display: "flex", gap: 6 }}>
+                                <button onClick={() => approveAutoPromo(p.id)}
+                                    style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.green, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                                    ✅ اعتماد
+                                </button>
+                                <button onClick={() => printAutoPromoItems([p], autoOfferName)}
+                                    style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>
+                                    🖨️ طباعة
+                                </button>
+                                <button onClick={() => openSendPanel({ promo_type: "percent", discount: p.autoDiscount }, p)}
+                                    style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
+                                    📤 إرسال
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        })}
+    </>
+)}
+
+{approvedAutoPromos.length > 0 && (
+    <>
+        <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 13, margin: "16px 0 8px" }}>✅ معتمدة ونشطة ({approvedAutoPromos.length})</div>
+        {approvedAutoPromos.map((p) => {
+            const days = p.expiry ? Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+            const newPrice = (p.price * (1 - p.autoDiscount / 100)).toFixed(2);
+            const checked = selectedAutoIds.includes(p.id);
+            return (
+                <div key={p.id} style={cardStyle(p.autoDiscount >= 50 ? COLORS.redSoft : p.autoDiscount >= 25 ? COLORS.coralSoft : COLORS.goldSoft)}>
+                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", flex: "1 1 220px", gap: 10, minWidth: 0 }}>
+                            <input type="checkbox" checked={checked} onChange={() => {
+                                setSelectedAutoIds((prev) => checked ? prev.filter((id) => id !== p.id) : [...prev, p.id]);
+                            }} style={{ marginTop: 4, cursor: "pointer" }} />
+                            <div style={{ flex: 1 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                                    <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>{p.name || p.nameAr}</span>
+                                    <span style={{
+                                        background: discountColor(p.autoDiscount), color: "#fff",
+                                        borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 900,
+                                    }}>-{p.autoDiscount}%</span>
+                                    {p.reasonExpiry && (
+                                        <span style={{ background: COLORS.goldSoft, color: COLORS.gold, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>⏰ قرب انتهاء</span>
+                                    )}
+                                    {p.reasonStagnant && (
+                                        <span style={{ background: COLORS.purpleSoft, color: COLORS.purple, border: `1px solid ${tint(COLORS.purple, 0.35)}`, borderRadius: 20, padding: "2px 10px", fontSize: 11 }}>📦 راكد</span>
+                                    )}
+                                </div>
+                                <div style={{ display: "flex", gap: 20, fontSize: 12, flexWrap: "wrap" }}>
+                                    <span style={{ color: COLORS.textDim }}>الفئة: <span style={{ color: COLORS.textDim }}>{p.main_category || p.category}</span></span>
+                                    <span style={{ color: COLORS.textDim }}>المخزون: <span style={{ color: COLORS.textPrimary }}>{p.stock}</span></span>
+                                    {days !== null && (
+                                        <span style={{ color: COLORS.textDim }}>ينتهي بعد: <span style={{ color: discountColor(p.autoDiscount) }}>{days} يوم</span></span>
+                                    )}
+                                    {p.reasonStagnant && (
+                                        <span style={{ color: COLORS.textDim }}>
+                                            آخر بيع: <span style={{ color: COLORS.purple }}>{p.daysSinceLastSale === null ? "لا يوجد" : `منذ ${p.daysSinceLastSale} يوم`}</span>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ textAlign: "left", minWidth: 110, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                            <div style={{ color: COLORS.textDim, fontSize: 11, textDecoration: "line-through" }}>{p.price} ر.س</div>
+                            <div style={{ color: COLORS.green, fontWeight: 900, fontSize: 18 }}>{newPrice} ر.س</div>
+                            {p.expiry && <div style={{ color: COLORS.textDim, fontSize: 10 }}>تاريخ: {p.expiry}</div>}
+                            <div style={{ display: "flex", gap: 6 }}>
+                                <button onClick={() => stopAutoPromo(p.id)}
+                                    style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>
+                                    🗑️ إيقاف
+                                </button>
+                                <button onClick={() => printAutoPromoItems([p], autoOfferName)}
+                                    style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 6, padding: "3px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer" }}>
+                                    🖨️ طباعة
+                                </button>
+                                <button onClick={() => openSendPanel({ promo_type: "percent", discount: p.autoDiscount }, p)}
+                                    style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "3px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
+                                    📤 إرسال
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+       })}
+    </>
+)}
                 </div>
             )}
-
             {/* ── اقتراحات عروض من المورد ── */}
             {activeTab === "supplier" && (
                 <div>
@@ -993,9 +1108,9 @@ const productFirstStocked = useMemo(() => {
                                     <div>
                                         <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name_ar || p.name}</div>
                                         <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
-                                            {s.source === "bonus"
-                                                ? "المصدر: بونص فاتورة شراء (نفس كارت الصنف)"
-                                                : `المصدر: كارت مرتبط بالاسم — "${s.sourceCardName}"`}
+                                            {s.source === "bonus" ? "المصدر: بونص فاتورة شراء (نفس كارت الصنف)"
+    : s.source === "standalone" ? "المصدر: صنف مسجّل كعرض مستقل"
+    : `المصدر: كارت مرتبط بالاسم — "${s.sourceCardName}"`}
                                         </div>
                                         <span style={{
                                             display: "inline-block", marginTop: 4, fontSize: 10, fontWeight: 700, borderRadius: 6, padding: "2px 8px",
@@ -1008,27 +1123,36 @@ const productFirstStocked = useMemo(() => {
                                     <span onClick={() => dismissSuggestion(s.key)} style={{ cursor: "pointer", color: COLORS.textDim, fontSize: 12 }}>تجاهل ✕</span>
                                 </div>
 
-                                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                                    <div style={{ width: 100 }}>
-                                        <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>اشتري كمية</div>
-                                        <input type="number" value={edit.buyQty} onChange={(e) => setSuggestionEdit(s.key, { buyQty: e.target.value })} style={suggestionInputStyle} />
-                                    </div>
-                                    <div style={{ width: 100 }}>
-                                        <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>يحصل مجانًا على</div>
-                                        <input type="number" value={edit.getQty} onChange={(e) => setSuggestionEdit(s.key, { getQty: e.target.value })} style={suggestionInputStyle} />
-                                    </div>
-                                    <div style={{ width: 150 }}>
-                                        <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>تاريخ نهاية العرض</div>
-                                        <input type="date" value={edit.endDate} onChange={(e) => setSuggestionEdit(s.key, { endDate: e.target.value })} style={suggestionInputStyle} />
-                                    </div>
-                                    {canAdd && <Btn icon="check" onClick={() => acceptSupplierSuggestion(s)}>اعتماد كعرض</Btn>}
-                                </div>
+                               <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+    {s.source !== "standalone" && (
+        <>
+            <div style={{ width: 100 }}>
+                <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>اشتري كمية</div>
+                <input type="number" value={edit.buyQty} onChange={(e) => setSuggestionEdit(s.key, { buyQty: e.target.value })} style={suggestionInputStyle} />
+            </div>
+            <div style={{ width: 100 }}>
+                <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>يحصل مجانًا على</div>
+                <input type="number" value={edit.getQty} onChange={(e) => setSuggestionEdit(s.key, { getQty: e.target.value })} style={suggestionInputStyle} />
+            </div>
+        </>
+    )}
+    {s.source === "standalone" && (
+        <div style={{ width: 120 }}>
+            <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>نسبة خصم % (اختياري)</div>
+            <input type="number" value={edit.discount || 0} onChange={(e) => setSuggestionEdit(s.key, { discount: e.target.value })} style={suggestionInputStyle} />
+        </div>
+    )}
+    <div style={{ width: 150 }}>
+        <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>تاريخ نهاية العرض</div>
+        <input type="date" value={edit.endDate} onChange={(e) => setSuggestionEdit(s.key, { endDate: e.target.value })} style={suggestionInputStyle} />
+    </div>
+    {canAdd && <Btn icon="check" onClick={() => acceptSupplierSuggestion(s)}>اعتماد كعرض</Btn>}
+</div>
                             </div>
                         );
                     })}
                 </div>
             )}
-
             {/* ── العروض اليدوية ── */}
             {activeTab === "manual" && (
                 <div>

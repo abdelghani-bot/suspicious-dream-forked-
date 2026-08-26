@@ -14,6 +14,8 @@ import { Badge, Btn, IC, Modal, Pagination, Select, Table } from "../ui/primitiv
 import { queueEvent } from "../lib/offlineAPI";
 import { getDeviceId } from "../lib/deviceID";
 import { printHTML } from "../lib/printHelper";
+import { detectSupplierOfferPattern } from "../lib/promoUtils";
+import { saveProduct } from "../lib/offlineAPI";
 
 // 🆕 إعادة محاولة بسيطة لكتابات الكاش المحلي (SQLite) — دي مش مصدر الحقيقة (الـ pending_sync_events
 // هو المصدر)، بس لو فشلت لسبب عابر (قفل ملف، IO مؤقت) منستحقش نسيبها من أول مرة.
@@ -1271,10 +1273,19 @@ export function PurchaseModule({
                 batches: newBatchesByProduct[x.id] ?? x.batches,
                 not_available_market: false,
                 auto_order: true,
+                is_standalone_offer: ci.standaloneOffer ? true : x.is_standalone_offer,
             };
         });
         setProducts(updatedProducts);
-
+        const standaloneOfferItems = items.filter((ci) => ci.standaloneOffer);
+for (const ci of standaloneOfferItems) {
+    try {
+        await saveProduct({ id: ci.id, is_standalone_offer: true }, pharmacyId, true);
+    } catch (err) {
+        console.error("saveProduct(is_standalone_offer) failed:", err);
+        showToast("⚠️ اتحفظت الفاتورة لكن فشل تسجيل علامة العرض على بعض الأصناف", "error");
+    }
+}
         // 🆕 حفظ الأصناف المتأثرة في products_cache المحلي فوراً — من غير كده الكمية الجديدة
         // بتفضل في الميموري بس، وتضيع من العرض المحلي لو التطبيق اتقفل قبل ما PURCHASE_STOCK_ADD يتزامن.
         // (نفس نمط الـ delta المستخدم في POS/المرتجعات بدل upsertProduct القديمة اللي كانت
@@ -1835,34 +1846,22 @@ export function PurchaseModule({
                         <tbody>
                             {items.map((item, rowIndex) => (
                                 <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-                                    <td
-                                        style={{
-                                            padding: "6px 8px",
-                                            fontSize: 13,
-                                            color: COLORS.textPrimary,
-                                            minWidth: 120,
-                                        }}
-                                    >
-                                        <div
-                                            style={{ display: "flex", alignItems: "center", gap: 6 }}
-                                        >
-                                            {item.name_ar || item.name}
-                                            <button
-                                                onClick={() => setShowProductCard(item)}
-                                                title="عرض بيانات الصنف"
-                                                style={{
-                                                    background: "transparent",
-                                                    border: "none",
-                                                    color: COLORS.blue,
-                                                    cursor: "pointer",
-                                                    padding: 2,
-                                                    lineHeight: 1,
-                                                }}
-                                            >
-                                                <IC n="eye" s={13} />
-                                            </button>
-                                        </div>
-                                    </td>
+                                   <td style={{ padding: "6px 8px", fontSize: 13, color: COLORS.textPrimary, minWidth: 120 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {item.name_ar || item.name}
+        <button onClick={() => setShowProductCard(item)} title="عرض بيانات الصنف"
+            style={{ background: "transparent", border: "none", color: COLORS.blue, cursor: "pointer", padding: 2, lineHeight: 1 }}>
+            <IC n="eye" s={13} />
+        </button>
+    </div>
+    {detectSupplierOfferPattern(item.name_ar || item.name).isOffer && (
+        <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 11, color: COLORS.gold, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!item.standaloneOffer}
+                onChange={(e) => updateItem(item.id, "standaloneOffer", e.target.checked)} />
+            🏷️ عرض من المورد — يظهر في قائمة العروض
+        </label>
+    )}
+</td>
                                     <td style={{ padding: "4px" }}>
                                         <input
                                             id={`cell-${rowIndex}-qty`}
