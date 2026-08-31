@@ -386,6 +386,30 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_incentive_overrides_cache_pharmacy ON incentive_overrides_cache(pharmacy_id);
   CREATE INDEX IF NOT EXISTS idx_incentive_overrides_cache_product ON incentive_overrides_cache(pharmacy_id, product_id);
 
+  -- 🆕 كاش تاريخ الفئات المسموحة (append-only) — بيتكتب محليًا بنفس منطق الـ RPC
+  -- upsert_incentive_config (بس لو allowed_categories اتغيّرت فعليًا)
+  CREATE TABLE IF NOT EXISTS incentive_config_history_cache (
+    id TEXT PRIMARY KEY,
+    pharmacy_id TEXT NOT NULL,
+    allowed_categories TEXT NOT NULL,
+    effective_from TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_incentive_config_history_cache_pharmacy
+    ON incentive_config_history_cache(pharmacy_id, effective_from);
+
+  -- 🆕 كاش تاريخ استثناءات/إضافات التحفيز (append-only) — كل تغيير (حتى الحذف/الرجوع
+  -- للتلقائي) بيتسجّل صف جديد هنا، عشان حساب عمولة الشهور القديمة يفضل زي ما كان
+  CREATE TABLE IF NOT EXISTS incentive_override_history_cache (
+    id TEXT PRIMARY KEY,
+    pharmacy_id TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    type TEXT,
+    tier_id TEXT,
+    effective_from TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_incentive_override_history_cache_lookup
+    ON incentive_override_history_cache(pharmacy_id, product_id, effective_from);
+
   -- 🆕 كاش أصناف التحفيز (قراءة فقط في الشاشة دي — full-replace بعد كل تحميل أونلاين)
   CREATE TABLE IF NOT EXISTS incentive_products_cache (
     id TEXT PRIMARY KEY,
@@ -1284,6 +1308,30 @@ ipcMain.handle("offline:getIncentiveConfigCache", (_event, pharmacyId) => {
     return row ? { allowed_categories: JSON.parse(row.allowed_categories || "[]") } : null;
 });
 
+// ==================== كاش تاريخ الفئات المسموحة (append-only) ====================
+ipcMain.handle("offline:insertIncentiveConfigHistoryCache", (_event, { id, pharmacyId, allowedCategories, effectiveFrom }) => {
+    try {
+        db.prepare(`
+      INSERT INTO incentive_config_history_cache (id, pharmacy_id, allowed_categories, effective_from)
+      VALUES (@id, @pharmacy_id, @allowed_categories, @effective_from)
+    `).run({
+            id, pharmacy_id: pharmacyId,
+            allowed_categories: JSON.stringify(allowedCategories || []),
+            effective_from: effectiveFrom,
+        });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
+ipcMain.handle("offline:getIncentiveConfigHistoryCache", (_event, pharmacyId) => {
+    const rows = db.prepare(
+        "SELECT pharmacy_id, allowed_categories, effective_from FROM incentive_config_history_cache WHERE pharmacy_id = ? ORDER BY effective_from ASC"
+    ).all(pharmacyId);
+    return rows.map((r) => ({ ...r, allowed_categories: JSON.parse(r.allowed_categories || "[]") }));
+});
+
 // ==================== كاش الـ tiers (incentive_tiers_cache) ====================
 ipcMain.handle("offline:upsertIncentiveTierCache", (_event, { id, pharmacyId, threshold, rate }) => {
     try {
@@ -1365,6 +1413,28 @@ ipcMain.handle("offline:deleteIncentiveOverrideCache", (_event, id) => {
 ipcMain.handle("offline:getIncentiveOverridesCache", (_event, pharmacyId) => {
     const rows = db.prepare("SELECT * FROM incentive_overrides_cache WHERE pharmacy_id = ?").all(pharmacyId);
     return rows.map((r) => JSON.parse(r.data));
+});
+
+// ==================== كاش تاريخ استثناءات التحفيز (append-only) ====================
+ipcMain.handle("offline:insertIncentiveOverrideHistoryCache", (_event, { id, pharmacyId, productId, type, tierId, effectiveFrom }) => {
+    try {
+        db.prepare(`
+      INSERT INTO incentive_override_history_cache (id, pharmacy_id, product_id, type, tier_id, effective_from)
+      VALUES (@id, @pharmacy_id, @product_id, @type, @tier_id, @effective_from)
+    `).run({
+            id, pharmacy_id: pharmacyId, product_id: productId,
+            type: type ?? null, tier_id: tierId ?? null, effective_from: effectiveFrom,
+        });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
+ipcMain.handle("offline:getIncentiveOverrideHistoryCache", (_event, pharmacyId) => {
+    return db.prepare(
+        "SELECT product_id, type, tier_id, effective_from FROM incentive_override_history_cache WHERE pharmacy_id = ? ORDER BY effective_from ASC"
+    ).all(pharmacyId);
 });
 
 // ==================== كاش أصناف التحفيز (قراءة فقط — full-replace) ====================

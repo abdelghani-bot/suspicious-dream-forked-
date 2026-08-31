@@ -55,6 +55,10 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
     const [tierThresholdHistory, setTierThresholdHistory] = useState<{ tier_id: string; threshold: number; effective_from: string }[]>([]);
     // ── استثناءات القائمة التلقائية (استثناء صنف مستوفي، أو إضافة صنف يدوياً لـ Tier معين) ──
     const [incentiveOverrides, setIncentiveOverrides] = useState<{ id: string; product_id: string; type: "include" | "exclude"; tier_id?: string }[]>([]);
+    // 🆕 append-only: كل نسخة تاريخية من الفئات المسموحة، وكل تغيير حصل في استثناءات/إضافات
+    // التحفيز — بنستخدمهم لحساب عمولة أي تاريخ بيع "زي ما كان وقتها" بدل القيمة الحالية.
+    const [allowedCategoriesHistory, setAllowedCategoriesHistory] = useState<{ allowed_categories: string[]; effective_from: string }[]>([]);
+    const [overrideHistory, setOverrideHistory] = useState<{ product_id: string; type: "include" | "exclude" | null; tier_id?: string; effective_from: string }[]>([]);
     const [autoListExpanded, setAutoListExpanded] = useState(false);
     const [autoListSearch, setAutoListSearch] = useState("");
     const [configExpanded, setConfigExpanded] = useState(false);
@@ -105,7 +109,16 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
                 .eq("pharmacy_id", pharmacyId)
                 .order("effective_from", { ascending: true }),
             supabase.from("incentive_overrides").select("*").eq("pharmacy_id", pharmacyId),
-        ]).then(async ([i, c, m, t, th, ov]) => {
+            // 🆕 تاريخ الفئات المسموحة + تاريخ الاستثناءات/الإضافات
+            supabase.from("incentive_config_history")
+                .select("allowed_categories, effective_from")
+                .eq("pharmacy_id", pharmacyId)
+                .order("effective_from", { ascending: true }),
+            supabase.from("incentive_override_history")
+                .select("product_id, type, tier_id, effective_from")
+                .eq("pharmacy_id", pharmacyId)
+                .order("effective_from", { ascending: true }),
+        ]).then(async ([i, c, m, t, th, ov, ch, oh]) => {
             // أصناف التحفيز
             if (!i.error && i.data) {
                 setIncentiveList(i.data);
@@ -181,12 +194,34 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
                     if (cached) setIncentiveOverrides(cached);
                 } catch (err) { console.error("getIncentiveOverridesCache failed:", err); }
             }
+
+            // 🆕 تاريخ الفئات المسموحة
+            if (!ch.error && ch.data) {
+                setAllowedCategoriesHistory(ch.data);
+                // append-only، فمش هنعمل mirror هنا عشان منكررش صفوف قديمة كل تحميل —
+                // بيتكتب بس وقت saveIncentiveConfig نفسها (أونلاين أو أوفلاين)
+            } else if (ch.error) {
+                try {
+                    const cached = await window.offlineAPI?.getIncentiveConfigHistoryCache?.(pharmacyId);
+                    if (cached) setAllowedCategoriesHistory(cached);
+                } catch (err) { console.error("getIncentiveConfigHistoryCache failed:", err); }
+            }
+
+            // 🆕 تاريخ استثناءات/إضافات التحفيز
+            if (!oh.error && oh.data) {
+                setOverrideHistory(oh.data);
+            } else if (oh.error) {
+                try {
+                    const cached = await window.offlineAPI?.getIncentiveOverrideHistoryCache?.(pharmacyId);
+                    if (cached) setOverrideHistory(cached);
+                } catch (err) { console.error("getIncentiveOverrideHistoryCache failed:", err); }
+            }
         });
     }, [pharmacyId]);
 
     // ── حفظ الفئات المسموحة (إعداد عام واحد يطبق على كل الـ Tiers) ──
     const saveAllowedCategories = async (cats: string[]) => {
-        await saveIncentiveConfig({ allowed_categories: cats }, pharmacyId);
+        await saveIncentiveConfig(cats, pharmacyId);
         setIncentiveConfig((p) => ({ ...p, allowedCategories: cats }));
         showToast("تم حفظ الفئات المسموحة ✓");
     };
@@ -232,8 +267,8 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
         showToast(type === "exclude" ? "تم حذف الصنف من القائمة ✓" : "تم نقل الصنف ✓");
     };
 
-    const removeIncentiveOverride = async (id: string) => {
-        await deleteIncentiveOverride(id, pharmacyId);
+    const removeIncentiveOverride = async (id: string, productId: string) => {
+        await deleteIncentiveOverride(id, pharmacyId, productId);
         setIncentiveOverrides((p) => p.filter((o) => o.id !== id));
     };
 
@@ -244,11 +279,36 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
         return ((price - cost) / price) * 100;
     };
 
+    // 🆕 الفئات المسموحة "زي ما كانت" في لحظة زمنية معينة — بدل القيمة الحالية دايمًا.
+    // لو لسه معندناش أي تاريخ (مثلاً قبل أول استخدام للتحديث ده) بنرجع للقيمة الحية عادي.
+    const getAllowedCategoriesAt = (atTime: string): string[] => {
+        if (allowedCategoriesHistory.length === 0) return incentiveConfig.allowedCategories || [];
+        const applicable = allowedCategoriesHistory.filter((h) => h.effective_from <= atTime).at(-1);
+        return applicable ? applicable.allowed_categories : (incentiveConfig.allowedCategories || []);
+    };
+
+    // 🆕 حالة الاستثناء/الإضافة اليدوية لصنف معيّن "زي ما كانت" في لحظة زمنية معينة.
+    // type=null في آخر سجل يعني الصنف رجع للوضع التلقائي من وقتها. لو مفيش تاريخ خالص
+    // للصنف ده (اتضاف قبل التحديث ده)، بنرجع للحالة الحية (excludedIds/includedOverrides).
+    const getOverrideAt = (productId: string, atTime: string): { type: "include" | "exclude"; tier_id?: string } | null => {
+        const rows = overrideHistory.filter((h) => h.product_id === productId && h.effective_from <= atTime);
+        if (rows.length === 0) {
+            if (excludedIds.has(productId)) return { type: "exclude" };
+            const inc = includedOverrides.find((o) => o.product_id === productId);
+            return inc ? { type: "include", tier_id: inc.tier_id } : null;
+        }
+        const latest = rows.at(-1);
+        return latest.type ? { type: latest.type, tier_id: latest.tier_id } : null;
+    };
+
     // ── إيجاد الـ Tier المطابق لهامش/فئة معينة في لحظة زمنية — لو استوفى أكتر من Tier ياخد الأعلى ──
     const matchTierForMargin = (margin: number | null, category: string, atTime: string) => {
         if (margin === null) return null;
-        if (incentiveConfig.allowedCategories && incentiveConfig.allowedCategories.length > 0
-            && !incentiveConfig.allowedCategories.includes(category)) return null;
+        // 🆕 الفئات المسموحة بتُقرأ "زي ما كانت وقت atTime" مش القيمة الحالية — نفس مبدأ
+        // tierThresholdHistory تمامًا، عشان تغيير الفئات المسموحة اليوم ميأثرش على عمولة
+        // شهور فاتت لو اتعادت الحسبة.
+        const allowedCategories = getAllowedCategoriesAt(atTime);
+        if (allowedCategories.length > 0 && !allowedCategories.includes(category)) return null;
         let best: { id: string; threshold: number; rate: number } | null = null;
         for (const t of tiers) {
             const effectiveThreshold = tierThresholdHistory.length > 0
@@ -1012,7 +1072,7 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
                                                         canEdit && (
                                                             <button onClick={() => {
                                                                 const ov = incentiveOverrides.find((o) => o.product_id === p.id && o.type === "exclude");
-                                                                if (ov) removeIncentiveOverride(ov.id);
+                                                                if (ov) removeIncentiveOverride(ov.id, ov.product_id);
                                                             }} style={{ background: "none", border: "none", color: COLORS.green, fontSize: 12, cursor: "pointer" }}>↩️ إلغاء الاستثناء</button>
                                                         )
                                                     ) : isAuto ? (
@@ -1068,11 +1128,16 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
                             if (manualEntry) {
                                 return manualEntry.rate ? amt * manualEntry.rate / 100 : (+manualEntry.fixed_amount || 0) * qty;
                             }
-                            if (excludedIds.has(item.id)) return 0;
-                            let tier = matchTierForSaleItem(item, saleDateTime);
-                            if (!tier) {
-                                const inc = includedOverrides.find((o) => o.product_id === item.id);
-                                if (inc) tier = tiers.find((t) => t.id === inc.tier_id);
+                            // 🆕 حالة الاستثناء/الإضافة "زي ما كانت وقت البيع" مش الحالة الحية —
+                            // نفس مبدأ matchTierForSaleItem بالظبط، عشان استثناء/تضمين صنف اليوم
+                            // ميأثرش على عمولة شهور فاتت لو اتعادت الحسبة.
+                            const overrideAtSale = getOverrideAt(item.id, saleDateTime);
+                            if (overrideAtSale?.type === "exclude") return 0;
+                            let tier;
+                            if (overrideAtSale?.type === "include") {
+                                tier = tiers.find((t) => t.id === overrideAtSale.tier_id) || matchTierForSaleItem(item, saleDateTime);
+                            } else {
+                                tier = matchTierForSaleItem(item, saleDateTime);
                             }
                             return tier ? amt * tier.rate / 100 : 0;
                         };
@@ -1234,11 +1299,13 @@ export function TargetModule({ users, sales, customers, products, currentUser, p
                                         total += manualEntry.rate ? amt * manualEntry.rate / 100 : (+manualEntry.fixed_amount || 0) * (item.qty || 1);
                                         return;
                                     }
-                                    if (excludedIds.has(item.id)) return;
+                                    // 🆕 نفس منطق getOverrideAt التاريخي أعلاه، عشان مقارنة الشهور ميتغيرش
+                                    // رجعيًا لو غيّرت استثناء/تضمين صنف اليوم
+                                    const overrideAtSale = getOverrideAt(item.id, saleDateTime);
+                                    if (overrideAtSale?.type === "exclude") return;
                                     let tier = matchTierForSaleItem(item, saleDateTime);
-                                    if (!tier) {
-                                        const inc = includedOverrides.find((o) => o.product_id === item.id);
-                                        if (inc) tier = tiers.find((t) => t.id === inc.tier_id);
+                                    if (!tier && overrideAtSale?.type === "include") {
+                                        tier = tiers.find((t) => t.id === overrideAtSale.tier_id);
                                     }
                                     if (tier) total += amt * tier.rate / 100;
                                 });

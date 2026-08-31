@@ -516,9 +516,18 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             if (error) throw error;
             break;
         }
+        // 🆕 config جديد + history سوا — atomic عبر RPC (زي upsert_incentive_tier بالظبط).
+        // 🔧 ده كمان بيصلّح باگ كان موجود: upsert(event.payload.row, {onConflict:"pharmacy_id"})
+        // القديم كان بيبعت الـ row من غير pharmacy_id جواه أصلاً (saveAllowedCategories كانت
+        // بتبعت {allowed_categories} بس)، فكان ممكن يفشل بسبب RLS أو يكتب pharmacy_id فاضي.
+        // دلوقتي pharmacy_id بييجي صريح من event.pharmacy_id كباراميتر منفصل للـ RPC.
         case "INCENTIVE_CONFIG_UPSERT": {
-            const { error } = await supabase.from("incentive_config")
-                .upsert(event.payload.row, { onConflict: "pharmacy_id" });
+            const { allowed_categories, created_by } = event.payload;
+            const { error } = await supabase.rpc("upsert_incentive_config", {
+                p_pharmacy_id: event.pharmacy_id,
+                p_allowed_categories: allowed_categories,
+                p_created_by: created_by ?? null,
+            });
             if (error) throw error;
             break;
         }
@@ -542,16 +551,27 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             if (error) throw error;
             break;
         }
+        // 🆕 override جديد/تعديل + history سوا — atomic عبر RPC
         case "INCENTIVE_OVERRIDE_UPSERT": {
-            const { error } = await supabase.from("incentive_overrides")
-                .upsert(event.payload.row, { onConflict: "pharmacy_id,product_id" });
+            const { product_id, type, tier_id, created_by } = event.payload;
+            const { error } = await supabase.rpc("upsert_incentive_override", {
+                p_pharmacy_id: event.pharmacy_id,
+                p_product_id: product_id,
+                p_type: type,
+                p_tier_id: tier_id ?? null,
+                p_created_by: created_by ?? null,
+            });
             if (error) throw error;
             break;
         }
+        // 🆕 حذف override + تسجيل "رجوع للوضع التلقائي" في التاريخ — atomic عبر RPC
         case "INCENTIVE_OVERRIDE_DELETE": {
-            const { id, pharmacy_id } = event.payload;
-            const { error } = await supabase.from("incentive_overrides")
-                .delete().eq("id", id).eq("pharmacy_id", pharmacy_id);
+            const { id, pharmacy_id, created_by } = event.payload;
+            const { error } = await supabase.rpc("delete_incentive_override", {
+                p_pharmacy_id: pharmacy_id,
+                p_id: id,
+                p_created_by: created_by ?? null,
+            });
             if (error) throw error;
             break;
         }
@@ -796,9 +816,25 @@ export async function upsertMonthlyTarget(row: any, pharmacyId: string) {
     });
 }
 
-export async function saveIncentiveConfig(row: any, pharmacyId: string) {
+// 🆕 نفس شرط الـ tier بالظبط: نضيف history بس لو الفئات اتغيّرت فعليًا (أو أول مرة).
+// payload بقى صريح (allowed_categories + created_by) بدل {row} المبهم، عشان يتطابق مع
+// باراميترات RPC upsert_incentive_config اللي بتاخد pharmacy_id كباراميتر منفصل — ده
+// بيصلّح باگ كان موجود: الـ row القديم ما كانش فيه pharmacy_id جواه أصلاً.
+export async function saveIncentiveConfig(allowedCategories: string[], pharmacyId: string, createdBy?: string) {
     try {
-        await window.offlineAPI.upsertIncentiveConfigCache({ pharmacyId, allowedCategories: row.allowed_categories });
+        let oldCategories: string[] | null = null;
+        const existing = await window.offlineAPI.getIncentiveConfigCache(pharmacyId);
+        oldCategories = existing?.allowed_categories ?? null;
+
+        await window.offlineAPI.upsertIncentiveConfigCache({ pharmacyId, allowedCategories });
+
+        const changed = !oldCategories || JSON.stringify([...oldCategories].sort()) !== JSON.stringify([...allowedCategories].sort());
+        if (changed) {
+            await window.offlineAPI.insertIncentiveConfigHistoryCache({
+                id: crypto.randomUUID(), pharmacyId, allowedCategories,
+                effectiveFrom: new Date().toISOString(),
+            });
+        }
     } catch (err) {
         console.error("upsertIncentiveConfigCache failed:", err);
     }
@@ -808,7 +844,7 @@ export async function saveIncentiveConfig(row: any, pharmacyId: string) {
         type: "INCENTIVE_CONFIG_UPSERT",
         timestamp: new Date().toISOString(),
         pharmacy_id: pharmacyId,
-        payload: { row },
+        payload: { allowed_categories: allowedCategories, created_by: createdBy },
     });
 }
 
@@ -863,11 +899,17 @@ export async function deleteIncentiveTier(id: string, pharmacyId: string) {
     });
 }
 
-export async function upsertIncentiveOverride(row: any, pharmacyId: string) {
+// 🆕 بيسجّل نسخة تاريخية مع كل تغيير (خلاف الـ tier اللي بيسجّل بس لو القيمة اتغيّرت —
+// هنا كل استثناء/تضمين هو قرار صريح من المستخدم، فبنسجّله دايمًا حتى لو نفس النوع القديم).
+export async function upsertIncentiveOverride(row: any, pharmacyId: string, createdBy?: string) {
     // ⚠️ id هنا محلي مؤقت للعرض بس (متفق عليه إننا مش هنصلحه دلوقتي) — هيتصحح تلقائيًا
     // في أول refresh أونلاين لو اختلف عن اللي هيتولّد فعليًا على السيرفر
     try {
         await window.offlineAPI.upsertIncentiveOverrideCache({ ...row, pharmacy_id: pharmacyId });
+        await window.offlineAPI.insertIncentiveOverrideHistoryCache({
+            id: crypto.randomUUID(), pharmacyId, productId: row.product_id,
+            type: row.type, tierId: row.tier_id ?? null, effectiveFrom: new Date().toISOString(),
+        });
     } catch (err) {
         console.error("upsertIncentiveOverrideCache failed:", err);
     }
@@ -877,13 +919,19 @@ export async function upsertIncentiveOverride(row: any, pharmacyId: string) {
         type: "INCENTIVE_OVERRIDE_UPSERT",
         timestamp: new Date().toISOString(),
         pharmacy_id: pharmacyId,
-        payload: { row },
+        payload: { product_id: row.product_id, type: row.type, tier_id: row.tier_id ?? null, created_by: createdBy },
     });
 }
 
-export async function deleteIncentiveOverride(id: string, pharmacyId: string) {
+// 🆕 productId بقى باراميتر مطلوب (بدل ما نستنتجه من id) عشان نقدر نسجّل في التاريخ إن
+// الصنف رجع للوضع التلقائي من دلوقتي، حتى لو مفيش نت وقت الحذف.
+export async function deleteIncentiveOverride(id: string, pharmacyId: string, productId: string, createdBy?: string) {
     try {
         await window.offlineAPI.deleteIncentiveOverrideCache(id);
+        await window.offlineAPI.insertIncentiveOverrideHistoryCache({
+            id: crypto.randomUUID(), pharmacyId, productId,
+            type: null, tierId: null, effectiveFrom: new Date().toISOString(),
+        });
     } catch (err) {
         console.error("deleteIncentiveOverrideCache failed:", err);
     }
@@ -893,7 +941,7 @@ export async function deleteIncentiveOverride(id: string, pharmacyId: string) {
         type: "INCENTIVE_OVERRIDE_DELETE",
         timestamp: new Date().toISOString(),
         pharmacy_id: pharmacyId,
-        payload: { id, pharmacy_id: pharmacyId },
+        payload: { id, pharmacy_id: pharmacyId, created_by: createdBy },
     });
 }
 

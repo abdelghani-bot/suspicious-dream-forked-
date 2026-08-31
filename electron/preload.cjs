@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     getMonthlyTargetsCache: (pharmacyId) => ipcRenderer.invoke("offline:getMonthlyTargetsCache", pharmacyId),
     upsertIncentiveConfigCache: (payload) => ipcRenderer.invoke("offline:upsertIncentiveConfigCache", payload),
     getIncentiveConfigCache: (pharmacyId) => ipcRenderer.invoke("offline:getIncentiveConfigCache", pharmacyId),
+    // 🆕 تاريخ الفئات المسموحة — عشان حماية عمولة الشهور القديمة من الأثر الرجعي
+    insertIncentiveConfigHistoryCache: (payload) => ipcRenderer.invoke("offline:insertIncentiveConfigHistoryCache", payload),
+    getIncentiveConfigHistoryCache: (pharmacyId) => ipcRenderer.invoke("offline:getIncentiveConfigHistoryCache", pharmacyId),
     upsertIncentiveTierCache: (payload) => ipcRenderer.invoke("offline:upsertIncentiveTierCache", payload),
     deleteIncentiveTierCache: (id) => ipcRenderer.invoke("offline:deleteIncentiveTierCache", id),
     getIncentiveTiersCache: (pharmacyId) => ipcRenderer.invoke("offline:getIncentiveTiersCache", pharmacyId),
@@ -70,6 +73,9 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     getTierThresholdHistoryCache: (pharmacyId) => ipcRenderer.invoke("offline:getTierThresholdHistoryCache", pharmacyId),
     upsertIncentiveOverrideCache: (row) => ipcRenderer.invoke("offline:upsertIncentiveOverrideCache", row),
     deleteIncentiveOverrideCache: (id) => ipcRenderer.invoke("offline:deleteIncentiveOverrideCache", id),
+    // 🆕 تاريخ الاستثناءات/الإضافات اليدوية — نفس السبب
+    insertIncentiveOverrideHistoryCache: (payload) => ipcRenderer.invoke("offline:insertIncentiveOverrideHistoryCache", payload),
+    getIncentiveOverrideHistoryCache: (pharmacyId) => ipcRenderer.invoke("offline:getIncentiveOverrideHistoryCache", pharmacyId),
     getIncentiveOverridesCache: (pharmacyId) => ipcRenderer.invoke("offline:getIncentiveOverridesCache", pharmacyId),
     refreshIncentiveProductsCache: (payload) => ipcRenderer.invoke("offline:refreshIncentiveProductsCache", payload),
     getIncentiveProductsCache: (pharmacyId) => ipcRenderer.invoke("offline:getIncentiveProductsCache", pharmacyId),

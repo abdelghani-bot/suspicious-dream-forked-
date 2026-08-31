@@ -457,7 +457,6 @@ export function POS({
     };
 
     const addToCart = (p, opts: any = {}) => {
-        console.log('product passed to addToCart:', p);
         if (!p.isMissed && !p.isJoker) {
             const effectiveStock =
                 p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
@@ -1324,14 +1323,6 @@ export function POS({
                 }
                 // 🆕 قيمة النقاط الفعلية اللي بتتحفظ لرصيد العميل = القيمة بالريال × معامل التحويل
                 const points = pointsInRiyal * perRiyalEarn;
-                console.log("🔍 LOYALTY DEBUG:", {
-    hasCustomer: !!inv.selCustomer?.id,
-    ls,
-    eligibleItemsCount: eligibleItems.length,
-    profit: ls?.mode === "profit" ? (eligibleItems.reduce((s, it) => s + (it.price - (it.cost || 0)) * (it.qty || 0), 0) - (invoice.discount_amt || 0)) : null,
-    pointsInRiyal,
-    points,
-});
                 if (points > 0) {
                     await earnLoyaltyPoints(pharmacyId, inv.selCustomer.id, invoice.id, points, ls.mode);
                     const sarNote = perRiyalEarn !== 1 ? ` (${pointsInRiyal.toFixed(2)} ر.س)` : "";
