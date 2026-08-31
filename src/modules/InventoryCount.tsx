@@ -26,6 +26,8 @@ export function InventoryCount({
     const [search, setSearch] = useState("");
     const [selectedLog, setSelectedLog] = useState(null);
     const [repairing, setRepairing] = useState(false);
+    const [scanInput, setScanInput] = useState(""); // 🆕 حقل السكانر أثناء الجرد
+    const scanTimeoutRef = useRef(null); // 🆕 لتشغيل السكان تلقائي من غير الحاجة لضغط Enter
 
     // ==================== 🆕 استيراد الجرد من إكسيل ====================
     const invExcelInputRef = useRef(null);
@@ -73,12 +75,196 @@ export function InventoryCount({
     };
 
     const startCount = () => {
-        // كل تشغيلة (صنف + تاريخ صلاحية) بتاخد سطر منفصل في الجرد،
-        // عشان الكمية الفعلية للصنف تقدر تتوزع على أكتر من تاريخ صلاحية.
+        // 🆕 جرد أعمى (Blind Count): القايمة تبدأ فاضية تمامًا، مفيش رصيد نظام ظاهر.
+        // الصيدلي بيضيف الأصناف واحد واحد بالسكانر أو بار البحث، ويكتب الكمية اللي
+        // شافها فعليًا على الرف — من غير ما يشوف رصيد النظام وهو بيعد، عشان النتيجة
+        // تعكس العدّ الحقيقي مش تأكيد لرقم شايفه قدامه.
         setExcelUnmatched([]);
-        setCountItems(buildBaseCountRows());
+        setCountItems([]);
+        setSearch("");
+        setScanInput("");
         setShowNew(true);
     };
+
+    // 🆕 إضافة صنف واحد للجرد (من السكانر أو من نتيجة البحث) — بيتضاف بكل تشغيلاته
+    // (batches) كأسطر منفصلة، الكمية الفعلية بتبدأ من صفر (مش من رصيد النظام) عشان
+    // يفضل الجرد أعمى، ورصيد النظام بيتخزن جوه السطر (systemQty) للمقارنة بعد الحفظ بس.
+    // hint (اختياري): {batchNumber, expiry} مستخرجة من باركود GS1 ثنائي — لو اتبعتت،
+    // بنحدد أنهي سطر تشغيلة هو المقصود بالظبط ونركّز حقل الكمية بتاعه فورًا.
+    const addProductToCount = (product, hint) => {
+        if (countItems.some((r) => r.id === product.id)) {
+            showToast("الصنف ده متضاف في الجرد بالفعل");
+            return;
+        }
+        const isMatch = (b) => {
+            if (!hint) return false;
+            if (hint.batchNumber && b.batch_number && hint.batchNumber === b.batch_number) return true;
+            if (hint.expiry && b.expiry_date === hint.expiry) return true;
+            return false;
+        };
+        const batches = (product.batches || []).filter((b) => b.qty > 0);
+        const newRows =
+            batches.length > 0
+                ? batches.map((b, idx) => ({
+                      id: product.id,
+                      lineKey: `${product.id}::${b.expiry_date || "بدون-تاريخ"}::${idx}`,
+                      name: product.name,
+                      category: product.category,
+                      expiry: b.expiry_date || "",
+                      systemQty: b.qty,
+                      actualQty: 0,
+                      diff: -b.qty,
+                      isNew: false,
+                      scanMatched: isMatch(b),
+                  }))
+                : [
+                      {
+                          id: product.id,
+                          lineKey: `${product.id}::بدون-تاريخ::0`,
+                          name: product.name,
+                          category: product.category,
+                          // 🆕 الصنف ده مالوش batches حقيقية (سطر رصيد إجمالي واحد بس)، فلو
+                          // السكانر قرا صلاحية، بنحطها على السطر الوحيد ده مباشرة بدل ما نعتبرها
+                          // تشغيلة تانية ونضيف سطر جديد جنبه (ده هيبقى تكرار وهمي مفيدش).
+                          expiry: hint?.expiry || "",
+                          systemQty: product.stock,
+                          actualQty: 0,
+                          diff: -(product.stock || 0),
+                          isNew: false,
+                          scanMatched: !!hint?.expiry,
+                      },
+                  ];
+        // 🆕 لو الباركود فيه تاريخ صلاحية (hint.expiry) والصنف عنده تشغيلات حقيقية
+        // (batches.length > 0) ومفيش أي واحدة فيها اتطابقت معاه (يعني الصلاحية اللي على
+        // العلبة الحقيقية مش مسجلة في النظام أصلاً)، نضيف سطر تشغيلة جديد بالصلاحية دي
+        // بالظبط بدل ما نتجاهلها. الحالة اللي مالهاش batches اتعالجت فوق على السطر نفسه.
+        if (batches.length > 0 && hint?.expiry && !newRows.some((r) => r.scanMatched)) {
+            newRows.push({
+                id: product.id,
+                lineKey: `${product.id}::${hint.expiry}::${Date.now()}`,
+                name: product.name,
+                category: product.category,
+                expiry: hint.expiry,
+                systemQty: 0,
+                actualQty: 0,
+                diff: 0,
+                isNew: true,
+                scanMatched: true,
+            });
+        }
+        setCountItems((p) => [...p, ...newRows]);
+        setSearch("");
+        const matchedRow = newRows.find((r) => r.scanMatched);
+        if (matchedRow) {
+            // نركّز حقل الكمية بتاع التشغيلة المطابقة عشان الصيدلي يكتب الرقم على طول
+            setTimeout(() => {
+                document.querySelector(`[data-linekey="${matchedRow.lineKey}"]`)?.focus();
+            }, 50);
+        }
+    };
+
+
+    // 🆕 باركود GS1 الثنائي (DataMatrix) — المستخدم في تتبع الأدوية بالسعودية (رصد) —
+    // بيدمج أكتر من معرّف (AI) في كود واحد: (01) GTIN، (10) رقم التشغيلة،
+    // (17) تاريخ الصلاحية YYMMDD، (21) الرقم التسلسلي. بيوصل إما بفاصل نصي بالأقواس
+    // زي في الصورة، أو بفاصل GS الحقيقي (ASCII 29) من السكانر الفعلي.
+    // بيرجع object فيه كل AI موجود، عشان نستخرج الـ GTIN بس للمطابقة مع الأصناف.
+    const parseGS1 = (raw) => {
+        const FIXED_LEN = { "01": 14, "11": 6, "15": 6, "17": 6 }; // AIs بطول ثابت معروف
+        const KNOWN_AI = new Set(["01", "10", "11", "15", "17", "21"]); // AIs المستخدمة في تتبع الدواء
+        const out = {};
+        if (raw.includes("(")) {
+            const re = /\((\d{2,4})\)([^(]*)/g;
+            let m;
+            while ((m = re.exec(raw))) out[m[1]] = m[2].trim();
+            return out;
+        }
+        // ✅ في السكانر الفعلي، فاصل GS (ASCII 29) بين الحقول متغيرة الطول (10، 21) غالبًا
+        // بيتفقد أو مش متسق حسب إعدادات الجهاز — لو اعتمدنا عليه بس، رقم التشغيلة كان بيبلع
+        // أرقام تاريخ الصلاحية اللي وراه (وده اللي كان بيدخل الصلاحية غلط). فبدل ما نعتمد
+        // على GS لوحده، بندوّر كمان على أقرب نقطة تبدأ فيها AI معروفة تانية (01/10/11/15/17/21)
+        // ونوقف الحقل متغير الطول عندها.
+        const GS = String.fromCharCode(29);
+        let rest = raw;
+        while (rest.length >= 2) {
+            const ai = rest.slice(0, 2);
+            if (!KNOWN_AI.has(ai)) break; // مش قادرين نتعرف على بداية الحقل ده، نوقف بأمان
+            rest = rest.slice(2);
+            const len = FIXED_LEN[ai];
+            if (len) {
+                out[ai] = rest.slice(0, len);
+                rest = rest.slice(len);
+            } else {
+                let cut = rest.length;
+                const gsIdx = rest.indexOf(GS);
+                if (gsIdx !== -1) {
+                    cut = gsIdx;
+                } else {
+                    for (let i = 2; i < rest.length - 1; i++) {
+                        if (KNOWN_AI.has(rest.slice(i, i + 2))) {
+                            cut = i;
+                            break;
+                        }
+                    }
+                }
+                out[ai] = rest.slice(0, cut);
+                rest = rest.slice(cut);
+                if (rest[0] === GS) rest = rest.slice(1);
+            }
+        }
+        return out;
+    };
+
+    // 🆕 تحويل تاريخ AI(17) من صيغة GS1 (YYMMDD) لصيغة "سنة-شهر" المستخدمة في batches
+    // (input type="month" في الجدول) — بنتجاهل رقم اليوم لإن التخزين عندنا بمستوى الشهر بس.
+    const gs1DateToYearMonth = (yymmdd) => {
+        if (!yymmdd || yymmdd.length !== 6) return null;
+        return `20${yymmdd.slice(0, 2)}-${yymmdd.slice(2, 4)}`;
+    };
+
+    // 🆕 معالجة السكانر: بيدخل باركود (عادي أو GS1 ثنائي)، بيدوّر على الصنف المطابق، ويضيفه للجرد.
+    // لو الكود مركّب (فيه أقواس AI أو أطول من باركود عادي بكتير)، بنستخرج الـ GTIN (AI 01)
+    // بس ونطابق بيه — نفس منطق المطابقة المستخدم في استيراد الإكسيل (normGtin على barcode و gtin).
+    // وبنستخرج كمان رقم التشغيلة (AI 10) وتاريخ الصلاحية (AI 17) كـ hint لتحديد سطر
+    // التشغيلة بالظبط في الجرد بدل ما الصيدلي يختار يدوي.
+    const handleScanBarcode = (rawCode) => {
+        let gtinSource = rawCode;
+        let hint = null;
+        if (rawCode.includes("(") || rawCode.length > 20) {
+            const parsed = parseGS1(rawCode);
+            if (parsed["01"]) gtinSource = parsed["01"];
+            hint = {
+                batchNumber: parsed["10"] || null,
+                expiry: parsed["17"] ? gs1DateToYearMonth(parsed["17"]) : null,
+            };
+        }
+        const code = normGtin(gtinSource);
+        if (!code) return;
+        const product = products.find(
+            (x) => normGtin(x.barcode) === code || normGtin(x.gtin) === code
+        );
+        if (!product) {
+            showToast("الباركود ده مش موجود عندك في الأصناف", "error");
+            setScanInput("");
+            return;
+        }
+        addProductToCount(product, hint);
+        setScanInput("");
+    };
+
+    // 🆕 قايمة "أصناف لسه ماتجردتش": أي صنف عنده رصيد في النظام ومعملهوش سكان/إضافة
+    // لسه — بتفضل ظاهرة طول ما الجرد شغال، وأي صنف فيها لسه وقت الحفظ بيتحسب فرق (نقص)
+    // تلقائي = رصيده الحالي كامل.
+    const buildNotCountedProducts = () => {
+        const countedIds = new Set(countItems.map((r) => r.id));
+        return products.filter((p) => {
+            if (countedIds.has(p.id)) return false;
+            const batches = (p.batches || []).filter((b) => b.qty > 0);
+            const stock = batches.length > 0 ? batches.reduce((s, b) => s + b.qty, 0) : p.stock || 0;
+            return stock > 0;
+        });
+    };
+    const notCountedProducts = showNew ? buildNotCountedProducts() : [];
 
     // بيدوّر على اسم العمود الصح مهما اختلفت صياغته في ملف الجرد (باركود/كود، كمية)
     const normalizeInvHeader = (s) =>
@@ -205,6 +391,16 @@ export function InventoryCount({
         ]);
     };
 
+    // 🆕 حذف سطر واحد بس من الجرد (لو محتاج يصحح تشغيلة واحدة)
+    const removeCountLine = (lineKey) => {
+        setCountItems((p) => p.filter((x) => x.lineKey !== lineKey));
+    };
+
+    // 🆕 حذف الصنف كامل من الجرد (كل تشغيلاته) — للحالة اللي بيضرب صنف بالغلط بالسكانر
+    const removeProductFromCount = (productId) => {
+        setCountItems((p) => p.filter((x) => x.id !== productId));
+    };
+
     // ✅ أداة إصلاح لمرة واحدة: فاتورة الشراء كانت بتحدّث تشغيلات الصنف (batches) في
     // الذاكرة المحلية بس من غير ما تحفظها في Supabase، فتواريخ صلاحية كتير اتفقدت.
     // الأداة دي بتعيد بناء batches كل صنف من كل فواتير الشراء المسجلة + الكمية الحالية
@@ -316,11 +512,43 @@ export function InventoryCount({
     };
 
     const saveCount = async () => {
+        // 🆕 أي صنف عنده رصيد نظام ولسه في قايمة "لسه ماتجردتش" وقت القفل، يتحسب
+        // فرق (نقص) تلقائي = رصيده الحالي كامل، بدل ما يتجاهل أو يفضل زي ما هو.
+        const autoZeroRows = buildNotCountedProducts().flatMap((p) => {
+            const batches = (p.batches || []).filter((b) => b.qty > 0);
+            return batches.length > 0
+                ? batches.map((b, idx) => ({
+                      id: p.id,
+                      lineKey: `${p.id}::auto-zero::${idx}`,
+                      name: p.name,
+                      category: p.category,
+                      expiry: b.expiry_date || "",
+                      systemQty: b.qty,
+                      actualQty: 0,
+                      diff: -b.qty,
+                      isNew: false,
+                  }))
+                : [
+                      {
+                          id: p.id,
+                          lineKey: `${p.id}::auto-zero::0`,
+                          name: p.name,
+                          category: p.category,
+                          expiry: "",
+                          systemQty: p.stock,
+                          actualQty: 0,
+                          diff: -(p.stock || 0),
+                          isNew: false,
+                      },
+                  ];
+        });
+        const countItemsFinal = [...countItems, ...autoZeroRows];
+
         const logData = {
             id: "INV-ADJ-" + Date.now(),
             date: todayLocal(),
             type: "جرد",
-            items: countItems.map((i) => ({
+            items: countItemsFinal.map((i) => ({
                 id: i.id,
                 name: i.name,
                 expiry: i.expiry || null,
@@ -335,7 +563,7 @@ export function InventoryCount({
 
         // بنجمع كل أسطر تواريخ الصلاحية الخاصة بنفس الصنف عشان نحسب إجمالي الكمية الفعلية له
         const productTotals = {};
-        countItems.forEach((i) => {
+        countItemsFinal.forEach((i) => {
             if (!productTotals[i.id]) productTotals[i.id] = { systemQty: 0, actualQty: 0 };
             productTotals[i.id].systemQty += +i.systemQty;
             productTotals[i.id].actualQty += +i.actualQty;
@@ -359,7 +587,7 @@ export function InventoryCount({
         // update لكل صنف حتى لو مفيش فرق فيه، ودي كانت عبء غير ضروري على الشبكة/الـ RPC.
         const productUpdates = changedProductIds.map((id) => {
             const prod = products.find((x) => x.id === id);
-            const rows = countItems.filter((i) => i.id === id && +i.actualQty > 0);
+            const rows = countItemsFinal.filter((i) => i.id === id && +i.actualQty > 0);
             const newBatches = rows.map((r) => {
                 const origBatch = (prod?.batches || []).find(
                     (b) => (b.expiry_date || "") === (r.expiry || "")
@@ -420,10 +648,6 @@ export function InventoryCount({
         setNotes("");
         showToast(synced ? "تم حفظ الجرد وتحديث المخزون ✓" : "تم حفظ الجرد محليًا — هيتزامن أول ما النت يرجع 🔄");
     };
-
-    const filtered = countItems.filter(
-        (i) => (i.name || "").includes(search) || (i.category || "").includes(search)
-    );
 
     return (
         <div>
@@ -676,10 +900,27 @@ export function InventoryCount({
                         </div>
                     </div>
                 )}
+                {/* 🆕 حقل السكانر — بيدخل تلقائي من غير Enter: السكانر بيكتب كل حروف
+                    الباركود خلال أجزاء من الثانية، فبمجرد ما الكتابة توقف لفترة قصيرة
+                    (200ms) بنعتبرها نهاية السكان ونعالجها فورًا. Enter لسه شغال كبديل يدوي. */}
                 <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="🔍 بحث في الأصناف..."
+                    value={scanInput}
+                    onChange={(e) => {
+                        const val = e.target.value;
+                        setScanInput(val);
+                        if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+                        scanTimeoutRef.current = setTimeout(() => {
+                            if (val.trim()) handleScanBarcode(val.trim());
+                        }, 200);
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" && scanInput.trim()) {
+                            if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+                            handleScanBarcode(scanInput.trim());
+                        }
+                    }}
+                    placeholder="📷 امسح الباركود هنا..."
+                    autoFocus
                     style={{
                         width: "100%",
                         background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -691,9 +932,74 @@ export function InventoryCount({
                         outline: "none",
                         boxSizing: "border-box",
                         marginTop: 12,
-                        marginBottom: 12,
+                        marginBottom: 8,
                     }}
                 />
+                {/* 🆕 بار البحث بالاسم — بديل للسكانر، بيقترح الأصناف المطابقة وبتضاف بالضغط عليها */}
+                <div style={{ position: "relative", marginBottom: 12 }}>
+                    <input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="🔍 أو ابحث بالاسم وضيف الصنف يدويًا..."
+                        style={{
+                            width: "100%",
+                            background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                            border: `1px solid ${COLORS.border}`,
+                            borderRadius: 8,
+                            padding: "9px 12px",
+                            color: COLORS.textPrimary,
+                            fontSize: 14,
+                            outline: "none",
+                            boxSizing: "border-box",
+                        }}
+                    />
+                    {search.trim() && (
+                        <div
+                            style={{
+                                position: "absolute", zIndex: 5, top: "100%", right: 0, left: 0,
+                                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                border: `1px solid ${COLORS.border}`, borderRadius: 8, marginTop: 4,
+                                maxHeight: 220, overflowY: "auto",
+                            }}
+                        >
+                            {products
+                                .filter((p) => {
+                                    const searchLower = search.toLowerCase();
+                                    const name = (p.nameAr || p.name || "").toLowerCase();
+                                    const nameEn = (p.nameEn || p.name_en || "").toLowerCase();
+                                    return (
+                                        (name.includes(searchLower) || nameEn.includes(searchLower)) &&
+                                        !countItems.some((r) => r.id === p.id)
+                                    );
+                                })
+                                .slice(0, 20)
+                                .map((p) => (
+                                    <div
+                                        key={p.id}
+                                        onClick={() => addProductToCount(p)}
+                                        style={{
+                                            padding: "8px 12px", cursor: "pointer", fontSize: 13,
+                                            color: COLORS.textPrimary, borderBottom: `1px solid ${COLORS.border}`,
+                                        }}
+                                    >
+                                        {p.nameAr || p.name}
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+                </div>
+                {notCountedProducts.length > 0 && (
+                    <div
+                        style={{
+                            background: "rgba(255,170,0,0.08)", border: `1px solid ${COLORS.gold}`,
+                            borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12.5,
+                        }}
+                    >
+                        <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: 4 }}>
+                            ⏳ {notCountedProducts.length} صنف لسه ماتجردتش — لو قفلت الجرد كده هيتحسبوا نقص كامل
+                        </div>
+                    </div>
+                )}
                 <div
                     style={{ overflowX: "auto", maxHeight: "50vh", overflowY: "auto" }}
                 >
@@ -704,9 +1010,7 @@ export function InventoryCount({
                                     "الصنف",
                                     "الفئة",
                                     "تاريخ الصلاحية",
-                                    "كمية النظام",
                                     "الكمية الفعلية",
-                                    "الفرق",
                                     "",
                                 ].map((h) => (
                                     <th
@@ -724,12 +1028,14 @@ export function InventoryCount({
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.map((item, i) => (
+                            {countItems.map((item, i) => (
                                 <tr
                                     key={item.lineKey}
                                     style={{
                                         borderBottom: `1px solid ${COLORS.border}`,
-                                        background: item.isNew
+                                        background: item.scanMatched
+                                            ? "rgba(68,221,136,0.14)"
+                                            : item.isNew
                                             ? "rgba(68,221,136,0.06)"
                                             : i % 2 === 0 ? "transparent" : COLORS.surfaceAlt,
                                     }}
@@ -770,14 +1076,17 @@ export function InventoryCount({
                                                 colorScheme: "dark",
                                             }}
                                         />
-                                    </td>
-                                    <td style={{ padding: "8px 14px", color: COLORS.textDim }}>
-                                        {item.systemQty}
+                                        {item.scanMatched && (
+                                            <span style={{ marginRight: 6, fontSize: 11, color: COLORS.green }}>
+                                                ✓ نفس تشغيلة الباركود
+                                            </span>
+                                        )}
                                     </td>
                                     <td style={{ padding: "8px 14px" }}>
                                         <input
                                             type="number"
                                             min="0"
+                                            data-linekey={item.lineKey}
                                             value={item.actualQty}
                                             onChange={(e) =>
                                                 setCountItems((p) =>
@@ -804,22 +1113,7 @@ export function InventoryCount({
                                             }}
                                         />
                                     </td>
-                                    <td
-                                        style={{
-                                            padding: "8px 14px",
-                                            fontWeight: 700,
-                                            color:
-                                                item.actualQty - item.systemQty < 0
-                                                    ? COLORS.red
-                                                    : item.actualQty - item.systemQty > 0
-                                                        ? COLORS.green
-                                                        : COLORS.textDim,
-                                        }}
-                                    >
-                                        {item.actualQty - item.systemQty > 0 ? "+" : ""}
-                                        {item.actualQty - item.systemQty}
-                                    </td>
-                                    <td style={{ padding: "8px 14px" }}>
+                                    <td style={{ padding: "8px 14px", display: "flex", gap: 4 }}>
                                         <button
                                             onClick={() => addExtraExpiryLine(item)}
                                             title="أضف تاريخ صلاحية إضافي لنفس الصنف (لو لقيت كمية على الرف بتاريخ مختلف)"
@@ -830,6 +1124,26 @@ export function InventoryCount({
                                                 cursor: "pointer", fontWeight: 700, fontSize: 13,
                                             }}
                                         >+</button>
+                                        <button
+                                            onClick={() => removeCountLine(item.lineKey)}
+                                            title="احذف السطر ده بس"
+                                            style={{
+                                                width: 24, height: 24, borderRadius: 6,
+                                                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                                border: `1px solid ${COLORS.border}`, color: COLORS.red,
+                                                cursor: "pointer", fontWeight: 700, fontSize: 13,
+                                            }}
+                                        >−</button>
+                                        <button
+                                            onClick={() => removeProductFromCount(item.id)}
+                                            title="احذف الصنف كامل من الجرد (ضربته بالغلط بالسكانر)"
+                                            style={{
+                                                width: 24, height: 24, borderRadius: 6,
+                                                background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                                border: `1px solid ${COLORS.border}`, color: COLORS.red,
+                                                cursor: "pointer", fontWeight: 700, fontSize: 11,
+                                            }}
+                                        >🗑</button>
                                     </td>
                                 </tr>
                             ))}

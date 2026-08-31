@@ -106,8 +106,18 @@ export function describePromo(promo, product) {
   switch (type) {
     case "fixed_amount":
       return { label: `خصم ${promo.fixed_amount} ر.س`, newUnitPrice: +Math.max(0, price - (promo.fixed_amount || 0)).toFixed(2) };
-    case "bogo":
-      return { label: `اشتري ${promo.buy_qty || 1} واحصل على ${promo.get_qty || 1} بخصم ${promo.get_discount_percent ?? 100}%`, newUnitPrice: price };
+    case "bogo": {
+      const buyQty = promo.buy_qty || 1;
+      const getQty = promo.get_qty || 1;
+      const dealQty = buyQty + getQty;
+      const dealTotal = +calcPromoLineTotal(promo, price, dealQty).toFixed(2);
+      return {
+        label: `اشتري ${buyQty} واحصل على ${getQty} بخصم ${promo.get_discount_percent ?? 100}%`,
+        newUnitPrice: price,
+        dealQty,
+        dealTotal,
+      };
+    }
     case "quantity":
       return { label: `اشتري ${promo.buy_qty || 1}+ واحصل على خصم ${promo.qty_discount_percent || 0}% على كل حبة`, newUnitPrice: +(price * (1 - (promo.qty_discount_percent || 0) / 100)).toFixed(2) };
     case "bundle":

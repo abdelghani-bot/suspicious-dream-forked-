@@ -19,6 +19,7 @@ function buildShelfLabelHtml(items, offerName, columns = 2) {
         const badgeHTML = !priceUnchanged
             ? `<div class="discount-badge">خصم ${item.discount}%</div>`
             : `<div class="discount-badge promo-text">${item.promoLabel || "عرض خاص"}</div>`;
+        const hasDeal = item.dealTotal != null && item.dealQty > 1;
         const pricesHTML = !priceUnchanged
             ? `<div class="prices">
             <div class="old-price-box">
@@ -29,6 +30,13 @@ function buildShelfLabelHtml(items, offerName, columns = 2) {
             <div class="new-price-box">
               <div class="new-price-label">السعر بعد</div>
               <div class="new-price">${item.discountedPrice.toFixed(2)}</div>
+            </div>
+          </div>`
+            : hasDeal
+            ? `<div class="prices">
+            <div class="single-price-box">
+              <div class="old-price-label">السعر لـ ${item.dealQty} قطع</div>
+              <div class="new-price">${item.dealTotal.toFixed(2)}</div>
             </div>
           </div>`
             : `<div class="prices">
@@ -389,6 +397,8 @@ const productFirstStocked = useMemo(() => {
         discountedPrice: desc.newUnitPrice,
         discount: baseRow.promo_type === "percent" ? baseRow.discount : 0,
         promoLabel: desc.label,
+        dealQty: desc.dealQty,
+        dealTotal: desc.dealTotal,
         endDate: promoForm.end_date,
         isAuto: false,
     };
@@ -1229,6 +1239,8 @@ products.forEach((p) => {
                                                     discountedPrice: descVat?.newUnitPrice ?? priceVat,
                                                     discount: promo.promo_type === "percent" ? promo.discount : 0,
                                                      promoLabel: descVat?.label,
+                                                    dealQty: descVat?.dealQty,
+                                                    dealTotal: descVat?.dealTotal,
                                                     endDate: promo.end_date,
                                                     isAuto: false,
                                                      };

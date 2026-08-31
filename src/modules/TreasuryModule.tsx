@@ -1203,6 +1203,105 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         printHTML(dayClosingHtml, { deviceName: pharmInfo.reportsPrinterName || undefined });
     };
 
+    // ── نفس تقرير التقفيل، بس بمقاس طابعة فواتير حرارية (Epson 80mm) بدل A4 ──
+    // بنعيد استخدام نفس بيانات اليوم (dayEntries/incomeRows/...) لكن بـ HTML/CSS مختلف تمامًا:
+    // عمود واحد بعرض 80mm بدل جدول عريض، وخط أصغر يناسب الورق الحراري.
+    const printDayClosingReceipt = (dateStr) => {
+        if (!closedDaySet.has(dateStr)) {
+            showToast("⚠️ لسه معملش تقفيل رسمي لهذا اليوم — اقفله الأول", "error");
+            return;
+        }
+        const dayEntries = groupedByDay[dateStr] || [];
+        const closingEntry = dayEntries.find((e) => e.sub_type === "daily_closing");
+        const incomeRows = dayEntries.filter((e) => e.type === "income" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+        const expenseRows = dayEntries.filter((e) => e.type === "expense" && !TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+        const balanceIncomeRows = dayEntries.filter((e) => e.type === "income" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+        const balanceExpenseRows = dayEntries.filter((e) => e.type === "expense" && TREASURY_BALANCE_SUBTYPES.has(e.sub_type));
+        const totalIncomeRec = incomeRows.reduce((a, e) => a + (e.amount || 0), 0);
+        const totalExpenseRec = expenseRows.reduce((a, e) => a + (e.amount || 0), 0);
+        const totalBalanceIncomeRec = balanceIncomeRows.reduce((a, e) => a + (e.amount || 0), 0);
+        const totalBalanceExpenseRec = balanceExpenseRows.reduce((a, e) => a + (e.amount || 0), 0);
+        const t = computeDayTotals(dateStr);
+        const netCashRec = totalIncomeRec - totalExpenseRec;
+        const balanceNetRec = totalBalanceIncomeRec - totalBalanceExpenseRec;
+
+        const paperWidthMm = pharmInfo.receiptPaperWidth === "58" ? 58 : 80;
+        const bodyWidthMm = paperWidthMm - 4; // هامش 2مم كل جنب
+
+        const receiptRowsHtml = (rows, sign) => rows.map((e) => `
+      <div class="r-row">
+        <span class="r-label">${e.note || (AUDIT_ENTITY_LABELS[e.sub_type] || e.sub_type)}</span>
+        <span class="r-amount" style="color:${sign > 0 ? "#0a7a3a" : "#a30f0f"}">${sign > 0 ? "+" : "-"}${(e.amount || 0).toFixed(2)}</span>
+      </div>`).join("");
+
+        const dayClosingReceiptHtml = `
+      <html dir="rtl">
+      <head>
+        <meta charset="utf-8">
+        <title>تقفيل يوم ${dateStr}</title>
+        <style>
+          * { margin:0; padding:0; box-sizing:border-box; font-family: 'Courier New', Arial, sans-serif; }
+          @page { size: ${paperWidthMm}mm auto; margin: 0; }
+          body { width: ${bodyWidthMm}mm; margin: 0 auto; color:#000; font-size:12px; padding: 3mm 3mm 8mm; }
+          .center { text-align:center; }
+          .divider { border-top: 1px dashed #000; margin: 6px 0; }
+          h1 { font-size:14px; }
+          .sub { color:#333; font-size:10px; }
+          h2 { font-size:12px; margin:8px 0 4px; font-weight:bold; }
+          .r-row { display:flex; justify-content:space-between; gap:6px; padding:2px 0; font-size:12px; }
+          .r-label { flex:1; }
+          .r-amount { font-weight:900; font-size:13px; white-space:nowrap; }
+          .summary-row { display:flex; justify-content:space-between; font-size:12px; padding:2px 0; }
+          .summary-row .amt { font-weight:900; font-size:14px; }
+          .total-line { display:flex; justify-content:space-between; font-size:15px; font-weight:900; border-top:1px solid #000; padding-top:5px; margin-top:6px; }
+          .balance-total { display:flex; justify-content:space-between; font-size:12px; font-weight:900; border-top:1px dashed #000; padding-top:4px; margin-top:4px; }
+          .meta { color:#333; font-size:9px; margin-top:10px; border-top:1px dashed #000; padding-top:6px; }
+        </style>
+      </head>
+      <body>
+        <div class="center">
+          <h1>${pharmInfo.name || "الصيدلية"}</h1>
+          ${pharmInfo.address ? `<div class="sub">${pharmInfo.address}</div>` : ""}
+          ${pharmInfo.taxNumber ? `<div class="sub">الرقم الضريبي: ${pharmInfo.taxNumber}</div>` : ""}
+          <div class="sub" style="font-weight:bold; margin-top:4px;">تقرير تقفيل يومي — ${dateStr}</div>
+        </div>
+        <div class="divider"></div>
+
+        <div class="summary-row"><span>💵 نقدي</span><span class="amt">${t.cash.toFixed(2)}</span></div>
+        <div class="summary-row"><span>💳 بطاقة</span><span class="amt">${t.card.toFixed(2)}</span></div>
+        <div class="summary-row"><span>🏦 تحويل</span><span class="amt">${t.transfer.toFixed(2)}</span></div>
+        <div class="summary-row"><span>سداد آجل</span><span class="amt">${t.creditIncome.toFixed(2)}</span></div>
+        <div class="summary-row"><span>عدد الفواتير</span><span class="amt">${t.count}</span></div>
+
+        ${incomeRows.length > 0 ? `<div class="divider"></div><h2>الإيرادات المسجّلة</h2>${receiptRowsHtml(incomeRows, 1)}` : ""}
+        ${expenseRows.length > 0 ? `<div class="divider"></div><h2>المصروفات المسجّلة</h2>${receiptRowsHtml(expenseRows, -1)}` : ""}
+
+        <div class="total-line">
+          <span>صافي حركة اليوم</span>
+          <span>${netCashRec.toFixed(2)} ر.س</span>
+        </div>
+
+        ${(balanceIncomeRows.length > 0 || balanceExpenseRows.length > 0) ? `
+        <div class="divider"></div>
+        <h2>🏦 مدفوعات من رصيد الخزنة</h2>
+        ${receiptRowsHtml(balanceIncomeRows, 1)}
+        ${receiptRowsHtml(balanceExpenseRows, -1)}
+        <div class="balance-total">
+          <span>صافي حركة الرصيد</span>
+          <span>${balanceNetRec >= 0 ? "+" : ""}${balanceNetRec.toFixed(2)} ر.س</span>
+        </div>` : ""}
+
+        <div class="meta center">
+          ${closingEntry ? `تم التقفيل بواسطة: ${closingEntry.created_by || "—"}${closingEntry.created_at ? " — " + new Date(closingEntry.created_at).toLocaleString("ar-SA") : ""}` : ""}
+        </div>
+      </body>
+      </html>
+    `;
+        // 🆕 بنستخدم thermalPrinterName — نفس الحقل المخصص لطابعة الإيصالات الحرارية (POS) في
+        // إعدادات الصيدلية، بدل طابعة التقارير (reportsPrinterName) العادية.
+        printHTML(dayClosingReceiptHtml, { deviceName: pharmInfo.thermalPrinterName || undefined });
+    };
+
     // ── تقفيل يوم سابق بأثر رجعي (نسخة مبسطة: بترحّل دخل المبيعات + مصروف إجمالي اختياري + علامة التقفيل) ──
     const [retroClosingDate, setRetroClosingDate] = useState(null);
     const [retroExpense, setRetroExpense] = useState("");
@@ -1649,7 +1748,13 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                         onClick={() => printDayClosing(today)}
                         style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 20px", color: COLORS.textPrimary, fontSize: 13, cursor: "pointer" }}
                     >
-                        🖨️ طباعة التقفيل
+                        🖨️ طباعة التقفيل (A4)
+                    </button>
+                    <button
+                        onClick={() => printDayClosingReceipt(today)}
+                        style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 20px", color: COLORS.textPrimary, fontSize: 13, cursor: "pointer", marginRight: 8 }}
+                    >
+                        🧾 طباعة التقفيل (طابعة فواتير)
                     </button>
                 </div>
             )}
@@ -2096,10 +2201,19 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                         {closedDaySet.has(day) && (
                                             <button
                                                 onClick={(ev) => { ev.stopPropagation(); printDayClosing(day); }}
-                                                title="طباعة تقرير التقفيل"
+                                                title="طباعة تقرير التقفيل (A4)"
                                                 style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "5px 9px", color: COLORS.textDim, fontSize: 12, cursor: "pointer" }}
                                             >
                                                 🖨️
+                                            </button>
+                                        )}
+                                        {closedDaySet.has(day) && (
+                                            <button
+                                                onClick={(ev) => { ev.stopPropagation(); printDayClosingReceipt(day); }}
+                                                title="طباعة تقرير التقفيل (طابعة فواتير)"
+                                                style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "5px 9px", color: COLORS.textDim, fontSize: 12, cursor: "pointer" }}
+                                            >
+                                                🧾
                                             </button>
                                         )}
                                     </div>

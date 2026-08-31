@@ -62,6 +62,7 @@ export function POS({
     setActiveTab,
     pharmacyId,
     suppliers, // 🆕 لسيناريو "رصيد صفر + طلبية مورد لسه ملحقتش تتسجل"
+    setPurchases, // 🆕 لسيناريو "رصيد صفر + طلبية مورد لسه ملحقتش تتسجل"
     jokerPendingItems,
     setJokerPendingItems,
     promos,
@@ -384,19 +385,23 @@ export function POS({
     };
 
     useEffect(() => {
-        const handler = (e) => {
-            if (e.key === "F2") {
-                e.preventDefault();
-                addTab();
-            }
-            if (e.key === "F1") {
-                e.preventDefault();
-                completeSale();
-            }
-        };
-        window.addEventListener("keydown", handler);
-        return () => window.removeEventListener("keydown", handler);
-    }, [addTab]);
+    const handler = (e) => {
+        if (e.key === "F2") {
+            e.preventDefault();
+            addTab();
+        }
+        if (e.key === "F1") {
+            e.preventDefault();
+            completeSale(true); // حفظ وطباعة
+        }
+        if (e.key === "F4") {
+            e.preventDefault();
+            completeSale(false); // حفظ من غير طباعة
+        }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+}, [addTab]);
     const closeTab = (idx) => {
         if (invoices.length === 1) {
             setInvoices([emptyInvoice()]);
@@ -452,6 +457,7 @@ export function POS({
     };
 
     const addToCart = (p, opts: any = {}) => {
+        console.log('product passed to addToCart:', p);
         if (!p.isMissed && !p.isJoker) {
             const effectiveStock =
                 p.saleUnits > 1 ? p.stock * p.saleUnits : p.stock;
@@ -891,7 +897,23 @@ export function POS({
                 ...openZeroStockDrafts,
                 [zeroStockSupplier]: { poId, items: newItemsList, date: todayLocal() },
             });
-
+            setPurchases((prev) => {
+    const draftInvoice = {
+        id: poId,
+        supplier: zeroStockSupplier,
+        supplier_name: sup?.name || "",
+        items: newItemsList,
+        status: "مسودة",
+        date: todayLocal(),
+        subtotal: 0,
+        taxAmount: 0,
+        total: 0,
+    };
+    const exists = prev.some((p) => p.id === poId);
+    return exists
+        ? prev.map((p) => (p.id === poId ? { ...p, items: newItemsList } : p))
+        : [...prev, draftInvoice];
+});
             // تحديث فوري لرصيد الصنف في الـstate المحلي عشان البيع يكمل من غير انتظار الشبكة
             // 🆕 + إضافة الـ batch الحقيقي (اللي رجع من createZeroStockDraftPurchase/addItemToZeroStockDraftPurchase)
             // لمصفوفة batches بتاعة نفس الصنف في products state — ده اللي يخلي الرصيد الحقيقي القابل
@@ -999,17 +1021,20 @@ export function POS({
             : Math.round((((subtotal + taxAmount) * (inv.discount || 0)) / 100) * 100) / 100;
 
     // ✅ لو تغيّر إجمالي الفاتورة (إضافة/حذف صنف) والمبلغ المُستبدل بقى أكبر من الحد المسموح، نصغّره تلقائياً
+    // 🆕 customerLoyalty.points رصيد بالنقاط الخام — pointsToRedeem وpointsDiscount فضلوا بالريال
+    // زي ما هما (أبسط للكاشير وللخصم على الفاتورة)، فبنقسم على المعامل عشان نعرف أقصى ريال متاح
+    const perRiyal = loyaltySettings?.points_per_riyal || 1;
     useEffect(() => {
         if (!usePoints) return;
-        const maxRedeemable = Math.max(0, Math.min(customerLoyalty?.points || 0, subtotal + taxAmount - discountAmt));
+        const maxRedeemable = Math.max(0, Math.min((customerLoyalty?.points || 0) / perRiyal, subtotal + taxAmount - discountAmt));
         setPointsToRedeem((prev) => (prev > maxRedeemable ? maxRedeemable : prev));
-    }, [usePoints, subtotal, taxAmount, discountAmt, customerLoyalty]);
+    }, [usePoints, subtotal, taxAmount, discountAmt, customerLoyalty, perRiyal]);
 
     // ── الإجمالي بعد خصم نقاط الولاء ──
     const pointsDiscount = usePoints ? pointsToRedeem : 0;
     const total = Math.max(0, subtotal + taxAmount - discountAmt - pointsDiscount);
 
-    const completeSale = async () => {
+    const completeSale = async (shouldPrint = true) => {
         if (!currentShift) {
             showToast("يرجى فتح شفت أولاً", "error");
             return;
@@ -1085,6 +1110,7 @@ export function POS({
             items: inv.cart.map((i) => ({
                 id: i.id,
                 name: i.name,
+                name_en: i.name_en || i.nameEn || null,
                 qty: +i.qty,
                 // مهم: السعر المحفوظ لازم يكون سعر سطر السلة (i.price) لأنه هو اللي فيه أي عرض مطبّق
                 // (نسبة/BOGO/كمية/باقة...). سعر التشغيلة (salePrice) بيرجع سعر التشغيلة الأصلي في المخزون
@@ -1267,7 +1293,10 @@ export function POS({
 
         // ── استبدال نقاط في الفاتورة ──
         if (usePoints && pointsToRedeem > 0 && inv.selCustomer?.id) {
-            await redeemLoyaltyPoints(pharmacyId, inv.selCustomer.id, pointsToRedeem);
+            // 🆕 pointsToRedeem مبلغ بالريال (كخصم على الفاتورة) — نحوّله لعدد النقاط الفعلي
+            // اللي هيتخصم من رصيد العميل عن طريق معامل التحويل
+            const pointsToDeduct = pointsToRedeem * (loyaltySettings?.points_per_riyal || 1);
+            await redeemLoyaltyPoints(pharmacyId, inv.selCustomer.id, pointsToDeduct);
 
             setUsePoints(false);
             setPointsToRedeem(0);
@@ -1282,20 +1311,31 @@ export function POS({
             }
 
             if (ls) {
-                let points = 0;
+                const perRiyalEarn = ls.points_per_riyal || 1; // 🆕 كام نقطة لكل ريال مكتسب
+                let pointsInRiyal = 0;
                 const eligibleItems = invoice.items.filter((it) => !it.excluded_from_points);
                 if (ls.mode === "profit") {
                     const profit = eligibleItems.reduce((sum, it) => {
                         return sum + (it.price - (it.cost || 0)) * (it.qty || 0);
                     }, 0) - (invoice.discount_amt || 0);
-                    points = Math.max(0, profit * (ls.profit_rate / 100));
+                    pointsInRiyal = Math.max(0, profit * (ls.profit_rate / 100));
                 } else {
-                    points = Math.floor(pointsEligibleSubtotal / ls.sales_per) * ls.sales_rate;
+                    pointsInRiyal = (pointsEligibleSubtotal / ls.sales_per) * ls.sales_rate;
                 }
-
+                // 🆕 قيمة النقاط الفعلية اللي بتتحفظ لرصيد العميل = القيمة بالريال × معامل التحويل
+                const points = pointsInRiyal * perRiyalEarn;
+                console.log("🔍 LOYALTY DEBUG:", {
+    hasCustomer: !!inv.selCustomer?.id,
+    ls,
+    eligibleItemsCount: eligibleItems.length,
+    profit: ls?.mode === "profit" ? (eligibleItems.reduce((s, it) => s + (it.price - (it.cost || 0)) * (it.qty || 0), 0) - (invoice.discount_amt || 0)) : null,
+    pointsInRiyal,
+    points,
+});
                 if (points > 0) {
                     await earnLoyaltyPoints(pharmacyId, inv.selCustomer.id, invoice.id, points, ls.mode);
-                    showToast(`🌟 ${inv.selCustomer.name} كسب ${points.toFixed(1)} ريال نقاط`);
+                    const sarNote = perRiyalEarn !== 1 ? ` (${pointsInRiyal.toFixed(2)} ر.س)` : "";
+                    showToast(`🌟 ${inv.selCustomer.name} كسب ${points.toFixed(0)} نقطة${sarNote}`);
                 }
             }
         }
@@ -1416,9 +1456,11 @@ export function POS({
         }
 
         setInv({ ...emptyInvoice(), success: true });
-        setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
-        setShowPrint({ ...invoice, customer_phone: inv.selCustomer?.phone || null });
-        showToast("تمت عملية البيع ✓");
+setTimeout(() => setInv((p) => ({ ...p, success: false })), 2000);
+if (shouldPrint) {
+    setShowPrint({ ...invoice, customer_phone: inv.selCustomer?.phone || null });
+}
+showToast("تمت عملية البيع ✓");
     };
 
     return (
@@ -2759,7 +2801,7 @@ export function POS({
                     </div>
 
                     {/* ===== نقاط الولاء ===== */}
-                    {inv.selCustomer && customerLoyalty?.points >= (loyaltySettings?.min_redeem || 10) && (
+                    {inv.selCustomer && customerLoyalty?.points >= (loyaltySettings?.min_redeem || 10) * perRiyal && (
                         <div style={{
                             background: COLORS.greenSoft,
                             border: `1px solid ${tint(COLORS.green, 0.35)}`,
@@ -2770,7 +2812,8 @@ export function POS({
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <div>
                                     <div style={{ color: COLORS.green, fontSize: 12, fontWeight: 700 }}>
-                                        🌟 نقاط متاحة: {customerLoyalty.points.toFixed(2)} ر.س
+                                        🌟 نقاط متاحة: {customerLoyalty.points.toFixed(0)} نقطة
+                                        {perRiyal !== 1 && ` (= ${(customerLoyalty.points / perRiyal).toFixed(2)} ر.س)`}
                                     </div>
                                     {usePoints && (
                                         <div style={{ color: COLORS.green, fontSize: 11, marginTop: 3 }}>
@@ -2783,7 +2826,7 @@ export function POS({
                                         const newUse = !usePoints;
                                         setUsePoints(newUse);
                                         setPointsToRedeem(newUse
-                                            ? Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt)
+                                            ? Math.min(customerLoyalty.points / perRiyal, subtotal + taxAmount - discountAmt)
                                             : 0
                                         );
                                     }}
@@ -2803,7 +2846,7 @@ export function POS({
                             </div>
 
                             {usePoints && (() => {
-                                const maxRedeemable = Math.max(0, Math.min(customerLoyalty.points, subtotal + taxAmount - discountAmt));
+                                const maxRedeemable = Math.max(0, Math.min(customerLoyalty.points / perRiyal, subtotal + taxAmount - discountAmt));
                                 return (
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                                         <input
@@ -2972,15 +3015,26 @@ export function POS({
                         </div>
                     </div>
 
-                    <Btn
-                        size="lg"
-                        onClick={completeSale}
-                        style={{ width: "100%", justifyContent: "center" }}
-                        variant={inv.success ? "success" : "primary"}
-                        icon={inv.success ? "check" : "money"}
-                    >
-                        {inv.success ? "تمت العملية!" : "إتمام البيع"}
-                    </Btn>
+                    <div style={{ display: "flex", gap: 8, width: "100%" }}>
+    <Btn
+        size="lg"
+        onClick={() => completeSale(false)}
+        variant="ghost"
+        style={{ flex: 1, justifyContent: "center" }}
+        icon="save"
+    >
+        حفظ (F4)
+    </Btn>
+    <Btn
+        size="lg"
+        onClick={() => completeSale(true)}
+        style={{ flex: 1.5, justifyContent: "center" }}
+        variant={inv.success ? "success" : "primary"}
+        icon={inv.success ? "check" : "print"}
+    >
+        {inv.success ? "تمت العملية!" : "حفظ وطباعة (F1)"}
+    </Btn>
+</div>
                 </div>
             </div>
 

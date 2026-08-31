@@ -38,6 +38,7 @@ export function LoyaltyModule({
         sales_per: 100,
         min_redeem: 10,
         expiry_months: 12,
+        points_per_riyal: 1, // 🆕 كام نقطة تساوي 1 ريال — 1 يعني نقطة=ريال زي ما كان قبل كده
     });
     const [loyaltyMap, setLoyaltyMap] = useState<Record<string, any>>({});
     const [transactions, setTransactions] = useState<any[]>([]);
@@ -109,13 +110,16 @@ export function LoyaltyModule({
 
     // ── استبدال نقاط ──
     const redeemPoints = async () => {
-        const amount = parseFloat(redeemAmount);
+        const amount = parseFloat(redeemAmount); // المبلغ بالريال اللي الصيدلي داخله
         if (!amount || amount <= 0) return showToast("أدخل مبلغ صحيح", "error");
         const current = loyaltyMap[redeemModal.id] || {};
-        if (amount > (current.points || 0)) return showToast("النقاط غير كافية", "error");
+        const perRiyal = settings.points_per_riyal || 1;
+        // 🆕 النقاط المطلوب خصمها = المبلغ بالريال × معامل التحويل (نقطة لكل ريال)
+        const pointsNeeded = amount * perRiyal;
         if (amount < settings.min_redeem) return showToast(`الحد الأدنى للاستبدال ${settings.min_redeem} ريال`, "warn");
+        if (pointsNeeded > (current.points || 0)) return showToast("النقاط غير كافية", "error");
 
-        const { points: newPoints } = await redeemLoyaltyPoints(pharmacyId, redeemModal.id, amount);
+        const { points: newPoints } = await redeemLoyaltyPoints(pharmacyId, redeemModal.id, pointsNeeded);
 
         const today = todayLocal();
         await insertTreasuryEntry({
@@ -131,11 +135,11 @@ export function LoyaltyModule({
 
         setLoyaltyMap((p) => ({
             ...p,
-            [redeemModal.id]: { ...current, points: newPoints, total_redeemed: (current.total_redeemed || 0) + amount },
+            [redeemModal.id]: { ...current, points: newPoints, total_redeemed: (current.total_redeemed || 0) + pointsNeeded },
         }));
         setTransactions((p) => [{
-            id: Date.now(), customer_id: redeemModal.id, type: "redeem", amount: -amount,
-            note: "استبدال نقدي", created_at: new Date().toISOString(),
+            id: Date.now(), customer_id: redeemModal.id, type: "redeem", amount: -pointsNeeded,
+            note: `استبدال نقدي — ${amount} ر.س`, created_at: new Date().toISOString(),
         }, ...p]);
 
         showToast(`تم صرف ${amount} ريال نقداً للعميل ✓`);
@@ -179,6 +183,7 @@ export function LoyaltyModule({
     };
 
     // ── إحصائيات ──
+    const perRiyal = settings.points_per_riyal || 1; // 🆕 معامل تحويل النقطة للريال
     const totalPointsInSystem = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.points || 0), 0);
     const totalEverEarned = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.total_earned || 0), 0);
     const totalRedeemed = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.total_redeemed || 0), 0);
@@ -219,9 +224,9 @@ export function LoyaltyModule({
             {/* ── إحصائيات ── */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
                 {[
-                    { label: "إجمالي النقاط الحالية", value: totalPointsInSystem.toFixed(1) + " ر.س", color: COLORS.blue },
-                    { label: "إجمالي المكتسبة", value: totalEverEarned.toFixed(1) + " ر.س", color: COLORS.green },
-                    { label: "إجمالي المستبدلة", value: totalRedeemed.toFixed(1) + " ر.س", color: COLORS.red },
+                    { label: "إجمالي النقاط الحالية", value: totalPointsInSystem.toFixed(0) + " نقطة" + (perRiyal !== 1 ? ` (${(totalPointsInSystem / perRiyal).toFixed(2)} ر.س)` : ""), color: COLORS.blue },
+                    { label: "إجمالي المكتسبة", value: totalEverEarned.toFixed(0) + " نقطة", color: COLORS.green },
+                    { label: "إجمالي المستبدلة", value: totalRedeemed.toFixed(0) + " نقطة", color: COLORS.red },
                     { label: "أعضاء نشطون", value: activeMembers, color: COLORS.gold },
                 ].map((s, i) => (
                     <div key={i} style={{ background: VAR.bg, border: `1px solid ${VAR.border}`, borderRadius: 14, padding: "16px 18px" }}>
@@ -247,7 +252,7 @@ export function LoyaltyModule({
                         <table style={{ width: "100%", borderCollapse: "collapse" }}>
                             <thead>
                                 <tr style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
-                                    {["العميل", "النقاط الحالية (ر.س)", "إجمالي مكتسبة", "إجمالي مستبدلة", ""].map((h, i) => (
+                                    {["العميل", "النقاط الحالية", "إجمالي مكتسبة", "إجمالي مستبدلة", ""].map((h, i) => (
                                         <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
                                     ))}
                                 </tr>
@@ -266,25 +271,30 @@ export function LoyaltyModule({
                                             <td style={{ padding: "11px 16px" }}>
                                                 <span style={{
                                                     fontSize: 16, fontWeight: 800,
-                                                    color: lp.points >= settings.min_redeem ? COLORS.green : VAR.muted,
+                                                    color: lp.points >= settings.min_redeem * perRiyal ? COLORS.green : VAR.muted,
                                                 }}>
-                                                    {(lp.points || 0).toFixed(2)}
+                                                    {(lp.points || 0).toFixed(0)} نقطة
                                                 </span>
-                                                {lp.points >= settings.min_redeem && (
+                                                {perRiyal !== 1 && (
+                                                    <div style={{ fontSize: 11, color: VAR.muted }}>
+                                                        = {((lp.points || 0) / perRiyal).toFixed(2)} ر.س
+                                                    </div>
+                                                )}
+                                                {lp.points >= settings.min_redeem * perRiyal && (
                                                     <span style={{ marginRight: 6, fontSize: 10, background: COLORS.greenSoft, color: COLORS.green, padding: "1px 6px", borderRadius: 10 }}>
                                                         قابل للاستبدال
                                                     </span>
                                                 )}
                                             </td>
                                             <td style={{ padding: "11px 16px", color: COLORS.green, fontSize: 13 }}>
-                                                {(lp.total_earned || 0).toFixed(2)}
+                                                {(lp.total_earned || 0).toFixed(0)}
                                             </td>
                                             <td style={{ padding: "11px 16px", color: COLORS.red, fontSize: 13 }}>
-                                                {(lp.total_redeemed || 0).toFixed(2)}
+                                                {(lp.total_redeemed || 0).toFixed(0)}
                                             </td>
                                             <td style={{ padding: "11px 16px" }}>
                                                 <div style={{ display: "flex", gap: 6 }}>
-                                                    {lp.points >= settings.min_redeem && (
+                                                    {lp.points >= settings.min_redeem * perRiyal && (
                                                         <button onClick={() => { setRedeemModal(c); setRedeemAmount(""); }} style={{
                                                             padding: "5px 12px", borderRadius: 7, border: `1px solid ${tint(COLORS.green, 0.35)}`,
                                                             background: COLORS.greenSoft, color: COLORS.green, fontSize: 12, fontWeight: 700, cursor: "pointer",
@@ -317,7 +327,7 @@ export function LoyaltyModule({
                         <table style={{ width: "100%", borderCollapse: "collapse" }}>
                             <thead>
                                 <tr style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${VAR.border}` }}>
-                                    {["التاريخ", "العميل", "النوع", "المبلغ (ر.س)", "ملاحظة"].map((h, i) => (
+                                    {["التاريخ", "العميل", "النوع", "النقاط", "ملاحظة"].map((h, i) => (
                                         <th key={i} style={{ padding: "11px 16px", textAlign: "right", color: VAR.muted, fontSize: 12, fontWeight: 700 }}>{h}</th>
                                     ))}
                                 </tr>
@@ -432,6 +442,23 @@ export function LoyaltyModule({
                             </div>
                         )}
 
+                        {/* 🆕 معامل تحويل النقطة للريال */}
+                        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                            <div style={{ fontSize: 12, color: VAR.muted, marginBottom: 12 }}>
+                                لو حبيت النقاط تظهر برقم أكبر بدل قيمتها بالريال مباشرة — مثلاً 3 ريال = 300 نقطة بدل 3 نقطة. سيبها 1 لو عايز نقطة = ريال زي ما هي.
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ color: VAR.muted, fontSize: 13 }}>1 ريال =</span>
+                                <input
+                                    type="number" min={1} step={1}
+                                    value={settings.points_per_riyal ?? 1}
+                                    onChange={(e) => setSettings((p: any) => ({ ...p, points_per_riyal: Math.max(1, +e.target.value) }))}
+                                    style={{ width: 90, background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "8px 10px", color: VAR.text, fontSize: 14, outline: "none", textAlign: "center" }}
+                                />
+                                <span style={{ color: VAR.muted, fontSize: 13 }}>نقطة</span>
+                            </div>
+                        </div>
+
                         {/* إعدادات الاستبدال */}
                         <h3 style={{ margin: "20px 0 14px", color: COLORS.blue, fontSize: 14, fontWeight: 700 }}>
                             💱 إعدادات الاستبدال
@@ -475,8 +502,13 @@ export function LoyaltyModule({
                         <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 14, textAlign: "center" }}>
                             <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط المتاحة</div>
                             <div style={{ fontSize: 28, fontWeight: 900, color: COLORS.green }}>
-                                {((loyaltyMap[redeemModal.id]?.points) || 0).toFixed(2)} ر.س
+                                {((loyaltyMap[redeemModal.id]?.points) || 0).toFixed(0)} نقطة
                             </div>
+                            {perRiyal !== 1 && (
+                                <div style={{ fontSize: 12, color: VAR.muted, marginTop: 2 }}>
+                                    = {(((loyaltyMap[redeemModal.id]?.points) || 0) / perRiyal).toFixed(2)} ر.س
+                                </div>
+                            )}
                         </div>
                         <div style={{
                             background: COLORS.goldSoft,
@@ -494,7 +526,7 @@ export function LoyaltyModule({
                             </label>
                             <input
                                 type="number" min={settings.min_redeem}
-                                max={loyaltyMap[redeemModal.id]?.points || 0}
+                                max={(loyaltyMap[redeemModal.id]?.points || 0) / perRiyal}
                                 value={redeemAmount}
                                 onChange={(e) => setRedeemAmount(e.target.value)}
                                 placeholder={`الحد الأدنى ${settings.min_redeem} ريال`}
@@ -516,12 +548,12 @@ export function LoyaltyModule({
                         <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 10, padding: 14, textAlign: "center" }}>
                             <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 4 }}>النقاط الحالية</div>
                             <div style={{ fontSize: 28, fontWeight: 900, color: VAR.accent }}>
-                                {((loyaltyMap[adjustModal.id]?.points) || 0).toFixed(2)} ر.س
+                                {((loyaltyMap[adjustModal.id]?.points) || 0).toFixed(0)} نقطة
                             </div>
                         </div>
                         <div>
                             <label style={{ fontSize: 12, color: VAR.muted, fontWeight: 600, display: "block", marginBottom: 6 }}>
-                                المبلغ (موجب للإضافة، سالب للخصم)
+                                عدد النقاط (موجب للإضافة، سالب للخصم)
                             </label>
                             <input
                                 type="number"

@@ -1213,6 +1213,7 @@ export default function PharmacyPro() {
                             autoPromoConfig={posAutoPromoConfig}
                             loyaltySettings={loyaltySettings}
                             onLoyaltySettingsChange={setLoyaltySettings}
+                            setPurchases={setPurchases}
                         />
                     )}
                     {tab === "purchase" && canView("purchase") && (

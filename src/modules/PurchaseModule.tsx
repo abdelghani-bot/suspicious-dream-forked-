@@ -164,7 +164,57 @@ export function PurchaseModule({
     }, [selSupplier, pharmacyId]);
 
     const [showDetail, setShowDetail] = useState(null);
+    // 🆕 لو مش null، معناها إن showNew مفتوح حاليًا عشان "يستكمل" فاتورة مسودة موجودة
+    // (مش بينشئ فاتورة جديدة من الصفر) — savePurchase بتستخدمها تفرق بين المسارين.
+    const [editingDraftId, setEditingDraftId] = useState(null);
     const [editItems, setEditItems] = useState([]);
+    const [editSearchText, setEditSearchText] = useState("");
+    const [editSearchResults, setEditSearchResults] = useState([]);
+    const [showEditDropdown, setShowEditDropdown] = useState(false);
+    const editSearchRef = useRef(null);
+
+    const addItemToEdit = (product, expiry = "", batch = "") => {
+        const existing = editItems.find(
+            (i) => i.id === product.id && (i.expiry_date || "") === (expiry || "")
+        );
+        if (existing) {
+            setEditItems((prev) =>
+                prev.map((i) => (i === existing ? { ...i, qty: i.qty + 1 } : i))
+            );
+            return;
+        }
+        setEditItems((prev) => [
+            ...prev,
+            {
+                id: product.id,
+                name: product.name_ar || product.name,
+                qty: 1,
+                bonusQty: 0,
+                discount1: 0,
+                discount2: 0,
+                receivedCost: 0,
+                newSalePrice: product.price || 0,
+                taxable: !!product.taxable,
+                expiry_date: expiry || "",
+                batch_number: batch || "",
+                batch_id: null,
+            },
+        ]);
+    };
+    const editCols = ["qty", "discount1", "discount2", "receivedCost", "newSalePrice", "bonusQty", "expiry_date", "batch_number"];
+    const handleEditCellKeyDown = (e, rowIndex, colName) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const currentCol = editCols.indexOf(colName);
+        const nextCol = currentCol + 1;
+        if (nextCol >= editCols.length) {
+            const barcodeInput = document.querySelector('input[placeholder="امسح باركود الصنف لإضافته للفاتورة..."]');
+            if (barcodeInput) barcodeInput.focus();
+            else editSearchRef.current?.focus();
+            return;
+        }
+        document.getElementById(`edit-cell-${rowIndex}-${editCols[nextCol]}`)?.focus();
+    };
     const [editSupplier, setEditSupplier] = useState("");
     const [editManualSubtotal, setEditManualSubtotal] = useState("");
     const [editManualTax, setEditManualTax] = useState("");
@@ -1124,6 +1174,188 @@ export function PurchaseModule({
             return;
         }
         const sup = suppliers.find((s) => s.id === selSupplier);
+
+        // ═══════════════════════════════════════════════════
+        // 🆕 مسار "استكمال فاتورة مسودة موجودة" (جاية من رصيد صفر في نقطة البيع) —
+        // بدل إنشاء فاتورة جديدة، بنحدّث نفس الفاتورة: الأصناف اللي معاها batch_id
+        // بالفعل (موجودة من المسودة الأصلية) تاخد delta مخزون بس، وأي صنف جديد
+        // اتضاف هنا في نفس الجلسة (batch_id لسه فاضي) ياخد batch حقيقي كامل —
+        // نفس منطق استكمال المسودة في مودال "تفاصيل الفاتورة".
+        // ═══════════════════════════════════════════════════
+        const originalDraft = editingDraftId ? purchases.find((x) => x.id === editingDraftId) : null;
+        if (originalDraft) {
+            const existingLineItems = items.filter((i) => i.batch_id);
+            const newLineItems = items.filter((i) => !i.batch_id);
+
+            const oldQtyById = {};
+            (originalDraft.items || []).forEach((i) => {
+                oldQtyById[i.id] = (oldQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
+            });
+            const newQtyById = {};
+            existingLineItems.forEach((i) => {
+                newQtyById[i.id] = (newQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
+            });
+            const affectedIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
+            const stockDeltas = [];
+            for (const pid of affectedIds) {
+                const delta = (newQtyById[pid] || 0) - (oldQtyById[pid] || 0);
+                if (delta === 0) continue;
+                stockDeltas.push({ id: pid, delta });
+            }
+
+            const newBatchIds = newLineItems.map(() => crypto.randomUUID());
+            const newBatchesByProduct = {};
+            const newStockEvents = newLineItems.map((ci, idx) => {
+                const product = products.find((x) => x.id === ci.id);
+                const baseBatches = newBatchesByProduct[ci.id] || product?.batches || [];
+                const newBatch = {
+                    id: newBatchIds[idx],
+                    qty: ci.qty + (ci.bonusQty || 0),
+                    cost: ci.receivedCost,
+                    salePrice: ci.newSalePrice,
+                    expiry_date: ci.expiry_date || null,
+                    batch_number: ci.batch_number || null,
+                    date: todayLocal(),
+                };
+                newBatchesByProduct[ci.id] = [...baseBatches, newBatch];
+                return {
+                    id: crypto.randomUUID(),
+                    pharmacy_id: pharmacyId,
+                    product_id: ci.id,
+                    batch: newBatch,
+                    reference_id: editingDraftId,
+                    created_at: new Date().toISOString(),
+                    device_id: getDeviceId(),
+                };
+            });
+
+            const updatedItems = items.map((i) => {
+                const newIdx = newLineItems.findIndex((nl) => nl === i);
+                return {
+                    id: i.id,
+                    name: i.name,
+                    qty: i.qty,
+                    bonusQty: i.bonusQty || 0,
+                    cost: i.receivedCost,
+                    discount1: i.discount1,
+                    discount2: i.discount2,
+                    salePrice: i.newSalePrice,
+                    taxable: i.taxable,
+                    expiry_date: i.expiry_date || null,
+                    batch_number: i.batch_number || null,
+                    batch_id: newIdx >= 0 ? newBatchIds[newIdx] : i.batch_id,
+                };
+            });
+
+            const updatedDraftInvoice = {
+                ...originalDraft,
+                supplier: selSupplier,
+                supplierName: sup.name,
+                supplier_name: sup.name,
+                status: "مستلمة",
+                items: updatedItems,
+                subtotal,
+                taxAmount: taxAmt,
+                total,
+            };
+
+            const editResult = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "PURCHASE_INVOICE_EDIT",
+                timestamp: new Date().toISOString(),
+                payload: {
+                    purchaseId: editingDraftId,
+                    pharmacyId,
+                    updates: {
+                        supplier: selSupplier,
+                        supplier_name: sup.name,
+                        items: updatedItems,
+                        subtotal,
+                        tax_amount: taxAmt,
+                        total,
+                        status: "مستلمة",
+                    },
+                    stockDeltas,
+                },
+            });
+            if (!editResult.synced) {
+                showToast("📴 تم حفظ الفاتورة محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
+            }
+
+            if (newStockEvents.length > 0) {
+                await queueEvent({
+                    id: crypto.randomUUID(),
+                    type: "PURCHASE_STOCK_ADD",
+                    pharmacy_id: pharmacyId,
+                    timestamp: new Date().toISOString(),
+                    payload: { events: newStockEvents },
+                });
+            }
+
+            setProducts((prev) =>
+                prev.map((x) => {
+                    const d = stockDeltas.find((sd) => sd.id === x.id);
+                    const newBatchesForX = newBatchesByProduct[x.id];
+                    if (!d && !newBatchesForX) return x;
+                    return {
+                        ...x,
+                        stock: x.stock + (d?.delta || 0),
+                        batches: newBatchesForX ?? x.batches,
+                    };
+                })
+            );
+
+            try {
+                const key = `pharmacypro_pos_zero_stock_drafts_${pharmacyId}`;
+                const raw = localStorage.getItem(key);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const supplierKey = originalDraft.supplier;
+                    if (parsed[supplierKey]?.poId === editingDraftId) {
+                        delete parsed[supplierKey];
+                        localStorage.setItem(key, JSON.stringify(parsed));
+                    }
+                }
+            } catch (err) {
+                console.error("clearing POS zero-stock draft marker failed:", err);
+            }
+
+            logAudit({
+                pharmacyId, userName: currentUser?.name, action: "edit", entityType: "purchase_invoice",
+                entityId: editingDraftId, entityLabel: `فاتورة شراء ${editingDraftId}`,
+                oldValue: { supplier: originalDraft.supplier_name || originalDraft.supplierName, total: originalDraft.total },
+                newValue: { supplier: sup.name, total },
+                description: `استكمال فاتورة الشراء المسودة "${editingDraftId}"`,
+            });
+
+            setPurchases((prev) => prev.map((x) => (x.id === editingDraftId ? updatedDraftInvoice : x)));
+
+            const itemsForPrintDraft = items.map((i) => ({ ...i }));
+            setItems([]);
+            setSelSupplier("");
+            setManualSubtotal("");
+            setManualTax("");
+            setShowNew(false);
+            setEditingDraftId(null);
+            clearPurchaseDraft();
+            showToast("تم استكمال فاتورة الشراء ✓");
+            printLabels(itemsForPrintDraft);
+            const rasdConfigDraft = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+            const gs1ItemsDraft = itemsForPrintDraft.filter((i) => i.serial);
+            if (rasdConfigDraft.enabled && gs1ItemsDraft.length > 0) {
+                RasdQueue.enqueue("accept", {
+                    items: gs1ItemsDraft.map((i) => ({
+                        gtin: i.gtin || i.barcode,
+                        serial: i.serial,
+                        batch: i.batch,
+                        expiry: i.expiry,
+                    })),
+                });
+            }
+            return;
+        }
+
+        // ── مسار "فاتورة شراء جديدة" تمامًا (زي ما هو بالظبط) ──
         // 🆕 batch.id واحد بيتولّد هنا لكل سطر في الفاتورة (بالـ index، مش بالـ id، عشان لو نفس
         // الصنف اتكرر بسطرين مختلفين في نفس الفاتورة — كل سطر يبقى ليه batch مستقل صح) — ونفس
         // الـ id ده هيتحفظ في بند الفاتورة نفسه (po.items[].batch_id) وفي الـ batch الفعلي جوه
@@ -1359,6 +1591,7 @@ for (const ci of standaloneOfferItems) {
                                     setItems([]);
                                     setManualSubtotal("");
                                     setManualTax("");
+                                    setEditingDraftId(null); // 🆕 مش استكمال مسودة بعد كده، فاتورة جديدة فعلًا
                                     clearPurchaseDraft();
                                 }
                                 setShowNew(true);
@@ -1408,6 +1641,44 @@ for (const ci of standaloneOfferItems) {
                                     style={{ color: COLORS.blue, fontWeight: canEdit ? 700 : 400, cursor: canEdit ? "pointer" : "default" }}
                                     onClick={() => {
                                         if (!canEdit) return;
+                                        // 🆕 فاتورة مسودة (جاية من سيناريو رصيد صفر في نقطة البيع) —
+                                        // فعليًا محتاجة "تُستكمل" ببناء فاتورة كاملة، مش تعديل أرقام بسيط.
+                                        // نفتحها في نفس مودال "فاتورة شراء جديدة" بكل قدراته (بحث، سكانر،
+                                        // صنف جديد، استيراد Excel...) بدل شاشة التعديل المبسطة.
+                                        if (p.status === "مسودة") {
+                                            if (
+                                                items.length > 0 &&
+                                                !window.confirm("في فاتورة شراء غير مكتملة بالفعل، هل تريد استبدالها بهذه المسودة؟")
+                                            ) return;
+                                            const draftItems = (p.items || []).map((i) => {
+                                                const product = products.find((x) => x.id === i.id) || {};
+                                                return {
+                                                    ...product,
+                                                    id: i.id,
+                                                    name: i.name || product.name,
+                                                    qty: i.qty,
+                                                    bonusQty: i.bonusQty || 0,
+                                                    discount1: i.discount1 || 0,
+                                                    discount2: i.discount2 || 0,
+                                                    receivedCost: i.cost || 0,
+                                                    newSalePrice: i.salePrice || product.price || 0,
+                                                    taxable: i.taxable ?? product.taxable,
+                                                    expiry_date: i.expiry_date || "",
+                                                    batch_number: i.batch_number || "",
+                                                    // 🆕 لازم يفضل موجود عشان savePurchase تفرق الصنف ده (له
+                                                    // batch حقيقي بالفعل) عن أي صنف جديد يتضاف هنا في نفس الجلسة
+                                                    batch_id: i.batch_id || null,
+                                                    _rowKey: i.id + "_" + (i.batch_id || Date.now()),
+                                                };
+                                            });
+                                            setItems(draftItems);
+                                            setSelSupplier(p.supplier);
+                                            setEditingDraftId(p.id);
+                                            setManualSubtotal("");
+                                            setManualTax("");
+                                            setShowNew(true);
+                                            return;
+                                        }
                                         setShowDetail(p);
                                         setEditItems(
                                             p.items.map((i) => ({
@@ -2453,7 +2724,69 @@ for (const ci of standaloneOfferItems) {
                             التاريخ: {showDetail.date}
                         </div>
                     </div>
+                      {/* 🆕 بار بحث + سكانر لإضافة صنف جديد على الفاتورة أثناء التعديل */}
+                    <div style={{ marginBottom: 8 }}>
+                        <BarcodeScanner
+                            onScan={(scan) => {
+                                const code = scan.type === "gs1" ? scan.gtin : scan.code;
+                                const expiry = scan.type === "gs1" || scan.type === "custom" ? (scan.expiry || "") : "";
+                                const batch = scan.type === "gs1" || scan.type === "custom" ? (scan.batch || "") : "";
+                                const found = products.find((x) =>
+                                    scan.type === "gs1"
+                                        ? normGtin(x.barcode) === normGtin(code) || normGtin(x.gtin) === normGtin(code)
+                                        : x.barcode === code || x.id === code
+                                );
+                                if (!found) { showToast("الصنف غير موجود: " + code, "error"); return; }
+                                addItemToEdit(found, expiry, batch);
+                            }}
+                            placeholder="امسح باركود الصنف لإضافته للفاتورة..."
+                        />
+                    </div>
 
+                    <div style={{ position: "relative", marginBottom: 14 }} ref={editSearchRef}>
+                        <input
+                            value={editSearchText}
+                            onChange={(e) => {
+                                setEditSearchText(e.target.value);
+                                const q = e.target.value.trim().toLowerCase();
+                                setEditSearchResults(
+                                    q ? products.filter((p) =>
+                                        (p.namear || p.name || "").toLowerCase().includes(q) ||
+                                        (p.barcode || "").includes(q)
+                                    ).slice(0, 8) : []
+                                );
+                                setShowEditDropdown(!!q);
+                            }}
+                            placeholder="🔍 بحث بالاسم أو الباركود لإضافة صنف..."
+                            style={{
+                                width: "100%", padding: "9px 14px", borderRadius: 8,
+                                border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt,
+                                color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box",
+                            }}
+                        />
+                        {showEditDropdown && editSearchResults.length > 0 && (
+                            <div style={{
+                                position: "absolute", top: "100%", right: 0, left: 0, zIndex: 20,
+                                background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+                                borderRadius: 8, marginTop: 4, maxHeight: 240, overflowY: "auto",
+                            }}>
+                                {editSearchResults.map((p) => (
+                                    <div
+                                        key={p.id}
+                                        onClick={() => {
+                                            addItemToEdit(p, "", "");
+                                            setEditSearchText("");
+                                            setEditSearchResults([]);
+                                            setShowEditDropdown(false);
+                                        }}
+                                        style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", color: COLORS.textPrimary }}
+                                    >
+                                        {p.nameAr || p.name} {p.barcode ? `(${p.barcode})` : ""}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     <div style={{ overflowX: "auto" }}>
                         <table
                             style={{
@@ -2473,6 +2806,7 @@ for (const ci of standaloneOfferItems) {
                                         "سعر البيع",
                                         "بونص",
                                         "الصلاحية",
+                                        "الباتش",
                                         "الإجمالي",
                                         "",
                                     ].map((h) => (
@@ -2508,13 +2842,12 @@ for (const ci of standaloneOfferItems) {
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
+                                                id={`edit-cell-${rowIndex}-qty`}
                                                 type="number"
                                                 min="1"
                                                 value={item.qty}
                                                 onChange={(e) => {
                                                     const newQty = +e.target.value;
-                                                    // 🆕 منع تقليل الكمية تحت اللي اتباع بالفعل من نفس الشغلة —
-                                                    // نفس منطق منع الحذف بالظبط، بس هنا جزئي مش كامل.
                                                     const soldQty = getSoldQtyForPurchaseItem(item);
                                                     if (soldQty > 0 && newQty < soldQty) {
                                                         showToast(
@@ -2525,12 +2858,11 @@ for (const ci of standaloneOfferItems) {
                                                     }
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
-                                                                ? { ...i, qty: newQty }
-                                                                : i
+                                                            i.id === item.id ? { ...i, qty: newQty } : i
                                                         )
                                                     );
                                                 }}
+                                                onKeyDown={(e) => handleEditCellKeyDown(e, rowIndex, "qty")}
                                                 style={{
                                                     width: 55,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -2545,6 +2877,7 @@ for (const ci of standaloneOfferItems) {
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
+                                                id={`edit-cell-${rowIndex}-discount1`}
                                                 type="number"
                                                 min="0"
                                                 max="100"
@@ -2566,6 +2899,7 @@ for (const ci of standaloneOfferItems) {
                                                         )
                                                     )
                                                 }
+                                                onKeyDown={(e) => handleEditCellKeyDown(e, rowIndex, "discount1")}
                                                 style={{
                                                     width: 60,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -2580,6 +2914,7 @@ for (const ci of standaloneOfferItems) {
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
+                                                id={`edit-cell-${rowIndex}-discount2`}
                                                 type="number"
                                                 min="0"
                                                 max="100"
@@ -2601,6 +2936,7 @@ for (const ci of standaloneOfferItems) {
                                                         )
                                                     )
                                                 }
+                                                onKeyDown={(e) => handleEditCellKeyDown(e, rowIndex, "discount2")}
                                                 style={{
                                                     width: 60,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -2615,6 +2951,7 @@ for (const ci of standaloneOfferItems) {
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
+                                                id={`edit-cell-${rowIndex}-receivedCost`}
                                                 type="number"
                                                 min="0"
                                                 step="0.0001"
@@ -2628,6 +2965,7 @@ for (const ci of standaloneOfferItems) {
                                                         )
                                                     )
                                                 }
+                                                onKeyDown={(e) => handleEditCellKeyDown(e, rowIndex, "receivedCost")}
                                                 style={{
                                                     width: 85,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -2642,6 +2980,7 @@ for (const ci of standaloneOfferItems) {
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
+                                                id={`edit-cell-${rowIndex}-newSalePrice`}
                                                 type="number"
                                                 min="0"
                                                 step="0.01"
@@ -2663,6 +3002,7 @@ for (const ci of standaloneOfferItems) {
                                                         )
                                                     )
                                                 }
+                                                onKeyDown={(e) => handleEditCellKeyDown(e, rowIndex, "newSalePrice")}
                                                 style={{
                                                     width: 85,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -2674,8 +3014,6 @@ for (const ci of standaloneOfferItems) {
                                                     outline: "none",
                                                 }}
                                             />
-                                            {/* 🆕 نفس فكرة فورم الصنف: السعر فوق ده قبل الضريبة، فبنعرض هنا شامل الضريبة
-                          جنب الصف نفسه، بدل ما يبان بس تحت في إجمالي الفاتورة */}
                                             {item.taxable && (
                                                 <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2, whiteSpace: "nowrap" }}>
                                                     شامل الضريبة: {taxInclusiveLabelPrice(item)}
@@ -2684,6 +3022,7 @@ for (const ci of standaloneOfferItems) {
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
+                                                id={`edit-cell-${rowIndex}-bonusQty`}
                                                 type="number"
                                                 min="0"
                                                 value={item.bonusQty}
@@ -2696,6 +3035,7 @@ for (const ci of standaloneOfferItems) {
                                                         )
                                                     )
                                                 }
+                                                onKeyDown={(e) => handleEditCellKeyDown(e, rowIndex, "bonusQty")}
                                                 style={{
                                                     width: 55,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
@@ -2710,6 +3050,7 @@ for (const ci of standaloneOfferItems) {
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
+                                                id={`edit-cell-${rowIndex}-expiry_date`}
                                                 type="date"
                                                 value={/^\d{4}-\d{2}$/.test(item.expiry_date || "") ? `${item.expiry_date}-01` : (item.expiry_date || "")}
                                                 onChange={(e) =>
@@ -2721,8 +3062,40 @@ for (const ci of standaloneOfferItems) {
                                                         )
                                                     )
                                                 }
+                                                onKeyDown={(e) => {
+                                                    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+                                                    handleEditCellKeyDown(e, rowIndex, "expiry_date");
+                                                }}
                                                 style={{
                                                     width: 125,
+                                                    background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                                    border: `1px solid ${COLORS.border}`,
+                                                    borderRadius: 6,
+                                                    padding: "4px 8px",
+                                                    color: COLORS.textPrimary,
+                                                    fontSize: 13,
+                                                    outline: "none",
+                                                }}
+                                            />
+                                        </td>
+                                          <td style={{ padding: "4px" }}>
+                                            <input
+                                                id={`edit-cell-${rowIndex}-batch_number`}
+                                                type="text"
+                                                value={item.batch_number || ""}
+                                                onChange={(e) =>
+                                                    setEditItems((prev) =>
+                                                        prev.map((i) =>
+                                                            i.id === item.id
+                                                                ? { ...i, batch_number: e.target.value }
+                                                                : i
+                                                        )
+                                                    )
+                                                }
+                                                onKeyDown={(e) => handleEditCellKeyDown(e, rowIndex, "batch_number")}
+                                                placeholder="رقم التشغيلة"
+                                                style={{
+                                                    width: 100,
                                                     background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                                                     border: `1px solid ${COLORS.border}`,
                                                     borderRadius: 6,
@@ -2905,165 +3278,185 @@ for (const ci of standaloneOfferItems) {
                         <Btn
                             icon="check"
                             onClick={async () => {
-                                if (!canEdit) {
-                                    showToast("ليس لديك صلاحية تعديل فواتير الشراء", "error");
-                                    return;
-                                }
-                                const editCalcSubtotal = editItems.reduce(
-                                    (s, i) => s + i.receivedCost * i.qty,
-                                    0
-                                );
-                                const editCalcTax = editItems.reduce(
-                                    (s, i) =>
-                                        i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s,
-                                    0
-                                );
-                                const editSubtotal =
-                                    editManualSubtotal !== ""
-                                        ? +editManualSubtotal
-                                        : editCalcSubtotal;
-                                const editTaxAmt =
-                                    editManualTax !== "" ? +editManualTax : editCalcTax;
-                                const sup = suppliers.find((s) => s.id === editSupplier);
-                                // 🆕 الفاتورة دي لو كانت "مسودة" (جاية من سيناريو رصيد صفر في نقطة البيع)
-                                // وبيتكمّل بياناتها دلوقتي هنا (التكلفة/الخصومات الحقيقية)، فده بالظبط
-                                // معنى "اكتملت" — نحوّل حالتها لـ"مستلمة" زي أي فاتورة عادية، عشان
-                                // مش تفضل معلّقة "بحاجة لإكمال" للأبد حتى بعد ما فعلاً اتكملت.
-                                const wasDraft = showDetail.status === "مسودة";
-                                const updated = {
-                                    ...showDetail,
-                                    supplier: editSupplier,
-                                    supplier_name: sup?.name || showDetail.supplier_name,
-                                    status: wasDraft ? "مستلمة" : showDetail.status,
-                                    items: editItems.map((i) => ({
-                                        id: i.id,
-                                        name: i.name,
-                                        qty: i.qty,
-                                        bonusQty: i.bonusQty || 0,
-                                        cost: i.receivedCost,
-                                        discount1: i.discount1,
-                                        discount2: i.discount2,
-                                        salePrice: i.newSalePrice,
-                                        taxable: i.taxable,
-                                        expiry_date: i.expiry_date || null,
-                                        // 🆕 كانوا بيتشالوا هنا من غير قصد — batch_id هو الرابط الوحيد بين
-                                        // بند الفاتورة دي وبين الـ batch الفعلي في products.batches (ومنه
-                                        // للبيع والرصد). لو اتشال، أي تعديل تاني على نفس الفاتورة بيفقد
-                                        // القدرة يحسب "قد إيه اتباع من الشغلة دي" (زي فحص الحذف/التقليل فوق).
-                                        batch_id: i.batch_id || null,
-                                        batch_number: i.batch_number || null,
-                                    })),
-                                    subtotal: editSubtotal,
-                                    taxAmount: editTaxAmt,
-                                    total: editSubtotal + editTaxAmt,
-                                };
+    if (!canEdit) {
+        showToast("ليس لديك صلاحية تعديل فواتير الشراء", "error");
+        return;
+    }
+    const editCalcSubtotal = editItems.reduce(
+        (s, i) => s + i.receivedCost * i.qty, 0
+    );
+    const editCalcTax = editItems.reduce(
+        (s, i) => i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s, 0
+    );
+    const editSubtotal = editManualSubtotal !== "" ? +editManualSubtotal : editCalcSubtotal;
+    const editTaxAmt = editManualTax !== "" ? +editManualTax : editCalcTax;
+    const sup = suppliers.find((s) => s.id === editSupplier);
+    const wasDraft = showDetail.status === "مسودة";
 
-                                // 🆕 مطابقة المخزون: الفاتورة القديمة أصلاً زوّدت المخزون بكمياتها،
-                                // فلو الكميات اتغيرت في التعديل، لازم نعدّل الفرق بس على المخزون.
-                                // القراءة هنا من products (state محلي) مش من Supabase — شغالة أوفلاين بالفعل.
-                                const oldQtyById = {};
-                                (showDetail.items || []).forEach((i) => {
-                                    oldQtyById[i.id] = (oldQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
-                                });
-                                const newQtyById = {};
-                                editItems.forEach((i) => {
-                                    newQtyById[i.id] = (newQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
-                                });
-                                const affectedIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
-                                const stockDeltas = [];
-                                for (const pid of affectedIds) {
-                                    const delta = (newQtyById[pid] || 0) - (oldQtyById[pid] || 0);
-                                    if (delta === 0) continue;
-                                    stockDeltas.push({ id: pid, delta });
-                                }
+    // ── 🆕 فصل الأصناف الجديدة (مالهاش batch_id، اتضافت بالبحث/السكانر) عن القديمة ──
+    const newLineItems = editItems.filter((i) => !i.batch_id);
+    const existingLineItems = editItems.filter((i) => i.batch_id);
 
-                                // 🆕 event مركّب واحد: تحديث بيانات الفاتورة + تصحيح المخزون بالـ delta —
-                                // بيتنفذ جوه apply_stock_deltas على السيرفر وقت المزامنة، مش كتابة مباشرة
-                                // أونلاين بس زي ما كان. القيمة الحالية للـ stock وقت التنفيذ الفعلي هي
-                                // اللي بتتعدّل، مش قيمة نهائية محسوبة أوفلاين.
-                                const editResult = await queueEvent({
-                                    id: crypto.randomUUID(),
-                                    type: "PURCHASE_INVOICE_EDIT",
-                                    timestamp: new Date().toISOString(),
-                                    payload: {
-                                        purchaseId: showDetail.id,
-                                        pharmacyId,
-                                        updates: {
-                                            supplier: editSupplier,
-                                            supplier_name:
-                                                sup?.name ||
-                                                showDetail.supplier_name ||
-                                                showDetail.supplierName,
-                                            items: updated.items,
-                                            subtotal: editSubtotal,
-                                            tax_amount: editTaxAmt,
-                                            total: editSubtotal + editTaxAmt,
-                                            // 🆕 لو كانت مسودة رصيد صفر، تتحول لـ"مستلمة" فعليًا على السيرفر كمان
-                                            // مش بس محليًا — وإلا هتفضل تظهر "بحاجة لإكمال" في أي جهاز/جلسة تانية.
-                                            ...(wasDraft ? { status: "مستلمة" } : {}),
-                                        },
-                                        stockDeltas,
-                                    },
-                                });
-                                if (!editResult.synced) {
-                                    showToast("📴 تم حفظ التعديل محليًا - هيتزامن تلقائيًا لما النت يرجع", "warning");
-                                }
+    // ── delta المخزون: بس للأصناف القديمة (الجديدة هتاخد رصيدها عبر batch كامل تحت) ──
+    const oldQtyById = {};
+    (showDetail.items || []).forEach((i) => {
+        oldQtyById[i.id] = (oldQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
+    });
+    const newQtyById = {};
+    existingLineItems.forEach((i) => {
+        newQtyById[i.id] = (newQtyById[i.id] || 0) + i.qty + (i.bonusQty || 0);
+    });
+    const affectedIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
+    const stockDeltas = [];
+    for (const pid of affectedIds) {
+        const delta = (newQtyById[pid] || 0) - (oldQtyById[pid] || 0);
+        if (delta === 0) continue;
+        stockDeltas.push({ id: pid, delta });
+    }
 
-                                // تحديث optimistic لـ state المحلي + كاش SQLite بالتوازي (بغض النظر عن حالة النت)
-                                if (stockDeltas.length > 0) {
-                                    setProducts((prev) =>
-                                        prev.map((x) => {
-                                            const d = stockDeltas.find((sd) => sd.id === x.id);
-                                            return d ? { ...x, stock: x.stock + d.delta } : x;
-                                        })
-                                    );
-                                    try {
-                                        await window.offlineAPI?.applyProductStockDeltaCache?.({ pharmacyId, deltas: stockDeltas });
-                                    } catch (err) {
-                                        console.error("applyProductStockDeltaCache failed:", err);
-                                    }
-                                }
+    // ── 🆕 batch حقيقي لكل صنف جديد (نفس منطق savePurchase) ──
+    const newBatchIds = newLineItems.map(() => crypto.randomUUID());
+    const newBatchesByProduct = {};
+    const newStockEvents = newLineItems.map((ci, idx) => {
+        const product = products.find((x) => x.id === ci.id);
+        const baseBatches = newBatchesByProduct[ci.id] || product?.batches || [];
+        const newBatch = {
+            id: newBatchIds[idx],
+            qty: ci.qty + (ci.bonusQty || 0),
+            cost: ci.receivedCost,
+            salePrice: ci.newSalePrice,
+            expiry_date: ci.expiry_date || null,
+            batch_number: ci.batch_number || null,
+            date: todayLocal(),
+        };
+        newBatchesByProduct[ci.id] = [...baseBatches, newBatch];
+        return {
+            id: crypto.randomUUID(),
+            pharmacy_id: pharmacyId,
+            product_id: ci.id,
+            batch: newBatch,
+            reference_id: showDetail.id,
+            created_at: new Date().toISOString(),
+            device_id: getDeviceId(),
+        };
+    });
 
-                                // 🆕 كانت ناقصة: تسجيل التعديل في سجل التدقيق (كان بيتسجل الحذف والإضافة بس، مش التعديل)
-                                logAudit({
-                                    pharmacyId, userName: currentUser?.name, action: "edit", entityType: "purchase_invoice",
-                                    entityId: showDetail.id, entityLabel: `فاتورة شراء ${showDetail.id}`,
-                                    oldValue: { supplier: showDetail.supplier_name, total: showDetail.total },
-                                    newValue: { supplier: updated.supplier_name, total: updated.total },
-                                    description: `تعديل فاتورة الشراء "${showDetail.id}"`,
-                                });
+    // ── بناء items النهائية للفاتورة، بحيث الأصناف الجديدة تاخد batch_id الحقيقي ──
+    const updatedItems = editItems.map((i) => {
+        const newIdx = newLineItems.findIndex(
+            (nl) => nl === i // نفس الـ reference بالظبط، مش مقارنة id بس، لضمان دقة المطابقة
+        );
+        return {
+            id: i.id,
+            name: i.name,
+            qty: i.qty,
+            bonusQty: i.bonusQty || 0,
+            cost: i.receivedCost,
+            discount1: i.discount1,
+            discount2: i.discount2,
+            salePrice: i.newSalePrice,
+            taxable: i.taxable,
+            expiry_date: i.expiry_date || null,
+            batch_number: i.batch_number || null,
+            batch_id: newIdx >= 0 ? newBatchIds[newIdx] : i.batch_id || null,
+        };
+    });
 
-                                setPurchases((prev) =>
-                                    prev.map((p) => (p.id === showDetail.id ? updated : p))
-                                );
+    const updated = {
+        ...showDetail,
+        supplier: editSupplier,
+        supplier_name: sup?.name || showDetail.supplier_name,
+        status: wasDraft ? "مستلمة" : showDetail.status,
+        items: updatedItems,
+        subtotal: editSubtotal,
+        taxAmount: editTaxAmt,
+        total: editSubtotal + editTaxAmt,
+    };
 
-                                // 🆕 لو الفاتورة دي كانت مسودة رصيد صفر واتكمّلت دلوقتي، نمسح إشارة
-                                // "الفاتورة المفتوحة" بتاعة نفس المورد ده من localStorage اللي نقطة
-                                // البيع (POS.tsx) بتعتمد عليها — وإلا لو الصيدلي باع صنف تاني (رصيده
-                                // صفر) من نفس المورد بعد كده، هتحاول نقطة البيع تضيفه على الفاتورة دي
-                                // اللي خلاص اتقفلت، بدل ما تفتح فاتورة مسودة جديدة صح.
-                                // بنتأكد إن الإشارة المخزّنة بتخص نفس الفاتورة دي بالظبط (poId) قبل
-                                // ما نمسحها، عشان لو حصلت مسودة تانية أحدث لنفس المورد بعد كده منمسحهاش.
-                                if (wasDraft) {
-                                    try {
-                                        const key = `pharmacypro_pos_zero_stock_drafts_${pharmacyId}`;
-                                        const raw = localStorage.getItem(key);
-                                        if (raw) {
-                                            const parsed = JSON.parse(raw);
-                                            const supplierKey = showDetail.supplier; // المورد الأصلي وقت إنشاء المسودة
-                                            if (parsed[supplierKey]?.poId === showDetail.id) {
-                                                delete parsed[supplierKey];
-                                                localStorage.setItem(key, JSON.stringify(parsed));
-                                            }
-                                        }
-                                    } catch (err) {
-                                        console.error("clearing POS zero-stock draft marker failed:", err);
-                                    }
-                                }
+    // ── إرسال تحديث الفاتورة + الـ delta ──
+    const editResult = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "PURCHASE_INVOICE_EDIT",
+        timestamp: new Date().toISOString(),
+        payload: {
+            purchaseId: showDetail.id,
+            pharmacyId,
+            updates: {
+                supplier: editSupplier,
+                supplier_name: sup?.name || showDetail.supplier_name || showDetail.supplierName,
+                items: updatedItems,
+                subtotal: editSubtotal,
+                tax_amount: editTaxAmt,
+                total: editSubtotal + editTaxAmt,
+                ...(wasDraft ? { status: "مستلمة" } : {}),
+            },
+            stockDeltas,
+        },
+    });
+    if (!editResult.synced) {
+        showToast("📴 تم حفظ التعديل محليًا - هيتزامن تلقائيًا لما النت يرجع", "warning");
+    }
 
-                                setShowDetail(null);
-                                showToast("تم التعديل ✓");
-                            }}
+    // ── 🆕 إرسال batches الأصناف الجديدة (لو فيه) ──
+    if (newStockEvents.length > 0) {
+        await queueEvent({
+            id: crypto.randomUUID(),
+            type: "PURCHASE_STOCK_ADD",
+            pharmacy_id: pharmacyId,
+            timestamp: new Date().toISOString(),
+            payload: { events: newStockEvents },
+        });
+    }
+
+    // ── تحديث المخزون محليًا: delta للقديم + batch كامل للجديد ──
+    setProducts((prev) =>
+        prev.map((x) => {
+            const d = stockDeltas.find((sd) => sd.id === x.id);
+            const newBatchesForX = newBatchesByProduct[x.id];
+            const bonusFromNewBatches = newLineItems
+                .filter((ci) => ci.id === x.id)
+                .reduce((s, ci) => s + ci.qty + (ci.bonusQty || 0), 0);
+            if (!d && !newBatchesForX) return x;
+            return {
+                ...x,
+                stock: x.stock + (d?.delta || 0) + bonusFromNewBatches,
+                batches: newBatchesForX ?? x.batches,
+            };
+        })
+    );
+
+    logAudit({
+        pharmacyId, userName: currentUser?.name, action: "edit", entityType: "purchase_invoice",
+        entityId: showDetail.id, entityLabel: `فاتورة شراء ${showDetail.id}`,
+        oldValue: { supplier: showDetail.supplier_name, total: showDetail.total },
+        newValue: { supplier: updated.supplier_name, total: updated.total },
+        description: `تعديل فاتورة الشراء "${showDetail.id}"`,
+    });
+
+    setPurchases((prev) =>
+        prev.map((p) => (p.id === showDetail.id ? updated : p))
+    );
+
+    if (wasDraft) {
+        try {
+            const key = `pharmacypro_pos_zero_stock_drafts_${pharmacyId}`;
+            const raw = localStorage.getItem(key);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const supplierKey = showDetail.supplier;
+                if (parsed[supplierKey]?.poId === showDetail.id) {
+                    delete parsed[supplierKey];
+                    localStorage.setItem(key, JSON.stringify(parsed));
+                }
+            }
+        } catch (err) {
+            console.error("clearing POS zero-stock draft marker failed:", err);
+        }
+    }
+
+    setShowDetail(null);
+    showToast("تم التعديل ✓");
+}}
                         >
                             حفظ التعديل
                         </Btn>

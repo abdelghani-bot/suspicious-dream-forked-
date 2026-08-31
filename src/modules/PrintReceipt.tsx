@@ -45,13 +45,18 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
     }, [pharmacyId]);
 
     const doPrint = async () => {
-        const isA4 = paperWidth === "A4";
-        const pageCSS = isA4
-            ? `@page{size:A4;margin:14mm}html,body{width:auto}`
-            : `@page{size:${paperWidth}mm auto;margin:0}html,body{width:${paperWidth}mm}`;
-        const fullHtml = `<html dir="rtl"><head><style>${pageCSS}body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:8px 10px;font-size:13px;color:#000;background:#fff}h2{margin:4px 0;font-size:16px}table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid #ddd;font-size:12px}hr{border:1px dashed #999}.total{font-weight:700;font-size:15px}.dose{font-size:11px;color:#555;font-style:italic}.name-en{font-size:11px;color:#555;direction:ltr;text-align:right}.policy{font-size:10px;color:#666;margin-top:10px;line-height:1.6;text-align:center}.header{text-align:center;margin-bottom:12px}@media print{body{padding:0 6px}}</style></head><body>${printArea.current.innerHTML}</body></html>`;
-        await printHTML(fullHtml);
-    };
+    const isA4 = paperWidth === "A4";
+    const effectiveWidth = paperWidth === "80" ? 72 : paperWidth === "58" ? 50 : null;
+    const pageCSS = isA4
+        ? `@page{size:A4;margin:14mm}html,body{width:auto}`
+        : `@page{size:${paperWidth}mm auto;margin:0}html,body{width:${effectiveWidth}mm;margin:0 auto}`;
+    const fullHtml = `<html dir="rtl"><head><style>${pageCSS}body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:4px 6px;font-size:12px;color:#000;background:#fff}h2{margin:4px 0;font-size:15px}table{width:100%;border-collapse:collapse;table-layout:fixed}td:first-child{width:42%;word-wrap:break-word;overflow-wrap:break-word;white-space:normal}td,th{padding:2px 4px;border-bottom:1px solid #ddd;font-size:11px}hr{border:1px dashed #999}.total{font-weight:700;font-size:14px}.dose{font-size:10px;color:#555;font-style:italic}.name-en{font-size:10px;color:#000;direction:ltr;text-align:right}.policy{font-size:9px;color:#000;margin-top:10px;line-height:1.5;text-align:center}.header{text-align:center;margin-bottom:12px}@media print{body{padding:2px 4px}}</style></head><body>${printArea.current.innerHTML}</body></html>`;
+    await printHTML(fullHtml, {
+    silent: true,
+    paperWidthMM: isA4 ? undefined : Number(paperWidth),
+});
+};
+
     const shareOnWhatsapp = () => {
         const phone = String(customerPhone || "").replace(/\D/g, "");
         if (!phone) return;
@@ -115,9 +120,10 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
                             .filter((item) => !item.isMissed && !item.isJoker)
                             .map((item, i) => (
                                 <tr key={i}>
+                                    {console.log('item data:', item)}
                                     <td>
                                         <div>{item.name}</div>
-                                        {item.name_en && (
+                                        {(item.nameEn || item.name_en) && (
                                             <div
                                                 className="name-en"
                                                 style={{
@@ -127,7 +133,7 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
                                                     textAlign: "right",
                                                 }}
                                             >
-                                                {item.name_en}
+                                                {item.nameEn || item.name_en}
                                             </div>
                                         )}
                                         {item.dose && (
