@@ -129,6 +129,20 @@ db.exec(`
     cached_at TEXT NOT NULL
   );
 
+  -- 🆕 هوية الجهاز الثابتة — بتتولد مرة واحدة وتفضل ثابتة طول عمر التثبيت على الجهاز ده
+  CREATE TABLE IF NOT EXISTS device_identity (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    fingerprint TEXT NOT NULL
+  );
+
+  -- 🆕 كاش محلي لحالة تفعيل الجهاز — بيتحقق منه الدخول الأوفلاين كمان، مش بس
+  -- cached_credentials، عشان جهاز اتسحبت صلاحيته أونلاين ميفضلش يدخل أوفلاين لو النت اتقطع بعدها
+  CREATE TABLE IF NOT EXISTS device_activation_cache (
+    pharmacy_id TEXT PRIMARY KEY,
+    authorized INTEGER NOT NULL,
+    last_checked_at TEXT NOT NULL
+  );
+
   -- 🆕 كاش الفواتير محلياً — منفصل عن pending_sync_events (اللي وظيفته بس إنه يوصّل
   -- التغيير لـ Supabase). ده جدول قراءة سريع، بأعمدة حقيقية وفهرسة، عشان تقدر تفتح/تدور
   -- على فاتورة قديمة وانت أوفلاين من غير ما تعمل JSON.parse على كل صفوف الـ outbox.
@@ -2202,11 +2216,63 @@ ipcMain.handle("offline:verifyOfflineLogin", async (_event, payload) => {
         return { success: false, reason: "cache_expired" };
     }
 
+    // 🆕 لازم الجهاز يكون معروف/مفعّل محلياً كمان — لو اتسحبت صلاحية الجهاز أونلاين
+    // (revoke) والنت اتقطع بعدها، الكاش المحلي هنا هيكون بقى false ومنسمحش بالدخول
+    const profile = JSON.parse(row.profile_json);
+    if (profile.pharmacy_id) {
+        const activation = db.prepare("SELECT * FROM device_activation_cache WHERE pharmacy_id = ?")
+            .get(profile.pharmacy_id);
+        if (activation && !activation.authorized) {
+            return { success: false, reason: "device_not_authorized" };
+        }
+    }
+
     return {
         success: true,
-        profile: JSON.parse(row.profile_json),
+        profile,
         readOnly: row.access_status === "readonly",
     };
+});
+
+// ==================== هوية الجهاز وتفعيله ====================
+// بتتولد مرة واحدة بس وتفضل ثابتة طول عمر التثبيت — مستقلة عن أي يوزر أو صيدلية
+function getOrCreateDeviceFingerprint() {
+    let row = db.prepare("SELECT fingerprint FROM device_identity WHERE id = 1").get();
+    if (!row) {
+        const fingerprint = randomUUID();
+        db.prepare("INSERT INTO device_identity (id, fingerprint) VALUES (1, ?)").run(fingerprint);
+        return fingerprint;
+    }
+    return row.fingerprint;
+}
+
+ipcMain.handle("device:getFingerprint", () => {
+    try {
+        return { success: true, fingerprint: getOrCreateDeviceFingerprint() };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
+// بيتنادى بعد أي تحقق أونلاين ناجح من is_device_authorized، عشان الدخول الأوفلاين
+// بعد كده يقدر يعتمد على نفس النتيجة من غير ما يحتاج نت
+ipcMain.handle("device:cacheActivationStatus", (_event, payload) => {
+    try {
+        db.prepare(`
+      INSERT INTO device_activation_cache (pharmacy_id, authorized, last_checked_at)
+      VALUES (@pharmacy_id, @authorized, @last_checked_at)
+      ON CONFLICT(pharmacy_id) DO UPDATE SET
+        authorized = excluded.authorized,
+        last_checked_at = excluded.last_checked_at
+    `).run({
+            pharmacy_id: payload.pharmacy_id,
+            authorized: payload.authorized ? 1 : 0,
+            last_checked_at: new Date().toISOString(),
+        });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
 });
 
 // ==================== كاش الجلسة (silent re-auth) ====================

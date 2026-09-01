@@ -1572,6 +1572,57 @@ export async function insertTreasuryEntries(entries: Array<{
     return results;
 }
 
+// ==================== تفعيل الجهاز (activation code) ====================
+// 🆕 لازم يتنادى أول ما يحصل login أونلاين ناجح — بيتأكد إن الجهاز ده مصرح له،
+// ولو مش مصرح له بيرجع reason: "not_authorized" عشان تعرض شاشة كود التنشيط.
+// النتيجة بتتخزن محلياً (main.js) عشان الدخول الأوفلاين بعد كده يعتمد عليها بردو.
+export async function checkDeviceActivation(pharmacyId: string): Promise<{
+    authorized: boolean; fromCache?: boolean; error?: string;
+}> {
+    const fp = await window.offlineAPI?.getDeviceFingerprint?.();
+    if (!fp?.success) return { authorized: false, error: "no_fingerprint" };
+
+    try {
+        const { data, error } = await supabase.rpc("is_device_authorized", {
+            p_pharmacy_id: pharmacyId,
+            p_device_fingerprint: fp.fingerprint,
+        });
+        if (error) throw error;
+        try { await window.offlineAPI?.cacheActivationStatus?.({ pharmacy_id: pharmacyId, authorized: !!data }); }
+        catch (err) { console.error("cacheActivationStatus failed:", err); }
+        return { authorized: !!data };
+    } catch (err) {
+        console.error("is_device_authorized failed, no network context available:", err);
+        // 🆕 من غير نت مش هنعرف نتأكد من السيرفر — بنسيب verifyOfflineLogin (main.js)
+        // يعتمد على آخر حالة كانت متخزنة محلياً بدل ما نمنع الدخول الأوفلاين بالكامل هنا
+        return { authorized: true, fromCache: true, error: "offline_assume_cached" };
+    }
+}
+
+// بيتنادى لما المستخدم يدخل كود التنشيط في شاشة الجهاز غير المصرح له
+export async function activateDevice(pharmacyId: string, code: string, deviceName?: string): Promise<{
+    success: boolean; reason?: string;
+}> {
+    const fp = await window.offlineAPI?.getDeviceFingerprint?.();
+    if (!fp?.success) return { success: false, reason: "no_fingerprint" };
+
+    const { data, error } = await supabase.rpc("activate_device", {
+        p_pharmacy_id: pharmacyId,
+        p_code: code.trim(),
+        p_device_fingerprint: fp.fingerprint,
+        p_device_name: deviceName || null,
+    });
+    if (error) {
+        console.error("activate_device failed:", error);
+        return { success: false, reason: "network_error" };
+    }
+    if (data?.success) {
+        try { await window.offlineAPI?.cacheActivationStatus?.({ pharmacy_id: pharmacyId, authorized: true }); }
+        catch (err) { console.error("cacheActivationStatus failed:", err); }
+    }
+    return { success: !!data?.success, reason: data?.reason };
+}
+
 let initialized = false;
 export function initOfflineSync() {
     if (initialized) return;

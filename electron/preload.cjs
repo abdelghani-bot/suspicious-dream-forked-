@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     cacheSession: (payload) => ipcRenderer.invoke("offline:cacheSession", payload),
     getCachedSession: (pharmacyId) => ipcRenderer.invoke("offline:getCachedSession", pharmacyId),
     clearCachedSession: (pharmacyId) => ipcRenderer.invoke("offline:clearCachedSession", pharmacyId),
+    // 🆕 هوية الجهاز وتفعيله — ثابتة لكل تثبيت، مستقلة عن أي يوزر
+    getDeviceFingerprint: () => ipcRenderer.invoke("device:getFingerprint"),
+    cacheActivationStatus: (payload) => ipcRenderer.invoke("device:cacheActivationStatus", payload),
     // 🆕 كاش المبيعات المحلي (sales_cache) — لقراءة/فتح الفواتير أوفلاين
     insertSaleCache: (invoice) => ipcRenderer.invoke("offline:insertSaleCache", invoice),
     getSalesCache: (params) => ipcRenderer.invoke("offline:getSalesCache", params),

@@ -42,6 +42,12 @@ export function SuperAdminPanel({ currentUser, onLogout, onEnterPharmacy }: { cu
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; type: "ok" | "err" } | null>(null);
 
+  // نافذة توليد كود تنشيط جهاز
+  const [codeModal, setCodeModal] = useState<{ pharmacyId: string; pharmacyName: string } | null>(null);
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [maxDevices, setMaxDevices] = useState(1);
+  const [expiresInDays, setExpiresInDays] = useState<number | "">("");
+
   const loadPharmacies = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -83,6 +89,26 @@ export function SuperAdminPanel({ currentUser, onLogout, onEnterPharmacy }: { cu
     const base = p.trial_ends_at && new Date(p.trial_ends_at) > new Date() ? new Date(p.trial_ends_at) : new Date();
     const next = new Date(base.getTime() + 7 * 24 * 60 * 60 * 1000);
     updatePharmacy(p.id, { subscription_status: "trial", trial_ends_at: next.toISOString() }, "تم تمديد الفترة التجريبية 7 أيام");
+  };
+
+  const generateCode = async () => {
+    if (!codeModal) return;
+    setBusyId(codeModal.pharmacyId);
+    const { data, error } = await supabase.rpc("generate_activation_code", {
+      p_pharmacy_id: codeModal.pharmacyId,
+      p_max_devices: maxDevices,
+      p_expires_in_days: expiresInDays === "" ? null : Number(expiresInDays),
+    });
+    setBusyId(null);
+    if (error) { showMsg("فشل توليد الكود: " + error.message, "err"); return; }
+    setGeneratedCode(data as string);
+  };
+
+  const closeCodeModal = () => {
+    setCodeModal(null);
+    setGeneratedCode(null);
+    setMaxDevices(1);
+    setExpiresInDays("");
   };
 
   return (
@@ -188,6 +214,13 @@ export function SuperAdminPanel({ currentUser, onLogout, onEnterPharmacy }: { cu
                       >
                         إيقاف
                       </button>
+                      <button
+                        disabled={busyId === p.id}
+                        onClick={() => setCodeModal({ pharmacyId: p.id, pharmacyName: p.name })}
+                        style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#ede9fe", color: "#5b21b6", fontWeight: 700, cursor: "pointer" }}
+                      >
+                        كود تنشيط
+                      </button>
                     </td>
                   </tr>
                 );
@@ -197,6 +230,97 @@ export function SuperAdminPanel({ currentUser, onLogout, onEnterPharmacy }: { cu
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {codeModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 360, boxShadow: SHADOW?.card }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>كود تنشيط جهاز</div>
+            <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 16 }}>{codeModal.pharmacyName}</div>
+
+            {!generatedCode ? (
+              <>
+                <label style={{ fontSize: 13, fontWeight: 700, display: "block", marginBottom: 6 }}>عدد الأجهزة المسموح بها</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={maxDevices}
+                  onChange={(e) => setMaxDevices(Number(e.target.value) || 1)}
+                  style={{ width: "100%", padding: 8, borderRadius: 6, border: `1px solid ${COLORS.border}`, marginBottom: 12 }}
+                />
+                <label style={{ fontSize: 13, fontWeight: 700, display: "block", marginBottom: 6 }}>ينتهي بعد كام يوم؟ (اختياري)</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="بدون تاريخ انتهاء"
+                  value={expiresInDays}
+                  onChange={(e) => setExpiresInDays(e.target.value === "" ? "" : Number(e.target.value))}
+                  style={{ width: "100%", padding: 8, borderRadius: 6, border: `1px solid ${COLORS.border}`, marginBottom: 16 }}
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={generateCode}
+                    disabled={busyId === codeModal.pharmacyId}
+                    style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: COLORS.green || "#166534", color: "#fff", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    توليد
+                  </button>
+                  <button
+                    onClick={closeCodeModal}
+                    style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: "#f3f4f6", color: "#374151", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 800,
+                    textAlign: "center",
+                    letterSpacing: 2,
+                    padding: "14px 0",
+                    background: "#f3f4f6",
+                    borderRadius: 8,
+                    marginBottom: 16,
+                    direction: "ltr",
+                  }}
+                >
+                  {generatedCode}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(generatedCode);
+                      showMsg("تم نسخ الكود");
+                    }}
+                    style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: "#e0f2fe", color: "#075985", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    نسخ
+                  </button>
+                  <button
+                    onClick={closeCodeModal}
+                    style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: "#f3f4f6", color: "#374151", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    تم
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

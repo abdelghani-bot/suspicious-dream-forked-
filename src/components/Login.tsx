@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { supabase } from "../lib/supabaseClient";
+import { getDeviceId } from "../lib/deviceId"; // ⚠️ عدّل المسار ده لو ملف الـ device_id عندك في مكان تاني
 import { COLORS, GRADIENT, SHADOW, RADIUS, TYPE, tint } from "../theme";
 import { Btn, Input } from "../ui/primitives"; // IC اتشالت، مش مستخدمة تاني بعد ما بقى الشعار حرف P مش أيقونة
 import { PharmaLogo } from "../components/PharmaLogo";
@@ -16,13 +18,61 @@ export const Login = ({ users, onLogin }) => {
     const [u, setU] = useState("");
     const [p, setP] = useState("");
     const [err, setErr] = useState("");
+    const [busy, setBusy] = useState(false);
+
+    // نافذة كود تنشيط الجهاز
+    const [needsActivation, setNeedsActivation] = useState(null); // { pharmacyId } | null
+    const [activationCode, setActivationCode] = useState("");
+    const [activating, setActivating] = useState(false);
+    const [activationErr, setActivationErr] = useState("");
+
     const go = async () => {
         setErr("");
+        setBusy(true);
         try {
             await onLogin(u, p);
         } catch (e) {
-            setErr(e.message || "اسم المستخدم أو كلمة المرور غير صحيحة");
+            // ⚠️ الشرط ده مبني على افتراض إن onLogin (authService.login) هيرمي
+            // error فيها e.deviceNotAuthorized = true و e.pharmacyId لما الجهاز
+            // مش مفعّل — لسه محتاج تعديل مماثل في authService.login نفسه
+            if (e?.deviceNotAuthorized && e?.pharmacyId) {
+                setNeedsActivation({ pharmacyId: e.pharmacyId });
+            } else {
+                setErr(e.message || "اسم المستخدم أو كلمة المرور غير صحيحة");
+            }
+        } finally {
+            setBusy(false);
         }
+    };
+
+    const activateAndRetry = async () => {
+        if (!needsActivation || !activationCode.trim()) return;
+        setActivating(true);
+        setActivationErr("");
+        const deviceId = getDeviceId();
+        const { data, error } = await supabase.rpc("activate_device", {
+            p_pharmacy_id: needsActivation.pharmacyId,
+            p_code: activationCode.trim().toUpperCase(),
+            p_device_id: deviceId,
+            p_device_name: (typeof navigator !== "undefined" && navigator.userAgent?.slice(0, 100)) || null,
+        });
+        setActivating(false);
+
+        if (error || !data?.success) {
+            const reason = data?.error;
+            const msg =
+                reason === "invalid_code" ? "الكود غير صحيح" :
+                reason === "code_expired" ? "الكود منتهي الصلاحية" :
+                reason === "max_devices_reached" ? "تم الوصول للحد الأقصى من الأجهزة المسموح بها" :
+                (error && error.message) || "فشل تفعيل الجهاز";
+            setActivationErr(msg);
+            return;
+        }
+
+        // الجهاز اتفعّل، نعيد محاولة الدخول
+        setNeedsActivation(null);
+        setActivationCode("");
+        await go();
     };
 
     return (
@@ -108,6 +158,7 @@ export const Login = ({ users, onLogin }) => {
                     <Btn
                         size="lg"
                         onClick={go}
+                        disabled={busy}
                         style={{
                             marginTop: 4,
                             justifyContent: "center",
@@ -115,10 +166,93 @@ export const Login = ({ users, onLogin }) => {
                             boxShadow: SHADOW.button,
                         }}
                     >
-                        دخول النظام
+                        {busy ? "جارٍ الدخول..." : "دخول النظام"}
                     </Btn>
                 </div>
             </div>
+
+            {needsActivation && (
+                <div
+                    style={{
+                        position: "fixed",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.45)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 1000,
+                    }}
+                >
+                    <div
+                        style={{
+                            background: "#fff",
+                            borderRadius: RADIUS.xl,
+                            padding: 28,
+                            width: 340,
+                            boxShadow: SHADOW.floating,
+                            fontFamily: "'Tajawal',sans-serif",
+                            direction: "rtl",
+                        }}
+                    >
+                        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6, color: COLORS.textPrimary }}>
+                            تفعيل هذا الجهاز
+                        </div>
+                        <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 16 }}>
+                            الجهاز ده لسه مش مفعّل لهذه الصيدلية. اطلب كود التنشيط من الإدارة وأدخله هنا.
+                        </div>
+                        <input
+                            value={activationCode}
+                            onChange={(e) => setActivationCode(e.target.value)}
+                            placeholder="XXXX-XXXX"
+                            style={{
+                                width: "100%",
+                                padding: 10,
+                                borderRadius: 8,
+                                border: `1px solid ${COLORS.border}`,
+                                marginBottom: 10,
+                                textAlign: "center",
+                                fontSize: 18,
+                                letterSpacing: 2,
+                                direction: "ltr",
+                            }}
+                        />
+                        {activationErr && (
+                            <div style={{ color: COLORS.red, fontSize: 13, textAlign: "center", marginBottom: 10 }}>
+                                {activationErr}
+                            </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8 }}>
+                            <Btn
+                                size="lg"
+                                onClick={activateAndRetry}
+                                disabled={activating || !activationCode.trim()}
+                                style={{ flex: 1, justifyContent: "center", background: GRADIENT.accentButton, boxShadow: SHADOW.button }}
+                            >
+                                {activating ? "جارٍ التفعيل..." : "تفعيل"}
+                            </Btn>
+                            <button
+                                onClick={() => {
+                                    setNeedsActivation(null);
+                                    setActivationCode("");
+                                    setActivationErr("");
+                                }}
+                                style={{
+                                    flex: 1,
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    border: "none",
+                                    background: "#f3f4f6",
+                                    color: "#374151",
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                }}
+                            >
+                                إلغاء
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

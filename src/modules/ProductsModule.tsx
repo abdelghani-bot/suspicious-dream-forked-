@@ -9,6 +9,16 @@ import { ProductFormModal } from "./ProductFormModal";
 import { Badge, Btn, Modal, Pagination, StatCard, Table } from "../ui/primitives";
 import { saveProduct, replaceProductBarcodes, replaceProductIngredients } from "../lib/offlineAPI";
 
+// 🆕 هيدر عمود قابل للضغط: بيفلتر الأصناف اللي القيمة دي عندها فاضية، وبيوريك العدد
+const HeaderFilterToggle = ({ label, active, count, onClick }) => (
+    <div onClick={onClick} style={{ cursor: "pointer", display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+        <span style={{ color: active ? COLORS.accent : COLORS.textDim }}>{label}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: active ? COLORS.accent : (count > 0 ? COLORS.red : COLORS.border) }}>
+            {active ? "✓ عرض الناقصة" : count > 0 ? `${count} ناقص` : "—"}
+        </span>
+    </div>
+);
+
 export function ProductsModule({ products, setProducts, suppliers, sales, purchases, showToast, pharmacyId, currentUser, canAdd = true, canDelete = true, canEdit = true, jokerPendingItems = [], setJokerPendingItems = () => { } }) {
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState(""); // 🆕 القيمة المستخدمة فعليًا في الفلترة، بتتحدث بعد وقفة قصيرة عن الكتابة
@@ -30,10 +40,13 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     const [filterPriceMin, setFilterPriceMin] = useState("");
     const [filterPriceMax, setFilterPriceMax] = useState("");
     const [sortAlpha, setSortAlpha] = useState("none"); // "none" | "asc" | "desc"
+    const [filterNoBarcode, setFilterNoBarcode] = useState(false);
+    const [filterNoCategory, setFilterNoCategory] = useState(false);
+    const [filterNoSupplier, setFilterNoSupplier] = useState(false);
 
     useEffect(() => {
         setProductsPage(1);
-    }, [debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterPriceMin, filterPriceMax, sortAlpha]);
+    }, [debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterPriceMin, filterPriceMax, sortAlpha, filterNoBarcode, filterNoCategory, filterNoSupplier]);
 
     // 🆕 debounce: بنستنى المستخدم يوقف عن الكتابة 250ms قبل ما نعيد فلترة قايمة الأصناف
     // (اللي ممكن توصل لمئات/آلاف)، بدل ما نعيد الفلترة الكاملة مع كل حرف بيتكتب — ده اللي
@@ -52,7 +65,10 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     // الشركة الجديدة للفورم يختارها لوحده، بدل ما تضيع.
     const [mfrModalFromProductForm, setMfrModalFromProductForm] = useState(false);
     const [pendingManufacturerForForm, setPendingManufacturerForForm] = useState(null);
-
+    const [showDuplicates, setShowDuplicates] = useState(false);
+    const [duplicatesList, setDuplicatesList] = useState([]);
+    const [loadingDuplicates, setLoadingDuplicates] = useState(false);
+    const [mergingKey, setMergingKey] = useState(null);
     useEffect(() => {
         supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId).order("name")
             .then(({ data }) => { if (data) setManufacturers(data); });
@@ -64,6 +80,11 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
         const set = new Set(products.map((p) => p.mainCategory || p.category).filter(Boolean));
         return [...set].sort((a, b) => a.localeCompare(b, "ar"));
     }, [products]);
+
+    // 🆕 عدادات "ناقص بيانات" لهيدرات الجدول (باركود / فئة / مورد) — بتتحدث تلقائيًا مع أي تعديل على products
+    const noBarcodeCount = useMemo(() => products.filter((p) => !p.barcode || String(p.barcode).trim() === "").length, [products]);
+    const noCategoryCount = useMemo(() => products.filter((p) => !(p.mainCategory || p.category) || String(p.mainCategory || p.category).trim() === "").length, [products]);
+    const noSupplierCount = useMemo(() => products.filter((p) => !p.supplier || String(p.supplier).trim() === "").length, [products]);
 
     // 🆕 بحث مرن: بيطبّع الهمزات/التاء المربوطة/التشكيل، وبيقسّم النص لكلمات (Token) بدل
     // مطابقة كتلة واحدة — يعني "بندول اكسترا" و"اكسترا بندول" بيرجعوا نفس النتيجة، وبيدور
@@ -118,6 +139,11 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             if (priceMin !== null && price < priceMin) return false;
             if (priceMax !== null && price > priceMax) return false;
 
+            // 🆕 فلاتر "ناقص بيانات": بدون باركود / بدون فئة / بدون مورد — كل واحد بيتفعّل من هيدر عموده في الجدول
+            if (filterNoBarcode && p.barcode && String(p.barcode).trim() !== "") return false;
+            if (filterNoCategory && (p.mainCategory || p.category) && String(p.mainCategory || p.category).trim() !== "") return false;
+            if (filterNoSupplier && p.supplier && String(p.supplier).trim() !== "") return false;
+
             return true;
         });
 
@@ -129,7 +155,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             const bn = b.nameAr || b.name || "";
             return sortAlpha === "asc" ? an.localeCompare(bn, "ar") : bn.localeCompare(an, "ar");
         });
-    }, [products, debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterPriceMin, filterPriceMax, sortAlpha]);
+    }, [products, debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterPriceMin, filterPriceMax, sortAlpha, filterNoBarcode, filterNoCategory, filterNoSupplier]);
 
     // ── فتح تعديل / إضافة (النموذج نفسه بقى في ProductFormModal) ──
     const openEdit = (p) => { setEditingId(p.id); setShowForm(true); };
@@ -157,7 +183,53 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
         setManufacturers((p) => p.filter((m) => m.id !== id));
         showToast("تم الحذف");
     };
+    // ── فحص ودمج الأصناف المكررة ──
+    const checkDuplicates = async () => {
+        setShowDuplicates(true);
+        setLoadingDuplicates(true);
+        const { data, error } = await supabase.rpc("find_duplicate_products", {
+            p_pharmacy_id: pharmacyId,
+            p_min_similarity: 0.6,
+        });
+        setLoadingDuplicates(false);
+        if (error) { showToast("خطأ: " + error.message, "error"); return; }
+        setDuplicatesList(data || []);
+    };
 
+    const mergeDuplicate = async (row) => {
+        const keepId = row.barcode_1 ? row.id_1 : row.id_2;
+        const removeId = row.barcode_1 ? row.id_2 : row.id_1;
+        const keepName = row.barcode_1 ? row.name_1 : row.name_2;
+        const removeName = row.barcode_1 ? row.name_2 : row.name_1;
+
+        const confirmed = window.confirm(
+            `هيتم دمج "${removeName}" في "${keepName}"، ونقل كل الكمية والدفعات إليه، وحذف الصنف الناقص.\nمتأكد إنك عايز تكمل؟ الإجراء ده مش هيتراجع.`
+        );
+        if (!confirmed) return;
+
+        const rowKey = row.id_1 + row.id_2;
+        setMergingKey(rowKey);
+        const { data, error } = await supabase.rpc("merge_duplicate_products", {
+            p_keep_id: keepId,
+            p_remove_id: removeId,
+        });
+        setMergingKey(null);
+
+        if (error) { showToast("خطأ: " + error.message, "error"); return; }
+
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "merge", entityType: "product",
+            entityId: keepId, entityLabel: keepName,
+            oldValue: { removedId: removeId, removedName: removeName },
+            description: `دمج الصنف المكرر "${removeName}" في "${keepName}"`,
+        });
+
+        setProducts((prev) => prev
+            .filter((p) => p.id !== removeId)
+            .map((p) => p.id === keepId ? { ...p, stock: data.merged_stock } : p));
+        setDuplicatesList((prev) => prev.filter((r) => !(r.id_1 === row.id_1 && r.id_2 === row.id_2)));
+        showToast("تم الدمج بنجاح ✓");
+    };
     const inputStyle = { background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
 
     // 🆕 مجموعة IDs لأي صنف له تاريخ بيع أو شراء **على الإطلاق** (مش آخر 30 يوم بس زي
@@ -250,6 +322,9 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                 <div style={{ display: "flex", gap: 8 }}>
                     <Btn icon="settings" variant="secondary" onClick={() => { setMfrModalFromProductForm(false); setShowMfrModal(true); }}>الشركات المنتجة</Btn>
                     {canAdd && <Btn icon="plus" onClick={openAdd}>إضافة صنف</Btn>}
+                    <Btn icon="refresh" onClick={checkDuplicates}>
+                        فحص الأصناف المكررة
+                    </Btn>
                 </div>
             </div>
 
@@ -283,10 +358,11 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                     onClick={() => setSortAlpha((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}>
                     {sortAlpha === "none" ? "🔤 بدون ترتيب" : sortAlpha === "asc" ? "🔤 أ ← ي" : "🔤 ي ← أ"}
                 </Btn>
-                {(filterCategory || filterManufacturer || filterIngredient || filterPriceMin !== "" || filterPriceMax !== "" || sortAlpha !== "none") && (
+                {(filterCategory || filterManufacturer || filterIngredient || filterPriceMin !== "" || filterPriceMax !== "" || sortAlpha !== "none" || filterNoBarcode || filterNoCategory || filterNoSupplier) && (
                     <Btn size="sm" variant="secondary" onClick={() => {
                         setFilterCategory(""); setFilterManufacturer(""); setFilterIngredient("");
                         setFilterPriceMin(""); setFilterPriceMax(""); setSortAlpha("none");
+                        setFilterNoBarcode(false); setFilterNoCategory(false); setFilterNoSupplier(false);
                     }}>✕ مسح الفلاتر</Btn>
                 )}
             </div>
@@ -309,7 +385,13 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
 
             {/* ── Table ── */}
             <Table
-                headers={["رمز", "الصنف", "الشركة المنتجة", "الباركود", "الفئة", "سعر البيع", "التكلفة", "أساسي", "إجراءات"]}
+                headers={[
+                    "رمز", "الصنف",
+                    <HeaderFilterToggle label="الشركة المنتجة / المورد" active={filterNoSupplier} count={noSupplierCount} onClick={() => setFilterNoSupplier((v) => !v)} />,
+                    <HeaderFilterToggle label="الباركود" active={filterNoBarcode} count={noBarcodeCount} onClick={() => setFilterNoBarcode((v) => !v)} />,
+                    <HeaderFilterToggle label="الفئة" active={filterNoCategory} count={noCategoryCount} onClick={() => setFilterNoCategory((v) => !v)} />,
+                    "سعر البيع", "التكلفة", "أساسي", "إجراءات",
+                ]}
                 rows={filtered.slice((productsPage - 1) * PRODUCTS_PAGE_SIZE, productsPage * PRODUCTS_PAGE_SIZE).map((p) => {
                     const mfr = manufacturers.find((m) => m.id === p.manufacturer_id);
                     return [
@@ -319,7 +401,10 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                             {p.nameEn && <div style={{ fontSize: 11, color: COLORS.textDim }}>{p.nameEn}</div>}
                             <div style={{ fontSize: 10, color: COLORS.border }}>{p.full_ingredients_text || `${p.active_ingredient || ""} ${p.concentration || ""}`.trim()}</div>
                         </div>,
-                        mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>,
+                        <div>
+                            {mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>}
+                            {p.supplier && <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 3 }}>المورد: {p.supplier}</div>}
+                        </div>,
                         <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: "monospace" }}>{p.barcode}</span>,
                         <div>
                             <Badge>{p.mainCategory || p.category}</Badge>
@@ -501,7 +586,46 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                     </div>
                 )}
             </Modal>
-
+             
+             {/* ── Modal الأصناف المكررة ── */}
+            <Modal open={showDuplicates} onClose={() => setShowDuplicates(false)} title="🔍 الأصناف المكررة المحتملة">
+                {loadingDuplicates ? (
+                    <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>جاري الفحص...</div>
+                ) : duplicatesList.length === 0 ? (
+                    <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>لا توجد أصناف مكررة حاليًا 👍</div>
+                ) : (
+                    <div style={{ maxHeight: 420, overflowY: "auto" }}>
+                        {duplicatesList.map((row) => {
+                            const rowKey = row.id_1 + row.id_2;
+                            return (
+                                <div key={rowKey} style={{
+                                    padding: "10px 12px", marginBottom: 8, borderRadius: 8,
+                                    background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13 }}>{row.name_1}</div>
+                                            <div style={{ fontSize: 11, color: COLORS.textDim }}>باركود: {row.barcode_1 || "— بدون باركود"} · سعر: {row.price_1} ر.س</div>
+                                        </div>
+                                        <span style={{ color: COLORS.border, fontSize: 16 }}>↔</span>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13 }}>{row.name_2}</div>
+                                            <div style={{ fontSize: 11, color: COLORS.textDim }}>باركود: {row.barcode_2 || "— بدون باركود"} · سعر: {row.price_2} ر.س</div>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                                        <Badge color={COLORS.blueSoft} text={COLORS.blue}>تطابق {Math.round((row.name_similarity || 0) * 100)}%</Badge>
+                                        <Btn size="sm" variant="primary" disabled={mergingKey === rowKey} onClick={() => mergeDuplicate(row)}>
+                                            {mergingKey === rowKey ? "جاري الدمج..." : "دمج"}
+                                        </Btn>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </Modal>
+            
             <ProductFormModal
                 open={showForm}
                 onClose={() => { setShowForm(false); setPendingManufacturerForForm(null); }}

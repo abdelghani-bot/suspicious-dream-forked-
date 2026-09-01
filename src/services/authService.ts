@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabaseClient";
+import { getDeviceId } from "../lib/deviceId"; // ⚠️ عدّل المسار لو الملف عندك في مكان تاني
 
 // ==================== AUTH SERVICE (Supabase Auth + Offline Fallback) ====================
 // username بيتحوّل لإيميل وهمي داخلياً لأن Supabase Auth بيشتغل بالإيميل.
@@ -75,6 +76,25 @@ export const authService = {
         if (accessStatus === "blocked") {
             await supabase.auth.signOut();
             throw new Error("انتهت صلاحية الاشتراك. تواصل مع الدعم لتجديد الاشتراك");
+        }
+
+        // التحقق من تفعيل الجهاز — كل جهاز جديد لازم يتفعّل بكود قبل ما يدخل النظام
+        const deviceId = getDeviceId();
+        const { data: deviceStatus, error: deviceError } = await supabase.rpc("check_device_activation", {
+            p_pharmacy_id: profile.pharmacy_id,
+            p_device_id: deviceId,
+        });
+        if (deviceError) {
+            await supabase.auth.signOut();
+            throw new Error("تعذّر التحقق من تفعيل الجهاز، حاول مرة أخرى");
+        }
+        if (!deviceStatus?.authorized) {
+            // منسجلش خروج هنا عمداً — عايزين الجلسة فاضلة عشان activate_device (اللي بينادى من
+            // نافذة الكود في شاشة اللوجين) يقدر يشتغل تحت نفس اليوزر، بعد كدة هنعيد try login تاني
+            const err: any = new Error("هذا الجهاز غير مفعّل لهذه الصيدلية");
+            err.deviceNotAuthorized = true;
+            err.pharmacyId = profile.pharmacy_id;
+            throw err;
         }
 
         // تسجيل الدخول نجح أونلاين بالكامل — نحدّث النسخة المحلية عشان تصلح لو النت اتقطع بعدين

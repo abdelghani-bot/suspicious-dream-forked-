@@ -1600,7 +1600,7 @@ showToast("تمت عملية البيع ✓");
                                 setHighlightedIdx(-1);
                             }}
                             onKeyDown={(e) => {
-                                const list = filtered.slice(0, 8);
+                                const list = filtered.slice(0, 50);
                                 if (e.key === "ArrowDown") {
                                     e.preventDefault();
                                     setHighlightedIdx((prev) =>
@@ -1831,7 +1831,7 @@ showToast("تمت عملية البيع ✓");
                                 >
                                     ↓↑ تنقل · Enter إضافة · Esc إلغاء
                                 </div>
-                                {filtered.slice(0, 8).map((p, idx) => {
+                                {filtered.slice(0, 50).map((p, idx) => {
                                     const batchesWithRemaining = (p.batches || [])
                                         .filter((b) => b.expiry_date)
                                         .map((b) => {
