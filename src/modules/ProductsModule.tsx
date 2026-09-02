@@ -69,6 +69,11 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     const [duplicatesList, setDuplicatesList] = useState([]);
     const [loadingDuplicates, setLoadingDuplicates] = useState(false);
     const [mergingKey, setMergingKey] = useState(null);
+    // 🆕 تعطيل الصنف (بدل الحذف النهائي) + قايمة الأصناف المعطلة
+    const [showDisableModal, setShowDisableModal] = useState(false);
+    const [disablingProduct, setDisablingProduct] = useState(null);
+    const [disableReasonValue, setDisableReasonValue] = useState("");
+    const [showDisabledListModal, setShowDisabledListModal] = useState(false);
     useEffect(() => {
         supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId).order("name")
             .then(({ data }) => { if (data) setManufacturers(data); });
@@ -96,6 +101,10 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
         const priceMax = filterPriceMax === "" ? null : Number(filterPriceMax);
 
         const base = products.filter((p) => {
+            // 🆕 الأصناف المعطلة مستبعدة من القايمة الرئيسية بالكامل — ليها قايمة منفصلة
+            // ("🚫 المعطلة") بدل ما تظهر مختلطة مع الأصناف النشطة في البحث والفلاتر.
+            if (p.is_disabled) return false;
+
             const str = (v) => (v == null ? "" : String(v));
             const qTokens = normalizeArabicText(debouncedSearch).split(/\s+/).filter(Boolean);
             // 🆕 لو النص المكتوب/المتسحوح ده باركود GS1 (QR فيه AIs زي (01).. (17).. (10)..) أو
@@ -230,6 +239,56 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
         setDuplicatesList((prev) => prev.filter((r) => !(r.id_1 === row.id_1 && r.id_2 === row.id_2)));
         showToast("تم الدمج بنجاح ✓");
     };
+
+    // 🆕 قايمة الأصناف المعطلة — منفصلة عن القايمة الرئيسية، بترجع كل صنف عنده is_disabled
+    const disabledProducts = useMemo(() => products.filter((p) => p.is_disabled), [products]);
+
+    // 🆕 تعطيل صنف (بدل الحذف النهائي): بيسيب الصنف وتاريخه سليم في الفواتير/التقارير
+    // القديمة، بس يختفي من نقطة البيع والبحث النشط. السبب إجباري عشان يبقى واضح لأي
+    // حد يراجع القايمة بعدين ليه اتوقف الصنف.
+    const confirmDisableProduct = async () => {
+        if (!disablingProduct) return;
+        const reason = disableReasonValue.trim();
+        if (!reason) { showToast("لازم تكتب سبب التعطيل", "error"); return; }
+        const disabledAt = new Date().toISOString();
+        const { error } = await saveProduct({
+            id: disablingProduct.id,
+            is_disabled: true,
+            disabled_reason: reason,
+            disabled_at: disabledAt,
+            disabled_by: currentUser?.name || null,
+        }, pharmacyId, true);
+        if (error) { showToast("خطأ في التعطيل: " + error, "error"); return; }
+        setProducts((prev) => prev.map((x) => x.id === disablingProduct.id
+            ? { ...x, is_disabled: true, disabled_reason: reason, disabled_at: disabledAt, disabled_by: currentUser?.name || null }
+            : x));
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
+            entityId: disablingProduct.id, entityLabel: disablingProduct.nameAr || disablingProduct.name,
+            newValue: { is_disabled: true, disabled_reason: reason },
+            description: `تعطيل الصنف "${disablingProduct.nameAr || disablingProduct.name}" — السبب: ${reason}`,
+        });
+        showToast("تم تعطيل الصنف ✓");
+        setShowDisableModal(false);
+        setDisablingProduct(null);
+        setDisableReasonValue("");
+    };
+
+    // 🆕 إعادة تفعيل صنف معطل — يرجع يظهر في القايمة الرئيسية وفي نقطة البيع فورًا
+    const enableProduct = async (p) => {
+        const { error } = await saveProduct({
+            id: p.id, is_disabled: false, disabled_reason: null, disabled_at: null, disabled_by: null,
+        }, pharmacyId, true);
+        if (error) { showToast("خطأ في إعادة التفعيل: " + error, "error"); return; }
+        setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, is_disabled: false, disabled_reason: null } : x));
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
+            entityId: p.id, entityLabel: p.nameAr || p.name,
+            newValue: { is_disabled: false },
+            description: `إعادة تفعيل الصنف "${p.nameAr || p.name}"`,
+        });
+        showToast("تم إعادة تفعيل الصنف ✓");
+    };
     const inputStyle = { background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
 
     // 🆕 مجموعة IDs لأي صنف له تاريخ بيع أو شراء **على الإطلاق** (مش آخر 30 يوم بس زي
@@ -325,6 +384,11 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                     <Btn icon="refresh" onClick={checkDuplicates}>
                         فحص الأصناف المكررة
                     </Btn>
+                    {disabledProducts.length > 0 && (
+                        <Btn variant="ghost" onClick={() => setShowDisabledListModal(true)}>
+                            🚫 المعطلة ({disabledProducts.length})
+                        </Btn>
+                    )}
                 </div>
             </div>
 
@@ -421,40 +485,37 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                             )}
                             <div style={{ display: "flex", gap: 5 }}>
                                 {canEdit && <Btn size="sm" icon="edit" variant="secondary" onClick={() => openEdit(p)}>تعديل</Btn>}
-                                {/* 🆕 حماية الحذف على مستويين:
-                                    1) مخزون حالي > 0 → منع كامل (الزرار بيختفي) — مفيش سبب منطقي تحذف
-                                       صنف لسه فيه بضاعة فعلية على الرف.
-                                    2) مخزون = 0 لكن له تاريخ بيع/شراء (historyProductIds) → مسموح بالحذف
-                                       لكن بتحذير معزز موضّح فيه إن الصنف ده مربوط بفواتير قديمة، عشان
-                                       تفضل قادر تنضّف أصناف قديمة اتوقفت فعلاً لو احتجت، من غير منع كامل. */}
+                                {/* 🆕 التعطيل بقى الإجراء الأساسي بدل الحذف — بيسيب الصنف وتاريخه سليم
+                                    في الفواتير/التقارير القديمة، وبيتاح حتى لو له مخزون حالي (مثلاً صنف
+                                    مسحوب/متوقف وعايز تمنعه من نقطة البيع فورًا من غير ما تصفّر مخزونه).
+                                    "حذف نهائي" فضل متاح بس كخيار ثانوي محدود لصنف مخزونه صفر ومعندوش
+                                    أي تاريخ بيع/شراء خالص — يعني اتضاف غلط ومالوش أي حركة حقيقية. */}
                                 {canDelete && (
-                                    (p.stock ?? 0) > 0 ? (
-                                        <span style={{ fontSize: 10, color: COLORS.textDim }}
-                                            title="مينفعش تحذف صنف لسه ليه مخزون — لازم تصفير المخزون الأول (بيع أو تسوية جرد)">
-                                            🔒 له مخزون ({p.stock})
-                                        </span>
-                                    ) : (
-                                        <Btn size="sm" icon="trash" variant="danger" onClick={async () => {
-                                            const hasHistory = historyProductIds.has(p.id);
-                                            // 🆕 رسالة تأكيد مختلفة لو الصنف له تاريخ بيع/شراء — تحذير معزز
-                                            // بدل ما يبقى نفس تأكيد الحذف العادي، عشان تاخد قرار واعي.
-                                            const confirmMsg = hasHistory
-                                                ? `⚠️ الصنف "${p.nameAr || p.name}" مخزونه صفر لكن له فواتير بيع/شراء سابقة مرتبطة بيه.\nحذفه ممكن يأثر على عرض الفواتير/التقارير القديمة اللي بتشاور عليه.\nمتأكد إنك عايز تكمل الحذف؟ الإجراء ده مش هيتراجع.`
-                                                : `متأكد إنك عايز تحذف الصنف "${p.nameAr || p.name}"؟ الإجراء ده مش هيتراجع.`;
-                                            const confirmed = window.confirm(confirmMsg);
-                                            if (!confirmed) return;
-                                            const { error } = await supabase.from("products").delete().eq("id", p.id).eq("pharmacy_id", pharmacyId);
-                                            if (error) { showToast("خطأ: " + error.message, "error"); return; }
-                                            logAudit({
-                                                pharmacyId, userName: currentUser?.name, action: "delete", entityType: "product",
-                                                entityId: p.id, entityLabel: p.nameAr || p.name,
-                                                oldValue: { name: p.nameAr || p.name, price: p.price, cost: p.cost, barcode: p.barcode, hadHistory: hasHistory },
-                                                description: `حذف الصنف "${p.nameAr || p.name}"${hasHistory ? " (كان له تاريخ بيع/شراء)" : ""}`,
-                                            });
-                                            setProducts((prev) => prev.filter((x) => x.id !== p.id));
-                                            showToast("تم حذف الصنف");
-                                        }}>حذف</Btn>
-                                    )
+                                    <>
+                                        <Btn size="sm" icon="ban" variant="danger" onClick={() => {
+                                            setDisablingProduct(p);
+                                            setDisableReasonValue("");
+                                            setShowDisableModal(true);
+                                        }}>⛔ تعطيل</Btn>
+                                        {(p.stock ?? 0) === 0 && !historyProductIds.has(p.id) && (
+                                            <Btn size="sm" icon="trash" variant="ghost" onClick={async () => {
+                                                const confirmed = window.confirm(
+                                                    `متأكد إنك عايز تحذف الصنف "${p.nameAr || p.name}" نهائيًا؟ الإجراء ده مش هيتراجع.\n(بديل أأمن: "تعطيل" بيسيب الصنف في السجل لكن يخفيه من نقطة البيع)`
+                                                );
+                                                if (!confirmed) return;
+                                                const { error } = await supabase.from("products").delete().eq("id", p.id).eq("pharmacy_id", pharmacyId);
+                                                if (error) { showToast("خطأ: " + error.message, "error"); return; }
+                                                logAudit({
+                                                    pharmacyId, userName: currentUser?.name, action: "delete", entityType: "product",
+                                                    entityId: p.id, entityLabel: p.nameAr || p.name,
+                                                    oldValue: { name: p.nameAr || p.name, price: p.price, cost: p.cost, barcode: p.barcode },
+                                                    description: `حذف الصنف "${p.nameAr || p.name}" نهائيًا (بدون تاريخ حركة)`,
+                                                });
+                                                setProducts((prev) => prev.filter((x) => x.id !== p.id));
+                                                showToast("تم حذف الصنف");
+                                            }}>حذف نهائي</Btn>
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>,
@@ -626,6 +687,61 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                 )}
             </Modal>
             
+            {/* 🆕 modal تعطيل صنف — بديل عن window.prompt() غير المدعومة في Electron،
+                والسبب إجباري عشان يبقى واضح لأي حد يراجع القايمة بعدين */}
+            <Modal open={showDisableModal} onClose={() => { setShowDisableModal(false); setDisablingProduct(null); }} title="⛔ تعطيل الصنف" zIndex={1200}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ fontSize: 13, color: COLORS.textDim }}>
+                        هتعطّل الصنف "<b style={{ color: COLORS.textPrimary }}>{disablingProduct?.nameAr || disablingProduct?.name}</b>" —
+                        هيختفي من نقطة البيع والبحث، لكن يفضل موجود في تاريخ الفواتير والتقارير. تقدر تعيد تفعيله في أي وقت.
+                    </div>
+                    <input
+                        value={disableReasonValue}
+                        onChange={(e) => setDisableReasonValue(e.target.value)}
+                        placeholder="سبب التعطيل (مثال: منتج مسحوب من السوق، توقف المورد عن التوريد...)"
+                        autoFocus
+                        onKeyDown={(e) => e.key === "Enter" && confirmDisableProduct()}
+                        style={{
+                            width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 8, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13,
+                            outline: "none", boxSizing: "border-box",
+                        }}
+                    />
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <Btn variant="ghost" onClick={() => { setShowDisableModal(false); setDisablingProduct(null); }}>إلغاء</Btn>
+                        <Btn icon="check" variant="danger" onClick={confirmDisableProduct}>تعطيل الصنف</Btn>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* 🆕 Modal قايمة الأصناف المعطلة — بيوضح السبب وتاريخ التعطيل، مع زرار إعادة تفعيل فوري */}
+            <Modal open={showDisabledListModal} onClose={() => setShowDisabledListModal(false)} title="🚫 الأصناف المعطلة">
+                {disabledProducts.length === 0 ? (
+                    <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20 }}>لا توجد أصناف معطلة حاليًا</div>
+                ) : (
+                    <div style={{ maxHeight: 420, overflowY: "auto" }}>
+                        {disabledProducts.map((p) => (
+                            <div key={p.id} style={{
+                                padding: "10px 12px", marginBottom: 8, borderRadius: 8,
+                                background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+                            }}>
+                                <div>
+                                    <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13 }}>{p.nameAr || p.name}</div>
+                                    <div style={{ fontSize: 11.5, color: COLORS.red, marginTop: 3 }}>السبب: {p.disabled_reason || "—"}</div>
+                                    {p.disabled_at && (
+                                        <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2 }}>
+                                            اتعطل في {new Date(p.disabled_at).toLocaleDateString("ar-SA")}{p.disabled_by ? ` بواسطة ${p.disabled_by}` : ""}
+                                        </div>
+                                    )}
+                                </div>
+                                <Btn size="sm" variant="primary" onClick={() => enableProduct(p)}>✅ تفعيل</Btn>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Modal>
+
             <ProductFormModal
                 open={showForm}
                 onClose={() => { setShowForm(false); setPendingManufacturerForForm(null); }}

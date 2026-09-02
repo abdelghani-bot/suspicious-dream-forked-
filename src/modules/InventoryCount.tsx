@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { COLORS } from "../theme";
 import * as XLSX from "xlsx";
@@ -6,7 +6,8 @@ import { logAudit } from "../lib/auditLog";
 import { normGtin } from "../lib/barcodeUtils";
 import { todayLocal } from "../lib/dateUtils";
 import { Badge, Btn, Input, Modal, Table } from "../ui/primitives";
-import { queueEvent } from "../lib/offlineAPI"; // 🆕 عدّل المسار حسب مكان الملف عندك
+import { queueEvent, saveProduct } from "../lib/offlineAPI"; // 🆕 عدّل المسار حسب مكان الملف عندك
+import { ProductFormModal } from "./ProductFormModal"; // 🆕 عدّل المسار حسب مكان الملف عندك
 
 export function InventoryCount({
     products,
@@ -28,6 +29,30 @@ export function InventoryCount({
     const [repairing, setRepairing] = useState(false);
     const [scanInput, setScanInput] = useState(""); // 🆕 حقل السكانر أثناء الجرد
     const scanTimeoutRef = useRef(null); // 🆕 لتشغيل السكان تلقائي من غير الحاجة لضغط Enter
+
+    // ==================== 🆕 الحفظ التلقائي أثناء الجرد (Draft محلي) ====================
+    // مفتاح مخصص لكل صيدلية، عشان لو فيه أكتر من صيدلية بتستخدم نفس الجهاز (نادر بس ممكن)
+    const DRAFT_KEY = `inv_count_draft_${pharmacyId}`;
+
+    // كل تغيير في سطور الجرد أو الملاحظات وقت ما شاشة الجرد مفتوحة يتخزن فورًا محليًا،
+    // عشان لو الشاشة اتقفلت لأي سبب (كراش، قفل الجهاز، تغيير شاشة بالغلط) الجرد يفضل موجود.
+    useEffect(() => {
+        if (!showNew) return;
+        try {
+            localStorage.setItem(
+                DRAFT_KEY,
+                JSON.stringify({ countItems, notes, updated_at: Date.now() })
+            );
+        } catch { }
+    }, [countItems, notes, showNew]);
+
+    // ==================== 🆕 ربط باركود جديد/متغير بصنف موجود ====================
+    const [showLinkBarcodeModal, setShowLinkBarcodeModal] = useState(false);
+    const [unmatchedBarcode, setUnmatchedBarcode] = useState("");
+    const [linkSearch, setLinkSearch] = useState("");
+
+    // ==================== 🆕 إضافة صنف جديد من نفس شاشة الجرد ====================
+    const [showAddProductModal, setShowAddProductModal] = useState(false);
 
     // ==================== 🆕 استيراد الجرد من إكسيل ====================
     const invExcelInputRef = useRef(null);
@@ -75,10 +100,31 @@ export function InventoryCount({
     };
 
     const startCount = () => {
+        // 🆕 قبل ما نبدأ جرد جديد، بنتأكد إن مفيش جرد متوقف محفوظ محليًا من قبل كده —
+        // لو فيه، نديله الاختيار يكمله بدل ما يضيع منه.
+        try {
+            const raw = localStorage.getItem(DRAFT_KEY);
+            const draft = raw ? JSON.parse(raw) : null;
+            if (draft?.countItems?.length) {
+                const resume = window.confirm(
+                    `فيه جرد متوقف من ${new Date(draft.updated_at).toLocaleString("ar-SA")} فيه ${draft.countItems.length} سطر.\nعايز تكمله؟ (إلغاء = ابدأ جرد جديد من الأول)`
+                );
+                if (resume) {
+                    setCountItems(draft.countItems);
+                    setNotes(draft.notes || "");
+                    setSearch("");
+                    setScanInput("");
+                    setShowNew(true);
+                    return;
+                }
+            }
+        } catch { }
+
         // 🆕 جرد أعمى (Blind Count): القايمة تبدأ فاضية تمامًا، مفيش رصيد نظام ظاهر.
         // الصيدلي بيضيف الأصناف واحد واحد بالسكانر أو بار البحث، ويكتب الكمية اللي
         // شافها فعليًا على الرف — من غير ما يشوف رصيد النظام وهو بيعد، عشان النتيجة
         // تعكس العدّ الحقيقي مش تأكيد لرقم شايفه قدامه.
+        localStorage.removeItem(DRAFT_KEY);
         setExcelUnmatched([]);
         setCountItems([]);
         setSearch("");
@@ -242,14 +288,37 @@ export function InventoryCount({
         if (!code) return;
         const product = products.find(
             (x) => normGtin(x.barcode) === code || normGtin(x.gtin) === code
+                || (x.altBarcodes || []).some((b) => normGtin(b) === code) // 🆕 باركود بديل
         );
         if (!product) {
-            showToast("الباركود ده مش موجود عندك في الأصناف", "error");
+            // 🆕 بدل ما نرفض الباركود، نفتح مودال يخلي الصيدلي يربطه بصنف موجود
+            // (باركود اتغير من المورد) أو يضيف صنف جديد بيه لو فعلاً مش مسجل خالص
+            setUnmatchedBarcode(code);
+            setLinkSearch("");
+            setShowLinkBarcodeModal(true);
             setScanInput("");
             return;
         }
         addProductToCount(product, hint);
         setScanInput("");
+    };
+
+    // 🆕 ربط باركود جديد/متغير بصنف موجود بالفعل — بيحدّث حقل الباركود في الصنف
+    // نفسه (نفس آلية saveProduct المستخدمة في تحديثات الصنف الجزئية زي is_standalone_offer)
+    // وبعدين يضيفه لسطر الجرد الحالي مباشرة عشان الصيدلي يكمل بدون انقطاع.
+    const linkBarcodeToProduct = async (product) => {
+        const { error } = await saveProduct({ id: product.id, barcode: unmatchedBarcode }, pharmacyId, true);
+        if (error) {
+            showToast("فشل ربط الباركود: " + error, "error");
+            return;
+        }
+        const updatedProduct = { ...product, barcode: unmatchedBarcode };
+        setProducts((prev) => prev.map((p) => (p.id === product.id ? updatedProduct : p)));
+        showToast(`تم ربط الباركود بـ "${product.nameAr || product.name}" ✓`);
+        setShowLinkBarcodeModal(false);
+        addProductToCount(updatedProduct);
+        setUnmatchedBarcode("");
+        setLinkSearch("");
     };
 
     // 🆕 قايمة "أصناف لسه ماتجردتش": أي صنف عنده رصيد في النظام ومعملهوش سكان/إضافة
@@ -306,6 +375,7 @@ export function InventoryCount({
         grouped.forEach((entry) => {
             const product = products.find(
                 (x) => normGtin(x.barcode) === entry.code || normGtin(x.gtin) === entry.code
+                    || (x.altBarcodes || []).some((b) => normGtin(b) === entry.code) // 🆕 باركود بديل
             );
             if (!product) {
                 unmatched.push(entry);
@@ -644,6 +714,9 @@ export function InventoryCount({
             })
         );
 
+        // 🆕 الجرد اتحفظ فعليًا بنجاح، فمفيش داعي نفضل مسكين الدرافت المحلي بتاعه
+        localStorage.removeItem(DRAFT_KEY);
+
         setShowNew(false);
         setNotes("");
         showToast(synced ? "تم حفظ الجرد وتحديث المخزون ✓" : "تم حفظ الجرد محليًا — هيتزامن أول ما النت يرجع 🔄");
@@ -936,13 +1009,13 @@ export function InventoryCount({
                     }}
                 />
                 {/* 🆕 بار البحث بالاسم — بديل للسكانر، بيقترح الأصناف المطابقة وبتضاف بالضغط عليها */}
-                <div style={{ position: "relative", marginBottom: 12 }}>
+                <div style={{ position: "relative", marginBottom: 12, display: "flex", gap: 8 }}>
                     <input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="🔍 أو ابحث بالاسم وضيف الصنف يدويًا..."
                         style={{
-                            width: "100%",
+                            flex: 1,
                             background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                             border: `1px solid ${COLORS.border}`,
                             borderRadius: 8,
@@ -953,6 +1026,9 @@ export function InventoryCount({
                             boxSizing: "border-box",
                         }}
                     />
+                    {/* 🆕 صنف جديد تمامًا (مش عن طريق باركود مرفوض) — لصنف موجود فعليًا
+                        على الرف ومعندوش تسجيل في النظام خالص */}
+                    <Btn variant="ghost" onClick={() => setShowAddProductModal(true)}>➕ صنف جديد</Btn>
                     {search.trim() && (
                         <div
                             style={{
@@ -1213,6 +1289,90 @@ export function InventoryCount({
                     <Btn icon="check" onClick={confirmInvColumnMapping}>تأكيد ومتابعة</Btn>
                 </div>
             </Modal>
+
+            {/* 🆕 Modal ربط باركود جديد/متغير بصنف موجود — بيتفتح لما السكانر يلاقي
+                باركود مش مسجل عندك، بدل ما يرفضه بس */}
+            <Modal
+                open={showLinkBarcodeModal}
+                onClose={() => setShowLinkBarcodeModal(false)}
+                title="الباركود ده مش موجود عندك"
+            >
+                <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 12 }}>
+                    الكود: <b style={{ color: COLORS.textPrimary }}>{unmatchedBarcode}</b> — لو الصنف ده موجود
+                    عندك فعليًا بباركود قديم مختلف، دوّر عليه واربطه بالكود الجديد ده:
+                </div>
+                <Input
+                    value={linkSearch}
+                    onChange={setLinkSearch}
+                    placeholder="🔍 ابحث بالاسم..."
+                    autoFocus
+                />
+                <div style={{ maxHeight: 240, overflowY: "auto", marginTop: 8 }}>
+                    {products
+                        .filter((p) => {
+                            if (!linkSearch.trim()) return false;
+                            const q = linkSearch.toLowerCase();
+                            const name = (p.nameAr || p.name || "").toLowerCase();
+                            const nameEn = (p.nameEn || p.name_en || "").toLowerCase();
+                            return name.includes(q) || nameEn.includes(q);
+                        })
+                        .slice(0, 20)
+                        .map((p) => (
+                            <div
+                                key={p.id}
+                                onClick={() => linkBarcodeToProduct(p)}
+                                style={{
+                                    padding: "8px 12px",
+                                    cursor: "pointer",
+                                    fontSize: 13,
+                                    color: COLORS.textPrimary,
+                                    borderBottom: `1px solid ${COLORS.border}`,
+                                }}
+                            >
+                                {p.nameAr || p.name}
+                                {p.barcode && (
+                                    <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 8 }}>
+                                        (الباركود الحالي: {p.barcode})
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+                    <Btn variant="ghost" onClick={() => setShowLinkBarcodeModal(false)}>إلغاء</Btn>
+                    <Btn
+                        variant="ghost"
+                        onClick={() => {
+                            setShowLinkBarcodeModal(false);
+                            setShowAddProductModal(true);
+                        }}
+                    >
+                        مش لاقيه؟ ضيفه كصنف جديد
+                    </Btn>
+                </div>
+            </Modal>
+
+            {/* 🆕 فورم إضافة صنف جديد من نفس شاشة الجرد — نفس الفورم الموحّد المستخدم
+                في شاشة الأصناف وفاتورة الشراء. لو جاي من مسار "الباركود مش موجود"،
+                الباركود بييجي متعبي جاهز في الفورم (prefillBarcode). بعد الحفظ، الصنف
+                الجديد بيتضاف تلقائيًا لسطر الجرد الحالي عشان الاستمرارية تفضل من غير
+                ما الصيدلي يقطع الجرد. */}
+            <ProductFormModal
+                open={showAddProductModal}
+                onClose={() => setShowAddProductModal(false)}
+                editingId={null}
+                products={products}
+                setProducts={setProducts}
+                showToast={showToast}
+                pharmacyId={pharmacyId}
+                currentUser={currentUser}
+                prefillBarcode={unmatchedBarcode}
+                onSaved={(savedProduct) => {
+                    setShowAddProductModal(false);
+                    addProductToCount(savedProduct);
+                    setUnmatchedBarcode("");
+                }}
+            />
         </div>
     );
 }

@@ -546,7 +546,7 @@ export default function PharmacyPro() {
             setIsLoading(true);
 
             try {
-                const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng, jkp] = await Promise.all([
+                const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng, jkp, altBc] = await Promise.all([
                     supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
                     supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
                     supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
@@ -561,13 +561,15 @@ export default function PharmacyPro() {
                     supabase.from("product_ingredients").select("product_id, concentration, active_ingredients(name_ar, name_en)").eq("pharmacy_id", pharmacyId),
                     // 🆕 أصناف الجوكر المعلقة (لسه محتاجة تدخل طلب شراء أو تترربط بصنف حقيقي)
                     supabase.from("joker_pending_items").select("*").eq("pharmacy_id", pharmacyId),
+                    // 🆕 الباركودات البديلة البسيطة (مش دفعات GS1) لكل الأصناف — نفس نمط product_ingredients
+                    supabase.from("product_alt_barcodes").select("product_id, barcode").eq("pharmacy_id", pharmacyId),
                 ]);
 
                 // 🆕 مهم جدًا: عميل Supabase مش بيرمي (throw) لما الطلب يفشل بسبب مشكلة نت —
                 // بيرجع { data: null, error: {...} } عادي. لو مانتحققش من error هنا، هنكمل
                 // ونمسح الحالة بـ (p.data ?? []) رغم إننا أوفلاين فعليًا. أول خطأ حقيقي بيوقفنا
                 // فورًا (بنرميه إحنا يدويًا) عشان الـ catch تحت يمسكه ويحافظ على النسخة المحلية.
-                const results = { p, s, c, sa, pu, ret, cp, inv, mfr, allProdIng, jkp };
+                const results = { p, s, c, sa, pu, ret, cp, inv, mfr, allProdIng, jkp, altBc };
                 for (const [key, res] of Object.entries(results)) {
                     if (res?.error) {
                         throw new Error(`فشل تحميل ${key}: ${res.error.message || res.error}`);
@@ -581,6 +583,12 @@ export default function PharmacyPro() {
                     if (!nm) return;
                     const label = row.concentration ? `${nm} ${row.concentration}` : nm;
                     (ingredientsByProduct[row.product_id] ||= []).push(label);
+                });
+                // 🆕 نفس نمط ingredientsByProduct بالظبط، بس للباركودات البديلة —
+                // خريطة product_id → قائمة أرقام باركود إضافية (غير الـ GTIN الرئيسي)
+                const altBarcodesByProduct = {};
+                (altBc.data ?? []).forEach((row) => {
+                    (altBarcodesByProduct[row.product_id] ||= []).push(row.barcode);
                 });
                 // 🆕 مرآة إعدادات رصد من السوبابيز (مصدر الحقيقة) لـ localStorage عشان كل الأماكن
                 // اللي بتقرا الإعداد بشكل sync (طابور رصد، حفظ الفواتير، ...) تشتغل بأحدث نسخة
@@ -600,6 +608,9 @@ export default function PharmacyPro() {
                         // 🆕 التركيبة كاملة (كل المواد الفعالة)، مع رجوع للحقل القديم لو الصنف لسه مسجل بالطريقة القديمة بس
                         full_ingredients: ingredientsByProduct[row.id] || (row.active_ingredient ? [`${row.active_ingredient}${row.concentration ? " " + row.concentration : ""}`] : []),
                         full_ingredients_text: (ingredientsByProduct[row.id] || (row.active_ingredient ? [`${row.active_ingredient}${row.concentration ? " " + row.concentration : ""}`] : [])).join(" + "),
+                        // 🆕 الباركودات البديلة البسيطة المسجلة لنفس الصنف — يستخدمها السكانر في
+                        // POS/الجرد كخطوة مطابقة إضافية لو الباركود الرئيسي (barcode/gtin) مطابقش
+                        altBarcodes: altBarcodesByProduct[row.id] || [],
                     }))
                 );
                 // 🆕 full sync للكاش المحلي (SQLite بدل localStorage) — بيتحدث بنفس بيانات

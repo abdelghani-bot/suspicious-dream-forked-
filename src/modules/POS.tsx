@@ -699,8 +699,16 @@ export function POS({
                 scan.type === "gs1"
                     ? products.find(
                         (x) => normGtin(x.barcode) === normGtin(scan.gtin) || normGtin(x.gtin) === normGtin(scan.gtin)
+                            || (x.altBarcodes || []).some((b) => normGtin(b) === normGtin(scan.gtin)) // 🆕 باركود بديل
                     )
-                    : products.find((x) => x.barcode === scan.code || x.id === scan.code);
+                    : products.find((x) => x.barcode === scan.code || x.id === scan.code || (x.altBarcodes || []).includes(scan.code)); // 🆕
+            // 🆕 لو الصنف معطل، منمنعش السكانر يتفاعل معاه بصمت — نوريه سبب المنع بوضوح
+            // بدل ما يفشل السكان من غير تفسير أو يظهر كأنه باركود مش معروف.
+            if (product?.is_disabled) {
+                playWarningBeep();
+                showToast(`⛔ الصنف "${product.nameAr || product.name}" معطل حاليًا${product.disabled_reason ? " — " + product.disabled_reason : ""}`, "error");
+                return;
+            }
             if (product) {
                 // فاتورة الشراء بقت بتسجل الصلاحية بتاريخ كامل (type="date")، لكن ممكن يفضل
                 // في المخزون تشغيلات قديمة متسجلة بدقة الشهر بس ("YYYY-MM") من قبل التغيير ده.
@@ -745,8 +753,13 @@ export function POS({
             }
         } else {
             product = products.find(
-                (x) => x.barcode === scan.code || x.id === scan.code
+                (x) => x.barcode === scan.code || x.id === scan.code || (x.altBarcodes || []).includes(scan.code) // 🆕
             );
+            if (product?.is_disabled) {
+                playWarningBeep();
+                showToast(`⛔ الصنف "${product.nameAr || product.name}" معطل حاليًا${product.disabled_reason ? " — " + product.disabled_reason : ""}`, "error");
+                return;
+            }
             if (product) {
                 addToCart({ ...product, _scannedViaBarcode: true }); // 🆕
                 return;
@@ -965,6 +978,8 @@ export function POS({
 
     const searchLower = (inv.search || "").toLowerCase();
     const filtered = products.filter((p) => {
+        // 🆕 الصنف المعطل ما يظهرش في نتائج بحث نقطة البيع خالص — مينفعش يتباع أصلاً
+        if (p.is_disabled) return false;
         if (!searchLower) return true;
         const name = (p.nameAr || p.name || "").toLowerCase();
         const nameEn = (p.nameEn || p.name_en || "").toLowerCase();
@@ -3055,7 +3070,7 @@ showToast("تمت عملية البيع ✓");
                         {unmatchedLinkSearch.trim() && (
                             <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
                                 {products
-                                    .filter((p) => (p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase()) || (p.nameEn || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase()))
+                                    .filter((p) => !p.is_disabled && ((p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase()) || (p.nameEn || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase())))
                                     .slice(0, 20)
                                     .map((p) => (
                                         <div

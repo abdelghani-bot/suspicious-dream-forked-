@@ -8,7 +8,7 @@ import { nameSimilarity } from "../lib/dateUtils";
 import { MAIN_CATEGORIES, NON_DRUG_SIZE_UNITS, NON_DRUG_SIZE_UNITS_EN, NON_DRUG_TYPES_EN, PACKAGE_TYPES, SUPPLY_CATEGORIES, buildNonDrugName, buildNonDrugNameEn } from "../lib/productConstants";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
 import { Btn, Input, Modal, Select } from "../ui/primitives";
-import { saveProduct, replaceProductBarcodes, replaceProductIngredients, addItemType, addSubCategory2, deleteItemType, deleteSubCategory2 } from "../lib/offlineAPI";
+import { saveProduct, replaceProductBarcodes, replaceProductAltBarcodes, replaceProductIngredients, addItemType, addSubCategory2, deleteItemType, deleteSubCategory2, addSizeUnit, deleteSizeUnit } from "../lib/offlineAPI";
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🆕 ProductFormModal — نافذة موحّدة لإضافة/تعديل صنف، قابلة للاستخدام من
@@ -17,8 +17,8 @@ import { saveProduct, replaceProductBarcodes, replaceProductIngredients, addItem
 
 // 🆕 قيمة sentinel لخيار "إضافة نوع جديد" جوه Select النوع — لو المستخدم اختارها
 // بنفتح prompt بدل ما نحفظها كقيمة فعلية لخانة النوع.
-const ADD_NEW_TYPE = "➕ إضافة نوع جديد...";
 const ADD_NEW_SUB2 = "➕ إضافة شكل صيدلاني جديد...";
+const ADD_NEW_UNIT = "➕ إضافة وحدة جديدة...";
 
 export function ProductFormModal({
     open,
@@ -33,6 +33,7 @@ export function ProductFormModal({
     onRequestAddManufacturer, // اختياري: فتح شاشة إدارة الشركات المنتجة الكاملة
     pendingManufacturer, // 🆕 {id, name, ts} — بيوصل من الأب لما يتم إضافة شركة جديدة من جوه فورم الصنف نفسه، عشان نختارها تلقائيًا بدل ما "تضيع"
     prefillName = "",    // 🆕 اسم مبدئي يتحط في الفورم (مثلاً من صف فاتورة مورد لسه محتاج يتربط بصنف)
+    prefillBarcode = "", // 🆕 باركود مبدئي يتحط في خانة GTIN (مثلاً من شاشة الجرد لما السكانر يلاقي باركود مش مسجل)
     jokerPendingItems = [],       // 🆕 أصناف الجوكر المعلقة — لاقتراح ربطها بالصنف الجديد
     setJokerPendingItems = () => { },
     suppliers = [],       // 🆕 لازم لعرض قائمة الموردين المرشحين لفئة التوريد بتاعة الصنف
@@ -40,10 +41,15 @@ export function ProductFormModal({
     const [manufacturers, setManufacturers] = useState([]);
     const [itemTypes, setItemTypes] = useState([]); // 🆕 أنواع الأصناف الغير دوائية — ديناميكية بدل hardcoded
     const [subCategories2, setSubCategories2] = useState([]);
+    const [sizeUnits, setSizeUnits] = useState([]); // 🆕 وحدات الحجم/الوزن — ديناميكية بدل NON_DRUG_SIZE_UNITS الثابتة
+    const [showUnitPrompt, setShowUnitPrompt] = useState(false);
+    const [unitPromptValue, setUnitPromptValue] = useState("");
+    const [unitPromptValueEn, setUnitPromptValueEn] = useState("");
     const [showSubCat2Prompt, setShowSubCat2Prompt] = useState(false);
     const [subCat2PromptValue, setSubCat2PromptValue] = useState("");
     const [subCat2PromptValueEn, setSubCat2PromptValueEn] = useState("");
     const [showManageModal, setShowManageModal] = useState(null); // "itemType" | "subCat2" | null
+    const [showItemTypeDropdown, setShowItemTypeDropdown] = useState(false); // 🆕 دروب داون بحث النوع
     const [allIngredients, setAllIngredients] = useState([]);
     const [ingredientSearch, setIngredientSearch] = useState("");
     const [similarSearch, setSimilarSearch] = useState("");
@@ -52,6 +58,7 @@ export function ProductFormModal({
     const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
     const [selectedIngredients, setSelectedIngredients] = useState([]);
     const [barcodes, setBarcodes] = useState([]);
+    const [altBarcodes, setAltBarcodes] = useState([]); // 🆕 باركودات بسيطة بديلة لنفس الصنف (مش دفعات GS1)
     // 🆕 اقتراح ربط الصنف الجديد بصنف جوكر قديم قريب منه في الاسم
     const [jokerLinkChoice, setJokerLinkChoice] = useState(null); // id الجوكر اللي المستخدم وافق يربطه، أو null
     const [dismissedJokerSuggestion, setDismissedJokerSuggestion] = useState(false);
@@ -182,7 +189,7 @@ const itemTypeSub2Map = useMemo(() => {
     // المستخدم سجّله وقت الإضافة)، وبنرجع لخريطة NON_DRUG_TYPES_EN القديمة كـ fallback —
     // عشان الأصناف اللي اتسجلت بأنواع قديمة (قبل التحويل للنوع الديناميكي) تفضل شغالة من غير migration.
     const itemTypeEn = itemTypes.find((t) => t.name_ar === form.itemType)?.name_en || NON_DRUG_TYPES_EN[form.itemType] || "";
-    const sizeUnitEn = NON_DRUG_SIZE_UNITS_EN[form.sizeUnit] || "";
+    const sizeUnitEn = sizeUnits.find((u) => u.name_ar === form.sizeUnit)?.name_en || NON_DRUG_SIZE_UNITS_EN[form.sizeUnit] || "";
     // بنتابع آخر نص إنجليزي اتبنى تلقائيًا، عشان لو الكاشير عدّل الاسم الإنجليزي يدويًا بعد كده
     // منكتبش فوق تعديله كل ما يغيّر حاجة تانية في الفورم (الحجم مثلاً).
     const nameEnAutoRef = useRef("");
@@ -223,6 +230,8 @@ useEffect(() => {
         });
         return Array.from(set).sort((a, b) => a.localeCompare(b, "ar"));
     }, [products]);
+    // 🆕 نفس الفكرة بالظبط بس للبراند بالإنجليزي — مبنية من brandEnMap (كل قيمة فريدة)
+    const knownBrandsEn = useMemo(() => Array.from(new Set(Object.values(brandEnMap))).sort((a, b) => a.localeCompare(b)), [brandEnMap]);
 
     useEffect(() => {
         if (!pharmacyId) return;
@@ -258,6 +267,18 @@ useEffect(() => {
                 try { await window.offlineAPI?.refreshSubCategories2Cache?.({ pharmacyId, rows: sub2Data }); } catch (err) { console.error("refreshSubCategories2Cache failed:", err); }
             }
         }
+        // 🆕 نفس منطق subCategories2 بالظبط، بس لوحدات الحجم/الوزن
+        try {
+            const cachedUnits = await window.offlineAPI?.getSizeUnitsCache?.(pharmacyId);
+            if (cachedUnits && cachedUnits.length > 0) setSizeUnits(cachedUnits);
+        } catch (err) { console.error("getSizeUnitsCache failed:", err); }
+        if (navigator.onLine) {
+            const { data: unitsData, error: unitsErr } = await supabase.from("size_units").select("*").eq("pharmacy_id", pharmacyId).order("name_ar");
+            if (!unitsErr && unitsData) {
+                setSizeUnits(unitsData);
+                try { await window.offlineAPI?.refreshSizeUnitsCache?.({ pharmacyId, rows: unitsData }); } catch (err) { console.error("refreshSizeUnitsCache failed:", err); }
+            }
+        }
         })();
     }, [pharmacyId]);
 
@@ -278,12 +299,12 @@ useEffect(() => {
     const [itemTypePromptValue, setItemTypePromptValue] = useState("");
     const [itemTypePromptValueEn, setItemTypePromptValueEn] = useState(""); // 🆕 الاسم الإنجليزي (اختياري)
 
-    const handleItemTypeChange = (v) => {
-        if (v !== ADD_NEW_TYPE) { F("itemType", v); return; }
-        setItemTypePromptValue("");
-        setItemTypePromptValueEn("");
-        setShowItemTypePrompt(true);
-    };
+    const filteredItemTypes = useMemo(() => {
+        const q = (form.itemType || "").trim().toLowerCase();
+        if (!q) return itemTypes;
+        return itemTypes.filter((t) => t.name_ar.toLowerCase().includes(q));
+    }, [itemTypes, form.itemType]);
+    const itemTypeExactMatch = itemTypes.some((t) => t.name_ar === (form.itemType || "").trim());
 
     const confirmAddItemType = async () => {
         const trimmed = itemTypePromptValue.trim();
@@ -300,6 +321,29 @@ useEffect(() => {
         setItemTypes((prev) => [...prev, newType].sort((a, b) => a.name_ar.localeCompare(b.name_ar, "ar")));
         F("itemType", trimmed);
         showToast(result.synced ? "تمت إضافة النوع ✓" : "تمت إضافة النوع محليًا — هتتزامن لما يرجع النت ✓");
+    };
+
+    // 🆕 نفس منطق النوع بالظبط بس لوحدة الحجم/الوزن — Select عادي مع خيار "إضافة وحدة جديدة"
+    // (مش محتاجة بحث زي النوع لإن قايمة الوحدات عادةً قصيرة: مل/جم/كجم/لتر...)
+    const handleUnitChange = (v) => {
+        if (v !== ADD_NEW_UNIT) { F("sizeUnit", v); return; }
+        setUnitPromptValue("");
+        setUnitPromptValueEn("");
+        setShowUnitPrompt(true);
+    };
+
+    const confirmAddUnit = async () => {
+        const trimmed = unitPromptValue.trim();
+        if (!trimmed) return;
+        const trimmedEn = unitPromptValueEn.trim();
+        setShowUnitPrompt(false);
+        const existing = sizeUnits.find((u) => u.name_ar === trimmed);
+        if (existing) { F("sizeUnit", trimmed); return; }
+        const result = await addSizeUnit(trimmed, pharmacyId, trimmedEn || undefined);
+        const newUnit = { id: result.id, name_ar: trimmed, name_en: trimmedEn || null, pharmacy_id: pharmacyId };
+        setSizeUnits((prev) => [...prev, newUnit].sort((a, b) => a.name_ar.localeCompare(b.name_ar, "ar")));
+        F("sizeUnit", trimmed);
+        showToast(result.synced ? "تمت إضافة الوحدة ✓" : "تمت إضافة الوحدة محليًا — هتتزامن لما يرجع النت ✓");
     };
      const handleSubCat2Change = (v) => {
     if (v !== ADD_NEW_SUB2) { F("subCategory2", v); return; }
@@ -363,6 +407,9 @@ const confirmAddSubCat2 = async () => {
                 .then(({ data }) => {
                     setBarcodes(data && data.length > 0 ? data : [{ batch_number: "", serial_number: "", expiry_date: "" }]);
                 });
+            // 🆕 تحميل الباركودات البديلة البسيطة (مش GS1) المسجلة لنفس الصنف
+            supabase.from("product_alt_barcodes").select("*").eq("product_id", p.id)
+                .then(({ data }) => setAltBarcodes(data || []));
             supabase.from("product_ingredients").select("*, active_ingredients(name_ar, name_en)").eq("product_id", p.id)
                 .then(({ data }) => {
                     setSelectedIngredients((data || []).map((x) => {
@@ -377,12 +424,13 @@ const confirmAddSubCat2 = async () => {
                 });
             setSimilarSearch(""); setSimilarProductId("");
         } else {
-            setForm({ ...blank, id: "P" + Date.now(), nameAr: prefillName || "" });
+            setForm({ ...blank, id: "P" + Date.now(), nameAr: prefillName || "", gtin: prefillBarcode || "" });
             setBarcodes([{ batch_number: "", serial_number: "", expiry_date: "" }]);
+            setAltBarcodes([]);
             setSelectedIngredients([]);
             setSimilarSearch(""); setSimilarProductId("");
         }
-    }, [open, editingId]);
+    }, [open, editingId, prefillName, prefillBarcode]);
 
     const addBarcode = () => setBarcodes((prev) => [...prev, { batch_number: "", serial_number: "", expiry_date: "" }]);
     const updateBarcode = (i, key, val) => setBarcodes((prev) => prev.map((b, idx) => idx === i ? { ...b, [key]: val } : b));
@@ -416,12 +464,25 @@ const confirmAddSubCat2 = async () => {
             setGs1ScanVal("");
             showToast(`✅ تم استخراج الباركود: ${parsed.gtin}${parsed.expiry ? " | صلاحية: " + parsed.expiry : ""}${parsed.batch ? " | تشغيلة: " + parsed.batch : ""}`, "success");
         } else {
-            // باركود بسيط مش GS1 (زي كود صنف داخلي أو EAN بسيط) — بيتحط في خانة GTIN مباشرة
-            F("gtin", trimmed);
+            // 🆕 باركود بسيط مش GS1 (زي كود صنف داخلي أو EAN بسيط):
+            // - لو خانة GTIN الرئيسية لسه فاضية → يروح لها هي (نفس السلوك القديم)
+            // - لو GTIN متعبي بالفعل → يبقى معناه ده باركود إضافي/بديل لنفس الصنف
+            //   (مورد غيّر الباركود، أو الصنف له أكتر من رقم مطبوع)، فيتضاف لقايمة
+            //   الباركودات البديلة بدل ما يكتب فوق GTIN الأساسي ويضيعه.
+            if (!form.gtin.trim()) {
+                F("gtin", trimmed);
+                showToast("تم إضافة الباركود البسيط", "success");
+            } else if (form.gtin.trim() === trimmed || altBarcodes.some((b) => b.barcode === trimmed)) {
+                showToast("الباركود ده مسجل بالفعل لنفس الصنف", "warning");
+            } else {
+                setAltBarcodes((prev) => [...prev, { id: "tmp" + Date.now(), barcode: trimmed }]);
+                showToast(`✅ تم إضافة "${trimmed}" كباركود بديل للصنف`, "success");
+            }
             setGs1ScanVal("");
-            showToast("تم إضافة الباركود البسيط", "success");
         }
     };
+
+    const removeAltBarcode = (id) => setAltBarcodes((prev) => prev.filter((b) => b.id !== id));
 
     const addIngredient = async (ing) => {
         if (selectedIngredients.find((x) => x.ingredient_id === ing.id)) { setShowIngredientDropdown(false); setIngredientSearch(""); return; }
@@ -586,6 +647,9 @@ const confirmAddSubCat2 = async () => {
             product_id: productId, pharmacy_id: pharmacyId,
         })));
 
+        // 🆕 حفظ الباركودات البديلة (replace كامل زي البارباركود العادي)
+        await replaceProductAltBarcodes(productId, pharmacyId, altBarcodes.map((b) => b.barcode));
+
         await replaceProductIngredients(productId, pharmacyId, selectedIngredients.map((x) => ({
             product_id: productId, ingredient_id: x.ingredient_id, concentration: x.concentration, pharmacy_id: pharmacyId,
         })));
@@ -644,14 +708,61 @@ const confirmAddSubCat2 = async () => {
                                onChange={(e) => F("brandNameEn", e.target.value)}
                                placeholder="Nivea"
                                dir="ltr" lang="en"
+                               list="brand-en-suggestions"
                                style={inputStyle}
                                       />
+                            <datalist id="brand-en-suggestions">
+                                {knownBrandsEn.map((b) => <option key={b} value={b} />)}
+                            </datalist>
                                    </div>
-                            {/* 🆕 النوع بقى ديناميكي: مصدره جدول item_types بدل NON_DRUG_TYPES الثابتة —
-                آخر خيار في القايمة بيفتح إضافة نوع جديد (أوفلاين-فيرست، زي إضافة الصنف نفسه) */}
-                            <div>
-                                <Select label="النوع *" value={form.itemType} onChange={handleItemTypeChange}
-                                    options={["", ...itemTypes.map((t) => t.name_ar), ADD_NEW_TYPE]} />
+                            {/* 🆕 النوع بقى قابل للبحث بالكتابة بدل Select عادي — مصدره جدول item_types
+                الديناميكي، والقايمة بتتفلتر لحظيًا مع الكتابة. لو الاسم المكتوب مش موجود
+                أصلاً، بيظهر خيار "إضافة كنوع جديد" في نفس القايمة بدل ما يحتاج زرار منفصل. */}
+                            <div style={{ position: "relative" }}>
+                                <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>النوع *</div>
+                                <input
+                                    value={form.itemType}
+                                    onChange={(e) => { F("itemType", e.target.value); setShowItemTypeDropdown(true); }}
+                                    onFocus={() => setShowItemTypeDropdown(true)}
+                                    onBlur={() => setTimeout(() => setShowItemTypeDropdown(false), 150)}
+                                    placeholder="اكتب للبحث عن النوع..."
+                                    dir="rtl" lang="ar"
+                                    style={inputStyle}
+                                />
+                                {showItemTypeDropdown && (
+                                    <div style={{
+                                        position: "absolute", zIndex: 20, top: "100%", right: 0, left: 0,
+                                        background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                        border: `1px solid ${COLORS.border}`, borderRadius: 8, marginTop: 4,
+                                        maxHeight: 200, overflowY: "auto",
+                                    }}>
+                                        {filteredItemTypes.map((t) => (
+                                            <div
+                                                key={t.id}
+                                                onMouseDown={() => { F("itemType", t.name_ar); setShowItemTypeDropdown(false); }}
+                                                style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: COLORS.textPrimary, borderBottom: `1px solid ${COLORS.border}` }}
+                                            >
+                                                {t.name_ar}
+                                            </div>
+                                        ))}
+                                        {filteredItemTypes.length === 0 && (
+                                            <div style={{ padding: "8px 12px", fontSize: 12, color: COLORS.textDim }}>مفيش نتايج مطابقة</div>
+                                        )}
+                                        {form.itemType.trim() && !itemTypeExactMatch && (
+                                            <div
+                                                onMouseDown={() => {
+                                                    setItemTypePromptValue(form.itemType.trim());
+                                                    setItemTypePromptValueEn("");
+                                                    setShowItemTypeDropdown(false);
+                                                    setShowItemTypePrompt(true);
+                                                }}
+                                                style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: COLORS.green, fontWeight: 700 }}
+                                            >
+                                                ➕ إضافة "{form.itemType.trim()}" كنوع جديد
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <span onClick={() => setShowManageModal("itemType")} style={{ fontSize: 11, color: COLORS.blue, cursor: "pointer" }}>🗑 إدارة الأنواع</span>
                             </div>
                             <div style={{ display: "flex", gap: 6 }}>
@@ -659,7 +770,9 @@ const confirmAddSubCat2 = async () => {
                                     <Input label="الحجم/الوزن" value={form.sizeValue} onChange={(v) => F("sizeValue", v)} type="number" placeholder="400" />
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                    <Select label="الوحدة" value={form.sizeUnit} onChange={(v) => F("sizeUnit", v)} options={NON_DRUG_SIZE_UNITS} />
+                                    <Select label="الوحدة" value={form.sizeUnit} onChange={handleUnitChange}
+                                        options={["", ...sizeUnits.map((u) => u.name_ar), ADD_NEW_UNIT]} />
+                                    <span onClick={() => setShowManageModal("sizeUnit")} style={{ fontSize: 11, color: COLORS.blue, cursor: "pointer" }}>🗑 إدارة الوحدات</span>
                                 </div>
                             </div>
                             {/* 🆕 تمييز الصنف — وصف حر بيتضاف آخر الاسم (مثلاً "لتساقط الشعر"، "بشرة جافة") لتفريق منتجات نفس البراند/النوع/الحجم عن بعض */}
@@ -1026,6 +1139,26 @@ const confirmAddSubCat2 = async () => {
                             />
                         </div>
                     </div>
+
+                    {/* 🆕 قايمة الباركودات البديلة البسيطة (مش دفعات GS1) — بتتضاف تلقائيًا لما
+                        تمسح باركود بسيط والخانة الرئيسية (GTIN) متعبية بالفعل */}
+                    {altBarcodes.length > 0 && (
+                        <div style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6 }}>باركودات بديلة لنفس الصنف:</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {altBarcodes.map((b) => (
+                                    <span key={b.id} style={{
+                                        display: "flex", alignItems: "center", gap: 6,
+                                        background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                        borderRadius: 20, padding: "4px 10px", fontSize: 12, color: COLORS.textPrimary,
+                                    }}>
+                                        {b.barcode}
+                                        <span onClick={() => removeAltBarcode(b.id)} style={{ cursor: "pointer", color: COLORS.red, fontWeight: 700 }}>×</span>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     {barcodes.map((b, i) => (
                         <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
                             <input value={b.batch_number} onChange={(e) => updateBarcode(i, "batch_number", e.target.value)} placeholder="رقم التشغيلة"
@@ -1077,10 +1210,10 @@ const confirmAddSubCat2 = async () => {
         </div>
     </div>
 </Modal>
-             <Modal open={!!showManageModal} onClose={() => setShowManageModal(null)} title={showManageModal === "itemType" ? "🗑 إدارة الأنواع" : "🗑 إدارة الأشكال الصيدلانية"} zIndex={1200}>
+             <Modal open={!!showManageModal} onClose={() => setShowManageModal(null)} title={showManageModal === "itemType" ? "🗑 إدارة الأنواع" : showManageModal === "sizeUnit" ? "🗑 إدارة الوحدات" : "🗑 إدارة الأشكال الصيدلانية"} zIndex={1200}>
     <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
-        {(showManageModal === "itemType" ? itemTypes : subCategories2.filter((s) => s.main_category === form.mainCategory)).map((item) => {
-            const inUse = products.some((p) => showManageModal === "itemType" ? p.item_type === item.name_ar : p.sub_category2 === item.name_ar);
+        {(showManageModal === "itemType" ? itemTypes : showManageModal === "sizeUnit" ? sizeUnits : subCategories2.filter((s) => s.main_category === form.mainCategory)).map((item) => {
+            const inUse = products.some((p) => showManageModal === "itemType" ? p.item_type === item.name_ar : showManageModal === "sizeUnit" ? (p.size_unit === item.name_ar) : p.sub_category2 === item.name_ar);
             return (
                 <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderBottom: `1px solid ${COLORS.border}` }}>
                     <span>{item.name_ar}{inUse && <span style={{ color: COLORS.gold, fontSize: 11 }}> (مستخدم في أصناف حالية)</span>}</span>
@@ -1089,6 +1222,9 @@ const confirmAddSubCat2 = async () => {
                         if (showManageModal === "itemType") {
                             await deleteItemType(item.id, pharmacyId);
                             setItemTypes((prev) => prev.filter((x) => x.id !== item.id));
+                        } else if (showManageModal === "sizeUnit") {
+                            await deleteSizeUnit(item.id, pharmacyId);
+                            setSizeUnits((prev) => prev.filter((x) => x.id !== item.id));
                         } else {
                             await deleteSubCategory2(item.id, pharmacyId);
                             setSubCategories2((prev) => prev.filter((x) => x.id !== item.id));
@@ -1099,6 +1235,28 @@ const confirmAddSubCat2 = async () => {
         })}
     </div>
 </Modal>  
+            {/* 🆕 modal إضافة وحدة جديدة — نفس نمط نوع الصنف والشكل الصيدلاني بالظبط */}
+            <Modal open={showUnitPrompt} onClose={() => setShowUnitPrompt(false)} title="➕ إضافة وحدة جديدة" zIndex={1200}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <Input
+                        value={unitPromptValue}
+                        onChange={(v) => setUnitPromptValue(v)}
+                        placeholder="اسم الوحدة بالعربي (مثال: كيس)"
+                        autoFocus
+                        onKeyDown={(e) => e.key === "Enter" && confirmAddUnit()}
+                    />
+                    <Input
+                        value={unitPromptValueEn}
+                        onChange={(v) => setUnitPromptValueEn(v)}
+                        placeholder="الاسم بالإنجليزي (اختياري — مثال: Sachet)"
+                        onKeyDown={(e) => e.key === "Enter" && confirmAddUnit()}
+                    />
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <Btn variant="ghost" onClick={() => setShowUnitPrompt(false)}>إلغاء</Btn>
+                        <Btn icon="check" onClick={confirmAddUnit}>إضافة</Btn>
+                    </div>
+                </div>
+            </Modal>
             {/* 🆕 modal إضافة شركة منتجة سريعة — نفس السبب، بديل عن window.prompt() */}
             <Modal open={showMfrPrompt} onClose={() => setShowMfrPrompt(false)} title="🏭 إضافة شركة منتجة جديدة" zIndex={1200}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

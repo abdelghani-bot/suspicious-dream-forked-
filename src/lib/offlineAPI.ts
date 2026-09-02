@@ -600,6 +600,18 @@ case "PRODUCT_BARCODES_REPLACE": {
     }
     break;
 }
+// 🆕 باركودات بديلة بسيطة (مش GS1) لنفس الصنف — منفصلة تمامًا عن product_barcodes
+// (اللي بتتبع الدفعات/الصلاحيات لباركود GS1 واحد). هنا كل صف مجرد رقم باركود
+// إضافي بيرجع لنفس الصنف، عشان صنف اتغير باركوده من المورد أو ليه أكتر من رقم مسجل.
+case "PRODUCT_ALT_BARCODES_REPLACE": {
+    const { productId, rows } = event.payload;
+    await supabase.from("product_alt_barcodes").delete().eq("product_id", productId);
+    if (rows.length > 0) {
+        const { error } = await supabase.from("product_alt_barcodes").insert(rows);
+        if (error) throw error;
+    }
+    break;
+}
 case "PRODUCT_INGREDIENTS_REPLACE": {
     const { productId, rows } = event.payload;
     await supabase.from("product_ingredients").delete().eq("product_id", productId);
@@ -614,6 +626,11 @@ case "PRODUCT_INGREDIENTS_REPLACE": {
             if (error) throw error;
             break;
         }
+        case "SIZE_UNIT_INSERT": {
+            const { error } = await supabase.from("size_units").insert(event.payload.record);
+            if (error) throw error;
+            break;
+        }
         case "SUB_CATEGORY2_INSERT": {
     const { record, pharmacy_id } = event.payload;
     const { error } = await supabase.from("sub_categories2").insert(record);
@@ -623,6 +640,12 @@ case "PRODUCT_INGREDIENTS_REPLACE": {
 case "ITEM_TYPE_DELETE": {
     const { id, pharmacy_id } = event.payload;
     const { error } = await supabase.from("item_types").delete().eq("id", id).eq("pharmacy_id", pharmacy_id);
+    if (error) throw error;
+    break;
+}
+case "SIZE_UNIT_DELETE": {
+    const { id, pharmacy_id } = event.payload;
+    const { error } = await supabase.from("size_units").delete().eq("id", id).eq("pharmacy_id", pharmacy_id);
     if (error) throw error;
     break;
 }
@@ -1416,6 +1439,22 @@ export async function replaceProductBarcodes(productId: string, pharmacyId: stri
     });
 }
 
+// 🆕 نفس نمط replaceProductBarcodes بالظبط بس لجدول product_alt_barcodes المستقل —
+// محتاج تعمل الجدول ده في Supabase: (id uuid, product_id, barcode text, pharmacy_id)
+export async function replaceProductAltBarcodes(productId: string, pharmacyId: string, barcodes: string[]) {
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "PRODUCT_ALT_BARCODES_REPLACE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: {
+            productId,
+            rows: barcodes.map((b) => ({ id: crypto.randomUUID(), product_id: productId, barcode: b, pharmacy_id: pharmacyId })),
+            pharmacy_id: pharmacyId,
+        },
+    });
+}
+
 export async function replaceProductIngredients(productId: string, pharmacyId: string, rows: any[]) {
     return queueEvent({
         id: crypto.randomUUID(),
@@ -1445,6 +1484,47 @@ export async function addItemType(nameAr: string, pharmacyId: string, nameEn?: s
     });
 
     return { id, synced: result.synced, error: result.error };
+}
+// 🆕 نفس منطق addItemType/deleteItemType بالظبط بس لوحدات الحجم/الوزن (sizeUnit) —
+// نفس الجدول-الفرعي الديناميكي (id, name_ar, name_en, pharmacy_id)، جدول Supabase منفصل
+// "size_units". محتاج تعمل الجدول ده في Supabase (نفس شكل item_types) لو لسه مش موجود،
+// وكمان تضيف upsertSizeUnitCache/deleteSizeUnitCache/getSizeUnitsCache/refreshSizeUnitsCache
+// في preload.js/main.js بنفس شكل ItemTypeCache المقابلة لها.
+export async function addSizeUnit(nameAr: string, pharmacyId: string, nameEn?: string) {
+    const id = crypto.randomUUID();
+    const record = { id, name_ar: nameAr, name_en: nameEn || null, pharmacy_id: pharmacyId };
+
+    try {
+        await window.offlineAPI?.upsertSizeUnitCache?.(record);
+    } catch (err) {
+        console.error("upsertSizeUnitCache failed:", err);
+    }
+
+    const result = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "SIZE_UNIT_INSERT",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { record, pharmacy_id: pharmacyId },
+    });
+
+    return { id, synced: result.synced, error: result.error };
+}
+
+export async function deleteSizeUnit(id: string, pharmacyId: string) {
+    try {
+        await window.offlineAPI?.deleteSizeUnitCache?.({ pharmacyId, id });
+    } catch (err) {
+        console.error("deleteSizeUnitCache failed:", err);
+    }
+
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "SIZE_UNIT_DELETE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { id, pharmacy_id: pharmacyId },
+    });
 }
 export async function addSubCategory2(nameAr: string, mainCategory: string, pharmacyId: string, nameEn?: string) {
     const id = crypto.randomUUID();
