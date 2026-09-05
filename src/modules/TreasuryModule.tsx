@@ -340,6 +340,11 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // 🆕 نفس تشخيص "الأيام اللي فيها فرق فعلي" اللي كان في تقرير السداد والمصروفات —
     // اتنقل هنا عشان يبقى جنب أداة التسوية الفعلية، فيقدر المستخدم يتصرف فورًا بدل ما يقرأ تحذير في شاشة تانية.
     const fullyReturnedSaleIdsForDiag = new Set((sales || []).filter((s) => s.returned).map((s) => s.id));
+    // 🆕 الأيام اللي المستخدم تجاهلها يدويًا بعد ما راجعها ولقى إن الفرق مش قابل للإصلاح
+    // التلقائي (مصدره مش "مبيعات جديدة" — زي مرتجع بمبلغ مختلف أو سداد آجل غير متطابق)
+    const dismissedDiagnosticDates = new Set(
+        (entries || []).filter((e) => e && e.pharmacy_id === pharmacyId && e.sub_type === "diagnostics_dismissed").map((e) => e.date)
+    );
     const closedDaysDiagnostics = closedDaysList.map((d) => {
         const expected =
             (sales || []).filter((s) => s.date === d && !s.returned && s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0)
@@ -350,7 +355,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             (entries || []).filter((e) => e && e.type === "income" && e.sub_type !== "opening_balance" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0)
             - (entries || []).filter((e) => e && e.type === "expense" && e.sub_type === "sales_return" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
         return { date: d, diff: expected - recorded };
-    }).filter((r) => Math.abs(r.diff) > 0.01);
+    }).filter((r) => Math.abs(r.diff) > 0.01 && !dismissedDiagnosticDates.has(r.date));
     const [reviewDate, setReviewDate] = useState("");
     const reviewClosingRecord = reviewDate
         ? (entries || []).find((e) => e.pharmacy_id === pharmacyId && e.date === reviewDate && e.sub_type === "daily_closing")
@@ -415,6 +420,34 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             setEntries((p) => [{ id, type: "income", sub_type: "closing_adjustment", method: "نقدي", amount: reviewPostClosingNet, note: reviewNote, date: reviewDate, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", created_at: nowIso }, ...p]);
         }
         showToast(navigator.onLine ? `✅ تمت إضافة التسوية لتقفيل يوم ${reviewDate}` : "✅ تم تسجيل التسوية محليًا (ستُرفع عند توفر الاتصال)");
+    };
+
+    // 🆕 تجاهل يدوي لفرق يوم معيّن — لحالات إن الفرق مش سببه "مبيعات جديدة بعد التقفيل"
+    // (زرار addReviewClosingAdjustment مبيصلحش غير ده تحديدًا)، فيفضل اليوم عالق في القايمة
+    // الحمرا للأبد من غير طريقة تلغيه. القيد بصفر (amount: 0) عشان محدش يتأثر رقميًا —
+    // هو مجرد "علامة" إن المستخدم راجع الفرق ده وقرر يتجاهله.
+    const [dismissingDiagnostic, setDismissingDiagnostic] = useState("");
+    const dismissDayDiagnostic = async (date) => {
+        if (dismissingDiagnostic) return;
+        setDismissingDiagnostic(date);
+        const note = `تم تجاهل فرق المطابقة ليوم ${date} بعد المراجعة اليدوية`;
+        const nowIso = new Date().toISOString();
+        const { id } = await insertTreasuryEntry({
+            type: "income",
+            sub_type: "diagnostics_dismissed",
+            method: "نقدي",
+            amount: 0,
+            note,
+            date,
+            pharmacy_id: pharmacyId,
+            created_by: currentUser?.name || "",
+            created_at: nowIso,
+        });
+        setDismissingDiagnostic("");
+        if (setEntries) {
+            setEntries((p) => [{ id, type: "income", sub_type: "diagnostics_dismissed", method: "نقدي", amount: 0, note, date, pharmacy_id: pharmacyId, created_by: currentUser?.name || "", created_at: nowIso }, ...p]);
+        }
+        showToast(`✅ تم تجاهل فرق يوم ${date} — مش هيبان في القايمة تاني`);
     };
 
     const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(0);
@@ -1759,8 +1792,9 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                 </div>
             )}
 
-            {/* ══════════ 🆕 مراجعة/تسوية أي يوم سابق مُقفّل — يظهر دايمًا في تبويب تقفيل اليوم ══════════ */}
-            {activeTab === "today" && canViewDayClosing && closedDaysList.length > 0 && (
+            {/* ══════════ 🆕 مراجعة/تسوية أي يوم سابق مُقفّل — يظهر بس لو فيه أيام لسه محتاجة
+                مراجعة فعليًا (فيها فرق حقيقي)، مش دايمًا طول ما فيه أي يوم اتقفل قبل كده */}
+            {activeTab === "today" && canViewDayClosing && closedDaysDiagnostics.length > 0 && (
                 <div style={{
                     marginTop: 20, background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
                     borderRadius: 10, padding: "14px 16px",
@@ -1778,13 +1812,30 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                 {closedDaysDiagnostics.map((r) => (
-                                    <button key={r.date} onClick={() => setReviewDate(r.date)}
-                                        style={{
-                                            border: `1px solid ${tint(COLORS.red, 0.35)}`, background: COLORS.redSoft, color: COLORS.red,
-                                            borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer",
-                                        }}>
-                                        {r.date} ({r.diff > 0 ? "+" : ""}{r.diff.toFixed(2)} ر.س)
-                                    </button>
+                                    <div key={r.date} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                                        <button onClick={() => setReviewDate(r.date)}
+                                            style={{
+                                                border: `1px solid ${tint(COLORS.red, 0.35)}`, background: COLORS.redSoft, color: COLORS.red,
+                                                borderRadius: "6px 0 0 6px", padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                                            }}>
+                                            {r.date} ({r.diff > 0 ? "+" : ""}{r.diff.toFixed(2)} ر.س)
+                                        </button>
+                                        {/* 🆕 لو راجعت اليوم ده ولقيت إن الفرق مش سببه مبيعات جديدة (زرار
+                                            الإضافة التلقائي مش هيصلحه)، تقدر تتجاهله يدويًا فيختفي نهائيًا */}
+                                        <button
+                                            onClick={() => dismissDayDiagnostic(r.date)}
+                                            disabled={dismissingDiagnostic === r.date}
+                                            title="راجعت الفرق ده يدويًا وقررت تتجاهله — مش هيبان تاني"
+                                            style={{
+                                                border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRight: "none",
+                                                background: COLORS.redSoft, color: COLORS.red,
+                                                borderRadius: "0 6px 6px 0", padding: "5px 8px", fontSize: 11, fontWeight: 700,
+                                                cursor: dismissingDiagnostic === r.date ? "default" : "pointer",
+                                                opacity: dismissingDiagnostic === r.date ? 0.5 : 1,
+                                            }}>
+                                            {dismissingDiagnostic === r.date ? "…" : "✕"}
+                                        </button>
+                                    </div>
                                 ))}
                             </div>
                         </div>

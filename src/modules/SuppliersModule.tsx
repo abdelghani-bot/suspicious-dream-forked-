@@ -9,6 +9,7 @@ import { computeStockoutForecast } from "../lib/inventoryUtils";
 import { SUPPLY_CATEGORIES, SUPPLY_CATEGORY_ICONS } from "../lib/productConstants";
 import { computeAvailableForPayment } from "../lib/treasuryUtils";
 import { Badge, Btn, IC, Input, Modal } from "../ui/primitives";
+import { printHTML } from "../lib/printHelper"; // 🆕 كشف حساب المورد — نفس helper الطباعة المستخدم في الخزينة
 
 export function SuppliersModule({
   suppliers,
@@ -61,6 +62,38 @@ export function SuppliersModule({
   const [expandedSupplierIds, setExpandedSupplierIds] = useState({});
   const toggleSupplierExpand = (id) => setExpandedSupplierIds((p) => ({ ...p, [id]: !p[id] }));
   const [payForm, setPayForm] = useState({ amount: "", note: "", method: "نقدي", receipt: null, receiptUrl: "" });
+  // 🆕 كشف حساب المورد — فترة العرض/الطباعة (نفس نمط تقرير تقفيل اليوم في الخزينة)
+  const [statementRange, setStatementRange] = useState({ from: "", to: "" });
+
+  // 🆕 بيانات الصيدلية (اسم/عنوان/رقم ضريبي + طابعة التقارير) لترويسة كشف الحساب المطبوع
+  const [pharmInfo, setPharmInfo] = useState({ name: "", address: "", taxNumber: "", reportsPrinterName: "" });
+  useEffect(() => {
+    if (!pharmacyId) return;
+    supabase.from("pharmacy_settings")
+      .select("name_ar, address, tax_number, reports_printer_name")
+      .eq("pharmacy_id", pharmacyId).maybeSingle()
+      .then(({ data, error }) => {
+        if (data) {
+          setPharmInfo({
+            name: data.name_ar || "",
+            address: data.address || "",
+            taxNumber: data.tax_number || "",
+            reportsPrinterName: data.reports_printer_name || "",
+          });
+        } else if (error && window.offlineAPI?.getPharmacySettingsCache) {
+          window.offlineAPI.getPharmacySettingsCache(pharmacyId).then((cached) => {
+            if (cached) {
+              setPharmInfo({
+                name: cached.name_ar || "",
+                address: cached.address || "",
+                taxNumber: cached.tax_number || "",
+                reportsPrinterName: cached.reports_printer_name || "",
+              });
+            }
+          }).catch(() => {});
+        }
+      });
+  }, [pharmacyId]);
 
   // ── مرتجع تلقائي ──
   const [showAutoReturn, setShowAutoReturn] = useState(null); // المورد المختار
@@ -132,6 +165,109 @@ export function SuppliersModule({
       .filter((p) => p.supplier === supplierId)
       .reduce((s, p) => s + (p.total - (p.paid || 0) - (p.returned_amount || 0)), 0);
     return openingBalance + invoicesDebt;
+  };
+
+  // ========== 🆕 كشف حساب المورد (قابل للعرض والطباعة) ==========
+  // بيبني كل حركات المورد (رصيد افتتاحي + فواتير شراء + دفعات) كسجل واحد
+  // مرتب بالتاريخ مع رصيد متراكم — نفس منطق "له/عليه/الرصيد" في كشف حساب تقليدي.
+  // عليه (مدين للمورد) = فواتير الشراء. له (دائن) = الدفعات + المرتجعات.
+  const getSupplierStatementRows = (supplierId, fromDate, toDate) => {
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    if (!supplier) return { rows: [], openingBalance: 0, closingBalance: 0 };
+
+    const inRange = (d) => (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+
+    // رصيد أول المدة: التفاصيل المفصّلة لو موجودة، وإلا الرقم المجمل
+    const openingDetails = supplier.opening_balance_details || [];
+    const openingTotal = openingDetails.length > 0
+      ? openingDetails.reduce((s, d) => s + (d.amount || 0), 0)
+      : (supplier.opening_balance || 0);
+
+    // بنعتبر رصيد أول المدة بالكامل سابق لأي فلتر تاريخ (يظهر كسطر أول ثابت)
+    const events = [];
+
+    (purchases || []).filter((p) => p.supplier === supplierId && inRange(p.date)).forEach((p) => {
+      events.push({ date: p.date, label: `فاتورة شراء ${p.id}`, debit: p.total || 0, credit: 0, ref: p.id });
+      if (p.returned_amount) {
+        events.push({ date: p.date, label: `مرتجع على فاتورة ${p.id}`, debit: 0, credit: p.returned_amount, ref: p.id });
+      }
+    });
+
+    (payments || []).filter((pay) => pay.supplier_id === supplierId && inRange(pay.date)).forEach((pay) => {
+      events.push({ date: pay.date, label: pay.notes ? `دفعة — ${pay.notes}` : "دفعة", debit: 0, credit: pay.amount || 0, ref: pay.id });
+    });
+
+    events.sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : 0));
+
+    let running = openingTotal;
+    const rows = events.map((e) => {
+      running += (e.debit || 0) - (e.credit || 0);
+      return { ...e, balance: running };
+    });
+
+    return { rows, openingBalance: openingTotal, closingBalance: running };
+  };
+
+  // 🆕 طباعة كشف حساب المورد (A4) — نفس نمط تقرير تقفيل اليوم في الخزينة
+  const printSupplierStatement = (supplier, fromDate, toDate) => {
+    const { rows, openingBalance, closingBalance } = getSupplierStatementRows(supplier.id, fromDate, toDate);
+
+    const rowsHtml = rows.map((r) => `
+      <tr>
+        <td>${r.date}</td>
+        <td>${r.label}</td>
+        <td style="text-align:left; color:#a30f0f">${r.debit ? r.debit.toFixed(2) : "—"}</td>
+        <td style="text-align:left; color:#0a7a3a">${r.credit ? r.credit.toFixed(2) : "—"}</td>
+        <td style="text-align:left; font-weight:bold">${r.balance.toFixed(2)}</td>
+      </tr>`).join("");
+
+    const html = `
+      <html dir="rtl">
+      <head>
+        <meta charset="utf-8">
+        <title>كشف حساب — ${supplier.name}</title>
+        <style>
+          * { margin:0; padding:0; box-sizing:border-box; font-family: Arial, sans-serif; }
+          @page { size: A4; margin: 14mm; }
+          body { color:#111; font-size:13px; }
+          .header { text-align:center; border-bottom:2px solid #222; padding-bottom:10px; margin-bottom:16px; }
+          .header h1 { font-size:18px; margin-bottom:4px; }
+          .header .sub { color:#555; font-size:12px; }
+          .meta-row { display:flex; justify-content:space-between; margin-bottom:14px; font-size:12px; color:#333; }
+          table { width:100%; border-collapse:collapse; margin-bottom:10px; }
+          th, td { border:1px solid #ccc; padding:6px 8px; font-size:12px; }
+          th { background:#f2f2f2; text-align:right; }
+          .total-line { display:flex; justify-content:space-between; font-size:15px; font-weight:bold; border-top:2px solid #222; padding-top:8px; margin-top:8px; }
+          .footer-note { color:#555; font-size:11px; margin-top:20px; border-top:1px dashed #999; padding-top:8px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>${pharmInfo.name || "الصيدلية"}</h1>
+          <div class="sub">${pharmInfo.address || ""}${pharmInfo.taxNumber ? " · الرقم الضريبي: " + pharmInfo.taxNumber : ""}</div>
+          <div class="sub" style="margin-top:6px; font-weight:bold;">كشف حساب مورد — ${supplier.name}</div>
+        </div>
+
+        <div class="meta-row">
+          <span>الفترة: ${fromDate || "البداية"} إلى ${toDate || "اليوم"}</span>
+          <span>رصيد أول المدة: ${openingBalance.toFixed(2)} ر.س</span>
+        </div>
+
+        <table>
+          <thead><tr><th>التاريخ</th><th>البيان</th><th>عليه (مدين)</th><th>له (دائن)</th><th>الرصيد</th></tr></thead>
+          <tbody>${rowsHtml || `<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد حركات خلال هذه الفترة</td></tr>`}</tbody>
+        </table>
+
+        <div class="total-line">
+          <span>الرصيد الختامي (المستحق للمورد)</span>
+          <span>${closingBalance.toFixed(2)} ر.س</span>
+        </div>
+
+        <div class="footer-note">تاريخ الطباعة: ${todayLocal()}</div>
+      </body>
+      </html>
+    `;
+    printHTML(html, { deviceName: pharmInfo.reportsPrinterName || undefined });
   };
 
   // 🆕 دين فاتورة شراء واحدة بعد خصم المسدد والمرتجع
@@ -1293,6 +1429,7 @@ export function SuppliersModule({
                   </Btn>
                 )}
                 <Btn size="sm" icon="chart" onClick={() => setShowDetail(s)} variant="secondary">تفاصيل</Btn>
+                <Btn size="sm" icon="printer" onClick={() => { setStatementRange({ from: "", to: "" }); setShowStatements(s); }} variant="secondary">📄 كشف حساب</Btn>
                 {s.whatsapp && (
                   <button onClick={() => window.open(`https://wa.me/${s.whatsapp}`, "_blank")}
                     style={{ padding: "6px 10px", background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green,0.35)}`, borderRadius: 7, color: COLORS.green, cursor: "pointer", fontSize: 14 }}>
@@ -1931,6 +2068,72 @@ export function SuppliersModule({
                   showToast("تم رفع الكشف ✓");
                 }}
                 style={{ color: COLORS.textPrimary, fontSize: 12 }} />
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {/* ===== 🆕 Modal كشف حساب المورد ===== */}
+      {showStatements && (() => {
+        const { rows, openingBalance, closingBalance } = getSupplierStatementRows(
+          showStatements.id, statementRange.from, statementRange.to
+        );
+        return (
+          <Modal open title={`كشف حساب — ${showStatements.name}`} onClose={() => setShowStatements(null)} wide>
+            <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div>
+                <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>من تاريخ</label>
+                <input type="date" value={statementRange.from}
+                  onChange={(e) => setStatementRange((p) => ({ ...p, from: e.target.value }))}
+                  style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>إلى تاريخ</label>
+                <input type="date" value={statementRange.to}
+                  onChange={(e) => setStatementRange((p) => ({ ...p, to: e.target.value }))}
+                  style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }} />
+              </div>
+              <Btn size="sm" variant="ghost" onClick={() => setStatementRange({ from: "", to: "" })}>كل الفترة</Btn>
+              <div style={{ flex: 1 }} />
+              <Btn icon="printer" onClick={() => printSupplierStatement(showStatements, statementRange.from, statementRange.to)}>
+                🖨️ طباعة (A4)
+              </Btn>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              <div style={{ flex: 1, background: COLORS.surfaceAlt, borderRadius: 10, padding: 12, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: COLORS.textDim }}>رصيد أول المدة</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: COLORS.textPrimary }}>{openingBalance.toFixed(2)} ر.س</div>
+              </div>
+              <div style={{ flex: 1, background: COLORS.redSoft, borderRadius: 10, padding: 12, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: COLORS.textDim }}>الرصيد الختامي</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: COLORS.red }}>{closingBalance.toFixed(2)} ر.س</div>
+              </div>
+            </div>
+
+            <div style={{ maxHeight: 380, overflowY: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                    {["التاريخ", "البيان", "عليه", "له", "الرصيد"].map((h) => (
+                      <th key={h} style={{ textAlign: "right", padding: "6px 8px", color: COLORS.textDim, fontWeight: 600 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr><td colSpan={5} style={{ textAlign: "center", padding: 16, color: COLORS.textDim }}>لا توجد حركات خلال هذه الفترة</td></tr>
+                  ) : rows.map((r, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                      <td style={{ padding: "6px 8px" }}>{r.date}</td>
+                      <td style={{ padding: "6px 8px" }}>{r.label}</td>
+                      <td style={{ padding: "6px 8px", color: COLORS.red }}>{r.debit ? r.debit.toFixed(2) : "—"}</td>
+                      <td style={{ padding: "6px 8px", color: COLORS.green }}>{r.credit ? r.credit.toFixed(2) : "—"}</td>
+                      <td style={{ padding: "6px 8px", fontWeight: 700 }}>{r.balance.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Modal>
         );
