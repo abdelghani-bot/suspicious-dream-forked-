@@ -142,6 +142,20 @@ export default function PharmacyPro() {
                 if (data) setLoyaltySettings(data);
             });
     }, [pharmacyId]);
+    // 🆕 نسب الخصم الافتراضية لكل فئة (من شاشة "بيانات الصيدلية") — مصدر واحد هنا بيتمرر
+    // لـ InventoryCount عشان حساب تكلفة الرصيد الافتتاحي تلقائيًا، نفس نمط loyaltySettings فوق.
+    const [pharmacySettings, setPharmacySettings] = useState({});
+    useEffect(() => {
+        if (!pharmacyId) return;
+        supabase
+            .from("pharmacy_settings")
+            .select("category_cost_discounts")
+            .eq("pharmacy_id", pharmacyId)
+            .maybeSingle()
+            .then(({ data }) => {
+                setPharmacySettings({ categoryCostDiscounts: data?.category_cost_discounts || {} });
+            });
+    }, [pharmacyId]);
     const [tab, setTab] = useState("dashboard");
     const [toast, setToast] = useState(null);
 
@@ -1321,6 +1335,7 @@ export default function PharmacyPro() {
                             purchases={purchases}
                             canAddSub={(sub) => canAdd("inventory_count", sub)}
                             canEditSub={(sub) => canEdit("inventory_count", sub)}
+                            pharmacySettings={pharmacySettings}
                         />
                     )}
                     {tab === "products" && canView("products") && (

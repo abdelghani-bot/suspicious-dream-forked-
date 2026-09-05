@@ -13,6 +13,21 @@ export function PharmacySettings({ showToast, pharmacyId }) {
     const [confirmClone, setConfirmClone] = useState(false);
     const [availablePrinters, setAvailablePrinters] = useState([]);
 
+    // 🆕 فئات الأصناف المسجلة عند الصيدلية — لعرض حقل نسبة خصم لكل فئة، نفس الفئات
+    // المستخدمة فعليًا في شاشة الأصناف (product.category)، مش تصنيف جديد نخترعه هنا
+    const [productCategories, setProductCategories] = useState([]);
+    useEffect(() => {
+        if (!pharmacyId) return;
+        supabase
+            .from("products")
+            .select("category")
+            .eq("pharmacy_id", pharmacyId)
+            .then(({ data, error }) => {
+                if (error) return;
+                setProductCategories([...new Set((data || []).map((r) => r.category).filter(Boolean))]);
+            });
+    }, [pharmacyId]);
+
     useEffect(() => {
         (async () => {
             const printAPI = window.printAPI;
@@ -84,6 +99,9 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         reportsPrinterName: data.reports_printer_name || "",
                         thermalPrinterName: data.thermal_printer_name || "",
                         doseLabelPrinterName: data.dose_label_printer_name || "",
+                        // 🆕 نسب الخصم الافتراضية لكل فئة (تُستخدم لحساب تكلفة الرصيد الافتتاحي
+                        // في شاشة الجرد تلقائيًا لما معندناش تكلفة قديمة من البرنامج السابق)
+                        categoryCostDiscounts: data.category_cost_discounts || {},
                     };
                     setSettings(fresh);
                     // 🆕 نحدّث الكاش المحلي بأحدث نسخة من السيرفر كل ما التحميل ينجح،
@@ -133,6 +151,11 @@ export function PharmacySettings({ showToast, pharmacyId }) {
     const save = async () => {
         if (!pharmacyId) return;
 
+        // 🆕 نشيل أي فئة القيمة فيها فاضية (اليوزر فتح الحقل ومسحه) قبل الحفظ
+        const cleanedCategoryDiscounts = Object.fromEntries(
+            Object.entries(settings.categoryCostDiscounts || {}).filter(([, v]) => v !== "" && v != null)
+        );
+
         const updates = {
             name_ar: settings.nameAr,
             name_en: settings.nameEn,
@@ -149,6 +172,8 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             reports_printer_name: settings.reportsPrinterName || null,
             thermal_printer_name: settings.thermalPrinterName || null,
             dose_label_printer_name: settings.doseLabelPrinterName || null,
+            // 🆕
+            category_cost_discounts: cleanedCategoryDiscounts,
         };
 
         // نحدّث الكاش المحلي فورًا (نفس شكل الفورم عشان أي قراءة تالية أوفلاين تلاقيه جاهز)
@@ -400,6 +425,54 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                                 : "غير مفعّل — كل مرتجع يُعتبر كاش دايمًا (الوضع الافتراضي)"}
                         </span>
                     </div>
+                </div>
+
+                {/* 🆕 نسبة الخصم الافتراضية لكل فئة — التكلفة الافتراضية = سعر البيع × (1 − النسبة).
+                    بتتطبق بس على الأصناف اللي معندهاش تكلفة قديمة مسجلة، وقت الرصيد الافتتاحي
+                    في شاشة الجرد، وتفضل قابلة للتعديل اليدوي في سطر الجرد نفسه. */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+                        نسبة الخصم الافتراضية لكل فئة (لحساب تكلفة الرصيد الافتتاحي تلقائيًا)
+                    </label>
+                    {productCategories.length === 0 ? (
+                        <p style={{ margin: 0, fontSize: 12.5, color: COLORS.textDim }}>
+                            مفيش فئات أصناف مسجلة لسه.
+                        </p>
+                    ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 420 }}>
+                            {productCategories.map((cat) => (
+                                <div key={cat} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                    <span style={{ fontSize: 13.5, color: COLORS.textPrimary }}>{cat}</span>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            step="0.5"
+                                            value={settings.categoryCostDiscounts?.[cat] ?? ""}
+                                            onChange={(e) =>
+                                                setSettings((p) => ({
+                                                    ...p,
+                                                    categoryCostDiscounts: {
+                                                        ...p.categoryCostDiscounts,
+                                                        [cat]: e.target.value === "" ? "" : +e.target.value,
+                                                    },
+                                                }))
+                                            }
+                                            placeholder="0"
+                                            style={{
+                                                width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                                border: `1px solid ${COLORS.border}`, borderRadius: 6,
+                                                padding: "5px 8px", color: COLORS.textPrimary,
+                                                fontSize: 13, outline: "none", textAlign: "center",
+                                            }}
+                                        />
+                                        <span style={{ color: COLORS.textDim, fontSize: 12 }}>%</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* ✅ هنا كانت المشكلة - </div> ناقصة لإغلاق الـ grid */}
