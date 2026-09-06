@@ -552,13 +552,16 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const [payMonth, setPayMonth] = useState(todayLocal().slice(0, 7));
     // 🆕 نجيب سجلات الحضور بتاعة الشهر المختار بس (عشان الجدول ده ممكن يبقى كبير)
     useEffect(() => {
-        if (!pharmacyId || !payMonth) return;
-        supabase.from("attendance_logs").select("*")
-            .eq("pharmacy_id", pharmacyId)
-            .gte("date", payMonth + "-01")
-            .lte("date", payMonth + "-31")
-            .then(({ data }) => { if (data) setAttendanceLogsForSalary(data); });
-    }, [pharmacyId, payMonth]);
+    if (!pharmacyId || !payMonth) return;
+    const [year, month] = payMonth.split("-").map(Number);
+    const nextMonthStart = new Date(year, month, 1).toISOString().slice(0, 10); // first day of next month
+
+    supabase.from("attendance_logs").select("*")
+        .eq("pharmacy_id", pharmacyId)
+        .gte("date", payMonth + "-01")
+        .lt("date", nextMonthStart)
+        .then(({ data }) => { if (data) setAttendanceLogsForSalary(data); });
+}, [pharmacyId, payMonth]);
     const [showPayForm, setShowPayForm] = useState(null); // employee object
     const [savingSalary, setSavingSalary] = useState(false);
     const [payForm, setPayForm] = useState({

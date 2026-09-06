@@ -3,6 +3,8 @@ import { supabase } from "../lib/supabaseClient";
 import { COLORS } from "../theme";
 import { DEFAULT_FIN_THRESHOLDS, FIN_METRIC_ORDER, FIN_STATUS_COLOR, FIN_STATUS_LABEL, calculateFinancialHealth, compareFinTrend } from "../lib/financeUtils";
 import { Badge, Btn, IC, Input, Modal, Table } from "../ui/primitives";
+import { computeTreasuryBalance } from "../lib/treasuryUtils"; // 🆕 لحساب رصيد الخزنة كما كان في تاريخ قطع معين (آخر يوم بالشهر)
+import { todayLocal } from "../lib/dateUtils";
 
 export function FinLineChart({ series, height = 180 }) {
   // series: [{ label, points: [{x: 'شهر', y: number}], color }]
@@ -64,6 +66,7 @@ export function FinancialHealthModule({
   customers = [],
   suppliers = [],
   creditPayments = [],
+  entries = [],    // 🆕 قيود الخزنة (treasuryEntries في App.tsx) — لحساب المصاريف التشغيلية والكاش تلقائيًا
   pharmacyId,
   currentUser,
   showToast,
@@ -79,6 +82,15 @@ export function FinancialHealthModule({
   const [alertsLog, setAlertsLog] = useState([]);
   const [showAlertsLog, setShowAlertsLog] = useState(false);
   const unreadAlertsCount = alertsLog.filter((a) => !a.is_read).length;
+  // 🆕 تآكل رأس المال — فترة مختارة للعرض (فاضية = من أول شهر مسجل)
+  const [erosionRange, setErosionRange] = useState({ from: "", to: "" });
+  // 🆕 دفعات الموردين — SuppliersModule بيحمّلها كـ state محلي عنده مش prop من App.tsx،
+  // فبنحمّلها هنا كمان بنفس الطريقة بالظبط عشان نحسب مديونية الموردين الحقيقية لأي تاريخ قطع
+  const [payments, setPayments] = useState([]);
+  useEffect(() => {
+    supabase.from("payments").select("*").order("date", { ascending: true })
+      .then(({ data }) => { if (data) setPayments(data); });
+  }, []);
 
   const currentMonthKey = new Date().toISOString().slice(0, 7);
   const [formMonth, setFormMonth] = useState(currentMonthKey);
@@ -105,12 +117,34 @@ export function FinancialHealthModule({
         setThresholds({ ...DEFAULT_FIN_THRESHOLDS, ...settingsRow.thresholds });
       }
       setLoading(false);
+
+      // 🆕 بعد ما البيانات تحمّل، سجّل تلقائيًا أي شهر مقفول (فات) ومفيهوش snapshot
+      if (canEditFinance) {
+        const created = await autoBackfillSnapshots(snaps || []);
+        if (created.length > 0) {
+          setSnapshots((prev) => {
+            const merged = [...prev, ...created];
+            const seen = new Set();
+            const dedup = merged.filter((s) => (seen.has(s.snapshot_date) ? false : (seen.add(s.snapshot_date), true)));
+            return dedup.sort((a, b) => (a.snapshot_date > b.snapshot_date ? 1 : -1));
+          });
+          showToast?.(`🤖 تم تسجيل ${created.length} شهر تلقائيًا كان ناقص من الموقف المالي`, "success");
+        }
+      }
     };
     load();
   }, [pharmacyId]);
 
   // ── حساب البنود اللي بتتحسب تلقائيًا من بيانات موجودة أصلاً (مبيعات/تكلفة/مديونيات) ──
+  // تاريخ القطع: آخر يوم في الشهر ده، إلا لو كان الشهر الحالي (لسه ماخلصش) فبنقطع لحد النهاردة
+  const monthEndCutoff = (monthKey) => {
+    if (monthKey === currentMonthKey) return todayLocal();
+    const [y, m] = monthKey.split("-").map(Number);
+    return new Date(y, m, 0).toISOString().slice(0, 10); // يوم 0 من الشهر اللي بعده = آخر يوم في الشهر ده
+  };
+
   const computeAutoFigures = (monthKey) => {
+    const cutoff = monthEndCutoff(monthKey);
     const monthSales = sales.filter((s) => s.date?.startsWith(monthKey));
     let totalSales = 0, totalCogs = 0;
     monthSales.forEach((s) => {
@@ -124,15 +158,173 @@ export function FinancialHealthModule({
         totalCogs += cost * qty;
       });
     });
-    // مديونية العملاء المستحقة حاليًا (كل الشهور، مش شهر واحد بس — لأنها رصيد لحظي)
-    const ajilSales = sales.filter((s) => s.payment === "آجل");
+    // مديونية العملاء المستحقة كما كانت في تاريخ القطع (آجل لحد كده - المسدد لحد كده)
+    const ajilSales = sales.filter((s) => s.payment === "آجل" && s.date <= cutoff);
     const totalAR = ajilSales.reduce((sum, inv) => {
-      const paid = creditPayments.filter((p) => p.invoice_id === inv.id).reduce((x, p) => x + (p.amount || 0), 0);
+      const paid = creditPayments.filter((p) => p.invoice_id === inv.id && p.date <= cutoff).reduce((x, p) => x + (p.amount || 0), 0);
       return sum + Math.max((inv.total || 0) - paid, 0);
     }, 0);
-    const totalAP = suppliers.reduce((sum, s) => sum + (s.opening_balance || 0), 0);
+    // 🆕 مديونية الموردين الحقيقية كما كانت في تاريخ القطع — نفس منطق كشف حساب المورد بالظبط
+    // (رصيد افتتاحي + فواتير الشراء لحد التاريخ - مرتجعاتها - دفعات المورد لحد نفس التاريخ)
+    // مش بس opening_balance زي ما كان قبل كده، عشان كان بيتجاهل ديون الفواتير الفعلية.
+    const totalAP = suppliers.reduce((sum, sup) => {
+      const openingDetails = sup.opening_balance_details || [];
+      const opening = openingDetails.length > 0 ? openingDetails.reduce((a, d) => a + (d.amount || 0), 0) : (sup.opening_balance || 0);
+      const purchasesDebt = purchases
+        .filter((p) => p.supplier === sup.id && p.date <= cutoff)
+        .reduce((a, p) => a + (p.total || 0) - (p.returned_amount || 0), 0);
+      const paymentsCredit = payments
+        .filter((pay) => pay.supplier_id === sup.id && pay.date <= cutoff)
+        .reduce((a, pay) => a + (pay.amount || 0), 0);
+      return sum + opening + purchasesDebt - paymentsCredit;
+    }, 0);
     const inventoryValueSuggested = products.reduce((sum, p) => sum + (p.stock || 0) * (p.cost || 0), 0);
-    return { totalSales, totalCogs, totalAR, totalAP, inventoryValueSuggested };
+    // 🆕 المصاريف التشغيلية تلقائيًا من قيود الخزنة الفعلية لنفس الشهر — من غير سداد الموردين
+    // (سداد المورد مش مصروف تشغيلي، هو سداد دين تكلفته اتخصمت أصلاً جوه totalCogs فوق)
+    const opexAuto = entries
+      .filter((e) => e.type === "expense" && e.sub_type !== "supplier_payment" && e.date?.startsWith(monthKey))
+      .reduce((a, e) => a + (e.amount || 0), 0);
+    // 🆕 الكاش المتاح (نقدي + بطاقة + تحويل) كما كان في تاريخ القطع بالظبط، مش الرصيد الحالي
+    const filterUpTo = (arr, cut) => (arr || []).filter((x) => x.date && x.date <= cut);
+    const ctxAsOf = { sales: filterUpTo(sales, cutoff), creditPayments: filterUpTo(creditPayments, cutoff), entries: filterUpTo(entries, cutoff) };
+    const cashAsOf =
+      computeTreasuryBalance("نقدي", ctxAsOf) +
+      computeTreasuryBalance("بطاقة", ctxAsOf) +
+      computeTreasuryBalance("تحويل", ctxAsOf);
+    return { totalSales, totalCogs, totalAR, totalAP, inventoryValueSuggested, opexAuto, cashAsOf };
+  };
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 تآكل رأس المال — هل الربح الإجمالي بيغطي المصاريف التشغيلية؟
+  // لو شهر معين طلع صافي ربحه سالب (الربح الإجمالي < المصاريف التشغيلية)، العجز ده
+  // لازم يتغطى من حتة: إما سحب من الكاش المتاح، أو تأجيل سداد الموردين (زيادة الدين).
+  // بنحسب الاتنين من الفرق بين كل شهر واللي قبله (delta) في نفس الـ snapshot.
+  // ═══════════════════════════════════════════════════
+  const computeErosionStats = (fromMonth, toMonth) => {
+    const sorted = [...snapshots].sort((a, b) => (a.snapshot_date < b.snapshot_date ? -1 : 1));
+    const rows = [];
+    let cumulativeAll = 0, cashUsedAll = 0, apIncreaseAll = 0;
+    let cumulativePeriod = 0, cashUsedPeriod = 0, apIncreasePeriod = 0;
+
+    sorted.forEach((s, i) => {
+      const netProfit = s.net_profit ?? ((s.gross_profit || 0) - (s.operating_expenses || 0));
+      if (netProfit >= 0) return; // الشهر ده غطى مصاريفه — مفيش تآكل
+
+      const deficit = Math.abs(netProfit);
+      const monthKey = s.snapshot_date.slice(0, 7);
+      const prev = sorted[i - 1];
+      const cashDrop = prev ? (prev.cash_balance || 0) - (s.cash_balance || 0) : null;
+      const apIncrease = prev ? (s.accounts_payable || 0) - (prev.accounts_payable || 0) : null;
+
+      cumulativeAll += deficit;
+      cashUsedAll += Math.max(cashDrop || 0, 0);
+      apIncreaseAll += Math.max(apIncrease || 0, 0);
+
+      const inPeriod = (!fromMonth || monthKey >= fromMonth) && (!toMonth || monthKey <= toMonth);
+      if (inPeriod) {
+        cumulativePeriod += deficit;
+        cashUsedPeriod += Math.max(cashDrop || 0, 0);
+        apIncreasePeriod += Math.max(apIncrease || 0, 0);
+        rows.push({
+          monthKey,
+          grossProfit: s.gross_profit || 0,
+          opex: s.operating_expenses || 0,
+          deficit,
+          coverageRatio: s.operating_expenses ? ((s.gross_profit || 0) / s.operating_expenses) * 100 : null,
+          cashDrop,
+          apIncrease,
+          hasBaseline: !!prev,
+        });
+      }
+    });
+
+    return { rows, cumulativeAll, cashUsedAll, apIncreaseAll, cumulativePeriod, cashUsedPeriod, apIncreasePeriod };
+  };
+
+  // ═══════════════════════════════════════════════════
+  // 🆕 تسجيل تلقائي للشهور "المقفولة" اللي فاتك تسجيلها
+  // بيشتغل مرة واحدة بعد تحميل البيانات: بيدور من أول شهر فيه بيانات لحد الشهر اللي فات
+  // (مش الشهر الحالي — لسه ماخلصش)، وأي شهر مفيهوش snapshot، بيتحسب بالكامل من بيانات
+  // النظام (مبيعات/تكلفة/مديونيات/مصاريف/كاش) ويتسجل تلقائيًا مع auto_generated=true
+  // عشان يبان في الواجهة إنه محسوب مش مُدخل يدوي، وتقدر تراجعه/تعدّله وقتها.
+  // ═══════════════════════════════════════════════════
+  const OPEX_CATEGORY_LABELS = {
+    fixed: "مصاريف ثابتة", variable: "مصاريف متغيرة", salary: "رواتب", license: "تراخيص",
+    petty: "نثريات", leave_cashout: "بدل إجازة", end_of_service: "نهاية خدمة", adjustment: "تسوية خزنة",
+  };
+
+  const nextMonthKey = (mk) => {
+    const [y, m] = mk.split("-").map(Number);
+    return new Date(y, m, 1).toISOString().slice(0, 7);
+  };
+
+  const getEarliestDataMonth = () => {
+    const allDates = [
+      ...sales.map((s) => s.date),
+      ...purchases.map((p) => p.date),
+      ...entries.map((e) => e.date),
+    ].filter(Boolean).sort();
+    return allDates.length ? allDates[0].slice(0, 7) : currentMonthKey;
+  };
+
+  const autoSaveSnapshotForMonth = async (monthKey) => {
+    const auto = computeAutoFigures(monthKey);
+    const grossProfit = auto.totalSales - auto.totalCogs;
+    const netProfit = grossProfit - auto.opexAuto;
+    const payload = {
+      pharmacy_id: pharmacyId,
+      snapshot_date: monthKey + "-01",
+      total_sales: auto.totalSales,
+      total_cogs: auto.totalCogs,
+      gross_profit: grossProfit,
+      operating_expenses: auto.opexAuto,
+      net_profit: netProfit,
+      inventory_value: Math.round(auto.inventoryValueSuggested),
+      cash_balance: Math.round(auto.cashAsOf),
+      accounts_receivable: Math.round(auto.totalAR),
+      accounts_payable: Math.round(auto.totalAP),
+      days_in_period: new Date(+monthKey.split("-")[0], +monthKey.split("-")[1], 0).getDate(),
+      created_by: "نظام تلقائي",
+      auto_generated: true,
+    };
+    const { data: savedRows, error } = await supabase
+      .from("financial_snapshots")
+      .upsert(payload, { onConflict: "pharmacy_id,snapshot_date" })
+      .select();
+    if (error) return null;
+
+    // بنود المصاريف التشغيلية بنفس تفاصيلها من قيود الخزنة (مش رقم واحد مجمّع)
+    const monthExpenseEntries = entries.filter((e) => e.type === "expense" && e.sub_type !== "supplier_payment" && e.date?.startsWith(monthKey));
+    if (monthExpenseEntries.length > 0) {
+      await supabase.from("operating_expenses").delete().eq("pharmacy_id", pharmacyId).eq("snapshot_month", monthKey);
+      await supabase.from("operating_expenses").insert(
+        monthExpenseEntries.map((e) => ({
+          pharmacy_id: pharmacyId,
+          snapshot_month: monthKey,
+          category: OPEX_CATEGORY_LABELS[e.sub_type] || "أخرى",
+          amount: e.amount || 0,
+          note: e.note || "",
+        }))
+      );
+    }
+    return savedRows && savedRows[0] ? savedRows[0] : payload;
+  };
+
+  const autoBackfillSnapshots = async (existingSnaps) => {
+    const earliest = getEarliestDataMonth();
+    const existingMonths = new Set(existingSnaps.map((s) => s.snapshot_date.slice(0, 7)));
+    const created = [];
+    let cursor = earliest;
+    let guard = 0; // حماية من أي لوب لا نهائي لو حصل خطأ في تنسيق التواريخ
+    while (cursor < currentMonthKey && guard < 600) {
+      if (!existingMonths.has(cursor)) {
+        const saved = await autoSaveSnapshotForMonth(cursor);
+        if (saved) created.push(saved);
+      }
+      cursor = nextMonthKey(cursor);
+      guard++;
+    }
+    return created;
   };
 
   const openForm = async (monthKey) => {
@@ -141,7 +333,7 @@ export function FinancialHealthModule({
     const existing = snapshots.find((s) => s.snapshot_date === monthKey + "-01");
     setForm({
       inventory_value: existing?.inventory_value ?? Math.round(auto.inventoryValueSuggested),
-      cash_balance: existing?.cash_balance ?? "",
+      cash_balance: existing?.cash_balance ?? Math.round(auto.cashAsOf),
       accounts_receivable: existing?.accounts_receivable ?? Math.round(auto.totalAR),
       accounts_payable: existing?.accounts_payable ?? Math.round(auto.totalAP),
     });
@@ -182,6 +374,7 @@ export function FinancialHealthModule({
         accounts_payable: +form.accounts_payable || 0,
         days_in_period: new Date(+formMonth.split("-")[0], +formMonth.split("-")[1], 0).getDate(),
         created_by: currentUser?.name || "",
+        auto_generated: false, // 🆕 أي حفظ بإيد المستخدم من المودال ده بيبقى "يدوي" حتى لو كان أصله شهر اتحسب تلقائي
       };
 
       const { data: savedRows, error: snapError } = await supabase
@@ -358,6 +551,93 @@ export function FinancialHealthModule({
               <FinLineChart series={quickRatioSeries} />
             </div>
           </div>
+
+          {/* ══════ 🆕 الشهور المسجلة — يدوي مقابل محسوب تلقائيًا ══════ */}
+          <div style={{
+            background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+            border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden", marginBottom: 20,
+          }}>
+            <div style={{ padding: "14px 18px 0", fontWeight: 700, color: COLORS.textPrimary, fontSize: 14 }}>الشهور المسجلة</div>
+            <Table
+              headers={["الشهر", "صافي الربح", "المصدر", ""]}
+              rows={[...snapshots].sort((a, b) => (a.snapshot_date > b.snapshot_date ? -1 : 1)).map((s) => [
+                s.snapshot_date.slice(0, 7),
+                <span key="np" style={{ color: (s.net_profit || 0) < 0 ? COLORS.red : COLORS.green, fontWeight: 700 }}>{(s.net_profit || 0).toFixed(2)} ر.س</span>,
+                s.auto_generated
+                  ? <Badge key="src" color={COLORS.gold + "22"} text={COLORS.gold}>🤖 محسوب تلقائيًا</Badge>
+                  : <Badge key="src" color={COLORS.green + "22"} text={COLORS.green}>✋ يدوي</Badge>,
+                canEditFinance ? <Btn key="edit" size="sm" variant="ghost" onClick={() => openForm(s.snapshot_date.slice(0, 7))}>مراجعة/تعديل</Btn> : "",
+              ])}
+            />
+          </div>
+
+          {/* ══════ 🆕 تآكل رأس المال — هل الربح بيغطي التشغيل؟ ══════ */}
+          {(() => {
+            const stats = computeErosionStats(erosionRange.from, erosionRange.to);
+            return (
+              <div style={{
+                background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+                border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 18, marginBottom: 20,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+                  <h3 style={{ color: COLORS.textPrimary, margin: 0, fontSize: 16, fontWeight: 800 }}>🔻 تآكل رأس المال — هل الربح بيغطي التشغيل؟</h3>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="month" value={erosionRange.from}
+                      onChange={(e) => setErosionRange((p) => ({ ...p, from: e.target.value }))}
+                      style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 8px", color: COLORS.textPrimary, fontSize: 12 }} />
+                    <span style={{ color: COLORS.textDim, fontSize: 12 }}>إلى</span>
+                    <input type="month" value={erosionRange.to}
+                      onChange={(e) => setErosionRange((p) => ({ ...p, to: e.target.value }))}
+                      style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 8px", color: COLORS.textPrimary, fontSize: 12 }} />
+                    <Btn variant="ghost" size="sm" onClick={() => setErosionRange({ from: "", to: "" })}>كل الفترة</Btn>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
+                  <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>إجمالي التآكل من أول شهر مسجل</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: stats.cumulativeAll > 0 ? COLORS.red : COLORS.green }}>
+                      {stats.cumulativeAll.toFixed(2)} ر.س
+                    </div>
+                  </div>
+                  <div style={{ background: COLORS.redSoft, borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>التآكل خلال الفترة المختارة</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.red }}>{stats.cumulativePeriod.toFixed(2)} ر.س</div>
+                  </div>
+                  <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>منها من الكاش (فترة مختارة)</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.textPrimary }}>{stats.cashUsedPeriod.toFixed(2)} ر.س</div>
+                  </div>
+                  <div style={{ background: COLORS.surfaceAlt, borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 4 }}>منها بتأجيل سداد الموردين (فترة مختارة)</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.textPrimary }}>{stats.apIncreasePeriod.toFixed(2)} ر.س</div>
+                  </div>
+                </div>
+
+                {stats.rows.length === 0 ? (
+                  <div style={{ color: COLORS.textDim, textAlign: "center", padding: 20, fontSize: 13 }}>
+                    مفيش شهور فيها عجز خلال الفترة دي — الربح الإجمالي كان بيغطي المصاريف التشغيلية كل شهر 👍
+                  </div>
+                ) : (
+                  <Table
+                    headers={["الشهر", "الربح الإجمالي", "المصاريف التشغيلية", "نسبة التغطية", "العجز", "من الكاش", "تأجيل سداد المورد"]}
+                    rows={stats.rows.map((r) => [
+                      r.monthKey,
+                      `${r.grossProfit.toFixed(2)} ر.س`,
+                      `${r.opex.toFixed(2)} ر.س`,
+                      r.coverageRatio != null ? `${r.coverageRatio.toFixed(0)}%` : "—",
+                      <span key="deficit" style={{ color: COLORS.red, fontWeight: 700 }}>{r.deficit.toFixed(2)} ر.س</span>,
+                      r.hasBaseline ? `${Math.max(r.cashDrop, 0).toFixed(2)} ر.س` : "لا يوجد شهر سابق للمقارنة",
+                      r.hasBaseline ? `${Math.max(r.apIncrease, 0).toFixed(2)} ر.س` : "—",
+                    ])}
+                  />
+                )}
+                <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 10 }}>
+                  "من الكاش" و"تأجيل سداد المورد" مبنيين على الفرق بين رصيد الشهر ده والشهر اللي قبله مباشرة — لو فيه شهر متسجّلش، المقارنة بتتخطاه.
+                </div>
+              </div>
+            );
+          })()}
 
           <div style={{
             background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",

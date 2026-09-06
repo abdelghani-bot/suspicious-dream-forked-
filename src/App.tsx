@@ -13,6 +13,7 @@ import { emptyInvoice } from "./lib/posConstants";
 import { DEFAULT_AUTO_PROMO_CONFIG, getEffectivePrice } from "./lib/promoUtils";
 import { AttendanceModule } from "./modules/AttendanceModule";
 import { AuditLogModule } from "./modules/AuditLogModule";
+import { CashFlowPlannerModule } from "./modules/CashFlowPlannerModule";
 import { CustomersModule, computeCustomerStats } from "./modules/CustomersModule";
 import { Dashboard } from "./modules/Dashboard";
 import { ExpiryReport } from "./modules/ExpiryReport";
@@ -828,6 +829,7 @@ export default function PharmacyPro() {
 
         // ── الإدارة ──
         { id: "financial_health", label: "الموقف المالي", icon: "money" },
+        { id: "cash_flow", label: "مخطط السيولة", icon: "money" },
         { id: "treasury", label: "الخزنة", icon: "money" },
         { id: "pharmacy_settings", label: "بيانات الصيدلية", icon: "settings" },
         { id: "permissions", label: "الصلاحيات", icon: "settings" },
@@ -986,7 +988,7 @@ export default function PharmacyPro() {
                             { label: "الفريق والالتزام", color: GROUP_COLORS.team, ids: ["shift", "attendance"] },
                             { label: "العملاء والمبيعات", color: GROUP_COLORS.sales, ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
                             { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "suppliers", "purchase_returns", "inventory_count", "inventory_statement"] },
-                            { label: "التقارير", color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "financial_health", "treasury"] },
+                            { label: "التقارير", color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "financial_health", "cash_flow", "treasury"] },
                             { label: "الإدارة", color: GROUP_COLORS.admin, ids: ["pharmacy_settings", "permissions", "rasd_settings", "audit_log"] },
                         ];
 
@@ -1420,10 +1422,26 @@ export default function PharmacyPro() {
                             customers={customers}
                             suppliers={suppliers}
                             creditPayments={creditPayments}
+                            entries={treasuryEntries}
                             pharmacyId={pharmacyId}
                             currentUser={currentUser}
                             showToast={showToast}
                             canEditFinance={canEdit("financial_health")}
+                        />
+                    )}
+                    {tab === "cash_flow" && canView("cash_flow") && (
+                        <CashFlowPlannerModule
+                            sales={sales}
+                            purchases={purchases}
+                            products={products}
+                            suppliers={suppliers}
+                            customers={customers}
+                            creditPayments={creditPayments}
+                            entries={treasuryEntries}
+                            promos={posPromos}
+                            enrichedCustomers={enrichedCustomers}
+                            pharmacyId={pharmacyId}
+                            showToast={showToast}
                         />
                     )}
                     {tab === "promotions" && canView("promotions") && (

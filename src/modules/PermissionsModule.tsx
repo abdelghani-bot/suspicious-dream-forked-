@@ -34,6 +34,7 @@ export const SYSTEM_SECTIONS = [
       { id: "alert_limits", label: "حدود التنبيه" },
       { id: "update_month", label: "تحديث بيانات الشهر الحالي" },
     ] },
+  { id: "cash_flow",         label: "مخطط السيولة",         icon: "🧭" },
   { id: "promotions",        label: "العروض والخصومات",    icon: "🏷️" },
   { id: "treasury",          label: "الخزنة",              icon: "💰", subItems: [
       { id: "day_closing",        label: "تقفيل اليوم" },
