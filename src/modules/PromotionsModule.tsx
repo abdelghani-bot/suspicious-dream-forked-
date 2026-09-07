@@ -6,10 +6,10 @@ import {
 } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { todayLocal } from "../lib/dateUtils";
-import { DEFAULT_AUTO_PROMO_CONFIG, PROMO_TYPES, blankPromoDetails, computeAutoPromoForProduct, describePromo, detectSupplierOfferPattern, getPromoMinRequiredQty, getPromoTypeConfig, isPromoFulfillable } from "../lib/promoUtils";
+import { DEFAULT_AUTO_PROMO_CONFIG, PROMO_TYPES, blankPromoDetails, computeAutoPromoForProduct, computePromoElasticity, describePromo, detectSupplierOfferPattern, getPromoMinRequiredQty, getPromoTypeConfig, isPromoFulfillable } from "../lib/promoUtils";
 import { openWhatsApp } from "../lib/whatsapp";
 import { trendConfig, vipConfig } from "./CustomersModule";
-import { Btn, Input, Modal } from "../ui/primitives";
+import { Badge, Btn, Input, Modal, Table } from "../ui/primitives";
 import { printHTML } from "../lib/printHelper";
 
 // ==================== بناء HTML ملصقات الرفوف (منفصلة عشان تتستخدم في المعاينة والطباعة الفعلية) ====================
@@ -411,6 +411,19 @@ const productFirstStocked = useMemo(() => {
 
     const dateValidPromos = promos.filter((p) => p.end_date >= today && p.start_date <= today);
     const activePromos = dateValidPromos.filter((p) => isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
+    // 🆕 Pagination — عروض نشطة (كانت كلها بتترسم مرة واحدة، بتقل الأداء لما العدد يكبر)
+    const ACTIVE_PROMOS_PAGE_SIZE = 10;
+    const [activePromosPage, setActivePromosPage] = useState(1);
+    const totalActivePromosPages = Math.max(1, Math.ceil(activePromos.length / ACTIVE_PROMOS_PAGE_SIZE));
+    useEffect(() => {
+        if (activePromosPage > totalActivePromosPages) setActivePromosPage(1);
+    }, [totalActivePromosPages, activePromosPage]);
+    const paginatedActivePromos = activePromos.slice(
+        (activePromosPage - 1) * ACTIVE_PROMOS_PAGE_SIZE,
+        activePromosPage * ACTIVE_PROMOS_PAGE_SIZE
+    );
+    // 🆕 معامل استجابة كل منتج للعروض القديمة — نفس محرك مخطط السيولة، مصدر واحد في promoUtils.js
+    const productElasticity = useMemo(() => computePromoElasticity(sales, products, promos, today), [sales, products, promos, today]);
     const stockBlockedPromos = dateValidPromos.filter((p) => !isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products));
     const expiredPromos = promos.filter((p) => p.end_date < today);
     const withVat = (prod) => prod?.taxable ? +(prod.price * 1.15).toFixed(2) : (prod?.price || 0);
@@ -662,6 +675,7 @@ products.forEach((p) => {
                     { k: "auto", l: `⏰ تلقائي (${autoPromoProducts.length})` },
                     { k: "supplier", l: `🚚 من المورد (${visibleSuggestions.length})` },
                     { k: "manual", l: `✋ يدوي (${activePromos.length})` },
+                    { k: "elasticity", l: "📊 أداء العروض" },
                     { k: "prints", l: `🖨️ سجل الطباعة (${printHistory.length})` },
                 ].map((t) => (
                     <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
@@ -1194,7 +1208,7 @@ products.forEach((p) => {
                                     </button>
                                 </div>
                             </div>
-                            {activePromos.map((promo) => {
+                            {paginatedActivePromos.map((promo) => {
                                 const prod = products.find((p) => p.id === promo.product_id);
                                 const typeCfg = getPromoTypeConfig(promo.promo_type || "percent");
                                 const desc = prod ? describePromo(promo, prod) : null;
@@ -1287,6 +1301,25 @@ products.forEach((p) => {
                                     </div>
                                 );
                             })}
+                            {totalActivePromosPages > 1 && (
+                                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, marginTop: 12 }}>
+                                    <button
+                                        disabled={activePromosPage === 1}
+                                        onClick={() => setActivePromosPage((p) => Math.max(1, p - 1))}
+                                        style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 14px", color: activePromosPage === 1 ? COLORS.textDim : COLORS.textPrimary, fontSize: 12, cursor: activePromosPage === 1 ? "not-allowed" : "pointer" }}
+                                    >
+                                        ▶ السابق
+                                    </button>
+                                    <span style={{ fontSize: 12, color: COLORS.textDim }}>صفحة {activePromosPage} من {totalActivePromosPages}</span>
+                                    <button
+                                        disabled={activePromosPage === totalActivePromosPages}
+                                        onClick={() => setActivePromosPage((p) => Math.min(totalActivePromosPages, p + 1))}
+                                        style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 14px", color: activePromosPage === totalActivePromosPages ? COLORS.textDim : COLORS.textPrimary, fontSize: 12, cursor: activePromosPage === totalActivePromosPages ? "not-allowed" : "pointer" }}
+                                    >
+                                        التالي ◀
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1371,6 +1404,35 @@ products.forEach((p) => {
                     )}
 
                     {promos.length === 0 && <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>لا توجد عروض يدوية</div>}
+                </div>
+            )}
+
+            {/* ── 🆕 أداء العروض — معامل استجابة كل منتج جرّبت عليه عروض قبل كده ── */}
+            {activeTab === "elasticity" && (
+                <div>
+                    <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 14 }}>
+                        لكل منتج اتعمله عرض قديم خلص، بنقارن معدل بيعه اليومي وقت العرض مقابل نفس عدد الأيام قبله مباشرة.
+                        النسبة دي بتوضحلك مين بيستجيب فعلاً للعروض قبل ما تقرر تعمل عرض جديد.
+                    </div>
+                    {Object.keys(productElasticity).length === 0 ? (
+                        <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>لسه مفيش عروض قديمة خلصت نقيس عليها الاستجابة</div>
+                    ) : (
+                        <Table
+                            headers={["المنتج", "معامل الاستجابة", "التصنيف", "عدد العروض المُقاسة"]}
+                            rows={Object.entries(productElasticity)
+                                .map(([pid, el]) => ({ pid, el, prod: products.find((p) => p.id === pid) }))
+                                .sort((a, b) => b.el.avgRatio - a.el.avgRatio)
+                                .map(({ pid, el, prod }) => [
+                                    prod?.name || prod?.name_ar || pid,
+                                    `×${el.avgRatio.toFixed(1)}`,
+                                    <Badge key="l" color={(el.label === "يستجيب جيدًا" ? COLORS.green : el.label === "استجابة متوسطة" ? COLORS.gold : COLORS.red) + "22"} text={el.label === "يستجيب جيدًا" ? COLORS.green : el.label === "استجابة متوسطة" ? COLORS.gold : COLORS.red}>{el.label}</Badge>,
+                                    el.sampleCount,
+                                ])}
+                        />
+                    )}
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 10 }}>
+                        منتج بعامل واحد بس مقاس عليه رقمه مش موثوق إحصائيًا لسه — كل ما جرّبت عروض أكتر عليه، كل ما الرقم يبقى أدق. المنتجات اللي ماعملهاش عرض قبل كده مش هتظهر هنا خالص.
+                    </div>
                 </div>
             )}
 
@@ -1515,6 +1577,19 @@ products.forEach((p) => {
                     <option key={p.id} value={p.id}>{p.name || p.nameAr} — {p.price} ر.س</option>
                 ))}
         </select>
+        {/* 🆕 تلميح فوري: هل الصنف ده استجاب للعروض قبل كده؟ */}
+        {promoForm.product_id && (() => {
+            const el = productElasticity[promoForm.product_id];
+            if (!el) return (
+                <div style={{ marginTop: 6, fontSize: 12, color: COLORS.textDim }}>❔ لسه مجرّبتش عليه عرض قبل كده — مفيش سجل استجابة.</div>
+            );
+            const color = el.label === "يستجيب جيدًا" ? COLORS.green : el.label === "استجابة متوسطة" ? COLORS.gold : COLORS.red;
+            return (
+                <div style={{ marginTop: 6, fontSize: 12, color, fontWeight: 700 }}>
+                    {el.label === "ضعيف الاستجابة" ? "⚠️" : "✅"} {el.label} (×{el.avgRatio.toFixed(1)}، من {el.sampleCount} عرض سابق)
+                </div>
+            );
+        })()}
     </div>
 )}
 
@@ -1529,6 +1604,22 @@ products.forEach((p) => {
                 <option key={m.id} value={m.id}>{m.name}</option>
             ))}
         </select>
+        {/* 🆕 تلميح فوري: متوسط استجابة منتجات الشركة دي للعروض قبل كده */}
+        {promoForm.manufacturer_id && (() => {
+            const companyProductIdsAll = products.filter((p) => p.manufacturer_id === promoForm.manufacturer_id).map((p) => p.id);
+            const scored = companyProductIdsAll.map((pid) => productElasticity[pid]).filter(Boolean);
+            if (scored.length === 0) return (
+                <div style={{ marginBottom: 10, fontSize: 12, color: COLORS.textDim }}>❔ لسه مفيش عروض قديمة على منتجات الشركة دي نقيس عليها.</div>
+            );
+            const avg = scored.reduce((a, e) => a + e.avgRatio, 0) / scored.length;
+            const label = avg >= 1.5 ? "يستجيب جيدًا" : avg <= 1.1 ? "ضعيف الاستجابة" : "استجابة متوسطة";
+            const color = label === "يستجيب جيدًا" ? COLORS.green : label === "استجابة متوسطة" ? COLORS.gold : COLORS.red;
+            return (
+                <div style={{ marginBottom: 10, fontSize: 12, color, fontWeight: 700 }}>
+                    {label === "ضعيف الاستجابة" ? "⚠️" : "✅"} متوسط استجابة منتجات الشركة: {label} (×{avg.toFixed(1)}، من {scored.length} صنف له سجل)
+                </div>
+            );
+        })()}
 
         {promoForm.manufacturer_id && (() => {
             const companyProducts = products.filter((p) => p.manufacturer_id === promoForm.manufacturer_id);

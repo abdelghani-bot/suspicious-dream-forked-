@@ -283,7 +283,7 @@ export function getEffectivePrice(product, promos, discountRules, productEarlies
 
 // ==================== PROMOTIONS MODULE ====================
 // منطق الخصم التدرجي حسب الصلاحية
-export function calcAutoDiscount(expiryDate, rules?) {
+export function calcAutoDiscount(expiryDate, rules) {
   if (!expiryDate) return 0;
   const days = Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
   if (days <= 0) return 0;
@@ -396,7 +396,69 @@ export const DEFAULT_AUTO_PROMO_CONFIG = {
   stagnantNoSaleDays: 45,        // مفيش بيع من كام يوم يعتبر الصنف راكد
   stagnantVelocityWindowDays: 90, // نافذة حساب معدل البيع الحالي لتوقع "هيخلص قبل الانتهاء ولا لأ"
   stagnantDiscountPercent: 15,    // نسبة الخصم الثابتة للراكد
-approvedProductIds: [],
+  approvedProductIds: [],
+};
+
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🆕 محرك تقييم استجابة المنتجات للعروض (Promotion Elasticity) — منقول هنا من
+// CashFlowPlannerModule عشان يبقى مصدر واحد مستخدم في مكانين: مخطط السيولة (لترشيح
+// منتجات تنشيط البيع) وقسم العروض نفسه (لدعم قرار تصميم/اعتماد عرض جديد).
+// الفكرة: لكل عرض قديم خلص (end_date < اليوم)، نقارن معدل بيع الصنف يوميًا وقت العرض
+// مقابل نفس عدد الأيام قبل العرض مباشرة (خط الأساس). النسبة دي بتتجمّع لكل منتج عبر
+// كل عروضه القديمة (المباشرة + عروض البراند اللي شمِلَته)، ومتوسطها = "معامل الاستجابة".
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function computeProductDailyQty(sales, productId, fromDate, toDate) {
+  let qty = 0;
+  (sales || []).filter((s) => s.date >= fromDate && s.date <= toDate).forEach((s) => {
+    let items = [];
+    try { items = typeof s.items === "string" ? JSON.parse(s.items) : (s.items || []); } catch { items = []; }
+    items.forEach((it) => { if (it.id === productId) qty += (it.qty || 0); });
+  });
+  const days = Math.max(1, (new Date(toDate) - new Date(fromDate)) / 86400000 + 1);
+  return qty / days;
 }
 
+const addDaysISO = (dateStr, days) => {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
 
+// بيرجع كائن: { [productId]: { avgRatio, sampleCount, label } }
+// label ∈ "يستجيب جيدًا" (avgRatio >= 1.5) | "استجابة متوسطة" | "ضعيف الاستجابة" (avgRatio <= 1.1)
+export function computePromoElasticity(sales, products, promos, today = todayLocal()) {
+  const pastPromos = (promos || []).filter((p) => (p.product_id || p.manufacturer_id) && p.start_date && p.end_date && p.end_date < today);
+  const byProduct = {};
+  const addSample = (pid, ratio) => {
+    if (!byProduct[pid]) byProduct[pid] = { sum: 0, count: 0 };
+    byProduct[pid].sum += ratio;
+    byProduct[pid].count += 1;
+  };
+  pastPromos.forEach((p) => {
+    const promoDays = Math.max(1, (new Date(p.end_date) - new Date(p.start_date)) / 86400000 + 1);
+    const baselineStart = addDaysISO(p.start_date, -promoDays);
+    const baselineEnd = addDaysISO(p.start_date, -1);
+    const targetIds = p.product_id
+      ? [p.product_id]
+      : (products || []).filter((prod) => prod.manufacturer_id === p.manufacturer_id).map((prod) => prod.id);
+    targetIds.forEach((pid) => {
+      const duringAvg = computeProductDailyQty(sales, pid, p.start_date, p.end_date);
+      const baselineAvg = computeProductDailyQty(sales, pid, baselineStart, baselineEnd);
+      const ratio = duringAvg / Math.max(baselineAvg, 0.2); // أرضية 0.2/يوم عشان قسمة على صفر تقريبًا متضخّمش النتيجة
+      addSample(pid, ratio);
+    });
+  });
+  const result = {};
+  Object.entries(byProduct).forEach(([pid, v]) => {
+    const avgRatio = v.sum / v.count;
+    result[pid] = {
+      avgRatio,
+      sampleCount: v.count,
+      label: avgRatio >= 1.5 ? "يستجيب جيدًا" : avgRatio <= 1.1 ? "ضعيف الاستجابة" : "استجابة متوسطة",
+    };
+  });
+  return result;
+}

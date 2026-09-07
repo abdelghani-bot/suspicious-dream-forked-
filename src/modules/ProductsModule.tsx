@@ -82,13 +82,13 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     // 🆕 قايمة الفئات الفريدة من الأصناف الموجودة فعليًا (مش من جدول منفصل) — عشان فلتر
     // الفئة يعرض بس الفئات المستخدمة فعلاً في المخزون، مش كل فئات SFDA النظرية.
     const uniqueCategories = useMemo(() => {
-        const set = new Set(products.map((p) => p.mainCategory || p.category).filter(Boolean));
+        const set = new Set(products.map((p) => p.main_category || p.mainCategory || p.category).filter(Boolean));
         return [...set].sort((a, b) => a.localeCompare(b, "ar"));
     }, [products]);
 
     // 🆕 عدادات "ناقص بيانات" لهيدرات الجدول (باركود / فئة / مورد) — بتتحدث تلقائيًا مع أي تعديل على products
     const noBarcodeCount = useMemo(() => products.filter((p) => !p.barcode || String(p.barcode).trim() === "").length, [products]);
-    const noCategoryCount = useMemo(() => products.filter((p) => !(p.mainCategory || p.category) || String(p.mainCategory || p.category).trim() === "").length, [products]);
+    const noCategoryCount = useMemo(() => products.filter((p) => !(p.main_category || p.mainCategory || p.category) || String(p.main_category || p.mainCategory || p.category).trim() === "").length, [products]);
     const noSupplierCount = useMemo(() => products.filter((p) => !p.supplier || String(p.supplier).trim() === "").length, [products]);
 
     // 🆕 بحث مرن: بيطبّع الهمزات/التاء المربوطة/التشكيل، وبيقسّم النص لكلمات (Token) بدل
@@ -113,7 +113,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             const primaryBarcode = extractPrimaryBarcode(debouncedSearch);
 
             const haystack = normalizeArabicText(
-                [p.nameAr || p.name, p.nameEn, p.barcode, p.id, p.mainCategory || p.category, p.search_keywords]
+                [p.nameAr || p.name, p.nameEn, p.barcode, p.id, p.main_category || p.mainCategory || p.category, p.search_keywords]
                     .filter(Boolean).join(" ")
             );
             // 🔧 لو خانة البحث فاضية أصلاً (مفيش tokens ومفيش باركود مستخرج)، مطابقة البحث
@@ -129,7 +129,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             if (!searchOk) return false;
 
             // 🆕 فلتر الفئة (dropdown من uniqueCategories)
-            if (filterCategory && (p.mainCategory || p.category) !== filterCategory) return false;
+            if (filterCategory && (p.main_category || p.mainCategory || p.category) !== filterCategory) return false;
 
             // 🆕 فلتر الشركة المنتجة (dropdown من نفس مصفوفة manufacturers الموجودة أصلاً)
             if (filterManufacturer && String(p.manufacturer_id) !== String(filterManufacturer)) return false;
@@ -150,7 +150,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
 
             // 🆕 فلاتر "ناقص بيانات": بدون باركود / بدون فئة / بدون مورد — كل واحد بيتفعّل من هيدر عموده في الجدول
             if (filterNoBarcode && p.barcode && String(p.barcode).trim() !== "") return false;
-            if (filterNoCategory && (p.mainCategory || p.category) && String(p.mainCategory || p.category).trim() !== "") return false;
+            if (filterNoCategory && (p.main_category || p.mainCategory || p.category) && String(p.main_category || p.mainCategory || p.category).trim() !== "") return false;
             if (filterNoSupplier && p.supplier && String(p.supplier).trim() !== "") return false;
 
             return true;
@@ -471,7 +471,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                         </div>,
                         <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: "monospace" }}>{p.barcode}</span>,
                         <div>
-                            <Badge>{p.mainCategory || p.category}</Badge>
+                            <Badge>{p.main_category || p.mainCategory || p.category}</Badge>
                             {p.subCategory2 && <div style={{ fontSize: 10, color: COLORS.border, marginTop: 3 }}>{p.subCategory1 && p.subCategory1 + " · "}{p.subCategory2}</div>}
                         </div>,
                         <span style={{ color: COLORS.blue, fontWeight: 700 }}>{p.price} ر.س</span>,

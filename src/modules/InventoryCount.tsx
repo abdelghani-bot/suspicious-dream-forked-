@@ -21,7 +21,7 @@ export function InventoryCount({
     canAddSub = (_sub) => true,
     canEditSub = (_sub) => true,
     // 🆕 إعدادات الصيدلية العامة (نفس الكائن المستخدم لإعدادات رصد/الطابعات) — لازم يحمل
-    // categoryCostDiscounts: { [category]: percentNumber }. المصدر الوحيد لتعديل النسب
+    // categoryCostDiscounts: { [supply_category]: percentNumber }. المصدر الوحيد لتعديل النسب
     // دي بقى شاشة "بيانات الصيدلية" (PharmacySettings) — هنا بنقرأها بس.
     pharmacySettings = {},
 }) {
@@ -41,12 +41,13 @@ export function InventoryCount({
     const [countMode, setCountMode] = useState("دوري");
 
     // 🆕 التكلفة الافتراضية لسطر الرصيد الافتتاحي: تكلفة قديمة (لو موجودة وأكبر من صفر)
-    // ← وإلا سعر البيع × (1 − نسبة خصم الفئة) ← وإلا صفر (يتلوّن أحمر ويتعدل يدوي).
+    // ← وإلا سعر البيع × (1 − نسبة خصم فئة التوريد) ← وإلا صفر (يتلوّن أحمر ويتعدل يدوي).
     // التعديل اليدوي لقيمة التكلفة في السطر نفسه بيكسر ربطها بالنسبة (بتتخزن كرقم ثابت).
-    // نسبة الخصم نفسها بقى مصدرها ومحل تعديلها شاشة "بيانات الصيدلية" مش هنا.
+    // نسبة الخصم نفسها بقى مصدرها ومحل تعديلها شاشة "بيانات الصيدلية" مش هنا. بتتحسب
+    // على فئة التوريد (product.supply_category) مش الفئة الرئيسية، لأنها أدق وأكتر تفصيلاً.
     const getDefaultLineCost = (existingCost, product) => {
         if (+existingCost > 0) return +existingCost;
-        const pct = pharmacySettings?.categoryCostDiscounts?.[product?.category];
+        const pct = pharmacySettings?.categoryCostDiscounts?.[product?.supply_category];
         if (pct != null && +product?.price > 0) {
             return +((+product.price) * (1 - pct / 100)).toFixed(2);
         }

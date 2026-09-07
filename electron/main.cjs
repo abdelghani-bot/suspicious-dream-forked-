@@ -2086,6 +2086,9 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
     return new Promise((resolve) => {
         const printWin = new BrowserWindow({
             show: false, // مخفية تمامًا - المستخدم مش هيشوفها
+            focusable: false, // 🆕 تمنع النافذة المخفية دي من سحب الـ OS focus من مainWindow
+            // أصلاً - ده كان بيسبب اختفاء تدريجي للتركيز/الكيرسور في خانة السكانر
+            // بعد الاستخدام المتكرر للطباعة (فيش/ملصق جرعة بعد كل عملية بيع مثلاً)
             webPreferences: {
                 sandbox: true,
                 contextIsolation: true,
@@ -2131,6 +2134,9 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
                     },
                     (success, errorType) => {
                         printWin.close();
+                        // 🆕 نرجّع الـ focus صراحة للنافذة الرئيسية بعد كل طباعة، تحسبًا لأي
+                        // ترحيل focus لسه حصل رغم focusable:false فوق (طبقة حماية إضافية)
+                        mainWindow?.focus();
                         if (success) {
                             resolve({ success: true });
                         } else {
@@ -2140,12 +2146,14 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
                 );
             } catch (err) {
                 printWin.close();
+                mainWindow?.focus(); // 🆕
                 resolve({ success: false, error: String(err) });
             }
         });
 
         printWin.webContents.on("did-fail-load", (_e, code, desc) => {
             printWin.close();
+            mainWindow?.focus(); // 🆕
             resolve({ success: false, error: `${code}: ${desc}` });
         });
 

@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabaseClient";
 import { queueEvent } from "../lib/offlineAPI";
 import { COLORS } from "../theme";
 import { Btn } from "../ui/primitives";
+import { SUPPLY_CATEGORIES } from "../lib/productConstants"; // 🆕 قايمة فئات التوريد الثابتة (أدق من الفئة الرئيسية)
 
 export function PharmacySettings({ showToast, pharmacyId }) {
     const [settings, setSettings] = useState({});
@@ -13,20 +14,10 @@ export function PharmacySettings({ showToast, pharmacyId }) {
     const [confirmClone, setConfirmClone] = useState(false);
     const [availablePrinters, setAvailablePrinters] = useState([]);
 
-    // 🆕 فئات الأصناف المسجلة عند الصيدلية — لعرض حقل نسبة خصم لكل فئة، نفس الفئات
-    // المستخدمة فعليًا في شاشة الأصناف (product.category)، مش تصنيف جديد نخترعه هنا
-    const [productCategories, setProductCategories] = useState([]);
-    useEffect(() => {
-        if (!pharmacyId) return;
-        supabase
-            .from("products")
-            .select("category")
-            .eq("pharmacy_id", pharmacyId)
-            .then(({ data, error }) => {
-                if (error) return;
-                setProductCategories([...new Set((data || []).map((r) => r.category).filter(Boolean))]);
-            });
-    }, [pharmacyId]);
+    // 🆕 فئات التوريد — قايمة ثابتة من SUPPLY_CATEGORIES (نفس الفئات المستخدمة في تحليل
+    // الموردين)، مش مشتقة من الأصناف الموجودة فعليًا. كده الحقل بيظهر حتى لو الصيدلية
+    // لسه معندهاش أصناف مسجلة بفئة توريد معينة، والاسم موحّد مع باقي الشاشات مش حر.
+    const [productCategories, setProductCategories] = useState(SUPPLY_CATEGORIES);
 
     useEffect(() => {
         (async () => {
@@ -99,7 +90,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         reportsPrinterName: data.reports_printer_name || "",
                         thermalPrinterName: data.thermal_printer_name || "",
                         doseLabelPrinterName: data.dose_label_printer_name || "",
-                        // 🆕 نسب الخصم الافتراضية لكل فئة (تُستخدم لحساب تكلفة الرصيد الافتتاحي
+                        // 🆕 نسب الخصم الافتراضية لكل فئة توريد (تُستخدم لحساب تكلفة الرصيد الافتتاحي
                         // في شاشة الجرد تلقائيًا لما معندناش تكلفة قديمة من البرنامج السابق)
                         categoryCostDiscounts: data.category_cost_discounts || {},
                     };
@@ -427,16 +418,16 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                     </div>
                 </div>
 
-                {/* 🆕 نسبة الخصم الافتراضية لكل فئة — التكلفة الافتراضية = سعر البيع × (1 − النسبة).
+                {/* 🆕 نسبة الخصم الافتراضية لكل فئة توريد — التكلفة الافتراضية = سعر البيع × (1 − النسبة).
                     بتتطبق بس على الأصناف اللي معندهاش تكلفة قديمة مسجلة، وقت الرصيد الافتتاحي
                     في شاشة الجرد، وتفضل قابلة للتعديل اليدوي في سطر الجرد نفسه. */}
                 <div style={{ gridColumn: "1 / -1" }}>
                     <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
-                        نسبة الخصم الافتراضية لكل فئة (لحساب تكلفة الرصيد الافتتاحي تلقائيًا)
+                        نسبة الخصم الافتراضية لكل فئة توريد (لحساب تكلفة الرصيد الافتتاحي تلقائيًا)
                     </label>
                     {productCategories.length === 0 ? (
                         <p style={{ margin: 0, fontSize: 12.5, color: COLORS.textDim }}>
-                            مفيش فئات أصناف مسجلة لسه.
+                            مفيش فئات توريد معرّفة.
                         </p>
                     ) : (
                         <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 420 }}>

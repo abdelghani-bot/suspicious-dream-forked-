@@ -1092,7 +1092,35 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         if (!groupedByDay[e.date]) groupedByDay[e.date] = [];
         groupedByDay[e.date].push(e);
     });
-    const sortedDays = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
+    const sortedDaysAll = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
+    // 🆕 فلتر نطاق التاريخ لتاب السجل — افتراضيًا آخر 3 شهور، بدل ما نعرض/نلف على كل تاريخ الصيدلية
+    // (groupedByDay نفسها فضلت شاملة كل التاريخ من غير فلترة، عشان طباعة تقفيل يوم قديم برّه
+    // النطاق المختار تفضل شغالة عادي — الفلتر بيأثر بس على قايمة الأيام المعروضة هنا)
+    const threeMonthsAgoStr = (() => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 3);
+        return d.toISOString().slice(0, 10);
+    })();
+    const [historyDateFrom, setHistoryDateFrom] = useState(threeMonthsAgoStr);
+    const [historyDateTo, setHistoryDateTo] = useState(today);
+    const applyHistoryPreset = (fromDate) => { setHistoryDateFrom(fromDate); setHistoryDateTo(today); };
+    const sortedDays = sortedDaysAll.filter((day) =>
+        (!historyDateFrom || day >= historyDateFrom) && (!historyDateTo || day <= historyDateTo)
+    );
+    // 🆕 Pagination — تاب السجل (كان بيعرض أول 30 يوم بس بشكل ثابت، من غير أي تنقل لما يزيد التاريخ)
+    const HISTORY_PAGE_SIZE = 15;
+    const [historyPage, setHistoryPage] = useState(1);
+    const totalHistoryPages = Math.max(1, Math.ceil(sortedDays.length / HISTORY_PAGE_SIZE));
+    useEffect(() => {
+        setHistoryPage(1);
+    }, [historyDateFrom, historyDateTo]);
+    useEffect(() => {
+        if (historyPage > totalHistoryPages) setHistoryPage(1);
+    }, [totalHistoryPages, historyPage]);
+    const paginatedDays = sortedDays.slice(
+        (historyPage - 1) * HISTORY_PAGE_SIZE,
+        historyPage * HISTORY_PAGE_SIZE
+    );
 
     // ═══════════════════════════════════════════════════
     // 🆕 اكتشاف أيام سابقة فيها مبيعات لكن من غير تقفيل مسجّل —
@@ -2182,6 +2210,40 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             {/* ══════════ السجل ══════════ */}
             {activeTab === "history" && canViewOverview && (
                 <div>
+                    {/* 🆕 فلتر نطاق التاريخ — بيتحكم بس في قايمة الأيام المعروضة تحت، مش في ملخص الشهر فوق */}
+                    <div style={{ ...cardStyle(COLORS.surfaceAlt), display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 12, marginBottom: 16 }}>
+                        <div>
+                            <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>من تاريخ</div>
+                            <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)}
+                                style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 13 }} />
+                        </div>
+                        <div>
+                            <div style={{ color: COLORS.textDim, fontSize: 11, marginBottom: 4 }}>إلى تاريخ</div>
+                            <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)}
+                                style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "7px 10px", color: COLORS.textPrimary, fontSize: 13 }} />
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {[
+                                { l: "آخر 7 أيام", days: 7 },
+                                { l: "آخر 30 يوم", days: 30 },
+                                { l: "آخر 3 شهور", days: 90 },
+                            ].map((preset) => (
+                                <button key={preset.l} onClick={() => {
+                                    const d = new Date();
+                                    d.setDate(d.getDate() - preset.days);
+                                    applyHistoryPreset(d.toISOString().slice(0, 10));
+                                }} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 20, padding: "6px 12px", color: COLORS.textDim, fontSize: 11, cursor: "pointer" }}>
+                                    {preset.l}
+                                </button>
+                            ))}
+                            <button onClick={() => { setHistoryDateFrom(""); setHistoryDateTo(""); }}
+                                style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 20, padding: "6px 12px", color: COLORS.textDim, fontSize: 11, cursor: "pointer" }}>
+                                كل الفترة
+                            </button>
+                        </div>
+                        <div style={{ color: COLORS.textDim, fontSize: 11, marginRight: "auto" }}>{sortedDays.length} يوم مطابق</div>
+                    </div>
+
                     {/* ملخص الشهر */}
                     <div style={{ ...cardStyle(COLORS.surfaceAlt), display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
                         <div style={{ textAlign: "center" as const }}>
@@ -2207,7 +2269,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                         </div>
                     </div>
 
-                    {sortedDays.slice(0, 30).map((day) => {
+                    {paginatedDays.map((day) => {
                         const dayEnt = groupedByDay[day];
                         // 🆕 دخل/مصروف اليوم بيتحسبوا من الحركة اليومية العادية بس (مبيعات/نثريات/مصروفات متغيرة/مرتجعات...)
                         // من غير قيود رصيد الخزنة (موردين/رواتب/ثابتة/تراخيص/رصيد أول المدة/تسوية الرصيد)، عشان
@@ -2315,6 +2377,25 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                         );
                     })}
                     {sortedDays.length === 0 && <div style={{ color: COLORS.textDim, textAlign: "center" as const, padding: 40 }}>لا توجد قيود مسجلة</div>}
+                    {totalHistoryPages > 1 && (
+                        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, marginTop: 12 }}>
+                            <button
+                                disabled={historyPage === 1}
+                                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                                style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 14px", color: historyPage === 1 ? COLORS.textDim : COLORS.textPrimary, fontSize: 12, cursor: historyPage === 1 ? "not-allowed" : "pointer" }}
+                            >
+                                ▶ الأحدث
+                            </button>
+                            <span style={{ fontSize: 12, color: COLORS.textDim }}>صفحة {historyPage} من {totalHistoryPages}</span>
+                            <button
+                                disabled={historyPage === totalHistoryPages}
+                                onClick={() => setHistoryPage((p) => Math.min(totalHistoryPages, p + 1))}
+                                style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 14px", color: historyPage === totalHistoryPages ? COLORS.textDim : COLORS.textPrimary, fontSize: 12, cursor: historyPage === totalHistoryPages ? "not-allowed" : "pointer" }}
+                            >
+                                الأقدم ◀
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
