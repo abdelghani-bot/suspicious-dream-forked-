@@ -54,6 +54,20 @@ export function InventoryCount({
         return 0;
     };
 
+    // 🆕 سعر بيع افتراضي لسطر الجرد: بياخد سعر البيع المسجل على التشغيلة (لو موجود
+    // وأكبر من صفر) وإلا سعر بيع الصنف الحالي (product.price). عكس التكلفة، مفيش حساب
+    // نسبة خصم هنا — سعر البيع بيتظبط يدوي بس لو فيه اختلاف فعلي، وبيتزامن تلقائيًا بين
+    // كل أسطر/تشغيلات نفس الصنف (سعر البيع واحد للصنف مش لكل تشغيلة على حدة).
+    const getDefaultLineSalePrice = (existingSalePrice, product) => {
+        if (+existingSalePrice > 0) return +existingSalePrice;
+        return +product?.price || 0;
+    };
+
+    // 🆕 تعديل سعر البيع من شاشة الجرد مقصور على الأصناف الغير دوائية بس (شامبوهات/كريمات/
+    // مزيلات عرق وغيرها) — أسعارها مش موحدة وبتختلف من صيدلية لصيدلية. أسعار الأدوية
+    // مسعّرة من رصد/الهيئة (product.category === "دواء") ومينفعش تتغير من هنا خالص.
+    const isDrugProduct = (product) => product?.category === "دواء";
+
     // ==================== 🆕 الحفظ التلقائي أثناء الجرد (Draft محلي) ====================
     // مفتاح مخصص لكل صيدلية، عشان لو فيه أكتر من صيدلية بتستخدم نفس الجهاز (نادر بس ممكن)
     const DRAFT_KEY = `inv_count_draft_${pharmacyId}`;
@@ -106,6 +120,8 @@ export function InventoryCount({
                         diff: 0,
                         isNew: false,
                         cost: getDefaultLineCost(b.cost ?? p.cost ?? 0, p), // 🆕
+                        salePrice: getDefaultLineSalePrice(b.salePrice ?? 0, p), // 🆕 عمود سعر البيع
+                        costAutoLinked: true, // 🆕 لسه التكلفة تابعة لنسبة الخصم، هتتحدّث تلقائي لو سعر البيع اتغيّر
                         reason: "", // 🆕 سبب اختياري لو ظهر فرق (تلف/سرقة/غلطة عد...)
                     });
                 });
@@ -122,6 +138,8 @@ export function InventoryCount({
                     diff: 0,
                     isNew: false,
                     cost: getDefaultLineCost(p.cost ?? 0, p), // 🆕
+                    salePrice: getDefaultLineSalePrice(0, p), // 🆕 عمود سعر البيع
+                    costAutoLinked: true, // 🆕
                     reason: "", // 🆕
                 });
             }
@@ -196,6 +214,8 @@ export function InventoryCount({
                       isNew: false,
                       scanMatched: isMatch(b),
                       cost: getDefaultLineCost(b.cost ?? product.cost ?? 0, product), // 🆕
+                      salePrice: getDefaultLineSalePrice(b.salePrice ?? 0, product), // 🆕
+                      costAutoLinked: true, // 🆕
                       reason: "", // 🆕
                   }))
                 : [
@@ -212,6 +232,8 @@ export function InventoryCount({
                           systemQty: product.stock,
                           actualQty: 0,
                           cost: getDefaultLineCost(product.cost ?? 0, product), // 🆕
+                          salePrice: getDefaultLineSalePrice(0, product), // 🆕
+                          costAutoLinked: true, // 🆕
                           diff: -(product.stock || 0),
                           isNew: false,
                           scanMatched: !!hint?.expiry,
@@ -236,6 +258,8 @@ export function InventoryCount({
                 isNew: true,
                 scanMatched: true,
                 cost: getDefaultLineCost(0, product), // 🆕 تشغيلة جديدة تمامًا، مفيش تكلفة قديمة ليها
+                salePrice: getDefaultLineSalePrice(0, product), // 🆕
+                costAutoLinked: true, // 🆕
                 reason: "", // 🆕
             });
         }
@@ -432,7 +456,9 @@ export function InventoryCount({
             uniqueIds.add(item.id);
             const product = productsById.get(item.id);
             const qty = +item.actualQty || 0;
-            const price = +product?.price || 0;
+            // 🆕 سعر البيع الفعلي المستخدم في الملخص: لو الصيدلي عدّله في سطر الجرد
+            // (رصيد افتتاحي)، نعكس القيمة الجديدة فورًا بدل السعر القديم المسجل
+            const price = +item.salePrice || +product?.price || 0;
             const cost = +item.cost || +product?.cost || 0;
 
             totalQty += qty;
@@ -581,6 +607,8 @@ export function InventoryCount({
                 diff: 0,
                 isNew: true,
                 cost: product ? getDefaultLineCost(0, product) : 0, // 🆕
+                salePrice: product ? getDefaultLineSalePrice(0, product) : 0, // 🆕
+                costAutoLinked: true, // 🆕
                 reason: "", // 🆕
             },
         ]);
@@ -733,6 +761,8 @@ export function InventoryCount({
                       diff: -b.qty,
                       isNew: false,
                       cost: getDefaultLineCost(b.cost ?? p.cost ?? 0, p), // 🆕
+                      salePrice: getDefaultLineSalePrice(b.salePrice ?? 0, p), // 🆕
+                      costAutoLinked: true, // 🆕
                       autoZero: true, // 🆕 لتمييزه في سجل الجرد المحفوظ عن سطر اتعد يدويًا بصفر
                   }))
                 : [
@@ -748,6 +778,8 @@ export function InventoryCount({
                           diff: -(p.stock || 0),
                           isNew: false,
                           cost: getDefaultLineCost(p.cost ?? 0, p), // 🆕
+                          salePrice: getDefaultLineSalePrice(0, p), // 🆕
+                          costAutoLinked: true, // 🆕
                           autoZero: true, // 🆕
                       },
                   ];
@@ -768,7 +800,9 @@ export function InventoryCount({
             // 🆕 بلوك إجباري تاني: مينفعش التكلفة المدخلة تتخطى سعر البيع المسجل للصنف —
             // غالبًا غلطة كتابة (رقم زيادة أو فاصلة في مكان غلط) وهتكسر حسابات الربح فورًا.
             const overPriceCount = countItemsFinal.filter((i) => {
-                const price = +(productsById.get(i.id)?.price) || 0;
+                // 🆕 بنقارن بسعر البيع اللي دخله الصيدلي في سطر الجرد نفسه (لو عدّله)
+                // مش بالسعر القديم المسجل، عشان المقارنة تعكس السعر النهائي اللي هيتحفظ
+                const price = +i.salePrice || +(productsById.get(i.id)?.price) || 0;
                 return price > 0 && +i.cost > price;
             }).length;
             if (overPriceCount > 0) {
@@ -822,6 +856,47 @@ export function InventoryCount({
             (id) => productTotals[id].actualQty !== productTotals[id].systemQty
         );
 
+        // 🆕 سعر البيع المُدخل لكل صنف في شاشة الجرد (رصيد افتتاحي بس) — بيتزامن أصلاً
+        // بين كل أسطر/تشغيلات نفس الصنف عند التعديل (شوف onChange عمود سعر البيع تحت)،
+        // فبناخد أي قيمة موجودة كتمثيل واحد للصنف كله.
+        const salePriceByProduct = {};
+        if (countMode === "افتتاحي") {
+            countItemsFinal.forEach((i) => {
+                // 🆕 حماية إضافية: حتى لو حصل أي تلاعب في الـ input (مثلاً من devtools)،
+                // مينفعش سعر صنف دوائي يتحدّث من هنا خالص — نفس الشرط اللي بيقفل الـ input
+                if (+i.salePrice > 0 && salePriceByProduct[i.id] == null && !isDrugProduct(productsById.get(i.id))) {
+                    salePriceByProduct[i.id] = +i.salePrice;
+                }
+            });
+        }
+        // 🆕 الأصناف اللي سعر بيعها اتغيّر فعليًا عن السعر المسجل حاليًا — بتتحدّث مباشرة
+        // (product.price) حتى لو كميتها متغيرتش، عشان الجرد يبقى مصدر تعديل السعر المباشر
+        const priceChangedIds = Object.keys(salePriceByProduct).filter((id) => {
+            const prod = productsById.get(id);
+            return prod && +prod.price !== salePriceByProduct[id];
+        });
+
+        // 🆕 رصيد افتتاحي = أول مرة بيانات تكلفة حقيقية تدخل للصنف أصلاً، فـ product.cost
+        // (التكلفة العامة اللي كرت الصنف وأي مكان تاني بيقرا منه مباشرة بدل التشغيلات)
+        // لازم تتزرع هنا. بنحسبها كمتوسط مرجّح بالكمية لكل تشغيلات نفس الصنف في الجرد ده
+        // (مش أي تشغيلة واحدة بمفردها، لأن ممكن يبقى فيه أكتر من تشغيلة بتكلفة مختلفة)،
+        // وبعدين دوران المخزون العادي (فواتير الشراء) هو اللي هيظبطها أكتر بمرور الوقت.
+        const costWeightByProduct = {};
+        if (countMode === "افتتاحي") {
+            countItemsFinal.forEach((i) => {
+                if (+i.cost > 0 && +i.actualQty > 0) {
+                    if (!costWeightByProduct[i.id]) costWeightByProduct[i.id] = { qtySum: 0, costValueSum: 0 };
+                    costWeightByProduct[i.id].qtySum += +i.actualQty;
+                    costWeightByProduct[i.id].costValueSum += (+i.actualQty * +i.cost);
+                }
+            });
+        }
+        const avgCostByProduct = {};
+        Object.keys(costWeightByProduct).forEach((id) => {
+            const w = costWeightByProduct[id];
+            if (w.qtySum > 0) avgCostByProduct[id] = +(w.costValueSum / w.qtySum).toFixed(4);
+        });
+
         // 🆕 تقييم مالي للفروقات: quantity زي ما كان، مع unitCost (تكلفة الوحدة الفعلية
         // المستخدمة في حساب القيمة — بتاخد في الاعتبار اختلاف التكلفة بين تشغيلات نفس
         // الصنف) وvalue (القيمة المالية الكاملة للفرق = كمية × تكلفة، بالسالب لو نقص).
@@ -844,7 +919,12 @@ export function InventoryCount({
         // ✅ بنبني تحديثات المخزون بس للأصناف اللي فعلاً اتغيّرت (changedProductIds) —
         // مش كل الأصناف الظاهرة في الجرد. جرد شامل على مئات الأصناف كان قبل كده هيبعت
         // update لكل صنف حتى لو مفيش فرق فيه، ودي كانت عبء غير ضروري على الشبكة/الـ RPC.
-        const productUpdates = changedProductIds.map((id) => {
+        // 🆕 + priceChangedIds: صنف ممكن سعر بيعه يتغيّر من غير ما كميته تتغيّر، فلازم
+        // يدخل في التحديثات برضه حتى لو مش موجود في changedProductIds.
+        // 🆕 + avgCostByProduct: نفس السبب — رصيد افتتاحي بيزرع product.cost لأول مرة
+        // حتى لو الكمية نفسها متغيرتش (نادر عمليًا في الافتتاحي، بس عشان الاتساق)
+        const allUpdateIds = Array.from(new Set([...changedProductIds, ...priceChangedIds, ...Object.keys(avgCostByProduct)]));
+        const productUpdates = allUpdateIds.map((id) => {
             const prod = products.find((x) => x.id === id);
             const rows = countItemsFinal.filter((i) => i.id === id && +i.actualQty > 0);
 
@@ -874,7 +954,9 @@ export function InventoryCount({
                     // origBatch أصلاً)، وأي تعديل يدوي للتكلفة في الجرد الدوري كمان. لو مش
                     // موجودة لأي سبب، نرجع للتشغيلة الأصلية، وبعدين تكلفة الصنف العامة.
                     cost: (+r.cost > 0) ? +r.cost : (origBatch?.cost ?? prod?.cost ?? 0),
-                    salePrice: origBatch?.salePrice ?? prod?.price ?? 0,
+                    // 🆕 نفس منطق التكلفة بالظبط: سعر البيع اللي دخله الصيدلي في سطر الجرد
+                    // (r.salePrice) له الأولوية دايمًا، وإلا نرجع للتشغيلة الأصلية ثم سعر الصنف العام
+                    salePrice: (+r.salePrice > 0) ? +r.salePrice : (origBatch?.salePrice ?? prod?.price ?? 0),
                     expiry_date: r.expiry || null,
                     batch_number: r.batchNumber || null, // 🆕 نحافظ على رقم التشغيلة في التخزين الجديد
                     date: origBatch?.date || logData.date,
@@ -885,6 +967,11 @@ export function InventoryCount({
                 pharmacy_id: pharmacyId,
                 stock: productTotals[id].actualQty,
                 batches: newBatches,
+                // 🆕 لو سعر البيع اتغيّر لهذا الصنف، بنحدّث product.price مباشرة كمان
+                ...(priceChangedIds.includes(id) ? { price: salePriceByProduct[id] } : {}),
+                // 🆕 رصيد افتتاحي: بنزرع product.cost بمتوسط التكلفة المرجّح بالكمية —
+                // قيمة تقريبية تفضل تتظبط تلقائي مع كل فاتورة شراء بعد كده
+                ...(avgCostByProduct[id] != null ? { cost: avgCostByProduct[id] } : {}),
             };
         });
 
@@ -924,7 +1011,9 @@ export function InventoryCount({
         setProducts((p) =>
             p.map((x) => {
                 const u = productUpdates.find((uu) => uu.id === x.id);
-                return u ? { ...x, stock: u.stock, batches: u.batches } : x;
+                if (!u) return x;
+                // 🆕 لو التحديث ده فيه سعر بيع جديد، بنحدّث product.price كمان محليًا
+                return { ...x, stock: u.stock, batches: u.batches, ...(u.price != null ? { price: u.price } : {}), ...(u.cost != null ? { cost: u.cost } : {}) };
             })
         );
 
@@ -933,7 +1022,13 @@ export function InventoryCount({
 
         setShowNew(false);
         setNotes("");
-        showToast(synced ? "تم حفظ الجرد وتحديث المخزون ✓" : "تم حفظ الجرد محليًا — هيتزامن أول ما النت يرجع 🔄");
+        // 🆕 نوضح للصيدلي لو تحديث الجرد ده غيّر أسعار بيع أصناف كمان، مش بس الكميات
+        const priceNote = priceChangedIds.length > 0 ? ` (تم تحديث سعر بيع ${priceChangedIds.length} صنف)` : "";
+        showToast(
+            synced
+                ? `تم حفظ الجرد وتحديث المخزون ✓${priceNote}`
+                : `تم حفظ الجرد محليًا — هيتزامن أول ما النت يرجع 🔄${priceNote}`
+        );
         } finally {
             // 🆕 بيتنفذ دايمًا — سواء الحفظ نجح، أو فشل، أو اترفض بسبب البلوك الإجباري
             // (return المبكرة برضه بتعدي من هنا)، عشان الزرار يرجع شغال تاني
@@ -1326,7 +1421,7 @@ export function InventoryCount({
                                     "الفئة",
                                     "تاريخ الصلاحية",
                                     "التشغيلة", // 🆕 رقم الباتش/التشغيلة كعمود منفصل وواضح
-                                    ...(countMode === "افتتاحي" ? ["التكلفة"] : []), // 🆕
+                                    ...(countMode === "افتتاحي" ? ["التكلفة", "سعر البيع"] : []), // 🆕 عمود سعر البيع جنب التكلفة
                                     "الكمية الفعلية",
                                     ...(countMode === "دوري" ? ["سبب الفرق (اختياري)"] : []), // 🆕 يظهر بس في الجرد الدوري
                                     "",
@@ -1472,8 +1567,11 @@ export function InventoryCount({
                                         سعر البيع (على الأغلب غلطة كتابة زي رقم زيادة أو فاصلة في مكان
                                         غلط) بتتلوّن برتقالي كتحذير بس من غير ما توقف الحفظ. */}
                                     {countMode === "افتتاحي" && (() => {
-                                        const salePrice = +(productsById.get(item.id)?.price) || 0;
-                                        const costTooHigh = +item.cost > 0 && salePrice > 0 && +item.cost > salePrice;
+                                        // 🆕 المقارنة بقت على سعر البيع اللي في سطر الجرد نفسه (item.salePrice)
+                                        // مش السعر القديم المسجل بس — عشان لو الصيدلي عدّل السعر هنا كمان،
+                                        // التحذير يعكس القيمتين النهائيتين اللي هيتحفظوا مع بعض
+                                        const currentSalePrice = +item.salePrice || +(productsById.get(item.id)?.price) || 0;
+                                        const costTooHigh = +item.cost > 0 && currentSalePrice > 0 && +item.cost > currentSalePrice;
                                         return (
                                         <td style={{ padding: "8px 14px" }}>
                                             <input
@@ -1485,7 +1583,9 @@ export function InventoryCount({
                                                     setCountItems((p) =>
                                                         p.map((x) =>
                                                             x.lineKey === item.lineKey
-                                                                ? { ...x, cost: +e.target.value }
+                                                                // 🆕 تعديل يدوي للتكلفة = كسر الربط بنسبة الخصم؛ من دلوقتي
+                                                                // تعديل سعر البيع مش هيلمس التكلفة دي تاني
+                                                                ? { ...x, cost: +e.target.value, costAutoLinked: false }
                                                                 : x
                                                         )
                                                     )
@@ -1503,8 +1603,75 @@ export function InventoryCount({
                                                 }}
                                             />
                                             {costTooHigh && (
-                                                <span title={`سعر البيع المسجل: ${salePrice}`} style={{ marginRight: 6, fontSize: 11, color: "orange" }}>
+                                                <span title={`سعر البيع المسجل: ${currentSalePrice}`} style={{ marginRight: 6, fontSize: 11, color: "orange" }}>
                                                     ⚠️ أعلى من سعر البيع
+                                                </span>
+                                            )}
+                                        </td>
+                                        );
+                                    })()}
+                                    {/* 🆕 عمود سعر البيع — ظاهر وقابل للتعديل في وضع "رصيد افتتاحي" بس
+                                        (زي ما طلب علي: الأولوية للافتتاحي). أي تعديل هنا بيتزامن تلقائيًا
+                                        مع كل الأسطر التانية لنفس الصنف (تشغيلات مختلفة)، لأن سعر البيع
+                                        سعر واحد للصنف مش لكل تشغيلة على حدة زي التكلفة. بيتحفظ فعليًا على
+                                        product.price لما يتحفظ الجرد (شوف priceChangedIds في saveCount). */}
+                                    {countMode === "افتتاحي" && (() => {
+                                        const origPrice = +(productsById.get(item.id)?.price) || 0;
+                                        const priceChanged = +item.salePrice > 0 && origPrice > 0 && +item.salePrice !== origPrice;
+                                        const isDrug = isDrugProduct(productsById.get(item.id));
+                                        // 🆕 صنف دوائي: نعرض السعر للعلم بس، مقفول تمامًا — الأدوية مسعّرة
+                                        // من رصد/الهيئة ومش من صلاحية الصيدلية تغييرها
+                                        if (isDrug) {
+                                            return (
+                                                <td
+                                                    style={{ padding: "8px 14px", fontSize: 13, color: COLORS.textDim }}
+                                                    title="صنف دوائي — السعر مسعّر من الهيئة ومش قابل للتعديل من هنا"
+                                                >
+                                                    {origPrice.toFixed(2)} 🔒
+                                                </td>
+                                            );
+                                        }
+                                        return (
+                                        <td style={{ padding: "8px 14px" }}>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                value={item.salePrice ?? 0}
+                                                onChange={(e) => {
+                                                    const newVal = +e.target.value;
+                                                    // 🆕 نسبة خصم فئة التوريد لهذا الصنف — بنعيد حساب أي تكلفة لسه
+                                                    // "تابعة" (costAutoLinked !== false) بالسعر الجديد بنفس المعادلة
+                                                    const prod = productsById.get(item.id);
+                                                    const pct = pharmacySettings?.categoryCostDiscounts?.[prod?.supply_category];
+                                                    setCountItems((p) =>
+                                                        p.map((x) => {
+                                                            if (x.id !== item.id) return x;
+                                                            // 🆕 بنحدّث كل أسطر نفس الصنف مع بعض (id === item.id) مش السطر
+                                                            // ده لوحده، عشان سعر البيع يفضل موحّد بين كل تشغيلاته
+                                                            const updated = { ...x, salePrice: newVal };
+                                                            if (x.costAutoLinked !== false && pct != null && newVal > 0) {
+                                                                updated.cost = +((newVal) * (1 - pct / 100)).toFixed(2);
+                                                            }
+                                                            return updated;
+                                                        })
+                                                    );
+                                                }}
+                                                style={{
+                                                    width: 70,
+                                                    background: priceChanged ? "rgba(68,221,136,0.12)" : COLORS.surfaceAlt,
+                                                    backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                                    border: `1px solid ${priceChanged ? COLORS.green : COLORS.border}`,
+                                                    borderRadius: 6,
+                                                    padding: "5px 8px",
+                                                    color: COLORS.textPrimary,
+                                                    fontSize: 13,
+                                                    outline: "none",
+                                                }}
+                                            />
+                                            {priceChanged && (
+                                                <span title={`السعر المسجل حاليًا: ${origPrice}`} style={{ marginRight: 6, fontSize: 11, color: COLORS.green }}>
+                                                    ↻ هيتحدّث
                                                 </span>
                                             )}
                                         </td>

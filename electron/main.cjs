@@ -65,6 +65,18 @@ function createWindow() {
 
     mainWindow.once("ready-to-show", () => mainWindow.show());
 
+    // 🆕 منع Alt من سرقة الـ focus/فتح الـ menu bar المخفي — بعض سكانرات الباركود
+    // (خصوصًا مع GS1 2D) بتبعت تتابعات Alt+Numpad داخليًا وهي بتـ"طبع" الحروف، وده
+    // بيخلي Windows يحاول يركّز على الـ menu bar المخفي (autoHideMenuBar) رغم إن
+    // القايمة نفسها متشالة (Menu.setApplicationMenu(null) تحت) — ده بيسيب التركيز
+    // "معلّق" على القايمة الشبح دي، فالكيرسور بيختفي ومفيش حاجة بتوصل للحقل لحد ما
+    // نعمل minimize/restore يجبر Windows يعيد حساب الـ focus من الصفر
+    mainWindow.webContents.on("before-input-event", (event, input) => {
+        if (input.key === "Alt" && input.type === "keyDown") {
+            event.preventDefault();
+        }
+    });
+
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         shell.openExternal(url);
         return { action: "deny" };

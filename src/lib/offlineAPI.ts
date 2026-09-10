@@ -112,7 +112,15 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             if (error) throw error;
             break;
         }
-        case "INVENTORY_COUNT_SAVE": {
+        case "INVENTORY_COUNT_SAVE":
+        // 🆕 رصيد افتتاحي (أول رصيد بيتسجل للصيدلية) بيستخدم نفس الـ payload shape بالظبط
+        // (logData/adjustments/productUpdates) — الفرق الوحيد الفعلي هو logData.type نفسه
+        // (مستخدم بس للتصنيف في التقارير المالية بعدين)، فمفيش داعي لمنطق حفظ منفصل.
+        // 🔧 قبل كده الحالة دي كانت مش متعالجة خالص (بتقع في default → console.warn بس، من
+        // غير ما تكتب أي حاجة في Supabase)، ومع ذلك queueEvent كانت بترجّع synced:true لأن
+        // executeEvent ما رمتش error — يعني رصيد افتتاحي كان بيتحفظ محليًا/في الـ UI بس، من
+        // غير ما يوصل Supabase أونلاين خالص.
+        case "INITIAL_STOCK_ENTRY": {
             const { logData, adjustments, productUpdates, resolveVariance } = event.payload;
 
             const { error: logErr } = await supabase.from("inventory_logs").insert(logData);
@@ -126,7 +134,15 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             for (const u of productUpdates) {
                 const { error } = await supabase
                     .from("products")
-                    .update({ stock: u.stock, batches: u.batches })
+                    // 🆕 لو التحديث فيه سعر بيع جديد (عمود سعر البيع في رصيد افتتاحي)، أو
+                    // تكلفة مزروعة لأول مرة (متوسط مرجّح من نفس رصيد افتتاحي)، بنحدّثهم
+                    // مع الـ stock/batches بدل ما يتجاهلوا زي قبل كده
+                    .update({
+                        stock: u.stock,
+                        batches: u.batches,
+                        ...(u.price != null ? { price: u.price } : {}),
+                        ...(u.cost != null ? { cost: u.cost } : {}),
+                    })
                     .eq("id", u.id)
                     .eq("pharmacy_id", u.pharmacy_id);
                 if (error) throw error;

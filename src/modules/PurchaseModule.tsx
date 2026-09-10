@@ -84,6 +84,67 @@ const doPrintPurchaseInvoice = async (invoice, supplierName) => {
 
     await printHTML(fullHtml); // من غير paperWidthMM = A4 تلقائي
 };
+// 🆕 بحث نصي بدل الـ <select> اللي كان بيسرد كل الأصناف (~٥٠٠٠ صنف) كـ options —
+// بطيء وغير عملي للسكرول/البحث. هنا كل كتابة بتفلتر بالاسم/الباركود/الكود وتطلع لحد ٨ نتائج.
+function ProductSearchPicker({ products, onSelect, placeholder = "دوّر بالاسم أو الباركود..." }) {
+    const [text, setText] = useState("");
+    const [results, setResults] = useState([]);
+    const [open, setOpen] = useState(false);
+
+    const handleChange = (val) => {
+        setText(val);
+        const v = val.trim();
+        if (!v) { setResults([]); setOpen(false); return; }
+        const lower = v.toLowerCase();
+        const matches = products
+            .filter(
+                (p) =>
+                    (p.name_ar || p.name || "").includes(v) ||
+                    (p.name || "").toLowerCase().includes(lower) ||
+                    (p.barcode || "").includes(v) ||
+                    String(p.id || "").includes(v)
+            )
+            .slice(0, 8);
+        setResults(matches);
+        setOpen(matches.length > 0);
+    };
+
+    return (
+        <div style={{ position: "relative", minWidth: 220, maxWidth: 260 }}>
+            <input
+                value={text}
+                onChange={(e) => handleChange(e.target.value)}
+                onFocus={() => text.trim() && results.length > 0 && setOpen(true)}
+                onBlur={() => setTimeout(() => setOpen(false), 150)}
+                placeholder={placeholder}
+                style={{
+                    width: "100%", fontSize: 11, padding: "5px 8px", borderRadius: 6,
+                    border: `1px solid ${COLORS.gold}`, background: "#fff", color: COLORS.textPrimary,
+                }}
+            />
+            {open && (
+                <div
+                    style={{
+                        position: "absolute", top: "100%", insetInlineStart: 0, zIndex: 20,
+                        background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                        boxShadow: "0 4px 14px rgba(0,0,0,.15)", maxHeight: 220, overflowY: "auto", width: "100%",
+                    }}
+                >
+                    {results.map((p) => (
+                        <div
+                            key={p.id}
+                            onMouseDown={() => { onSelect(p); setText(""); setResults([]); setOpen(false); }}
+                            style={{ padding: "6px 8px", fontSize: 11, cursor: "pointer", borderBottom: `1px solid ${COLORS.border}` }}
+                        >
+                            {p.name_ar || p.name} {p.barcode ? `(${p.barcode})` : ""}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function PurchaseModule({
     products,
     setProducts,
@@ -117,6 +178,71 @@ export function PurchaseModule({
     // بدل ما يكونوا state محلي هنا، عشان يفضلوا موجودين حتى لو الكومبوننت اتقفل وفتح تاني (تغيير تاب).
     const clearPurchaseDraft = () => {
         try { localStorage.removeItem(`pharmacypro_purchase_draft_${pharmacyId}`); } catch { }
+    };
+
+    // ═══════════════════════════════════════════════════
+    // 🆕 تقسيم فاتورة الشراء الحالية لأكتر من فاتورة مورد مستقلة —
+    // مفيد لما نفس الأصناف بييجوا من رصد بترتيب مختلف عن ترتيب فواتير المورد الورقية،
+    // فبنسمح بتجميع الأصناف يدويًا لمجموعات، كل مجموعة برقم فاتورة مورد خاص بيها وإجمالي
+    // بيتحسب لحظيًا عشان تتراجع مع نسخة المورد، وتتحفظ كل مجموعة كفاتورة مستقلة في النهاية.
+    // اختياري بالكامل: لو splitMode = false أو مفيش مجموعات، الحفظ بيفضل زي ما هو
+    // (فاتورة واحدة تحتوي كل الأصناف) — نفس السلوك القديم.
+    // ═══════════════════════════════════════════════════
+    const [splitMode, setSplitMode] = useState(false);
+    const [invoiceGroups, setInvoiceGroups] = useState([]); // [{ id, invoiceNumber, rowKeys: string[] }]
+    const [pendingSelection, setPendingSelection] = useState(new Set()); // _rowKey المحددة مؤقتًا قبل تجميعها
+
+    const togglePendingSelect = (rowKey) => {
+        setPendingSelection((prev) => {
+            const next = new Set(prev);
+            if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey);
+            return next;
+        });
+    };
+
+    const createInvoiceGroup = () => {
+        if (pendingSelection.size === 0) {
+            showToast("اختر الأصناف اللي في نفس فاتورة المورد الأول", "error");
+            return;
+        }
+        setInvoiceGroups((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), invoiceNumber: "", rowKeys: Array.from(pendingSelection) },
+        ]);
+        setPendingSelection(new Set());
+    };
+
+    const removeInvoiceGroup = (groupId) => {
+        setInvoiceGroups((prev) => prev.filter((g) => g.id !== groupId));
+    };
+
+    const removeItemFromGroup = (groupId, rowKey) => {
+        setInvoiceGroups((prev) =>
+            prev
+                .map((g) => (g.id === groupId ? { ...g, rowKeys: g.rowKeys.filter((k) => k !== rowKey) } : g))
+                .filter((g) => g.rowKeys.length > 0)
+        );
+    };
+
+    const updateGroupInvoiceNumber = (groupId, val) => {
+        setInvoiceGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, invoiceNumber: val } : g)));
+    };
+
+    const groupSubtotal = (group) => {
+        const set = new Set(group.rowKeys);
+        return items.filter((i) => set.has(i._rowKey)).reduce((s, i) => s + i.receivedCost * i.qty, 0);
+    };
+
+    const groupedRowKeySet = new Set(invoiceGroups.flatMap((g) => g.rowKeys));
+    const ungroupedCount = items.filter((i) => !groupedRowKeySet.has(i._rowKey)).length;
+
+    const toggleSplitMode = () => {
+        if (splitMode && invoiceGroups.length > 0) {
+            if (!window.confirm("هتلغي تقسيم الفواتير اللي عملته؟")) return;
+        }
+        setSplitMode((v) => !v);
+        setInvoiceGroups([]);
+        setPendingSelection(new Set());
     };
 
     // ===== استيراد ملف Excel من موقع رصد (GTIN/SN/BN/XD) لفاتورة الشراء =====
@@ -788,49 +914,61 @@ export function PurchaseModule({
             needsReview.push({ ...entry, suggestions, saveCode: !!entry.code });
         }
 
-        setSupplierImportResult({ matchedCount, needsReview });
+        // 🆕 نجمع مع أي نتيجة سابقة (من ملف/ملفات سابقة في نفس الفاتورة) بدل ما نمسحها،
+        // عشان "قائمة الأصناف الغير مطابقة" تفضل قائمة واحدة تراكمية طول ما الفاتورة مفتوحة
+        setSupplierImportResult((prev) => ({
+            matchedCount: (prev?.matchedCount || 0) + matchedCount,
+            needsReview: [...(prev?.needsReview || []), ...needsReview],
+        }));
         showToast(
             `تم استيراد ${matchedCount} صنف تلقائيًا ✓` +
             (needsReview.length ? ` — و${needsReview.length} صنف محتاج مراجعة يدوية` : "")
         );
     };
 
-    const handleSupplierExcelFile = async (file) => {
-        if (!file) return;
+    // 🆕 بتقبل كذا ملف مختارين مرة واحدة (multiple)، تقراهم كلهم وتجمّع صفوفهم في مصفوفة واحدة
+    // (نفس تربيطة الأعمدة بتتطبق على الكل، لأنهم من نفس المورد بنفس شكل الملف عادةً)، وبعدين
+    // تمررهم مرة واحدة لـ processSupplierRows اللي بقت تتجمّع مع أي نتيجة سابقة بدل ما تمسحها.
+    const handleSupplierExcelFiles = async (fileList) => {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
         if (!selSupplier) { showToast("اختر المورد الأول", "error"); return; }
         setSupplierImportBusy(true);
-        setSupplierImportResult(null);
         try {
-            const buf = await file.arrayBuffer();
-            const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: true });
-            const sheet = wb.Sheets[wb.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
-            if (!rows.length) {
-                showToast("الملف فارغ أو مفيش صفوف بيانات فيه", "error");
-                setSupplierImportBusy(false);
+            let combinedRows = [];
+            let headerKeys = [];
+            for (const file of files) {
+                const buf = await file.arrayBuffer();
+                const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: true });
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+                if (!rows.length) continue; // ملف فاضي — يتخطى من غير ما يوقف باقي الملفات
+                if (!headerKeys.length) headerKeys = Object.keys(rows[0]);
+                combinedRows = combinedRows.concat(rows);
+            }
+            if (!combinedRows.length) {
+                showToast("الملفات فاضية أو مفيش صفوف بيانات فيها", "error");
                 return;
             }
+            const filesNote = files.length > 1 ? ` (${files.length} ملفات)` : "";
 
-            const headerKeys = Object.keys(rows[0]);
             // 🆕 لو فيه بروفايل أعمدة محفوظ لهذا المورد من فاتورة سابقة، وأعمدته الأساسية (اسم+كمية)
             // لسه موجودة بنفس الاسم في الملف الجديد → طبّقه على طول من غير ما يشوف شاشة التأكيد
             if (
                 supplierColumnProfile?.name && headerKeys.includes(supplierColumnProfile.name) &&
                 supplierColumnProfile?.qty && headerKeys.includes(supplierColumnProfile.qty)
             ) {
-                processSupplierRows(rows, supplierColumnProfile);
-                showToast("✓ استُخدمت نفس تربيطة الأعمدة زي آخر فاتورة من هذا المورد");
-                setSupplierImportBusy(false);
-                if (supplierExcelInputRef.current) supplierExcelInputRef.current.value = "";
+                processSupplierRows(combinedRows, supplierColumnProfile);
+                showToast(`✓ استُخدمت نفس تربيطة الأعمدة زي آخر فاتورة من هذا المورد${filesNote}`);
                 return;
             }
 
-            // مفيش بروفايل مناسب → اكتشاف تلقائي بكلمات مفتاحية موسّعة + عرض شاشة تأكيد/تعديل
-            setColumnMapDraft(autoDetectSupplierColumns(rows[0]));
-            setPendingSupplierRows(rows);
+            // مفيش بروفايل مناسب → اكتشاف تلقائي بكلمات مفتاحية موسّعة + عرض شاشة تأكيد/تعديل مرة واحدة للكل
+            setColumnMapDraft(autoDetectSupplierColumns(combinedRows[0]));
+            setPendingSupplierRows(combinedRows);
             setShowColumnMapModal(true);
         } catch (e) {
-            showToast("تعذّرت قراءة الملف: " + (e?.message || e), "error");
+            showToast("تعذّرت قراءة الملفات: " + (e?.message || e), "error");
         } finally {
             setSupplierImportBusy(false);
             if (supplierExcelInputRef.current) supplierExcelInputRef.current.value = "";
@@ -1164,6 +1302,11 @@ export function PurchaseModule({
     const taxAmt = manualTax !== "" ? +manualTax : calcTax;
     const total = subtotal + taxAmt;
 
+    // 🆕 قيمة ونسبة الخصم الإجمالية (الفرق بين سعر البيع الأساسي قبل الخصم وتكلفة الوحدة بعد الخصمين)
+    const totalBeforeDiscount = items.reduce((s, i) => s + (i.newSalePrice || 0) * i.qty, 0);
+    const totalDiscountAmount = totalBeforeDiscount - calcSubtotal;
+    const totalDiscountPercent = totalBeforeDiscount > 0 ? (totalDiscountAmount / totalBeforeDiscount) * 100 : 0;
+
     const savePurchase = async () => {
         if (!canAdd) {
             showToast("ليس لديك صلاحية إضافة فاتورة شراء", "error");
@@ -1355,143 +1498,188 @@ export function PurchaseModule({
             return;
         }
 
-        // ── مسار "فاتورة شراء جديدة" تمامًا (زي ما هو بالظبط) ──
-        // 🆕 batch.id واحد بيتولّد هنا لكل سطر في الفاتورة (بالـ index، مش بالـ id، عشان لو نفس
-        // الصنف اتكرر بسطرين مختلفين في نفس الفاتورة — كل سطر يبقى ليه batch مستقل صح) — ونفس
-        // الـ id ده هيتحفظ في بند الفاتورة نفسه (po.items[].batch_id) وفي الـ batch الفعلي جوه
-        // products.batches معًا، بدل ما يتولدوا منفصلين زي ما كان قبل كده (نفس مبدأ إصلاح مسار
-        // "رصيد صفر" في نقطة البيع). ده اللي بيخلي فحص "قد إيه اتباع من الشغلة دي" في شاشة
-        // التعديل يشتغل صح على أي فاتورة عادية، مش بس على مسودات نقطة البيع.
-        const batchIds = items.map(() => crypto.randomUUID());
-        const po = {
-            id: "PO-" + crypto.randomUUID(),
-            date: todayLocal(),
-            supplier: selSupplier,
-            supplierName: sup.name,
-            items: items.map((i, idx) => ({
-                id: i.id,
-                name: i.name,
-                qty: i.qty,
-                bonusQty: i.bonusQty || 0,
-                cost: i.receivedCost,
-                discount1: i.discount1,
-                discount2: i.discount2,
-                salePrice: i.newSalePrice,
-                taxable: i.taxable,
-                expiry_date: i.expiry_date || null,
-                batch_number: i.batch_number || null,
-                batch_id: batchIds[idx], // 🆕 نفس id الـ batch الفعلي، مش placeholder
-            })),
-            subtotal,
-            taxAmount: taxAmt,
-            total,
-            status: "مستلمة",
-        };
-
-        setPurchases((p) => [...p, po]);
-        const purchaseInvoice = {
-            id: po.id,
-            date: po.date,
-            supplier: po.supplier,
-            supplier_name: po.supplierName,
-            items: po.items,
-            subtotal: po.subtotal,
-            tax_amount: po.taxAmount,
-            total: po.total,
-            status: po.status,
-            pharmacy_id: pharmacyId,
-        };
-
-        const invoiceResult = await queueEvent({
-            id: crypto.randomUUID(),
-            type: "PURCHASE_INSERT",
-            pharmacy_id: pharmacyId,
-            timestamp: new Date().toISOString(),
-            payload: { invoice: purchaseInvoice },
-        });
-
-        if (!invoiceResult.synced && invoiceResult.error) {
-            // فشل حتى محاولة الحفظ الأولى (خطأ حقيقي، مش بس أوفلاين) — نتراجع
-            showToast("فشل الحفظ: " + invoiceResult.error, "error");
-            setPurchases((p) => p.filter((x) => x.id !== po.id));
+        // ── مسار "فاتورة شراء جديدة" تمامًا ──
+        // 🆕 لو splitMode مفعّل وفيه مجموعات معمولة، كل مجموعة بتتحفظ كفاتورة مورد مستقلة
+        // (رقمها الخاص + إجمالي خاص بيها). غير كده فاتورة واحدة زي القديم بالظبط تحتوي كل الأصناف.
+        if (splitMode && invoiceGroups.length > 0 && ungroupedCount > 0) {
+            showToast(`فيه ${ungroupedCount} صنف لسه مش موزّع على فاتورة مورد — وزّع كل الأصناف الأول`, "error");
             return;
         }
+        const invoiceBatches =
+            splitMode && invoiceGroups.length > 0
+                ? invoiceGroups.map((g) => ({ rowKeys: g.rowKeys, invoiceNumber: g.invoiceNumber || null }))
+                : [{ rowKeys: null, invoiceNumber: null }]; // null = كل الأصناف (السلوك القديم)
+        const isSplitting = invoiceBatches.length > 1;
 
-        // 🆕 كاش محلي في SQLite (purchase_invoices_cache) — نفس فلسفة insertSaleCache في completeSale،
-        // عشان سجل فواتير الشراء يفضل مقروء أوفلاين حتى لو التطبيق اتقفل قبل ما الحدث يتزامن.
-        const cacheResult = await retryLocalWrite(() => {
-            if (!window.offlineAPI?.insertPurchaseInvoiceCache) return { success: false, error: "offlineAPI_unavailable" };
-            return window.offlineAPI.insertPurchaseInvoiceCache({
+        const allNewBatchesByProduct = {}; // 🆕 متراكم عبر كل الفواتير المُنشأة، عشان تحديث products مرة واحدة في الآخر
+        const createdInvoiceIds = [];
+
+        for (const batchGroup of invoiceBatches) {
+            const batchItems = batchGroup.rowKeys
+                ? items.filter((i) => batchGroup.rowKeys.includes(i._rowKey))
+                : items;
+            if (batchItems.length === 0) continue;
+
+            const batchCalcSubtotal = batchItems.reduce((s, i) => s + i.receivedCost * i.qty, 0);
+            const batchCalcTax = batchItems.reduce(
+                (s, i) => (i.taxable ? s + i.receivedCost * i.qty * TAX_RATE : s),
+                0
+            );
+            // 🆕 التعديل اليدوي للإجمالي (manualSubtotal/manualTax) بينطبق بس لو فاتورة واحدة —
+            // مش منطقي يتوزع على أكتر من فاتورة مستقلة
+            const batchSubtotal = isSplitting ? batchCalcSubtotal : subtotal;
+            const batchTaxAmt = isSplitting ? batchCalcTax : taxAmt;
+            const batchTotal = batchSubtotal + batchTaxAmt;
+
+            // 🆕 batch.id واحد بيتولّد هنا لكل سطر في الفاتورة (بالـ index، مش بالـ id، عشان لو نفس
+            // الصنف اتكرر بسطرين مختلفين في نفس الفاتورة — كل سطر يبقى ليه batch مستقل صح) — ونفس
+            // الـ id ده هيتحفظ في بند الفاتورة نفسه (po.items[].batch_id) وفي الـ batch الفعلي جوه
+            // products.batches معًا، بدل ما يتولدوا منفصلين زي ما كان قبل كده (نفس مبدأ إصلاح مسار
+            // "رصيد صفر" في نقطة البيع). ده اللي بيخلي فحص "قد إيه اتباع من الشغلة دي" في شاشة
+            // التعديل يشتغل صح على أي فاتورة عادية، مش بس على مسودات نقطة البيع.
+            const batchIds = batchItems.map(() => crypto.randomUUID());
+            const po = {
+                id: "PO-" + crypto.randomUUID(),
+                date: todayLocal(),
+                supplier: selSupplier,
+                supplierName: sup.name,
+                items: batchItems.map((i, idx) => ({
+                    id: i.id,
+                    name: i.name,
+                    qty: i.qty,
+                    bonusQty: i.bonusQty || 0,
+                    cost: i.receivedCost,
+                    discount1: i.discount1,
+                    discount2: i.discount2,
+                    salePrice: i.newSalePrice,
+                    taxable: i.taxable,
+                    expiry_date: i.expiry_date || null,
+                    batch_number: i.batch_number || null,
+                    batch_id: batchIds[idx], // 🆕 نفس id الـ batch الفعلي، مش placeholder
+                })),
+                subtotal: batchSubtotal,
+                taxAmount: batchTaxAmt,
+                total: batchTotal,
+                status: "مستلمة",
+                invoice_number: batchGroup.invoiceNumber || null,
+            };
+
+            setPurchases((p) => [...p, po]);
+            const purchaseInvoice = {
                 id: po.id,
-                pharmacy_id: pharmacyId,
-                supplier_id: po.supplier,
+                date: po.date,
+                supplier: po.supplier,
                 supplier_name: po.supplierName,
-                invoice_number: null,
-                invoice_date: po.date,
-                created_at: new Date().toISOString(),
                 items: po.items,
                 subtotal: po.subtotal,
                 tax_amount: po.taxAmount,
                 total: po.total,
-                paid_amount: 0,
-                payment_status: "unpaid",
-                notes: null,
-                created_by: currentUser?.name || null,
-                returned: false,
+                status: po.status,
+                pharmacy_id: pharmacyId,
+                invoice_number: po.invoice_number,
+            };
+
+            const invoiceResult = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "PURCHASE_INSERT",
+                pharmacy_id: pharmacyId,
+                timestamp: new Date().toISOString(),
+                payload: { invoice: purchaseInvoice },
             });
-        });
-        if (!cacheResult?.success) {
-            // الفاتورة موجودة في outbox وهتتزامن، بس فشل حفظها في الكاش المحلي — تنبيه بس، مش تراجع
-            showToast("⚠️ الفاتورة اتحفظت للمزامنة لكن فشل حفظ نسخة محلية سريعة", "error");
+
+            if (!invoiceResult.synced && invoiceResult.error) {
+                // فشل حتى محاولة الحفظ الأولى (خطأ حقيقي، مش بس أوفلاين) — نتراجع عن الفاتورة دي بس،
+                // ونكمل باقي الفواتير لو فيه تقسيم (بدل ما نوقف الكل بسبب فاتورة واحدة فشلت)
+                showToast(
+                    (po.invoice_number ? `فاتورة ${po.invoice_number}: ` : "") + "فشل الحفظ: " + invoiceResult.error,
+                    "error"
+                );
+                setPurchases((p) => p.filter((x) => x.id !== po.id));
+                continue;
+            }
+
+            // 🆕 كاش محلي في SQLite (purchase_invoices_cache) — نفس فلسفة insertSaleCache في completeSale،
+            // عشان سجل فواتير الشراء يفضل مقروء أوفلاين حتى لو التطبيق اتقفل قبل ما الحدث يتزامن.
+            const cacheResult = await retryLocalWrite(() => {
+                if (!window.offlineAPI?.insertPurchaseInvoiceCache) return { success: false, error: "offlineAPI_unavailable" };
+                return window.offlineAPI.insertPurchaseInvoiceCache({
+                    id: po.id,
+                    pharmacy_id: pharmacyId,
+                    supplier_id: po.supplier,
+                    supplier_name: po.supplierName,
+                    invoice_number: po.invoice_number,
+                    invoice_date: po.date,
+                    created_at: new Date().toISOString(),
+                    items: po.items,
+                    subtotal: po.subtotal,
+                    tax_amount: po.taxAmount,
+                    total: po.total,
+                    paid_amount: 0,
+                    payment_status: "unpaid",
+                    notes: null,
+                    created_by: currentUser?.name || null,
+                    returned: false,
+                });
+            });
+            if (!cacheResult?.success) {
+                // الفاتورة موجودة في outbox وهتتزامن، بس فشل حفظها في الكاش المحلي — تنبيه بس، مش تراجع
+                showToast("⚠️ الفاتورة اتحفظت للمزامنة لكن فشل حفظ نسخة محلية سريعة", "error");
+            }
+
+            logAudit({
+                pharmacyId, userName: currentUser?.name, action: "create", entityType: "purchase",
+                entityId: po.id, entityLabel: `فاتورة شراء — ${po.supplierName}`,
+                newValue: { supplier: po.supplierName, total: po.total, itemsCount: po.items.length },
+                description: `إضافة فاتورة شراء من "${po.supplierName}"${po.invoice_number ? ` (رقم فاتورة المورد: ${po.invoice_number})` : ""} بإجمالي ${po.total} ر.س`,
+            });
+
+            // بنجهز الـ batches الجديدة لكل صنف كـ أحداث منفصلة
+            // ⚠️ رجّعت شكل الـ batch كـ object كامل زي الأصل — دالة apply_purchase_stock_batch بتقرا
+            // qty/cost/salePrice/expiry_date/batch_number من جوه v_event->'batch' مباشرة، مش من حقول
+            // مفرودة. الإضافة الوحيدة الصح هنا هي device_id (الدالة بتقراها: v_event->>'device_id').
+            const stockEvents = batchItems.map((ci, idx) => {
+                const product = products.find((x) => x.id === ci.id);
+                // 🆕 لو نفس الصنف اتكرر بأكتر من سطر (في نفس الفاتورة أو عبر فواتير مقسّمة مختلفة)،
+                // لازم نبني فوق آخر batches اتجمّعت من سطر سابق في نفس savePurchase دي —
+                // مش نرجع دايمًا لـ product.batches الأصلية وإلا الـ batch بتاع السطر الأول
+                // هيتمسح من الـ state المحلي (السيرفر كان سليم بس العرض المحلي كان بيغلط).
+                const baseBatches = allNewBatchesByProduct[ci.id] || product?.batches || [];
+                const newBatch = {
+                    id: batchIds[idx], // 🆕 نفس id اللي اتحفظ في po.items[idx].batch_id، مش عشوائي مستقل
+                    qty: ci.qty + (ci.bonusQty || 0),
+                    cost: ci.receivedCost,
+                    salePrice: ci.newSalePrice,
+                    expiry_date: ci.expiry_date || null,
+                    batch_number: ci.batch_number || null,
+                    date: todayLocal(),
+                };
+                allNewBatchesByProduct[ci.id] = [...baseBatches, newBatch];
+                return {
+                    id: crypto.randomUUID(),
+                    pharmacy_id: pharmacyId,
+                    product_id: ci.id,
+                    batch: newBatch,
+                    reference_id: po.id,
+                    created_at: new Date().toISOString(),
+                    device_id: getDeviceId(),
+                };
+            });
+
+            await queueEvent({
+                id: crypto.randomUUID(),
+                type: "PURCHASE_STOCK_ADD",
+                pharmacy_id: pharmacyId,
+                timestamp: new Date().toISOString(),
+                payload: { events: stockEvents },
+            });
+
+            createdInvoiceIds.push(po.id);
         }
 
-        logAudit({
-            pharmacyId, userName: currentUser?.name, action: "create", entityType: "purchase",
-            entityId: po.id, entityLabel: `فاتورة شراء — ${po.supplierName}`,
-            newValue: { supplier: po.supplierName, total: po.total, itemsCount: po.items.length },
-            description: `إضافة فاتورة شراء من "${po.supplierName}" بإجمالي ${po.total} ر.س`,
-        });
-
-        // بنجهز الـ batches الجديدة لكل صنف كـ أحداث منفصلة
-        // ⚠️ رجّعت شكل الـ batch كـ object كامل زي الأصل — دالة apply_purchase_stock_batch بتقرا
-        // qty/cost/salePrice/expiry_date/batch_number من جوه v_event->'batch' مباشرة، مش من حقول
-        // مفرودة. الإضافة الوحيدة الصح هنا هي device_id (الدالة بتقراها: v_event->>'device_id').
-        const newBatchesByProduct = {};
-        const stockEvents = items.map((ci, idx) => {
-            const product = products.find((x) => x.id === ci.id);
-            // 🆕 لو نفس الصنف اتكرر بأكتر من سطر في نفس الفاتورة (batch مختلف/expiry مختلف)،
-            // لازم نبني فوق آخر batches اتجمّعت من سطر سابق لنفس الصنف في نفس الحلقة دي —
-            // مش نرجع دايمًا لـ product.batches الأصلية وإلا الـ batch بتاع السطر الأول
-            // هيتمسح من الـ state المحلي (السيرفر كان سليم بس العرض المحلي كان بيغلط).
-            const baseBatches = newBatchesByProduct[ci.id] || product?.batches || [];
-            const newBatch = {
-                id: batchIds[idx], // 🆕 نفس id اللي اتحفظ في po.items[idx].batch_id، مش عشوائي مستقل
-                qty: ci.qty + (ci.bonusQty || 0),
-                cost: ci.receivedCost,
-                salePrice: ci.newSalePrice,
-                expiry_date: ci.expiry_date || null,
-                batch_number: ci.batch_number || null,
-                date: todayLocal(),
-            };
-            newBatchesByProduct[ci.id] = [...baseBatches, newBatch];
-            return {
-                id: crypto.randomUUID(),
-                pharmacy_id: pharmacyId,
-                product_id: ci.id,
-                batch: newBatch,
-                reference_id: po.id,
-                created_at: new Date().toISOString(),
-                device_id: getDeviceId(),
-            };
-        });
-
-        await queueEvent({
-            id: crypto.randomUUID(),
-            type: "PURCHASE_STOCK_ADD",
-            pharmacy_id: pharmacyId,
-            timestamp: new Date().toISOString(),
-            payload: { events: stockEvents },
-        });
+        if (createdInvoiceIds.length === 0) {
+            showToast("فشل حفظ كل الفواتير", "error");
+            return;
+        }
 
         // بنبني القوائم المحدّثة مرة واحدة عشان نستخدمها في: (1) React state و(2) الحفظ في products_cache المحلي
         const updatedProducts = products.map((x) => {
@@ -1502,7 +1690,7 @@ export function PurchaseModule({
                 stock: x.stock + ci.qty + (ci.bonusQty || 0),
                 cost: ci.receivedCost,
                 price: ci.newSalePrice,
-                batches: newBatchesByProduct[x.id] ?? x.batches,
+                batches: allNewBatchesByProduct[x.id] ?? x.batches,
                 not_available_market: false,
                 auto_order: true,
                 is_standalone_offer: ci.standaloneOffer ? true : x.is_standalone_offer,
@@ -1539,8 +1727,15 @@ for (const ci of standaloneOfferItems) {
         setManualSubtotal("");
         setManualTax("");
         setShowNew(false);
+        setSplitMode(false);
+        setInvoiceGroups([]);
+        setPendingSelection(new Set());
         clearPurchaseDraft();
-        showToast("تم حفظ فاتورة الشراء ✓");
+        showToast(
+            createdInvoiceIds.length > 1
+                ? `تم حفظ ${createdInvoiceIds.length} فواتير شراء مستقلة ✓`
+                : "تم حفظ فاتورة الشراء ✓"
+        );
 
         // ✅ فتح نافذة طباعة الباركود بعد نجاح الحفظ
         printLabels(itemsForPrint);
@@ -1812,38 +2007,20 @@ for (const ci of standaloneOfferItems) {
                                         <div style={{ fontFamily: "monospace", fontSize: 11, color: COLORS.textDim }}>
                                             GTIN: {u.gtin} {u.batch ? `— تشغيلة: ${u.batch}` : ""} {u.expiry ? `— صلاحية: ${u.expiry}` : ""} {u.qty > 1 ? `— كمية: ${u.qty}` : ""}
                                         </div>
-                                        <select
-                                            defaultValue=""
-                                            onChange={(e) => {
-                                                const pid = e.target.value;
-                                                if (!pid) return;
-                                                const p = products.find((x) => String(x.id) === pid);
-                                                if (!p) return;
-                                                addItemWithQty(p, u.expiry, u.batch, u.qty);
-                                                setRasdImportResult((prev) => ({
-                                                    matchedCount: prev.matchedCount + 1,
-                                                    unmatched: prev.unmatched.filter((_, i2) => i2 !== idx),
-                                                }));
-                                                showToast(`اترابط الصنف "${p.name}" وأتضاف للفاتورة ✓ — لو ده بيتكرر، راجع الباركود المسجل في كارت الصنف`);
-                                            }}
-                                            style={{
-                                                marginTop: 4,
-                                                fontSize: 11,
-                                                maxWidth: 280,
-                                                padding: "3px 6px",
-                                                borderRadius: 6,
-                                                border: `1px solid ${COLORS.gold}`,
-                                                background: "#fff",
-                                                color: COLORS.textPrimary,
-                                            }}
-                                        >
-                                            <option value="">-- اربطه يدويًا بصنف موجود --</option>
-                                            {products.map((p) => (
-                                                <option key={p.id} value={p.id}>
-                                                    {p.name} {p.barcode ? `(${p.barcode})` : ""}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <div style={{ marginTop: 4 }}>
+                                            <ProductSearchPicker
+                                                products={products}
+                                                placeholder="-- دوّر واربطه يدويًا بصنف موجود --"
+                                                onSelect={(p) => {
+                                                    addItemWithQty(p, u.expiry, u.batch, u.qty);
+                                                    setRasdImportResult((prev) => ({
+                                                        matchedCount: prev.matchedCount + 1,
+                                                        unmatched: prev.unmatched.filter((_, i2) => i2 !== idx),
+                                                    }));
+                                                    showToast(`اترابط الصنف "${p.name}" وأتضاف للفاتورة ✓ — لو ده بيتكرر، راجع الباركود المسجل في كارت الصنف`);
+                                                }}
+                                            />
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -1857,8 +2034,9 @@ for (const ci of standaloneOfferItems) {
                         ref={supplierExcelInputRef}
                         type="file"
                         accept=".xlsx,.xls,.csv"
+                        multiple
                         style={{ display: "none" }}
-                        onChange={(e) => handleSupplierExcelFile(e.target.files?.[0])}
+                        onChange={(e) => handleSupplierExcelFiles(e.target.files)}
                     />
                     <Btn
                         icon="upload"
@@ -1866,7 +2044,7 @@ for (const ci of standaloneOfferItems) {
                         onClick={() => supplierExcelInputRef.current?.click()}
                         disabled={supplierImportBusy || !selSupplier}
                     >
-                        {supplierImportBusy ? "جارٍ الاستيراد..." : "📥 استيراد فاتورة مورد (Excel)"}
+                        {supplierImportBusy ? "جارٍ الاستيراد..." : "📥 استيراد فاتورة/فواتير مورد (Excel)"}
                     </Btn>
                     {!selSupplier && (
                         <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>اختر المورد الأول عشان نقدر نتعرف على ترتيب أعمدة ملفه ونحفظه له</div>
@@ -1916,24 +2094,11 @@ for (const ci of standaloneOfferItems) {
                                         )}
 
                                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-                                            <select
-                                                defaultValue=""
-                                                onChange={(e) => {
-                                                    const pid = e.target.value;
-                                                    if (!pid) return;
-                                                    const p = products.find((x) => String(x.id) === pid);
-                                                    if (p) resolveReviewItem(idx, p);
-                                                }}
-                                                style={{
-                                                    fontSize: 11, maxWidth: 240, padding: "3px 6px", borderRadius: 6,
-                                                    border: `1px solid ${COLORS.gold}`, background: "#fff", color: COLORS.textPrimary,
-                                                }}
-                                            >
-                                                <option value="">-- اربطه يدويًا بصنف موجود --</option>
-                                                {products.map((p) => (
-                                                    <option key={p.id} value={p.id}>{p.name_ar || p.name} {p.barcode ? `(${p.barcode})` : ""}</option>
-                                                ))}
-                                            </select>
+                                            <ProductSearchPicker
+                                                products={products}
+                                                onSelect={(p) => resolveReviewItem(idx, p)}
+                                                placeholder="-- دوّر واربطه يدويًا بصنف موجود --"
+                                            />
 
                                             <Btn size="sm" variant="secondary" icon="plus" onClick={() => openAddProductFromReview(idx)}>
                                                 إضافة كصنف جديد
@@ -2077,7 +2242,73 @@ for (const ci of standaloneOfferItems) {
                     <Btn icon="plus" variant="secondary" onClick={() => { setProductFormEditId(null); setShowProductForm(true); }}>
                         صنف جديد
                     </Btn>
+                    {items.length > 0 && (
+                        <Btn
+                            icon="edit"
+                            variant="secondary"
+                            onClick={toggleSplitMode}
+                            style={splitMode ? { borderColor: COLORS.gold, color: COLORS.gold } : undefined}
+                        >
+                            {splitMode ? "إلغاء تقسيم الفواتير" : "تقسيم لفواتير المورد"}
+                        </Btn>
+                    )}
                 </div>
+
+                {/* 🆕 لوحة تقسيم الأصناف لفواتير مورد مستقلة (اختيارية) */}
+                {splitMode && (
+                    <div
+                        style={{
+                            background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                            border: `1px solid ${tint(COLORS.gold, 0.35)}`,
+                            borderRadius: 10,
+                            padding: 12,
+                            marginBottom: 10,
+                        }}
+                    >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                            <span style={{ fontSize: 13, color: ungroupedCount > 0 ? COLORS.gold : COLORS.green, fontWeight: 700 }}>
+                                {ungroupedCount > 0
+                                    ? `أصناف غير موزّعة: ${ungroupedCount}`
+                                    : invoiceGroups.length > 0
+                                        ? "كل الأصناف اتوزّعت ✓"
+                                        : "حدد الأصناف بچيك بوكس في الجدول تحت، وبعدين اعمل مجموعة"}
+                            </span>
+                            <Btn icon="plus" variant="secondary" onClick={createInvoiceGroup}>
+                                إنشاء مجموعة جديدة ({pendingSelection.size})
+                            </Btn>
+                        </div>
+                        {invoiceGroups.map((g, gi) => (
+                            <div
+                                key={g.id}
+                                style={{
+                                    display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                                    padding: "8px 10px", marginBottom: 6, borderRadius: 8,
+                                    background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+                                }}
+                            >
+                                <Badge color={COLORS.blueSoft} text={COLORS.blue}>فاتورة #{gi + 1}</Badge>
+                                <input
+                                    type="text"
+                                    placeholder="رقم فاتورة المورد"
+                                    value={g.invoiceNumber}
+                                    onChange={(e) => updateGroupInvoiceNumber(g.id, e.target.value)}
+                                    style={{ ...cellStyle, width: 140 }}
+                                />
+                                <span style={{ fontSize: 12, color: COLORS.textDim }}>{g.rowKeys.length} صنف</span>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>
+                                    الإجمالي: {groupSubtotal(g).toFixed(2)} ر.س
+                                </span>
+                                <button
+                                    onClick={() => removeInvoiceGroup(g.id)}
+                                    title="حذف المجموعة (الأصناف ترجع غير موزّعة)"
+                                    style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", marginRight: "auto" }}
+                                >
+                                    <IC n="trash" s={14} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 <div style={{ marginTop: 4, overflowX: "auto" }}>
                     <table
@@ -2086,6 +2317,7 @@ for (const ci of standaloneOfferItems) {
                         <thead>
                             <tr style={{ background: COLORS.surfaceAlt }}>
                                 {[
+                                    "#",
                                     "الصنف",
                                     "الكمية",
                                     "خ.أساسي%",
@@ -2097,6 +2329,7 @@ for (const ci of standaloneOfferItems) {
                                     "رقم التشغيلة",
                                     "ضريبة",
                                     "الإجمالي",
+                                    ...(splitMode ? ["فاتورة المورد"] : []),
                                     "",
                                 ].map((h) => (
                                     <th
@@ -2116,7 +2349,10 @@ for (const ci of standaloneOfferItems) {
                         </thead>
                         <tbody>
                             {items.map((item, rowIndex) => (
-                                <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                                <tr key={item._rowKey || item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                                   <td style={{ padding: "6px 8px", fontSize: 12, color: COLORS.textDim, textAlign: "center" }}>
+                                       {rowIndex + 1}
+                                   </td>
                                    <td style={{ padding: "6px 8px", fontSize: 13, color: COLORS.textPrimary, minWidth: 120 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {item.name_ar || item.name}
@@ -2296,10 +2532,35 @@ for (const ci of standaloneOfferItems) {
                                             (item.taxable ? 1 + TAX_RATE : 1)
                                         ).toFixed(2)}
                                     </td>
+                                    {splitMode && (() => {
+                                        const ownerGroup = invoiceGroups.find((g) => g.rowKeys.includes(item._rowKey));
+                                        const ownerIdx = ownerGroup ? invoiceGroups.indexOf(ownerGroup) : -1;
+                                        return (
+                                            <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                                                {ownerGroup ? (
+                                                    <span
+                                                        onClick={() => removeItemFromGroup(ownerGroup.id, item._rowKey)}
+                                                        title="إزالة من المجموعة"
+                                                        style={{ cursor: "pointer" }}
+                                                    >
+                                                        <Badge color={COLORS.blueSoft} text={COLORS.blue}>
+                                                            فاتورة #{ownerIdx + 1} ✕
+                                                        </Badge>
+                                                    </span>
+                                                ) : (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={pendingSelection.has(item._rowKey)}
+                                                        onChange={() => togglePendingSelect(item._rowKey)}
+                                                    />
+                                                )}
+                                            </td>
+                                        );
+                                    })()}
                                     <td style={{ padding: "6px 8px" }}>
                                         <button
                                             onClick={() =>
-                                                setItems((p) => p.filter((i) => i.id !== item.id))
+                                                setItems((p) => p.filter((i) => (i._rowKey || i.id) !== (item._rowKey || item.id)))
                                             }
                                             style={{
                                                 background: "transparent",
@@ -2326,6 +2587,21 @@ for (const ci of standaloneOfferItems) {
                             marginTop: 14,
                         }}
                     >
+                        {totalDiscountAmount > 0 && (
+                            <div
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    color: COLORS.gold,
+                                    marginBottom: 8,
+                                    fontSize: 13,
+                                }}
+                            >
+                                <span>قيمة الخصم ({totalDiscountPercent.toFixed(1)}%)</span>
+                                <span>{totalDiscountAmount.toFixed(2)} ر.س</span>
+                            </div>
+                        )}
                         <div
                             style={{
                                 display: "flex",
@@ -2798,6 +3074,7 @@ for (const ci of standaloneOfferItems) {
                             <thead>
                                 <tr style={{ background: COLORS.surfaceAlt }}>
                                     {[
+                                        "#",
                                         "الصنف",
                                         "الكمية",
                                         "خ.أساسي%",
@@ -2830,6 +3107,9 @@ for (const ci of standaloneOfferItems) {
                                         key={item.id}
                                         style={{ borderBottom: `1px solid ${COLORS.border}` }}
                                     >
+                                        <td style={{ padding: "6px 8px", fontSize: 12, color: COLORS.textDim, textAlign: "center" }}>
+                                            {rowIndex + 1}
+                                        </td>
                                         <td
                                             style={{
                                                 padding: "6px 8px",
@@ -3177,8 +3457,30 @@ for (const ci of standaloneOfferItems) {
                             const editTaxAmt =
                                 editManualTax !== "" ? +editManualTax : editCalcTax;
                             const editTotal = editSubtotal + editTaxAmt;
+                            const editTotalBeforeDiscount = editItems.reduce(
+                                (s, i) => s + (i.newSalePrice || 0) * i.qty,
+                                0
+                            );
+                            const editDiscountAmount = editTotalBeforeDiscount - editCalcSubtotal;
+                            const editDiscountPercent =
+                                editTotalBeforeDiscount > 0 ? (editDiscountAmount / editTotalBeforeDiscount) * 100 : 0;
                             return (
                                 <>
+                                    {editDiscountAmount > 0 && (
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                justifyContent: "space-between",
+                                                alignItems: "center",
+                                                color: COLORS.gold,
+                                                marginBottom: 8,
+                                                fontSize: 13,
+                                            }}
+                                        >
+                                            <span>قيمة الخصم ({editDiscountPercent.toFixed(1)}%)</span>
+                                            <span>{editDiscountAmount.toFixed(2)} ر.س</span>
+                                        </div>
+                                    )}
                                     <div
                                         style={{
                                             display: "flex",
