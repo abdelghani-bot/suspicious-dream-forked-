@@ -9,7 +9,7 @@ import { sellFromBatches } from "../lib/inventoryUtils";
 import { CART_AREA_HEIGHT, DEFAULT_DOSE_TEMPLATES, DOSAGE_LABEL_SIZES, MAX_INVOICES, emptyInvoice, playWarningBeep } from "../lib/posConstants";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { calcPromoLineTotal, getEffectivePrice, recalcCartLinePrice } from "../lib/promoUtils";
-import { earnLoyaltyPoints, redeemLoyaltyPoints, logInventoryVariance, createZeroStockDraftPurchase, addItemToZeroStockDraftPurchase, queueEvent, getPharmacySettings, getCustomerLoyaltyPoints } from "../lib/offlineAPI";
+import { earnLoyaltyPoints, redeemLoyaltyPoints, logInventoryVariance, createZeroStockDraftPurchase, addItemToZeroStockDraftPurchase, queueEvent, getPharmacySettings, getCustomerLoyaltyPoints, replaceProductAltBarcodes } from "../lib/offlineAPI";
 import { PrintReceipt } from "./PrintReceipt";
 import { RasdQueue } from "../services/rasdService";
 import { Btn, IC, Modal, Select } from "../ui/primitives";
@@ -777,13 +777,43 @@ export function POS({
     };
 
     // ── ربط باركود جديد (اتقرا بالسكانر ومتلقاش صنف) بصنف موجود عندنا — للحالة اللي الشركة غيّرت الـ GTIN ──
+    // 🛠️ الباركود الجديد بقى بيتضاف للصنف مش بيستبدل باركوده — لو الصنف عنده باركود أساسي بالفعل
+    // (يعني لسه فيه رصيد فعلي على الرف بالباركود القديم)، الجديد بيتسجل كـ"باركود بديل" جنبه، مش بدله.
+    // لو الصنف مالوش باركود أساسي أصلاً، الجديد بيتسجل كباركود أساسي زي أول مرة.
     const linkUnmatchedBarcodeToProduct = async (product) => {
         const newGtin = unmatchedScan.gtin;
         if (!newGtin) return;
-        const oldBarcode = product.barcode || "بدون باركود";
-        // تحديث محلي فوري (متفائل) بغض النظر عن حالة النت، والكتابة الفعلية بتعدي على طابور الأوفلاين
-        const updatedProduct = { ...product, barcode: newGtin };
-        setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
+        const alreadyLinked = product.barcode === newGtin || (product.altBarcodes || []).includes(newGtin);
+        const hadNoBarcode = !product.barcode;
+        let updatedProduct = product;
+
+        if (!alreadyLinked) {
+            if (hadNoBarcode) {
+                // تحديث محلي فوري (متفائل)، والكتابة الفعلية بتعدي على طابور الأوفلاين
+                updatedProduct = { ...product, barcode: newGtin };
+                setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
+                const fieldResult = await queueEvent({
+                    id: crypto.randomUUID(),
+                    type: "PRODUCT_FIELD_UPDATE",
+                    timestamp: new Date().toISOString(),
+                    pharmacy_id: pharmacyId,
+                    payload: { id: product.id, pharmacy_id: pharmacyId, updates: { barcode: newGtin } },
+                });
+                if (!fieldResult.synced) {
+                    showToast("📴 تم حفظ الباركود محليًا - هيتزامن لما النت يرجع", "warning");
+                }
+            } else {
+                const updatedAlts = [...(product.altBarcodes || []), newGtin];
+                updatedProduct = { ...product, altBarcodes: updatedAlts };
+                setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
+                const altResult = await replaceProductAltBarcodes(product.id, pharmacyId, updatedAlts);
+                if (!altResult.synced) {
+                    showToast("📴 تم حفظ الباركود البديل محليًا - هيتزامن لما النت يرجع", "warning");
+                }
+            }
+        }
+
+        // تسجيل التشغيلة/الصلاحية/السيريال المرتبطين بالباركود الجديد لو موجودين (منفصل عن ربط الباركود نفسه)
         const barcodeRow = (unmatchedScan.batch || unmatchedScan.expiry || unmatchedScan.serial)
             ? {
                 product_id: product.id, pharmacy_id: pharmacyId,
@@ -793,17 +823,27 @@ export function POS({
                 expiry_date: unmatchedScan.expiry || null,
             }
             : null;
-        const linkResult = await queueEvent({
-            id: crypto.randomUUID(),
-            type: "BARCODE_LINK",
-            timestamp: new Date().toISOString(),
-            pharmacy_id: pharmacyId,   // 🛠️ مضاف على مستوى event
-            payload: { productId: product.id, pharmacyId, newGtin, barcodeRow },
-        });
-        if (!linkResult.synced) {
-            showToast("📴 تم حفظ ربط الباركود محليًا - هيتزامن لما النت يرجع", "warning");
+        if (barcodeRow) {
+            const linkResult = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "BARCODE_LINK",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
+                payload: { barcodeRow },
+            });
+            if (!linkResult.synced) {
+                showToast("📴 تم حفظ بيانات التشغيلة محليًا - هيتزامن لما النت يرجع", "warning");
+            }
         }
-        showToast(`✅ تم تحديث باركود "${product.nameAr || product.name}" من (${oldBarcode}) إلى (${newGtin})`, "success");
+
+        if (alreadyLinked) {
+            showToast(`الباركود ده متسجل بالفعل لصنف "${product.nameAr || product.name}"`);
+        } else if (hadNoBarcode) {
+            showToast(`✅ تم تسجيل باركود "${product.nameAr || product.name}" (${newGtin})`, "success");
+        } else {
+            showToast(`✅ تم إضافة (${newGtin}) كباركود بديل لصنف "${product.nameAr || product.name}" — الباركود القديم (${product.barcode}) لسه شغال`, "success");
+        }
+
         const pendingScan = unmatchedScan;
         setUnmatchedScan(null);
         setUnmatchedLinkSearch("");
@@ -2449,13 +2489,19 @@ showToast("تمت عملية البيع ✓");
                                                                             return p;
                                                                         }
                                                                         if (dup) {
+                                                                            // 🛠️ دواء بس: دمج مصفوفتي السيريالات مع بعض بدل ما نستخدم بس سيريالات
+                                                                            // السطر التاني ونضيع سيريالات item — كانت بتتمسح بصمت هنا.
+                                                                            const isDrugLine = (item.mainCategory || item.main_category || item.category) === "دواء";
+                                                                            const mergedSerials = isDrugLine
+                                                                                ? [...(dup.serials || []), ...(item.serials || [])]
+                                                                                : dup.serials;
                                                                             return {
                                                                                 ...p,
                                                                                 cart: p.cart
                                                                                     .filter((i) => i.lineId !== item.lineId)
                                                                                     .map((i) =>
                                                                                         i.lineId === newLineId
-                                                                                            ? { ...i, qty: mergedQty, price: recalcCartLinePrice(i, mergedQty) }
+                                                                                            ? { ...i, qty: mergedQty, serials: mergedSerials, price: recalcCartLinePrice(i, mergedQty) }
                                                                                             : i
                                                                                     ),
                                                                             };
@@ -2493,7 +2539,14 @@ showToast("تمت عملية البيع ✓");
                                                             cart: p.cart.map((i) => {
                                                                 if (i.lineId !== item.lineId) return i;
                                                                 const newQty = Math.max(1, i.qty - 1);
-                                                                return { ...i, qty: newQty, price: recalcCartLinePrice(i, newQty) };
+                                                                // 🛠️ دواء بس: لو الكمية نقصت لازم نقلّم مصفوفة السيريالات لنفس العدد،
+                                                                // وإلا هيتسجل سيريال أكتر من العلب اللي فعلاً اتباعت وقت الفاتورة
+                                                                // (العلبة اللي رجعت الرف هتتسجل "مباعة" غلط في sold_serials).
+                                                                const isDrugLine = (i.mainCategory || i.main_category || i.category) === "دواء";
+                                                                const newSerials = (isDrugLine && i.serials && i.serials.length > newQty)
+                                                                    ? i.serials.slice(0, newQty)
+                                                                    : i.serials;
+                                                                return { ...i, qty: newQty, serials: newSerials, price: recalcCartLinePrice(i, newQty) };
                                                             }),
                                                         }))}
                                                         style={{ width: 22, height: 22, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}
@@ -2585,7 +2638,13 @@ showToast("تمت عملية البيع ✓");
                                                                 cart: p.cart.map((i) => {
                                                                     if (i.lineId !== item.lineId) return i;
                                                                     const newQty = Math.min(val, maxQty);
-                                                                    return { ...i, qty: newQty, qtyDisplay: undefined, price: recalcCartLinePrice(i, newQty) };
+                                                                    // 🛠️ نفس تقليم السيريالات بتاع زر "-" — لازم يتطبق هنا كمان لأن الكاشير
+                                                                    // ممكن يعدّل الكمية مباشرة من الحقل مش بس بزرار الناقص.
+                                                                    const isDrugLine = (i.mainCategory || i.main_category || i.category) === "دواء";
+                                                                    const newSerials = (isDrugLine && i.serials && i.serials.length > newQty)
+                                                                        ? i.serials.slice(0, newQty)
+                                                                        : i.serials;
+                                                                    return { ...i, qty: newQty, qtyDisplay: undefined, serials: newSerials, price: recalcCartLinePrice(i, newQty) };
                                                                 }),
                                                             }));
                                                         }}
@@ -3131,13 +3190,18 @@ showToast("تمت عملية البيع ✓");
                                         }
 
                                         if (dup) {
+                                            // 🛠️ دواء بس: دمج السيريالات بدل ما نفقد سيريالات currentLine وقت الدمج
+                                            const isDrugLine = (currentLine?.mainCategory || currentLine?.main_category || currentLine?.category) === "دواء";
+                                            const mergedSerials = isDrugLine
+                                                ? [...(dup.serials || []), ...(currentLine?.serials || [])]
+                                                : dup.serials;
                                             return {
                                                 ...prev,
                                                 cart: prev.cart
                                                     .filter((i) => i.lineId !== expiryPickerLine.lineId)
                                                     .map((i) =>
                                                         i.lineId === newLineId
-                                                            ? { ...i, qty: mergedQty, price: recalcCartLinePrice(i, mergedQty) }
+                                                            ? { ...i, qty: mergedQty, serials: mergedSerials, price: recalcCartLinePrice(i, mergedQty) }
                                                             : i
                                                     ),
                                             };

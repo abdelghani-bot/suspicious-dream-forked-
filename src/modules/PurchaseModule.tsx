@@ -11,7 +11,7 @@ import { ProductFormModal } from "./ProductFormModal";
 import { RasdSettings } from "./RasdSettings";
 import { RasdQueue } from "../services/rasdService";
 import { Badge, Btn, IC, Modal, Pagination, Select, Table } from "../ui/primitives";
-import { queueEvent } from "../lib/offlineAPI";
+import { queueEvent, replaceProductAltBarcodes } from "../lib/offlineAPI";
 import { getDeviceId } from "../lib/deviceID";
 import { printHTML } from "../lib/printHelper";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
@@ -136,7 +136,7 @@ function ProductSearchPicker({ products, onSelect, placeholder = "دوّر با�
                             onMouseDown={() => { onSelect(p); setText(""); setResults([]); setOpen(false); }}
                             style={{ padding: "6px 8px", fontSize: 11, cursor: "pointer", borderBottom: `1px solid ${COLORS.border}` }}
                         >
-                            {p.name_ar || p.name} {p.barcode ? `(${p.barcode})` : ""}
+                            {p.name} {p.barcode ? `(${p.barcode})` : ""}
                         </div>
                     ))}
                 </div>
@@ -174,6 +174,91 @@ export function PurchaseModule({
     const [highlightedPurchIdx, setHighlightedPurchIdx] = useState(-1);
     const [showProductCard, setShowProductCard] = useState(null);
     const searchRef = useRef(null);
+
+    // ── باركود اتقرا بس مش متطابق مع أي صنف عندنا (زي نفس الخاصية في نقطة البيع) —
+    // بدل ما نرفض الباركود بس، بنسيب المستخدم يربط الكود الجديد بالصنف الصح يدويًا،
+    // والنظام يحدّث باركود الصنف تلقائيًا عشان المرات الجاية.
+    const [unmatchedScanPurch, setUnmatchedScanPurch] = useState(null); // { gtin, batch, expiry, source: "new" | "edit" }
+    const [unmatchedLinkSearchPurch, setUnmatchedLinkSearchPurch] = useState("");
+
+    // ربط باركود جديد (اتقرا بالسكانر ومتلقاش صنف) بصنف موجود عندنا — للحالة اللي الشركة غيّرت الـ GTIN
+    // 🛠️ بيتضاف كباركود للصنف مش بيستبدل باركوده — لو عنده باركود أساسي بالفعل (يعني لسه فيه رصيد
+    // فعلي بالباركود القديم)، الجديد بيتسجل كـ"باركود بديل" جنبه. لو مالوش باركود أساسي، بيتسجل كأساسي.
+    const linkUnmatchedBarcodeToProductPurch = async (product) => {
+        const scan = unmatchedScanPurch;
+        if (!scan?.gtin) return;
+        const newGtin = scan.gtin;
+        const alreadyLinked = product.barcode === newGtin || (product.altBarcodes || []).includes(newGtin);
+        const hadNoBarcode = !product.barcode;
+        let updatedProduct = product;
+
+        if (!alreadyLinked) {
+            if (hadNoBarcode) {
+                updatedProduct = { ...product, barcode: newGtin };
+                setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
+                const fieldResult = await queueEvent({
+                    id: crypto.randomUUID(),
+                    type: "PRODUCT_FIELD_UPDATE",
+                    timestamp: new Date().toISOString(),
+                    pharmacy_id: pharmacyId,
+                    payload: { id: product.id, pharmacy_id: pharmacyId, updates: { barcode: newGtin } },
+                });
+                if (!fieldResult.synced) {
+                    showToast("📴 تم حفظ الباركود محليًا - هيتزامن لما النت يرجع", "warning");
+                }
+            } else {
+                const updatedAlts = [...(product.altBarcodes || []), newGtin];
+                updatedProduct = { ...product, altBarcodes: updatedAlts };
+                setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
+                const altResult = await replaceProductAltBarcodes(product.id, pharmacyId, updatedAlts);
+                if (!altResult.synced) {
+                    showToast("📴 تم حفظ الباركود البديل محليًا - هيتزامن لما النت يرجع", "warning");
+                }
+            }
+        }
+
+        const barcodeRow = (scan.batch || scan.expiry)
+            ? {
+                product_id: product.id, pharmacy_id: pharmacyId,
+                base_barcode: newGtin,
+                batch_number: scan.batch || null,
+                expiry_date: scan.expiry || null,
+            }
+            : null;
+        if (barcodeRow) {
+            const linkResult = await queueEvent({
+                id: crypto.randomUUID(),
+                type: "BARCODE_LINK",
+                timestamp: new Date().toISOString(),
+                pharmacy_id: pharmacyId,
+                payload: { barcodeRow },
+            });
+            if (!linkResult.synced) {
+                showToast("📴 تم حفظ بيانات التشغيلة محليًا - هيتزامن لما النت يرجع", "warning");
+            }
+        }
+
+        if (alreadyLinked) {
+            showToast(`الباركود ده متسجل بالفعل لصنف "${product.nameAr || product.name}"`);
+        } else if (hadNoBarcode) {
+            showToast(`✅ تم تسجيل باركود "${product.nameAr || product.name}" (${newGtin})`, "success");
+        } else {
+            showToast(`✅ تم إضافة (${newGtin}) كباركود بديل لصنف "${product.nameAr || product.name}" — الباركود القديم (${product.barcode}) لسه شغال`, "success");
+        }
+
+        setUnmatchedScanPurch(null);
+        setUnmatchedLinkSearchPurch("");
+        if (scan.source === "edit") {
+            addItemToEdit(updatedProduct, scan.expiry || "", scan.batch || "");
+        } else {
+            const existSameDate = items.find((i) => i.id === updatedProduct.id && (i.expiry_date || "") === (scan.expiry || ""));
+            if (existSameDate || !scan.expiry) {
+                addItem(updatedProduct, scan.expiry || "", scan.batch || "");
+            } else {
+                addItemAsNew(updatedProduct, scan.expiry || "", scan.batch || "");
+            }
+        }
+    };
     // ملحوظة: items/selSupplier/manualSubtotal/manualTax/showNew بقوا جايين من App (props)
     // بدل ما يكونوا state محلي هنا، عشان يفضلوا موجودين حتى لو الكومبوننت اتقفل وفتح تاني (تغيير تاب).
     const clearPurchaseDraft = () => {
@@ -234,6 +319,25 @@ export function PurchaseModule({
     };
 
     const groupedRowKeySet = new Set(invoiceGroups.flatMap((g) => g.rowKeys));
+
+    // 🆕 ترتيب جدول الأصناف بقى قابل للتحكم من الواجهة، مش هاردكودد:
+    // "حسب الإدخال" = ترتيب الإضافة الطبيعي (زي ما كان قبل كده)
+    // "أبجدي" = بالاسم الإنجليزي الأصلي للمنتج (product.name، مش الاسم المعروض اللي ممكن يكون
+    // عربي)، عشان يتطابق مع ترتيب فاتورة المورد الورقية اللي دايمًا إنجليزي أبجدي — مع اتجاه
+    // تصاعدي/تنازلي قابل للتبديل. نفس الأزرار دي بتتحكم في جدول الفاتورة الجديدة وجدول التعديل معًا.
+    const [itemSortMode, setItemSortMode] = useState("insertion"); // "insertion" | "alpha"
+    const [itemSortDir, setItemSortDir] = useState("asc"); // "asc" | "desc"
+
+    const englishNameOf = (item) => {
+        const product = products.find((p) => p.id === item.id);
+        return (product?.name || item.name || "").toLowerCase();
+    };
+    const applyItemSort = (list) => {
+        if (itemSortMode !== "alpha") return list;
+        const sorted = [...list].sort((a, b) => englishNameOf(a).localeCompare(englishNameOf(b)));
+        return itemSortDir === "desc" ? sorted.reverse() : sorted;
+    };
+    const sortedItems = applyItemSort(items);
     const ungroupedCount = items.filter((i) => !groupedRowKeySet.has(i._rowKey)).length;
 
     const toggleSplitMode = () => {
@@ -313,7 +417,7 @@ export function PurchaseModule({
             ...prev,
             {
                 id: product.id,
-                name: product.name_ar || product.name,
+                name: product.name,
                 qty: 1,
                 bonusQty: 0,
                 discount1: 0,
@@ -837,7 +941,7 @@ export function PurchaseModule({
 
     const findBestProductMatches = (name, topN = 3) =>
         products
-            .map((p) => ({ product: p, score: diceCoefficient(name, p.name_ar || p.name || "") }))
+            .map((p) => ({ product: p, score: diceCoefficient(name, p.name || "") }))
             .filter((s) => s.score >= 0.25)
             .sort((a, b) => b.score - a.score)
             .slice(0, topN);
@@ -1003,7 +1107,7 @@ export function PurchaseModule({
             matchedCount: prev.matchedCount + 1,
             needsReview: prev.needsReview.filter((_, i2) => i2 !== idx),
         }));
-        showToast(`اترابط الصنف "${product.name_ar || product.name}" وأتضاف للفاتورة ✓`);
+        showToast(`اترابط الصنف "${product.name}" وأتضاف للفاتورة ✓`);
     };
 
     const toggleReviewSaveCode = (idx) => {
@@ -1075,32 +1179,39 @@ export function PurchaseModule({
         return null;
     };
 
-    const handleRasdExcelFile = async (file) => {
-        if (!file) return;
+    // 🆕 بتقبل كذا ملف رصد مختارين مرة واحدة (أو ملف واحد، ولو المستخدم بيرفعهم ملف ملف بيتراكموا
+    // برضه لأن النتيجة بقت تتجمّع مع أي نتيجة سابقة بدل ما تتمسح — راجع setRasdImportResult تحت)
+    const handleRasdExcelFiles = async (fileList) => {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
         setRasdImportBusy(true);
-        setRasdImportResult(null);
         try {
-            const buf = await file.arrayBuffer();
-            const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: true });
-            const sheet = wb.Sheets[wb.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+            let combinedRows = [];
+            for (const file of files) {
+                const buf = await file.arrayBuffer();
+                const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: true });
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+                if (!rows.length) continue; // ملف فاضي — يتخطى من غير ما يوقف باقي الملفات
+                combinedRows = combinedRows.concat(rows);
+            }
 
-            if (!rows.length) {
-                showToast("الملف فارغ أو مفيش صفوف بيانات فيه", "error");
-                setRasdImportBusy(false);
+            if (!combinedRows.length) {
+                showToast("الملفات فاضية أو مفيش صفوف بيانات فيها", "error");
                 return;
             }
 
             // ترتيب أولوية العناوين: الصياغة الحقيقية اللي بتنزل من رصد الأول، وبعدين بدائل عامة
-            const colGtin = findRasdColumn(rows[0], ["رقم بند التجارة العالمي", "بند التجارة العالمي", "gtin", "barcode", "الباركود"]);
-            const colBatch = findRasdColumn(rows[0], ["رقم الدفعة", "رقم التشغيلة", "batch", "bn"]);
-            let colExpiry = findRasdColumn(rows[0], ["تاريخ الإنتهاء", "تاريخ الانتهاء", "تاريخ انتهاء الصلاحية", "تاريخ الصلاحية", "expiry", "xd"]);
-            const colQty = findRasdColumn(rows[0], ["الكمية المستلمة", "الكمية", "quantity", "qty"]);
+            // (بتتكشف على أول صف من كل الملفات مجمّعة، لأنها من نفس المصدر فعادةً نفس شكل الأعمدة)
+            const colGtin = findRasdColumn(combinedRows[0], ["رقم بند التجارة العالمي", "بند التجارة العالمي", "gtin", "barcode", "الباركود"]);
+            const colBatch = findRasdColumn(combinedRows[0], ["رقم الدفعة", "رقم التشغيلة", "batch", "bn"]);
+            let colExpiry = findRasdColumn(combinedRows[0], ["تاريخ الإنتهاء", "تاريخ الانتهاء", "تاريخ انتهاء الصلاحية", "تاريخ الصلاحية", "expiry", "xd"]);
+            const colQty = findRasdColumn(combinedRows[0], ["الكمية المستلمة", "الكمية", "quantity", "qty"]);
 
             // ✅ Fallback: لو اسم عمود الصلاحية مطابقش رغم توحيد الهمزة، جرب العمود اللي بعد
             // "رقم الدفعة" مباشرة (ترتيب أعمدة ملفات رصد ثابت عادة: GTIN → الكمية → رقم الدفعة → تاريخ الانتهاء)
             if (!colExpiry && colBatch) {
-                const headerKeys = Object.keys(rows[0]);
+                const headerKeys = Object.keys(combinedRows[0]);
                 const batchIdx = headerKeys.indexOf(colBatch);
                 if (batchIdx !== -1 && headerKeys[batchIdx + 1]) {
                     colExpiry = headerKeys[batchIdx + 1];
@@ -1108,14 +1219,13 @@ export function PurchaseModule({
             }
 
             if (!colGtin) {
-                showToast("مقدرتش ألاقي عمود الـ GTIN في الملف — تأكد إن أول صف هو صف العناوين", "error");
-                setRasdImportBusy(false);
+                showToast("مقدرتش ألاقي عمود الـ GTIN في الملفات — تأكد إن أول صف هو صف العناوين", "error");
                 return;
             }
 
             // تجميع الصفوف حسب (GTIN + BN + XD) — لو الملف فيه سطر لكل وحدة سيريال، بيتحسبوا مع بعض كـ qty
             const grouped = new Map();
-            for (const row of rows) {
+            for (const row of combinedRows) {
                 const gtinRaw = row[colGtin];
                 if (gtinRaw === "" || gtinRaw == null) continue;
                 const gtin = normalizeExcelGtin(gtinRaw);
@@ -1145,14 +1255,20 @@ export function PurchaseModule({
                 matchedCount++;
             }
 
-            setRasdImportResult({ matchedCount, unmatched });
+            // 🆕 نجمع مع أي نتيجة سابقة (من ملف/ملفات رصد سابقة في نفس الفاتورة) بدل ما نمسحها —
+            // ده اللي بيخلي "قائمة الأصناف الغير مطابقة" تفضل قائمة واحدة تراكمية حتى لو بترفع
+            // ملفات رصد واحد واحد بدل ما تختارهم كلهم مرة واحدة من نافذة اختيار الملفات
+            setRasdImportResult((prev) => ({
+                matchedCount: (prev?.matchedCount || 0) + matchedCount,
+                unmatched: [...(prev?.unmatched || []), ...unmatched],
+            }));
             if (matchedCount > 0) {
-                showToast(`تم استيراد ${matchedCount} صنف من ملف رصد ✓${unmatched.length ? ` (${unmatched.length} صنف مش موجود عندنا)` : ""}`);
+                showToast(`تم استيراد ${matchedCount} صنف من رصد ✓${unmatched.length ? ` (${unmatched.length} صنف مش موجود عندنا)` : ""}`);
             } else {
-                showToast("مفيش أي صنف من الملف اتطابق مع أصنافنا بالـ GTIN", "error");
+                showToast("مفيش أي صنف من الملفات اتطابق مع أصنافنا بالـ GTIN", "error");
             }
         } catch (e) {
-            showToast("تعذّرت قراءة الملف: " + (e?.message || e), "error");
+            showToast("تعذّرت قراءة الملفات: " + (e?.message || e), "error");
         } finally {
             setRasdImportBusy(false);
             if (rasdExcelInputRef.current) rasdExcelInputRef.current.value = "";
@@ -1955,9 +2071,15 @@ for (const ci of standaloneOfferItems) {
                             const found = products.find((x) =>
                                 scan.type === "gs1"
                                     ? normGtin(x.barcode) === normGtin(code) || normGtin(x.gtin) === normGtin(code)
-                                    : x.barcode === code || x.id === code
+                                        || (x.altBarcodes || []).some((b) => normGtin(b) === normGtin(code)) // 🆕 باركود بديل
+                                    : x.barcode === code || x.id === code || (x.altBarcodes || []).includes(code) // 🆕
                             );
-                            if (!found) { showToast("الصنف غير موجود: " + code, "error"); return; }
+                            if (!found) {
+                                // ── الباركود مش متطابق مع أي صنف — نديله فرصة يتربط بصنف موجود بدل الرفض بس ──
+                                setUnmatchedScanPurch({ gtin: code, batch, expiry, source: "new" });
+                                setUnmatchedLinkSearchPurch("");
+                                return;
+                            }
                             // إذا كان نفس الصنف موجود بتاريخ مختلف → أضف كصف جديد
                             const existSameDate = items.find((i) => i.id === found.id && (i.expiry_date || "") === expiry);
                             if (existSameDate || !expiry) {
@@ -1977,8 +2099,9 @@ for (const ci of standaloneOfferItems) {
                         ref={rasdExcelInputRef}
                         type="file"
                         accept=".xlsx,.xls,.csv"
+                        multiple
                         style={{ display: "none" }}
-                        onChange={(e) => handleRasdExcelFile(e.target.files?.[0])}
+                        onChange={(e) => handleRasdExcelFiles(e.target.files)}
                     />
                     <Btn
                         icon="upload"
@@ -2087,7 +2210,7 @@ for (const ci of standaloneOfferItems) {
                                                             color: COLORS.green, cursor: "pointer",
                                                         }}
                                                     >
-                                                        ✅ {s.product.name_ar || s.product.name} ({Math.round(s.score * 100)}%)
+                                                        ✅ {s.product.name} ({Math.round(s.score * 100)}%)
                                                     </button>
                                                 ))}
                                             </div>
@@ -2219,7 +2342,7 @@ for (const ci of standaloneOfferItems) {
                                         >
                                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: stockColor, flexShrink: 0, display: "inline-block" }} />
-                                                <span style={{ fontSize: 13, fontWeight: 600, color: "#1a3a2a" }}>{p.name_ar || p.name}</span>
+                                                <span style={{ fontSize: 13, fontWeight: 600, color: "#1a3a2a" }}>{p.name}</span>
                                             </div>
                                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                                 <span style={{ color: "#2a4a3a", fontSize: 12 }}>
@@ -2251,6 +2374,40 @@ for (const ci of standaloneOfferItems) {
                         >
                             {splitMode ? "إلغاء تقسيم الفواتير" : "تقسيم لفواتير المورد"}
                         </Btn>
+                    )}
+                    {/* 🆕 التحكم في ترتيب عرض جدول الأصناف — حسب الإدخال أو أبجدي (إنجليزي) مع اتجاهه */}
+                    {items.length > 1 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Btn
+                                icon="check"
+                                variant="secondary"
+                                onClick={() => setItemSortMode("insertion")}
+                                style={itemSortMode === "insertion" ? { borderColor: COLORS.gold, color: COLORS.gold } : undefined}
+                            >
+                                حسب الإدخال
+                            </Btn>
+                            <Btn
+                                icon="check"
+                                variant="secondary"
+                                onClick={() => setItemSortMode("alpha")}
+                                style={itemSortMode === "alpha" ? { borderColor: COLORS.gold, color: COLORS.gold } : undefined}
+                            >
+                                أبجدي
+                            </Btn>
+                            {itemSortMode === "alpha" && (
+                                <button
+                                    onClick={() => setItemSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                                    title={itemSortDir === "asc" ? "تصاعدي (A→Z) — اضغط للتنازلي" : "تنازلي (Z→A) — اضغط للتصاعدي"}
+                                    style={{
+                                        background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                        borderRadius: 6, padding: "6px 10px", cursor: "pointer",
+                                        fontSize: 12, color: COLORS.textPrimary,
+                                    }}
+                                >
+                                    {itemSortDir === "asc" ? "A→Z" : "Z→A"}
+                                </button>
+                            )}
+                        </div>
                     )}
                 </div>
 
@@ -2348,20 +2505,20 @@ for (const ci of standaloneOfferItems) {
                             </tr>
                         </thead>
                         <tbody>
-                            {items.map((item, rowIndex) => (
+                            {sortedItems.map((item, rowIndex) => (
                                 <tr key={item._rowKey || item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
                                    <td style={{ padding: "6px 8px", fontSize: 12, color: COLORS.textDim, textAlign: "center" }}>
                                        {rowIndex + 1}
                                    </td>
                                    <td style={{ padding: "6px 8px", fontSize: 13, color: COLORS.textPrimary, minWidth: 120 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        {item.name_ar || item.name}
+        {item.name}
         <button onClick={() => setShowProductCard(item)} title="عرض بيانات الصنف"
             style={{ background: "transparent", border: "none", color: COLORS.blue, cursor: "pointer", padding: 2, lineHeight: 1 }}>
             <IC n="eye" s={13} />
         </button>
     </div>
-    {detectSupplierOfferPattern(item.name_ar || item.name).isOffer && (
+    {detectSupplierOfferPattern(item.name).isOffer && (
         <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 11, color: COLORS.gold, cursor: "pointer" }}>
             <input type="checkbox" checked={!!item.standaloneOffer}
                 onChange={(e) => updateItem(item.id, "standaloneOffer", e.target.checked)} />
@@ -3010,9 +3167,15 @@ for (const ci of standaloneOfferItems) {
                                 const found = products.find((x) =>
                                     scan.type === "gs1"
                                         ? normGtin(x.barcode) === normGtin(code) || normGtin(x.gtin) === normGtin(code)
-                                        : x.barcode === code || x.id === code
+                                            || (x.altBarcodes || []).some((b) => normGtin(b) === normGtin(code)) // 🆕 باركود بديل
+                                        : x.barcode === code || x.id === code || (x.altBarcodes || []).includes(code) // 🆕
                                 );
-                                if (!found) { showToast("الصنف غير موجود: " + code, "error"); return; }
+                                if (!found) {
+                                    // ── الباركود مش متطابق مع أي صنف — نديله فرصة يتربط بصنف موجود بدل الرفض بس ──
+                                    setUnmatchedScanPurch({ gtin: code, batch, expiry, source: "edit" });
+                                    setUnmatchedLinkSearchPurch("");
+                                    return;
+                                }
                                 addItemToEdit(found, expiry, batch);
                             }}
                             placeholder="امسح باركود الصنف لإضافته للفاتورة..."
@@ -3063,6 +3226,40 @@ for (const ci of standaloneOfferItems) {
                             </div>
                         )}
                     </div>
+                    {editItems.length > 1 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, color: COLORS.textDim }}>ترتيب الأصناف:</span>
+                            <Btn
+                                icon="check"
+                                variant="secondary"
+                                onClick={() => setItemSortMode("insertion")}
+                                style={itemSortMode === "insertion" ? { borderColor: COLORS.gold, color: COLORS.gold } : undefined}
+                            >
+                                حسب الإدخال
+                            </Btn>
+                            <Btn
+                                icon="check"
+                                variant="secondary"
+                                onClick={() => setItemSortMode("alpha")}
+                                style={itemSortMode === "alpha" ? { borderColor: COLORS.gold, color: COLORS.gold } : undefined}
+                            >
+                                أبجدي
+                            </Btn>
+                            {itemSortMode === "alpha" && (
+                                <button
+                                    onClick={() => setItemSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                                    title={itemSortDir === "asc" ? "تصاعدي (A→Z) — اضغط للتنازلي" : "تنازلي (Z→A) — اضغط للتصاعدي"}
+                                    style={{
+                                        background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                        borderRadius: 6, padding: "6px 10px", cursor: "pointer",
+                                        fontSize: 12, color: COLORS.textPrimary,
+                                    }}
+                                >
+                                    {itemSortDir === "asc" ? "A→Z" : "Z→A"}
+                                </button>
+                            )}
+                        </div>
+                    )}
                     <div style={{ overflowX: "auto" }}>
                         <table
                             style={{
@@ -3102,7 +3299,7 @@ for (const ci of standaloneOfferItems) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {editItems.map((item, rowIndex) => (
+                                {applyItemSort(editItems).map((item, rowIndex) => (
                                     <tr
                                         key={item.id}
                                         style={{ borderBottom: `1px solid ${COLORS.border}` }}
@@ -3765,6 +3962,54 @@ for (const ci of standaloneOfferItems) {
                     </div>
                 </Modal>
             )}
+
+            {/* ── باركود اتقرا ومتلقاش صنف مطابق — الأرجح إن الشركة غيّرت الـ GTIN. نسيب المستخدم يربطه بصنف موجود ── */}
+            <Modal
+                open={!!unmatchedScanPurch}
+                onClose={() => { setUnmatchedScanPurch(null); setUnmatchedLinkSearchPurch(""); }}
+                title="⚠️ باركود غير معروف"
+            >
+                {unmatchedScanPurch && (
+                    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+                        <div style={{ color: COLORS.textDim, fontSize: 13, lineHeight: 1.7 }}>
+                            الباركود <span style={{ color: COLORS.gold, fontWeight: 700 }}>{unmatchedScanPurch.gtin}</span> مش متسجل لأي صنف عندك — يمكن الشركة المنتجة غيّرت الـ GTIN.
+                            لو الصنف ده موجود عندك بباركود قديم، دوّر عليه واختاره تحت وهيتحدث باركوده تلقائيًا لهذا الكود الجديد.
+                        </div>
+                        <input
+                            autoFocus
+                            value={unmatchedLinkSearchPurch}
+                            onChange={(e) => setUnmatchedLinkSearchPurch(e.target.value)}
+                            placeholder="🔍 دوّر باسم الصنف اللي عايز تربطه بالباركود ده..."
+                            style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                        />
+                        {unmatchedLinkSearchPurch.trim() && (
+                            <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                                {products
+                                    .filter((p) => !p.is_disabled && ((p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearchPurch.trim().toLowerCase()) || (p.nameEn || "").toLowerCase().includes(unmatchedLinkSearchPurch.trim().toLowerCase())))
+                                    .slice(0, 20)
+                                    .map((p) => (
+                                        <div
+                                            key={p.id}
+                                            onClick={() => linkUnmatchedBarcodeToProductPurch(p)}
+                                            style={{ padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, fontSize: 13, color: COLORS.textPrimary, display: "flex", justifyContent: "space-between" }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = COLORS.surfaceAlt; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                                        >
+                                            <span>{p.nameAr || p.name}</span>
+                                            <span style={{ color: COLORS.textDim, fontSize: 11 }}>الباركود الحالي: {p.barcode || "—"}</span>
+                                        </div>
+                                    ))}
+                                {products.filter((p) => (p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearchPurch.trim().toLowerCase())).length === 0 && (
+                                    <div style={{ padding: 14, fontSize: 12.5, color: COLORS.textDim, textAlign: "center" }}>مفيش نتائج مطابقة</div>
+                                )}
+                            </div>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                            <Btn variant="ghost" onClick={() => { setUnmatchedScanPurch(null); setUnmatchedLinkSearchPurch(""); }}>إلغاء</Btn>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 }

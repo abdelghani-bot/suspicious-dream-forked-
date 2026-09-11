@@ -83,10 +83,12 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             break;
         }
         case "BARCODE_LINK": {
-            const { productId, pharmacyId, newGtin, barcodeRow } = event.payload;
-            const { error: updateError } = await supabase.from("products")
-                .update({ barcode: newGtin }).eq("id", productId).eq("pharmacy_id", pharmacyId);
-            if (updateError) throw updateError;
+            // 🛠️ ماعادش بيعدّل products.barcode (الباركود الأساسي) — كان ده بيمسح الباركود
+            // القديم رغم إن نفس الصنف لسه موجود فعليًا بالباركود القديم على الرف. تسجيل الباركود
+            // الجديد نفسه (أساسي لو الصنف مالوش باركود، أو بديل لو عنده) بقى بيحصل عبر
+            // PRODUCT_FIELD_UPDATE أو PRODUCT_ALT_BARCODES_REPLACE من الشاشة اللي بتربط الباركود.
+            // الحدث ده بقى غرضه بس تسجيل التشغيلة/الصلاحية/السيريال المرتبطين بالباركود الجديد.
+            const { barcodeRow } = event.payload;
             if (barcodeRow) {
                 const { error: insertError } = await supabase.from("product_barcodes").insert(barcodeRow);
                 if (insertError) throw insertError;
