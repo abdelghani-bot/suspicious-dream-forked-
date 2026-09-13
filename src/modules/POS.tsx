@@ -1189,6 +1189,8 @@ export function POS({
                     newFifoResults[i.lineId]?.soldBatches?.[0]?.expiry_date ||
                     null,
                 category: i.main_category || i.mainCategory || i.category || "أخرى",
+                // 🆕 فئة التوريد — مطلوبة لحساب نقاط الولاء لكل فئة على حدة (مش لازم تتطابق مع main_category)
+                supply_category: i.supply_category || null,
                 excluded_from_points: isPromoLine(i) || !!i.isJoker || !!i.isMissed || !!i.fromZeroStockDraft,
             })),
             subtotal,
@@ -1366,16 +1368,32 @@ export function POS({
 
             if (ls) {
                 const perRiyalEarn = ls.points_per_riyal || 1; // 🆕 كام نقطة لكل ريال مكتسب
-                let pointsInRiyal = 0;
                 const eligibleItems = invoice.items.filter((it) => !it.excluded_from_points);
-                if (ls.mode === "profit") {
-                    const profit = eligibleItems.reduce((sum, it) => {
-                        return sum + (it.price - (it.cost || 0)) * (it.qty || 0);
-                    }, 0) - (invoice.discount_amt || 0);
-                    pointsInRiyal = Math.max(0, profit * (ls.profit_rate / 100));
-                } else {
-                    pointsInRiyal = (pointsEligibleSubtotal / ls.sales_per) * ls.sales_rate;
-                }
+
+                // 🆕 حساب النقاط لكل فئة توريد على حدة — كل فئة تقدر يبقى ليها معدل نقاط مستقل
+                // (ls.category_rates[cat].rate)، وإلا بترجع تلقائيًا للمعدل العام (profit_rate/sales_rate).
+                const byCategory: Record<string, typeof eligibleItems> = {};
+                eligibleItems.forEach((it) => {
+                    const cat = it.supply_category || "غير مصنّف";
+                    (byCategory[cat] ||= []).push(it);
+                });
+                const eligibleSubtotal = eligibleItems.reduce((s, it) => s + it.price * it.qty, 0);
+
+                let pointsInRiyal = 0;
+                Object.entries(byCategory).forEach(([cat, items]) => {
+                    const rate = ls.category_rates?.[cat]?.rate ?? (ls.mode === "profit" ? ls.profit_rate : ls.sales_rate);
+                    const catSubtotal = items.reduce((s, it) => s + it.price * it.qty, 0);
+                    // خصم الفاتورة (لو موجود) بيتوزع على الفئات بنسبة وزن كل فئة من إجمالي الأصناف المؤهلة
+                    const catShareOfDiscount = eligibleSubtotal > 0
+                        ? (catSubtotal / eligibleSubtotal) * (invoice.discount_amt || 0)
+                        : 0;
+                    if (ls.mode === "profit") {
+                        const catProfit = items.reduce((s, it) => s + (it.price - (it.cost || 0)) * (it.qty || 0), 0) - catShareOfDiscount;
+                        pointsInRiyal += Math.max(0, catProfit * (rate / 100));
+                    } else {
+                        pointsInRiyal += (catSubtotal / (ls.sales_per || 100)) * rate;
+                    }
+                });
                 // 🆕 قيمة النقاط الفعلية اللي بتتحفظ لرصيد العميل = القيمة بالريال × معامل التحويل
                 const points = pointsInRiyal * perRiyalEarn;
                 if (points > 0) {

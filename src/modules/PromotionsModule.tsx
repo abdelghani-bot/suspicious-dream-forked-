@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
 import {
     savePromotions, updatePromotion, deletePromotion,
-    replacePromoRules, logPromoPrint, savePromoSettings,
+    replacePromoRules, logPromoPrint, savePromoSettings, saveProduct,
 } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { todayLocal } from "../lib/dateUtils";
@@ -122,6 +122,7 @@ export function PromotionsModule({
     canAdd = true, canEdit = true, canDelete = true,
 }) {
     const [activeTab, setActiveTab] = useState("auto"); // auto | manual
+    useEffect(() => { setPrintPage(1); setElasticityPage(1); }, [activeTab]);
     const [showPromoForm, setShowPromoForm] = useState(false);
     const [editPromoId, setEditPromoId] = useState(null);
     const [showRulesEditor, setShowRulesEditor] = useState(false);
@@ -161,11 +162,33 @@ export function PromotionsModule({
 
     // ── سجل الطباعة — عشان تقدر تعيد طباعة أي عرض (تلقائي أو يدوي) لاحقًا ──
     const [printHistory, setPrintHistory] = useState<any[]>([]);
+    // 🆕 باجينيشن لسجل الطباعة وتاب أداء العروض (client-side)
+    const PAGE_SIZE = 10;
+    const [printPage, setPrintPage] = useState(1);
+    const [elasticityPage, setElasticityPage] = useState(1);
     const [labelPreview, setLabelPreview] = useState<{ items: any[]; offerName?: string; columns: number } | null>(null);
     const [autoOfferName, setAutoOfferName] = useState(""); // اسم/مناسبة العرض التلقائي قبل الطباعة
     const [selectedAutoIds, setSelectedAutoIds] = useState<string[]>([]); // الأصناف المختارة من التلقائي للطباعة
 
     const today = todayLocal();
+
+    // 🆕 عنصر باجينيشن بسيط بيتشارك بين سجل الطباعة وتاب أداء العروض
+    const renderPager = (page: number, setPage: (n: number) => void, totalPages: number) => {
+        if (totalPages <= 1) return null;
+        return (
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 14 }}>
+                <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1}
+                    style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "5px 12px", color: page <= 1 ? COLORS.textDim : COLORS.textPrimary, fontSize: 12, cursor: page <= 1 ? "default" : "pointer", opacity: page <= 1 ? 0.5 : 1 }}>
+                    ‹ السابق
+                </button>
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>صفحة {page} من {totalPages}</span>
+                <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
+                    style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "5px 12px", color: page >= totalPages ? COLORS.textDim : COLORS.textPrimary, fontSize: 12, cursor: page >= totalPages ? "default" : "pointer", opacity: page >= totalPages ? 0.5 : 1 }}>
+                    التالي ›
+                </button>
+            </div>
+        );
+    };
 
     // ── دالة حفظ autoPromoConfig في Supabase ──
     const saveAutoConfig = async (newConfig) => {
@@ -462,7 +485,12 @@ const productFirstStocked = useMemo(() => {
                 const qty = +item.qty || 0;
                 if (bonusQty <= 0 || !item.id) return;
                 const product = products.find((p) => p.id === item.id);
-                if (!product || seenProductIds.has(product.id) || hasActivePromoFor(product.id)) return;
+                if (!product) return;
+                // 🆕 الأدوية مسعّرة رسميًا (SFDA) فمينفعش يتعمل عليها عرض للعميل أصلاً — أي بونص عليها
+                // دايمًا خصم زيادة على التكلفة، فمنقترحهاش كعرض من الأساس (فلتر تلقائي، مش محتاج تدخل يدوي)
+                const isMedicine = (product.main_category || product.category) === "دواء";
+                // 🆕 ولباقي الفئات (زي مستلزمات طبية) لسه سايبين الوسم اليدوي "خصم زيادة، مش عرض"
+                if (seenProductIds.has(product.id) || hasActivePromoFor(product.id) || isMedicine || product.bonus_treated_as_discount) return;
                 seenProductIds.add(product.id);
                 list.push({ key: "bonus_" + product.id, product, source: "bonus", confidence: "high", buyQty: qty, getQty: bonusQty });
             });
@@ -500,9 +528,16 @@ products.forEach((p) => {
     const setSuggestionEdit = (key, patch) =>
         setSuggestionEdits((prev) => ({ ...prev, [key]: { ...getSuggestionEdit({ key, buyQty: "", getQty: "" }), ...prev[key], ...patch } }));
 
-    const [dismissedSuggestions, setDismissedSuggestions] = useState(() => {
-        try { return JSON.parse(localStorage.getItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`) || "[]"); } catch { return []; }
-    });
+    const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>([]);
+    // 🛠️ الفيكس: القراءة كانت بتحصل جوه useState initializer وقت الـ mount مباشرة، وده ممكن يحصل
+    // قبل ما pharmacyId يوصل فعليًا (زي باقي الداتا في الملف ده) فتقرأ بمفتاح "..._undefined" وترجع فاضية.
+    // بننقلها لـ useEffect مربوط بـ pharmacyId، نفس النمط المستخدم مع سجل الطباعة والمصنّعين تحت.
+    useEffect(() => {
+        if (!pharmacyId) return;
+        try {
+            setDismissedSuggestions(JSON.parse(localStorage.getItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`) || "[]"));
+        } catch { setDismissedSuggestions([]); }
+    }, [pharmacyId]);
     const dismissSuggestion = (key) => {
         setDismissedSuggestions((prev) => {
             const next = [...prev, key];
@@ -511,6 +546,19 @@ products.forEach((p) => {
         });
     };
     const visibleSuggestions = supplierSuggestions.filter((s) => !dismissedSuggestions.includes(s.key));
+
+    // 🆕 وسم دائم على الصنف نفسه (متخزن في قاعدة البيانات مش localStorage): البونص ده خصم زيادة على
+    // التكلفة (بيجي علب زيادة) مش عرض هيتحط للعميل — عكس "تجاهل" اللي هو إخفاء مؤقت بس لهذا الاقتراح
+    const markBonusAsDiscount = async (s) => {
+        try {
+            await saveProduct({ ...s.product, bonus_treated_as_discount: true }, pharmacyId, true);
+            setProducts((prev) => prev.map((p) => p.id === s.product.id ? { ...p, bonus_treated_as_discount: true } : p));
+            showToast("تم اعتباره خصم زيادة على الصنف، مش عرض للعميل ✓");
+        } catch (err) {
+            console.error("markBonusAsDiscount failed:", err);
+            showToast("حصل خطأ، حاول تاني", "error");
+        }
+    };
 
     // اعتماد اقتراح → عرض BOGO فعلي في جدول promotions
     const acceptSupplierSuggestion = async (s) => {
@@ -1144,7 +1192,14 @@ products.forEach((p) => {
                                             {s.confidence === "high" ? "✓ ثقة عالية" : s.confidence === "medium" ? "تحقق قبل الاعتماد" : "محتاج تدخل يدوي"}
                                         </span>
                                     </div>
-                                    <span onClick={() => dismissSuggestion(s.key)} style={{ cursor: "pointer", color: COLORS.textDim, fontSize: 12 }}>تجاهل ✕</span>
+                                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                                        {s.source === "bonus" && (
+                                            <span onClick={() => markBonusAsDiscount(s)} style={{ cursor: "pointer", color: COLORS.textDim, fontSize: 12, textDecoration: "underline dotted" }} title="مش هيتحط للعميل — ده خصم زيادة على تكلفة الصنف بس">
+                                                خصم زيادة، مش عرض
+                                            </span>
+                                        )}
+                                        <span onClick={() => dismissSuggestion(s.key)} style={{ cursor: "pointer", color: COLORS.textDim, fontSize: 12 }}>تجاهل ✕</span>
+                                    </div>
                                 </div>
 
                                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -1416,20 +1471,27 @@ products.forEach((p) => {
                     </div>
                     {Object.keys(productElasticity).length === 0 ? (
                         <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>لسه مفيش عروض قديمة خلصت نقيس عليها الاستجابة</div>
-                    ) : (
-                        <Table
-                            headers={["المنتج", "معامل الاستجابة", "التصنيف", "عدد العروض المُقاسة"]}
-                            rows={Object.entries(productElasticity)
-                                .map(([pid, el]) => ({ pid, el, prod: products.find((p) => p.id === pid) }))
-                                .sort((a, b) => b.el.avgRatio - a.el.avgRatio)
-                                .map(({ pid, el, prod }) => [
-                                    prod?.name || prod?.name_ar || pid,
-                                    `×${el.avgRatio.toFixed(1)}`,
-                                    <Badge key="l" color={(el.label === "يستجيب جيدًا" ? COLORS.green : el.label === "استجابة متوسطة" ? COLORS.gold : COLORS.red) + "22"} text={el.label === "يستجيب جيدًا" ? COLORS.green : el.label === "استجابة متوسطة" ? COLORS.gold : COLORS.red}>{el.label}</Badge>,
-                                    el.sampleCount,
-                                ])}
-                        />
-                    )}
+                    ) : (() => {
+                        const elasticitySorted = Object.entries(productElasticity)
+                            .map(([pid, el]) => ({ pid, el, prod: products.find((p) => p.id === pid) }))
+                            .sort((a, b) => b.el.avgRatio - a.el.avgRatio);
+                        const elasticityTotalPages = Math.max(1, Math.ceil(elasticitySorted.length / PAGE_SIZE));
+                        const elasticityPageRows = elasticitySorted.slice((elasticityPage - 1) * PAGE_SIZE, elasticityPage * PAGE_SIZE);
+                        return (
+                            <>
+                                <Table
+                                    headers={["المنتج", "معامل الاستجابة", "التصنيف", "عدد العروض المُقاسة"]}
+                                    rows={elasticityPageRows.map(({ pid, el, prod }) => [
+                                        prod?.name || prod?.name_ar || pid,
+                                        `×${el.avgRatio.toFixed(1)}`,
+                                        <Badge key="l" color={(el.label === "يستجيب جيدًا" ? COLORS.green : el.label === "استجابة متوسطة" ? COLORS.gold : COLORS.red) + "22"} text={el.label === "يستجيب جيدًا" ? COLORS.green : el.label === "استجابة متوسطة" ? COLORS.gold : COLORS.red}>{el.label}</Badge>,
+                                        el.sampleCount,
+                                    ])}
+                                />
+                                {renderPager(elasticityPage, setElasticityPage, elasticityTotalPages)}
+                            </>
+                        );
+                    })()}
                     <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 10 }}>
                         منتج بعامل واحد بس مقاس عليه رقمه مش موثوق إحصائيًا لسه — كل ما جرّبت عروض أكتر عليه، كل ما الرقم يبقى أدق. المنتجات اللي ماعملهاش عرض قبل كده مش هتظهر هنا خالص.
                     </div>
@@ -1442,7 +1504,7 @@ products.forEach((p) => {
                     {printHistory.length === 0 ? (
                         <div style={{ color: COLORS.textDim, textAlign: "center", padding: 40 }}>لا يوجد عروض متطبوعة بعد</div>
                     ) : (
-                        printHistory.map((h) => (
+                        printHistory.slice((printPage - 1) * PAGE_SIZE, printPage * PAGE_SIZE).map((h) => (
                             <div key={h.id} style={cardStyle(h.is_auto ? COLORS.goldSoft : COLORS.greenSoft)}>
                                 <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                                     <div style={{ flex: "1 1 220px", minWidth: 0 }}>
@@ -1469,6 +1531,7 @@ products.forEach((p) => {
                             </div>
                         ))
                     )}
+                    {renderPager(printPage, setPrintPage, Math.max(1, Math.ceil(printHistory.length / PAGE_SIZE)))}
                 </div>
             )}
 

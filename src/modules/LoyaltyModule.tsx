@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { supabase } from "../lib/supabaseClient";
 import {
     earnLoyaltyPoints, redeemLoyaltyPoints, adjustLoyaltyPoints,
@@ -39,6 +39,7 @@ export function LoyaltyModule({
         min_redeem: 10,
         expiry_months: 12,
         points_per_riyal: 1, // 🆕 كام نقطة تساوي 1 ريال — 1 يعني نقطة=ريال زي ما كان قبل كده
+        category_rates: {}, // 🆕 معدلات مخصصة حسب فئة التوريد: { [supply_category]: { rate } } — فاضي يعني كله على المعدل العام
     });
     const [loyaltyMap, setLoyaltyMap] = useState<Record<string, any>>({});
     const [transactions, setTransactions] = useState<any[]>([]);
@@ -163,14 +164,60 @@ export function LoyaltyModule({
     };
 
     // ── حفظ الإعدادات ──
+    // 🆕 لو معدل التحويل (points_per_riyal) اتغيّر، لازم نعيد معايرة رصيد كل العملاء الحاليين
+    // بنفس النسبة، عشان قيمتهم بالريال تفضل زي ما هي (مش تتغير) — مش بس نحفظ المعدل الجديد
+    // ونسيب الأرصدة القديمة زي ما هي فتتغير قيمتها بالريال من غير ما العميل يصرف أو يكسب حاجة.
     const saveSettings = async () => {
+        const oldPerRiyal = loyaltySettings?.points_per_riyal || 1;
+        const newPerRiyal = settings.points_per_riyal || 1;
+        const hasExistingBalances = Object.keys(loyaltyMap).length > 0;
+        const rateChanged = oldPerRiyal !== newPerRiyal && hasExistingBalances;
+
+        if (rateChanged) {
+            if (!navigator.onLine) {
+                return showToast("لازم تكون متصل بالإنترنت عشان تغيّر معدل التحويل — العملية دي بتعيد معايرة كل أرصدة العملاء دفعة واحدة", "error");
+            }
+            const ok = window.confirm(
+                `تغيير المعدل من ${oldPerRiyal} إلى ${newPerRiyal} نقطة/ريال هيعيد معايرة رصيد كل العملاء تلقائيًا (مثلاً 150 نقطة هتبقى 1500 نقطة) عشان قيمتها بالريال تفضل ثابتة. متأكد عايز تكمل؟`
+            );
+            if (!ok) return;
+        }
+
         setSaving(true);
         const savedRow = { ...settings, pharmacy_id: pharmacyId, mode_changed_at: new Date().toISOString() };
         const { error } = await supabase.from("loyalty_settings").upsert(savedRow, { onConflict: "pharmacy_id" });
+        if (error) { setSaving(false); return showToast("خطأ في الحفظ", "error"); }
+
+        if (rateChanged) {
+            const factor = newPerRiyal / oldPerRiyal;
+            // 🆕 إعادة المعايرة بتتعمل في RPC واحدة (atomic) عشان منعملش loop تحديثات من الفرونت
+            // ومنتعارضش مع أي عملية كسب/صرف نقاط شغالة في نفس اللحظة
+            const { error: rescaleError } = await supabase.rpc("rescale_loyalty_points", {
+                p_pharmacy_id: pharmacyId,
+                p_factor: factor,
+            });
+            if (rescaleError) {
+                console.error("rescale_loyalty_points failed:", rescaleError);
+                setSaving(false);
+                showToast("تم حفظ المعدل، لكن حصل خطأ في إعادة معايرة الأرصدة — راجع الدعم الفني قبل ما تكمل", "error");
+                return;
+            }
+            // إعادة تحميل الأرصدة الفعلية بعد المعايرة (بدل حساب يدوي عشان نتجنب فروق التقريب)
+            const { data: freshPoints } = await supabase.from("loyalty_points").select("*").eq("pharmacy_id", pharmacyId);
+            if (freshPoints) {
+                const map: Record<string, any> = {};
+                freshPoints.forEach((r: any) => { map[r.customer_id] = r; });
+                setLoyaltyMap(map);
+                try { await window.offlineAPI?.upsertLoyaltyPointsCache?.({ pharmacyId, rows: freshPoints }); }
+                catch (err) { console.error("upsertLoyaltyPointsCache failed:", err); }
+            }
+            showToast(`تم حفظ الإعدادات وإعادة معايرة أرصدة كل العملاء بمعامل ×${factor.toFixed(2)} ✓`);
+        } else {
+            showToast("تم حفظ الإعدادات ✓");
+        }
+
         setSaving(false);
-        if (error) return showToast("خطأ في الحفظ", "error");
         onLoyaltySettingsChange?.(savedRow); // 🆕 يوصل فورًا لـ App.tsx ومنها لـ POS
-        showToast("تم حفظ الإعدادات ✓");
     };
 
     // ── ألوان ──
@@ -184,6 +231,11 @@ export function LoyaltyModule({
 
     // ── إحصائيات ──
     const perRiyal = settings.points_per_riyal || 1; // 🆕 معامل تحويل النقطة للريال
+    // 🆕 فئات التوريد الموجودة فعليًا على الأصناف — عشان نعرض حقل معدل مخصص لكل فئة في الإعدادات
+    const supplyCategories = useMemo(
+        () => [...new Set((products || []).map((p) => p.supply_category).filter(Boolean))].sort(),
+        [products]
+    );
     const totalPointsInSystem = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.points || 0), 0);
     const totalEverEarned = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.total_earned || 0), 0);
     const totalRedeemed = Object.values(loyaltyMap).reduce((s: number, v: any) => s + (v.total_redeemed || 0), 0);
@@ -458,6 +510,41 @@ export function LoyaltyModule({
                                 <span style={{ color: VAR.muted, fontSize: 13 }}>نقطة</span>
                             </div>
                         </div>
+
+                        {/* 🆕 معدلات مخصصة حسب فئة التوريد */}
+                        <h3 style={{ margin: "20px 0 14px", color: COLORS.blue, fontSize: 14, fontWeight: 700 }}>
+                            🏷️ معدلات مخصصة حسب فئة التوريد (اختياري)
+                        </h3>
+                        <div style={{ color: VAR.muted, fontSize: 12, marginBottom: 10 }}>
+                            اسيب الحقل فاضي لأي فئة عشان تستخدم المعدل العام فوق. نفس وحدة وضع الحساب الحالي
+                            ({settings.mode === "profit" ? "% من الربح" : `نقطة لكل ${settings.sales_per} ر.س مبيعات`}).
+                        </div>
+                        {supplyCategories.length === 0 ? (
+                            <div style={{ color: VAR.muted, fontSize: 12, marginBottom: 20 }}>مفيش فئات توريد متسجلة على الأصناف لسه</div>
+                        ) : (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", marginBottom: 20 }}>
+                                {supplyCategories.map((cat) => (
+                                    <Fragment key={cat}>
+                                        <span style={{ fontSize: 13, color: VAR.text }}>{cat}</span>
+                                        <input
+                                            type="number" min={0} step="0.1"
+                                            placeholder={String(settings.mode === "profit" ? settings.profit_rate : settings.sales_rate)}
+                                            value={settings.category_rates?.[cat]?.rate ?? ""}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                setSettings((p: any) => {
+                                                    const next = { ...(p.category_rates || {}) };
+                                                    if (val === "") delete next[cat];
+                                                    else next[cat] = { rate: +val };
+                                                    return { ...p, category_rates: next };
+                                                });
+                                            }}
+                                            style={{ width: 100, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${VAR.border}`, borderRadius: 8, padding: "6px 10px", color: VAR.text, fontSize: 13, outline: "none", textAlign: "center" }}
+                                        />
+                                    </Fragment>
+                                ))}
+                            </div>
+                        )}
 
                         {/* إعدادات الاستبدال */}
                         <h3 style={{ margin: "20px 0 14px", color: COLORS.blue, fontSize: 14, fontWeight: 700 }}>
