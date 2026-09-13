@@ -644,6 +644,11 @@ case "PRODUCT_INGREDIENTS_REPLACE": {
             if (error) throw error;
             break;
         }
+        case "ACTIVE_INGREDIENT_INSERT": {
+            const { error } = await supabase.from("active_ingredients").insert(event.payload.record);
+            if (error) throw error;
+            break;
+        }
         case "SIZE_UNIT_INSERT": {
             const { error } = await supabase.from("size_units").insert(event.payload.record);
             if (error) throw error;
@@ -1499,6 +1504,30 @@ export async function addItemType(nameAr: string, pharmacyId: string, nameEn?: s
         timestamp: new Date().toISOString(),
         pharmacy_id: pharmacyId, // top-level — لازم لـ SQLite NOT NULL
         payload: { record, pharmacy_id: pharmacyId }, // مكرر هنا كمان
+    });
+
+    return { id, synced: result.synced, error: result.error };
+}
+
+// 🆕 نفس منطق addItemType بالظبط بس للمواد الفعالة (active_ingredients) — أوفلاين-فيرست:
+// بتتسجل في الكاش المحلي فورًا وتتحط في queueEvent، وتتزامن مع supabase أول ما النت يرجع.
+// nameAr/nameEn بيوصلوا جاهزين من الفورم (اللي بيقرر أي عمود يتملى حسب لغة النص المكتوب).
+export async function addActiveIngredient(pharmacyId: string, nameAr?: string, nameEn?: string) {
+    const id = crypto.randomUUID();
+    const record = { id, name_ar: nameAr || null, name_en: nameEn || null, pharmacy_id: pharmacyId };
+
+    try {
+        await window.offlineAPI?.upsertActiveIngredientCache?.({ pharmacyId, item: record });
+    } catch (err) {
+        console.error("upsertActiveIngredientCache failed:", err);
+    }
+
+    const result = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "ACTIVE_INGREDIENT_INSERT",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { record, pharmacy_id: pharmacyId },
     });
 
     return { id, synced: result.synced, error: result.error };

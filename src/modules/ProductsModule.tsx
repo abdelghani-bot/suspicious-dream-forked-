@@ -37,6 +37,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     const [filterCategory, setFilterCategory] = useState("");
     const [filterManufacturer, setFilterManufacturer] = useState("");
     const [filterIngredient, setFilterIngredient] = useState("");
+    const [filterSupplyCategory, setFilterSupplyCategory] = useState(""); // 🆕 فلتر فئة التوريد (supply_category)
     const [filterPriceMin, setFilterPriceMin] = useState("");
     const [filterPriceMax, setFilterPriceMax] = useState("");
     const [sortAlpha, setSortAlpha] = useState("none"); // "none" | "asc" | "desc"
@@ -44,9 +45,20 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     const [filterNoCategory, setFilterNoCategory] = useState(false);
     const [filterNoSupplier, setFilterNoSupplier] = useState(false);
 
+    // 🆕 تحديد متعدد: تفعيل وضع الاختيار الجماعي + مجموعة IDs المحددة حالياً.
+    // بيتصفّر التحديد تلقائيًا كل ما الفلاتر تتغير عشان مايفضلش صنف محدد من فلتر سابق مختفي دلوقتي.
+    const [bulkMode, setBulkMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [showBulkSupplierModal, setShowBulkSupplierModal] = useState(false);
+    const [bulkSupplierId, setBulkSupplierId] = useState("");
+    const [bulkSaving, setBulkSaving] = useState(false);
+    // 🆕 بيانات التراجع عن آخر عملية إضافة مورد جماعية — بتتصفّر بعد التراجع أو بدء عملية جديدة
+    const [lastBulkUndo, setLastBulkUndo] = useState<null | { supplierName: string; count: number; changes: Record<string, string[]> }>(null);
+
     useEffect(() => {
         setProductsPage(1);
-    }, [debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterPriceMin, filterPriceMax, sortAlpha, filterNoBarcode, filterNoCategory, filterNoSupplier]);
+        setSelectedIds(new Set());
+    }, [debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterSupplyCategory, filterPriceMin, filterPriceMax, sortAlpha, filterNoBarcode, filterNoCategory, filterNoSupplier]);
 
     // 🆕 debounce: بنستنى المستخدم يوقف عن الكتابة 250ms قبل ما نعيد فلترة قايمة الأصناف
     // (اللي ممكن توصل لمئات/آلاف)، بدل ما نعيد الفلترة الكاملة مع كل حرف بيتكتب — ده اللي
@@ -83,6 +95,13 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     // الفئة يعرض بس الفئات المستخدمة فعلاً في المخزون، مش كل فئات SFDA النظرية.
     const uniqueCategories = useMemo(() => {
         const set = new Set(products.map((p) => p.main_category || p.mainCategory || p.category).filter(Boolean));
+        return [...set].sort((a, b) => a.localeCompare(b, "ar"));
+    }, [products]);
+
+    // 🆕 قايمة فئات التوريد الفريدة (supply_category على الصنف نفسه) — بنفس منطق uniqueCategories،
+    // مأخوذة من الأصناف الموجودة فعلاً مش من قايمة نظرية ثابتة.
+    const uniqueSupplyCategories = useMemo(() => {
+        const set = new Set(products.map((p) => p.supply_category).filter(Boolean));
         return [...set].sort((a, b) => a.localeCompare(b, "ar"));
     }, [products]);
 
@@ -134,6 +153,10 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             // 🆕 فلتر الشركة المنتجة (dropdown من نفس مصفوفة manufacturers الموجودة أصلاً)
             if (filterManufacturer && String(p.manufacturer_id) !== String(filterManufacturer)) return false;
 
+            // 🆕 فلتر فئة التوريد (dropdown من uniqueSupplyCategories) — مفيد وقت التحديد الجماعي
+            // بمورد معين، لأنك غالبًا بتحدد حسب فئة توريد الصنف مش فئته الصيدلانية.
+            if (filterSupplyCategory && p.supply_category !== filterSupplyCategory) return false;
+
             // 🆕 فلتر المادة الفعالة: بحث نصي مرن مش dropdown، لأن المواد الفعالة كتير جدًا
             // ومتنوعة (نفس سبب استخدام active_ingredient/full_ingredients_text في العرض).
             if (filterIngredient) {
@@ -164,7 +187,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             const bn = b.nameAr || b.name || "";
             return sortAlpha === "asc" ? an.localeCompare(bn, "ar") : bn.localeCompare(an, "ar");
         });
-    }, [products, debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterPriceMin, filterPriceMax, sortAlpha, filterNoBarcode, filterNoCategory, filterNoSupplier]);
+    }, [products, debouncedSearch, filterCategory, filterManufacturer, filterIngredient, filterSupplyCategory, filterPriceMin, filterPriceMax, sortAlpha, filterNoBarcode, filterNoCategory, filterNoSupplier]);
 
     // ── فتح تعديل / إضافة (النموذج نفسه بقى في ProductFormModal) ──
     const openEdit = (p) => { setEditingId(p.id); setShowForm(true); };
@@ -289,6 +312,104 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
         });
         showToast("تم إعادة تفعيل الصنف ✓");
     };
+
+    // 🆕 تحديد/إلغاء تحديد صنف واحد في وضع الاختيار الجماعي
+    const toggleSelected = (id: string) => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    // 🆕 تحديد/إلغاء كل الأصناف الظاهرة حالياً في الصفحة (بعد الفلاتر والـ pagination)
+    // — مش كل قائمة filtered كاملة، عشان يطابق اللي المستخدم شايفه فعليًا على الشاشة.
+    const pageProducts = filtered.slice((productsPage - 1) * PRODUCTS_PAGE_SIZE, productsPage * PRODUCTS_PAGE_SIZE);
+    const allPageSelected = pageProducts.length > 0 && pageProducts.every((p) => selectedIds.has(p.id));
+    const toggleSelectAllOnPage = () => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (allPageSelected) {
+                pageProducts.forEach((p) => next.delete(p.id));
+            } else {
+                pageProducts.forEach((p) => next.add(p.id));
+            }
+            return next;
+        });
+    };
+
+    // 🆕 إضافة مورد جماعياً للأصناف المحددة: append على linked_supplier_ids (مش overwrite)
+    // عشان الصنف يفضل مرتبط بأي موردين تانيين موجودين أصلاً — نفس مبدأ append في batches.
+    const bulkAddSupplier = async () => {
+        if (!bulkSupplierId || selectedIds.size === 0) return;
+        setBulkSaving(true);
+        const targetIds = [...selectedIds];
+        let successCount = 0;
+        const updatedMap: Record<string, string[]> = {};
+        const previousMap: Record<string, string[]> = {}; // 🆕 لحفظ الحالة السابقة لكل صنف اتغيّر فعلياً، عشان التراجع
+
+        for (const id of targetIds) {
+            const product = products.find((p) => p.id === id);
+            if (!product) continue;
+            const existing: string[] = Array.isArray(product.linked_supplier_ids) ? product.linked_supplier_ids : [];
+            if (existing.includes(bulkSupplierId)) { successCount++; continue; } // already linked
+            const nextIds = [...existing, bulkSupplierId];
+            const { error } = await saveProduct({ id, linked_supplier_ids: nextIds }, pharmacyId, true);
+            if (error) {
+                showToast(`خطأ في تحديث "${product.nameAr || product.name}": ${error}`, "error");
+                continue;
+            }
+            previousMap[id] = existing;
+            updatedMap[id] = nextIds;
+            successCount++;
+        }
+
+        if (Object.keys(updatedMap).length > 0) {
+            setProducts((prev) => prev.map((p) => updatedMap[p.id] ? { ...p, linked_supplier_ids: updatedMap[p.id] } : p));
+        }
+
+        const supplierObj = suppliers.find((s) => String(s.id) === String(bulkSupplierId));
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
+            entityId: "bulk", entityLabel: `${targetIds.length} صنف`,
+            newValue: { linked_supplier_id: bulkSupplierId },
+            description: `إضافة المورد "${supplierObj?.name || bulkSupplierId}" جماعياً لـ ${targetIds.length} صنف`,
+        });
+
+        // 🆕 لو فعلاً اتغيّر أي صنف (مش كلهم كانوا مرتبطين بالمورد ده أصلاً)، نسجّل بيانات التراجع
+        if (Object.keys(previousMap).length > 0) {
+            setLastBulkUndo({ supplierName: supplierObj?.name || bulkSupplierId, count: Object.keys(previousMap).length, changes: previousMap });
+        }
+
+        setBulkSaving(false);
+        setShowBulkSupplierModal(false);
+        setBulkSupplierId("");
+        setSelectedIds(new Set());
+        setBulkMode(false);
+        showToast(`تم ربط المورد بـ ${successCount} صنف ✓`);
+    };
+
+    // 🆕 التراجع عن آخر عملية إضافة مورد جماعية: بيرجّع كل صنف اتغيّر لحالته قبل الإضافة بالظبط
+    // (مش بيلمس أي صنف كان أصلاً مرتبط بالمورد ده من قبل العملية، لأنه أساسًا مش موجود في changes)
+    const undoLastBulkSupplier = async () => {
+        if (!lastBulkUndo) return;
+        setBulkSaving(true);
+        const entries = Object.entries(lastBulkUndo.changes);
+        for (const [id, previousIds] of entries) {
+            const { error } = await saveProduct({ id, linked_supplier_ids: previousIds }, pharmacyId, true);
+            if (error) { showToast(`تعذر التراجع لصنف: ${error}`, "error"); }
+        }
+        setProducts((prev) => prev.map((p) => lastBulkUndo.changes[p.id] ? { ...p, linked_supplier_ids: lastBulkUndo.changes[p.id] } : p));
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
+            entityId: "bulk", entityLabel: `${entries.length} صنف`,
+            description: `تراجع عن إضافة المورد "${lastBulkUndo.supplierName}" جماعياً`,
+        });
+        setBulkSaving(false);
+        setLastBulkUndo(null);
+        showToast("تم التراجع ✓");
+    };
+
     const inputStyle = { background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" as const };
 
     // 🆕 مجموعة IDs لأي صنف له تاريخ بيع أو شراء **على الإطلاق** (مش آخر 30 يوم بس زي
@@ -389,6 +510,11 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                             🚫 المعطلة ({disabledProducts.length})
                         </Btn>
                     )}
+                    {/* 🆕 تفعيل/إلغاء وضع التحديد الجماعي — إلغاؤه بيصفّر أي تحديد حالي */}
+                    <Btn variant={bulkMode ? "primary" : "secondary"} icon="check-square"
+                        onClick={() => { setBulkMode((v) => !v); setSelectedIds(new Set()); }}>
+                        {bulkMode ? "إنهاء التحديد المتعدد" : "تحديد متعدد"}
+                    </Btn>
                 </div>
             </div>
 
@@ -396,6 +522,26 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             <input value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="🔍 بحث بالاسم أو الباركود أو الفئة..."
                 style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
+
+            {/* 🆕 شريط التراجع عن آخر عملية إضافة مورد جماعية — بيفضل ظاهر لحد ما تتراجع أو تقفله */}
+            {lastBulkUndo && (
+                <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14,
+                    padding: "10px 14px", borderRadius: 10, background: COLORS.goldSoft || COLORS.surfaceAlt,
+                    border: `1px solid ${COLORS.gold}`,
+                }}>
+                    <span style={{ fontSize: 13 }}>
+                        تم ربط المورد "<b>{lastBulkUndo.supplierName}</b>" بـ {lastBulkUndo.count} صنف.
+                    </span>
+                    <div style={{ display: "flex", gap: 8 }}>
+                        <Btn size="sm" variant="secondary" disabled={bulkSaving} onClick={undoLastBulkSupplier}>
+                            {bulkSaving ? "جاري التراجع..." : "↩️ تراجع"}
+                        </Btn>
+                        <Btn size="sm" variant="ghost" onClick={() => setLastBulkUndo(null)}>إخفاء</Btn>
+                    </div>
+                </div>
+            )}
+
 
             {/* ── فلاتر إضافية: صف واحد بدل مودال، عشان العدد قليل والفلترة بتتم وانت بتشتغل ── */}
             <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
@@ -408,6 +554,12 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                     style={{ ...inputStyle, width: "auto", minWidth: 150 }}>
                     <option value="">كل الشركات</option>
                     {manufacturers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+                {/* 🆕 فلتر فئة التوريد */}
+                <select value={filterSupplyCategory} onChange={(e) => setFilterSupplyCategory(e.target.value)}
+                    style={{ ...inputStyle, width: "auto", minWidth: 150 }}>
+                    <option value="">كل فئات التوريد</option>
+                    {uniqueSupplyCategories.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <input value={filterIngredient} onChange={(e) => setFilterIngredient(e.target.value)}
                     placeholder="بحث بالمادة الفعالة..."
@@ -422,9 +574,9 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                     onClick={() => setSortAlpha((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}>
                     {sortAlpha === "none" ? "🔤 بدون ترتيب" : sortAlpha === "asc" ? "🔤 أ ← ي" : "🔤 ي ← أ"}
                 </Btn>
-                {(filterCategory || filterManufacturer || filterIngredient || filterPriceMin !== "" || filterPriceMax !== "" || sortAlpha !== "none" || filterNoBarcode || filterNoCategory || filterNoSupplier) && (
+                {(filterCategory || filterManufacturer || filterIngredient || filterSupplyCategory || filterPriceMin !== "" || filterPriceMax !== "" || sortAlpha !== "none" || filterNoBarcode || filterNoCategory || filterNoSupplier) && (
                     <Btn size="sm" variant="secondary" onClick={() => {
-                        setFilterCategory(""); setFilterManufacturer(""); setFilterIngredient("");
+                        setFilterCategory(""); setFilterManufacturer(""); setFilterIngredient(""); setFilterSupplyCategory("");
                         setFilterPriceMin(""); setFilterPriceMax(""); setSortAlpha("none");
                         setFilterNoBarcode(false); setFilterNoCategory(false); setFilterNoSupplier(false);
                     }}>✕ مسح الفلاتر</Btn>
@@ -447,9 +599,28 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                 <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color={COLORS.purple} />
             </div>
 
+            {/* 🆕 شريط الإجراءات الجماعية — بيظهر بس لما فيه أصناف محددة */}
+            {bulkMode && selectedIds.size > 0 && (
+                <div style={{
+                    display: "flex", alignItems: "center", gap: 10, marginBottom: 14,
+                    padding: "10px 14px", borderRadius: 10, background: COLORS.surfaceAlt,
+                    border: `1px solid ${COLORS.accent}`, position: "sticky", top: 8, zIndex: 5,
+                }}>
+                    <Badge color={COLORS.blueSoft} text={COLORS.blue}>{selectedIds.size} صنف محدد</Badge>
+                    <Btn size="sm" variant="primary" icon="truck" onClick={() => setShowBulkSupplierModal(true)}>
+                        إضافة مورد للمحدد
+                    </Btn>
+                    <Btn size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>إلغاء التحديد</Btn>
+                </div>
+            )}
+
             {/* ── Table ── */}
             <Table
                 headers={[
+                    ...(bulkMode ? [
+                        <input type="checkbox" checked={allPageSelected} onChange={toggleSelectAllOnPage}
+                            title="تحديد/إلغاء كل الأصناف في هذه الصفحة" />
+                    ] : []),
                     "رمز", "الصنف",
                     <HeaderFilterToggle label="الشركة المنتجة / المورد" active={filterNoSupplier} count={noSupplierCount} onClick={() => setFilterNoSupplier((v) => !v)} />,
                     <HeaderFilterToggle label="الباركود" active={filterNoBarcode} count={noBarcodeCount} onClick={() => setFilterNoBarcode((v) => !v)} />,
@@ -459,6 +630,9 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                 rows={filtered.slice((productsPage - 1) * PRODUCTS_PAGE_SIZE, productsPage * PRODUCTS_PAGE_SIZE).map((p) => {
                     const mfr = manufacturers.find((m) => m.id === p.manufacturer_id);
                     return [
+                        ...(bulkMode ? [
+                            <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
+                        ] : []),
                         <span style={{ color: COLORS.textDim, fontSize: 11 }}>{p.id}</span>,
                         <div>
                             <div style={{ fontWeight: 700, color: COLORS.textPrimary }}>{p.nameAr || p.name}</div>
@@ -740,6 +914,32 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                         ))}
                     </div>
                 )}
+            </Modal>
+
+            {/* 🆕 Modal إضافة مورد جماعياً للأصناف المحددة — append على linked_supplier_ids */}
+            <Modal open={showBulkSupplierModal} onClose={() => { if (!bulkSaving) { setShowBulkSupplierModal(false); setBulkSupplierId(""); } }} title="🚚 إضافة مورد للأصناف المحددة">
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ fontSize: 13, color: COLORS.textDim }}>
+                        هيتم ربط المورد المختار بـ <b style={{ color: COLORS.textPrimary }}>{selectedIds.size}</b> صنف محدد،
+                        بالإضافة لأي موردين موجودين مسبقاً على كل صنف (مش استبدال).
+                    </div>
+                    <select value={bulkSupplierId} onChange={(e) => setBulkSupplierId(e.target.value)} style={inputStyle} autoFocus>
+                        <option value="">اختر المورد...</option>
+                        {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    {/* 🆕 معاينة اسم المورد المختار قبل التأكيد — عشان تتأكد إنه المورد الصح قبل التنفيذ */}
+                    {bulkSupplierId && (
+                        <div style={{ fontSize: 13, color: COLORS.blue, background: COLORS.blueSoft, padding: "8px 12px", borderRadius: 8 }}>
+                            سيتم ربط: <b>{suppliers.find((s) => String(s.id) === String(bulkSupplierId))?.name}</b> بـ {selectedIds.size} صنف
+                        </div>
+                    )}
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <Btn variant="ghost" disabled={bulkSaving} onClick={() => { setShowBulkSupplierModal(false); setBulkSupplierId(""); }}>إلغاء</Btn>
+                        <Btn icon="check" variant="primary" disabled={!bulkSupplierId || bulkSaving} onClick={bulkAddSupplier}>
+                            {bulkSaving ? "جاري الحفظ..." : "تأكيد الإضافة"}
+                        </Btn>
+                    </div>
+                </div>
             </Modal>
 
             <ProductFormModal

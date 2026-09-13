@@ -453,6 +453,15 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_manufacturers_cache_pharmacy ON manufacturers_cache(pharmacy_id);
+  -- 🆕 كاش المواد الفعالة (قراءة فقط — full-replace)، نفس نمط manufacturers_cache بالظبط
+  CREATE TABLE IF NOT EXISTS active_ingredients_cache (
+    id TEXT PRIMARY KEY,
+    pharmacy_id TEXT NOT NULL,
+    name_ar TEXT,
+    name_en TEXT,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_active_ingredients_cache_pharmacy ON active_ingredients_cache(pharmacy_id);
   -- 🆕 كاش نقاط الولاء — صف واحد لكل عميل، delta-based زي stock في products_cache
 CREATE TABLE IF NOT EXISTS loyalty_points_cache (
   customer_id TEXT PRIMARY KEY,
@@ -1508,6 +1517,55 @@ ipcMain.handle("offline:refreshManufacturersCache", (_event, { pharmacyId, rows 
 
 ipcMain.handle("offline:getManufacturersCache", (_event, pharmacyId) => {
     return db.prepare("SELECT id, name FROM manufacturers_cache WHERE pharmacy_id = ? ORDER BY name").all(pharmacyId);
+});
+
+// ==================== كاش المواد الفعالة (قراءة فقط — full-replace) ====================
+// نفس نمط manufacturers_cache بالظبط، بس بعمودين للاسم (عربي/إنجليزي) بدل واحد.
+ipcMain.handle("offline:refreshActiveIngredientsCache", (_event, { pharmacyId, rows }) => {
+    try {
+        const now = new Date().toISOString();
+        const tx = db.transaction((items) => {
+            db.prepare("DELETE FROM active_ingredients_cache WHERE pharmacy_id = ?").run(pharmacyId);
+            const stmt = db.prepare(`
+        INSERT INTO active_ingredients_cache (id, pharmacy_id, name_ar, name_en, updated_at)
+        VALUES (@id, @pharmacy_id, @name_ar, @name_en, @updated_at)
+      `);
+            for (const a of items) stmt.run({ id: a.id, pharmacy_id: pharmacyId, name_ar: a.name_ar || null, name_en: a.name_en || null, updated_at: now });
+        });
+        tx(rows || []);
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
+ipcMain.handle("offline:getActiveIngredientsCache", (_event, pharmacyId) => {
+    return db.prepare("SELECT id, name_ar, name_en FROM active_ingredients_cache WHERE pharmacy_id = ? ORDER BY name_ar").all(pharmacyId);
+});
+
+// upsert فردي — بيتنادى لما تضيف مادة فعالة جديدة أونلاين/أوفلاين، من غير ما يمسح الباقي
+// (نفس نمط upsertItemTypeCache بالظبط)
+ipcMain.handle("offline:upsertActiveIngredientCache", (_event, { pharmacyId, item }) => {
+    try {
+        const now = new Date().toISOString();
+        db.prepare(`
+      INSERT INTO active_ingredients_cache (id, pharmacy_id, name_ar, name_en, updated_at)
+      VALUES (@id, @pharmacy_id, @name_ar, @name_en, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name_ar = excluded.name_ar,
+        name_en = excluded.name_en,
+        updated_at = excluded.updated_at
+    `).run({
+            id: item.id,
+            pharmacy_id: pharmacyId,
+            name_ar: item.name_ar || null,
+            name_en: item.name_en || null,
+            updated_at: now,
+        });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
 });
 
 // ==================== كاش أنواع الأصناف (item_types) ====================

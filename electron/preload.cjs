@@ -84,6 +84,10 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     getIncentiveProductsCache: (pharmacyId) => ipcRenderer.invoke("offline:getIncentiveProductsCache", pharmacyId),
     refreshManufacturersCache: (payload) => ipcRenderer.invoke("offline:refreshManufacturersCache", payload),
     getManufacturersCache: (pharmacyId) => ipcRenderer.invoke("offline:getManufacturersCache", pharmacyId),
+    // 🆕 كاش المواد الفعالة — نفس نمط الشركات المنتجة بالظبط
+    refreshActiveIngredientsCache: (payload) => ipcRenderer.invoke("offline:refreshActiveIngredientsCache", payload),
+    getActiveIngredientsCache: (pharmacyId) => ipcRenderer.invoke("offline:getActiveIngredientsCache", pharmacyId),
+    upsertActiveIngredientCache: (payload) => ipcRenderer.invoke("offline:upsertActiveIngredientCache", payload),
     getLoyaltyPointsCache: (pharmacyId) => ipcRenderer.invoke("offline:getLoyaltyPointsCache", pharmacyId),
     upsertLoyaltyPointsCache: (data) => ipcRenderer.invoke("offline:upsertLoyaltyPointsCache", data),
     applyLoyaltyDeltaCache: (data) => ipcRenderer.invoke("offline:applyLoyaltyDeltaCache", data),

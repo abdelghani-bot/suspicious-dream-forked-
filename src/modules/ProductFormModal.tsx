@@ -8,7 +8,7 @@ import { nameSimilarity } from "../lib/dateUtils";
 import { MAIN_CATEGORIES, NON_DRUG_SIZE_UNITS, NON_DRUG_SIZE_UNITS_EN, NON_DRUG_TYPES_EN, PACKAGE_TYPES, SUPPLY_CATEGORIES, buildNonDrugName, buildNonDrugNameEn } from "../lib/productConstants";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
 import { Btn, Input, Modal, Select } from "../ui/primitives";
-import { saveProduct, replaceProductBarcodes, replaceProductAltBarcodes, replaceProductIngredients, addItemType, addSubCategory2, deleteItemType, deleteSubCategory2, addSizeUnit, deleteSizeUnit } from "../lib/offlineAPI";
+import { saveProduct, replaceProductBarcodes, replaceProductAltBarcodes, replaceProductIngredients, addItemType, addActiveIngredient, addSubCategory2, deleteItemType, deleteSubCategory2, addSizeUnit, deleteSizeUnit } from "../lib/offlineAPI";
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🆕 ProductFormModal — نافذة موحّدة لإضافة/تعديل صنف، قابلة للاستخدام من
@@ -235,10 +235,43 @@ useEffect(() => {
 
     useEffect(() => {
         if (!pharmacyId) return;
-        supabase.from("active_ingredients").select("*").eq("pharmacy_id", pharmacyId).order("name_ar")
-            .then(({ data }) => { if (data) setAllIngredients(data); });
-        supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId).order("name")
-            .then(({ data }) => { if (data) setManufacturers(data); });
+
+        // 🆕 المواد الفعالة: كاش الأول (يشتغل أوفلاين فورًا)، وبعدين لو أونلاين بنجيب النسخة
+        // الأحدث من supabase ونحدّث الكاش المحلي بيها — نفس نمط الشركات المنتجة بالظبط.
+        (async () => {
+            try {
+                const cachedIngs = await window.offlineAPI?.getActiveIngredientsCache?.(pharmacyId);
+                if (cachedIngs && cachedIngs.length > 0) setAllIngredients(cachedIngs);
+            } catch (err) {
+                console.error("getActiveIngredientsCache failed:", err);
+            }
+            if (navigator.onLine) {
+                const { data: ingData, error: ingErr } = await supabase.from("active_ingredients").select("*").eq("pharmacy_id", pharmacyId).order("name_ar");
+                if (!ingErr && ingData) {
+                    setAllIngredients(ingData);
+                    try { await window.offlineAPI?.refreshActiveIngredientsCache?.({ pharmacyId, rows: ingData }); } catch (err) { console.error("refreshActiveIngredientsCache failed:", err); }
+                }
+            }
+        })();
+
+        // 🆕 الشركات المنتجة: كاش الأول (يشتغل أوفلاين فورًا)، وبعدين لو أونلاين بنجيب النسخة
+        // الأحدث من supabase ونحدّث الكاش المحلي بيها — نفس نمط item_types/sub_categories2 بالظبط.
+        // (الـ backend والـ IPC bridge كانوا جاهزين فعلاً؛ الناقص كان بس الاستدعاء هنا)
+        (async () => {
+            try {
+                const cachedMfrs = await window.offlineAPI?.getManufacturersCache?.(pharmacyId);
+                if (cachedMfrs && cachedMfrs.length > 0) setManufacturers(cachedMfrs);
+            } catch (err) {
+                console.error("getManufacturersCache failed:", err);
+            }
+            if (navigator.onLine) {
+                const { data: mfrData, error: mfrErr } = await supabase.from("manufacturers").select("*").eq("pharmacy_id", pharmacyId).order("name");
+                if (!mfrErr && mfrData) {
+                    setManufacturers(mfrData);
+                    try { await window.offlineAPI?.refreshManufacturersCache?.({ pharmacyId, rows: mfrData }); } catch (err) { console.error("refreshManufacturersCache failed:", err); }
+                }
+            }
+        })();
 
         // 🆕 تحميل أنواع الأصناف: بنجرب الكاش المحلي الأول (يشتغل أوفلاين فورًا)، وبعدين لو
         // أونلاين بنجيب النسخة الأحدث من supabase ونحدّث الكاش المحلي بيها.
@@ -503,9 +536,11 @@ const confirmAddSubCat2 = async () => {
         // (زي "hydrochlorthiazide") لازم يروح على name_en مش name_ar، عشان ميبقاش فيه مادتين
         // بنفس الاسم موزعين على عمودين مختلفين.
         const isArabic = /[\u0600-\u06FF]/.test(text);
-        const payload = isArabic ? { name_ar: text, pharmacy_id: pharmacyId } : { name_en: text, pharmacy_id: pharmacyId };
-        const { data, error } = await supabase.from("active_ingredients").insert(payload).select().single();
-        if (error) { showToast("خطأ في إضافة المادة الفعالة: " + error.message, "error"); return; }
+        // 🆕 أوفلاين-فيرست (بدل insert مباشر على supabase) — بتتسجل في الكاش المحلي فورًا
+        // وتتحط في queueEvent، وتتزامن لما النت يرجع، نفس نمط إضافة نوع صنف جديد بالظبط.
+        const { id, error } = await addActiveIngredient(pharmacyId, isArabic ? text : undefined, isArabic ? undefined : text);
+        if (error) { showToast("خطأ في إضافة المادة الفعالة: " + error, "error"); return; }
+        const data = { id, name_ar: isArabic ? text : null, name_en: isArabic ? null : text, pharmacy_id: pharmacyId };
         setAllIngredients((prev) => [...prev, data]);
         addIngredient(data);
     };
@@ -539,6 +574,9 @@ const confirmAddSubCat2 = async () => {
     // ── حفظ ──
     const save = async () => {
         if (!form.nameAr || !form.price) { showToast("يرجى ملء الحقول المطلوبة", "error"); return; }
+        // 🆕 فئة التوريد إجبارية (بعكس تحديد مورد بعينه، اللي فاضل اختياري) — لازم كل صنف
+        // يتصنّف تحت فئة توريد عشان يظهر صح وقت تجميع/فلترة الأصناف حسب المورد لاحقًا.
+        if (!form.supply_category) { showToast("يرجى اختيار فئة التوريد", "error"); return; }
         // 🆕 منع تكرار الأصناف: بنتحقق بس وقت "إضافة" صنف جديد (مش تعديل صنف موجود)
         if (!editingId) {
             const dupCode = products.find((x) => x.id === form.id);
@@ -885,7 +923,7 @@ const confirmAddSubCat2 = async () => {
                     )}
 
                     <Select label="الفئة الرئيسية" value={form.mainCategory} onChange={handleMainCategoryChange} options={Object.keys(MAIN_CATEGORIES)} />
-                    <Select label="فئة التوريد" value={form.supply_category} onChange={(v) => F("supply_category", v)} options={["", ...SUPPLY_CATEGORIES]} />
+                    <Select label="فئة التوريد *" value={form.supply_category} onChange={(v) => F("supply_category", v)} options={["", ...SUPPLY_CATEGORIES]} />
                     {/* 🆕 ربط الصنف بمورد/موردين محددين من داخل موردين نفس الفئة — مفيد لو فيه أكتر من مورد
                         لنفس الفئة بس بعضهم بيورد شركات/منتجات معينة بس (مثلاً كوزمتك طبي) */}
                     {form.supply_category && (() => {
