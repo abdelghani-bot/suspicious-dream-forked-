@@ -2184,7 +2184,10 @@ ipcMain.handle("print:html", async (_event, { html, options }) => {
                     const MICRONS_PER_PX = 25400 / 96; // تحويل بكسل (96 DPI) لميكرون
                     const heightMicrons = Math.max(
                         Math.round(contentHeightPx * MICRONS_PER_PX) + 5000, // + هامش أمان 5مم
-                        140000 // حد أدنى 140مم (14سم) للفاتورة حتى لو صنف واحد بس
+                        // 🔧 كان 140مم (14سم) — ده أكبر من فاتورة صنف واحد فعليًا (تقريبًا
+                        // 100-110مم مع الهيدر والـ QR)، فكان بيضيف فراغ زيادة فوق/تحت المطبوع
+                        // على الفواتير القصيرة. 70مم أقرب لأقل محتوى ممكن (هيدر + QR بس تقريبًا)
+                        70000
                     );
                     pageSize = { width: widthMicrons, height: heightMicrons };
                 } else {

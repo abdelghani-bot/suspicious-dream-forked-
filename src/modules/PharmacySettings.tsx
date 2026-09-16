@@ -5,6 +5,13 @@ import { COLORS } from "../theme";
 import { Btn } from "../ui/primitives";
 import { SUPPLY_CATEGORIES } from "../lib/productConstants"; // 🆕 قايمة فئات التوريد الثابتة (أدق من الفئة الرئيسية)
 
+// 🆕 نص سياسة الاسترجاع الافتراضي (عربي/إنجليزي) — يُستخدم أول مرة بس، وبعدين
+// كل صيدلية تقدر تعدّله من هنا وتتخزن نسختها في pharmacy_settings بدل ما تكون هاردكودد
+const DEFAULT_RETURN_POLICY_AR =
+    "لا يُسمح باسترجاع أو استبدال الأدوية إلا في حالة وجود عيب مصنعي أو خطأ في الصرف، خلال 3 أيام من تاريخ الشراء وبإبراز الفاتورة الأصلية، وبشرط أن يكون المنتج في عبوته الأصلية دون فتح.";
+const DEFAULT_RETURN_POLICY_EN =
+    "Medicines may only be returned or exchanged in case of a manufacturing defect or dispensing error, within 3 days of purchase with the original invoice, and provided the product is unopened in its original packaging.";
+
 export function PharmacySettings({ showToast, pharmacyId }) {
     const [settings, setSettings] = useState({});
 
@@ -86,6 +93,10 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         labelDpi: data.label_dpi || "203",
                         barcodeMarginMm: data.barcode_margin_mm ?? 2.5,
                         receiptPaperWidth: data.receipt_paper_width || "80",
+                        // 🆕 نص سياسة الاسترجاع يتحرر من الكود ويتخزن في إعدادات الصيدلية —
+                        // لو الصيدلية لسه معدّلتش شيء بيرجع النص الافتراضي عشان الفاتورة متطلعش فاضية
+                        returnPolicyAr: data.return_policy_ar || DEFAULT_RETURN_POLICY_AR,
+                        returnPolicyEn: data.return_policy_en || DEFAULT_RETURN_POLICY_EN,
                         supportsCardRefund: !!data.supports_card_refund,// 🆕 هل الصيدلية بتقدر ترجّع فلوس شبكة (reversal) فعليًا؟
                         reportsPrinterName: data.reports_printer_name || "",
                         thermalPrinterName: data.thermal_printer_name || "",
@@ -159,6 +170,9 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             label_dpi: settings.labelDpi || "203",
             barcode_margin_mm: settings.barcodeMarginMm != null ? Number(settings.barcodeMarginMm) : 2.5,
             receipt_paper_width: settings.receiptPaperWidth || "80",
+            // 🆕 سياسة الاسترجاع — بتتخزن هنا بدل ما تكون هاردكودد في كومبوننت الطباعة
+            return_policy_ar: settings.returnPolicyAr ?? DEFAULT_RETURN_POLICY_AR,
+            return_policy_en: settings.returnPolicyEn ?? DEFAULT_RETURN_POLICY_EN,
             supports_card_refund: !!settings.supportsCardRefund, // 🆕
             reports_printer_name: settings.reportsPrinterName || null,
             thermal_printer_name: settings.thermalPrinterName || null,
@@ -383,6 +397,47 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                             </button>
                         ))}
                     </div>
+                </div>
+
+                {/* 🆕 سياسة الاسترجاع المطبوعة أسفل الفاتورة — عربي وإنجليزي، قابلة للتعديل بالكامل */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+                        نص سياسة الاسترجاع (عربي) — يظهر أسفل فاتورة المبيعات
+                    </label>
+                    <textarea
+                        value={settings.returnPolicyAr ?? ""}
+                        onChange={(e) => setSettings((p) => ({ ...p, returnPolicyAr: e.target.value }))}
+                        rows={3}
+                        dir="rtl"
+                        style={{
+                            width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                            border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                            padding: "8px 12px", color: COLORS.textPrimary,
+                            fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical",
+                            fontFamily: "inherit", lineHeight: 1.6,
+                        }}
+                    />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+                        Return Policy Text (English) — printed under the sales receipt
+                    </label>
+                    <textarea
+                        value={settings.returnPolicyEn ?? ""}
+                        onChange={(e) => setSettings((p) => ({ ...p, returnPolicyEn: e.target.value }))}
+                        rows={3}
+                        dir="ltr"
+                        style={{
+                            width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                            border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                            padding: "8px 12px", color: COLORS.textPrimary,
+                            fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical",
+                            fontFamily: "inherit", lineHeight: 1.6,
+                        }}
+                    />
+                    <p style={{ margin: "6px 0 0", fontSize: 11.5, color: COLORS.textDim }}>
+                        سيب أي حقل فاضي لو مش عايز يظهر باللغة دي على الفاتورة.
+                    </p>
                 </div>
 
                 {/* 🆕 دعم رجاعة الشبكة في المرتجعات */}

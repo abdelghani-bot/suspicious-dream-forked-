@@ -692,6 +692,36 @@ case "SUB_CATEGORY2_DELETE": {
 
 let syncing = false;
 
+// 🆕 اسم الموديول المشتق من نوع الـ event (الجزء قبل أول underscore) — بيتحدد بيه
+// أي الأحداث لازم تتنفذ بالترتيب (نفس الموديول) وأيها آمن يتوازى (موديولات مختلفة)
+function eventModule(type: string): string {
+    return type.split("_")[0];
+}
+
+// 🆕 تنفيذ تسلسلي لسلسلة events تابعة لنفس الموديول — نفس منطق الـ for loop القديم
+// بالظبط (تنفيذ + تسجيل نجاح/فشل)، لكن دلوقتي بيتنادى بالتوازي لكذا موديول مع بعض
+async function runChain(events: QueuedEvent[]) {
+    for (const event of events) {
+        try {
+            await executeEvent(event);
+            await window.offlineAPI.markSynced([event.id]);
+        } catch (err) {
+            // 🆕 بدل ما نسيب الـ event يتكرر للأبد كل 30 ثانية، بنسجّل الفشل في SQLite
+            // (sync_attempts محفوظة، مش بتتصفّر لو التطبيق اتقفل). لو عدّى الحد الأقصى
+            // (5 محاولات)، main.cjs بيعلّمه dead-letter تلقائيًا فمش هيرجع في getPendingEvents تاني
+            const { attempts, deadLettered } = await window.offlineAPI.recordSyncFailure({
+                id: event.id,
+                error: err?.message || String(err),
+            });
+            if (deadLettered) {
+                console.error(`event ${event.id} ${event.type} تجاوز الحد الأقصى للمحاولات (${attempts}) — تم إيقافه، يحتاج مراجعة يدوية`, err);
+            } else {
+                console.error(`sync failed for event ${event.id} ${event.type} (محاولة ${attempts}/5)`, err);
+            }
+        }
+    }
+}
+
 // ── مزامنة الأحداث المعلّقة في SQLite (بدل IndexedDB) ──
 export async function syncQueue() {
     if (syncing || !navigator.onLine) return;
@@ -742,25 +772,30 @@ export async function syncQueue() {
 
         const events: QueuedEvent[] = await window.offlineAPI.getPendingEvents();
         events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+        // 🆕 تقسيم الأحداث حسب الموديول: كل موديول بيتنفذ تسلسليًا جوّه نفسه (يحافظ على
+        // أي ترتيب فيه dependency زي PURCHASE_INSERT قبل PURCHASE_STOCK_ADD، أو PRODUCT_SAVE
+        // قبل PRODUCT_FIELD_UPDATE)، لكن الموديولات المختلفة عن بعض بتتوازى مع بعض.
+        const groups = new Map<string, QueuedEvent[]>();
         for (const event of events) {
-            try {
-                await executeEvent(event);
-                await window.offlineAPI.markSynced([event.id]);
-            } catch (err) {
-                // 🆕 بدل ما نسيب الـ event يتكرر للأبد كل 30 ثانية، بنسجّل الفشل في SQLite
-                // (sync_attempts محفوظة، مش بتتصفّر لو التطبيق اتقفل). لو عدّى الحد الأقصى
-                // (5 محاولات)، main.cjs بيعلّمه dead-letter تلقائيًا فمش هيرجع في getPendingEvents تاني
-                const { attempts, deadLettered } = await window.offlineAPI.recordSyncFailure({
-                    id: event.id,
-                    error: err?.message || String(err),
-                });
-                if (deadLettered) {
-                    console.error(`event ${event.id} ${event.type} تجاوز الحد الأقصى للمحاولات (${attempts}) — تم إيقافه، يحتاج مراجعة يدوية`, err);
-                } else {
-                    console.error(`sync failed for event ${event.id} ${event.type} (محاولة ${attempts}/5)`, err);
-                }
-            }
+            const key = eventModule(event.type);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(event);
         }
+
+        // 🆕 RETURN_PROCESS ممكن يشير لفاتورة بيع/شراء لسه موجودة في نفس الـ batch —
+        // نسيبها تستنى كل الموديولات التانية (وعلى رأسها SALE وPURCHASE) تخلص الأول.
+        // GAP_REVIEW بيعدّل نفس أعمدة attendance_logs (net_hours/late_minutes) اللي
+        // ATTENDANCE_CHECKOUT/ATTENDANCE_LOG_UPDATE بتعدّلها — لازم ATTENDANCE يخلص الأول
+        // عشان GAP يحسب على أحدث قيمة، مش يكتب فوقها.
+        const returnChain = groups.get("RETURN") ?? [];
+        const gapChain = groups.get("GAP") ?? [];
+        groups.delete("RETURN");
+        groups.delete("GAP");
+
+        await Promise.allSettled(Array.from(groups.values()).map(runChain));
+        if (gapChain.length > 0) await runChain(gapChain);
+        if (returnChain.length > 0) await runChain(returnChain);
     } finally {
         syncing = false;
     }

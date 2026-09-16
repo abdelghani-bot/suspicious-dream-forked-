@@ -5,15 +5,23 @@ import { buildZatcaQR } from "../lib/zatca";
 import { Btn, Modal } from "../ui/primitives";
 import { printHTML } from "../lib/printHelper";
 
-// نص سياسة الاسترجاع الافتراضي — عدّله من هنا حسب سياسة الصيدلية
-const RETURN_POLICY_TEXT =
+// 🆕 سياسة الاسترجاع بقت تتخزن في إعدادات الصيدلية (pharmacy_settings.return_policy_ar/en)
+// وتتعدّل من شاشة "بيانات الصيدلية" — النصوص هنا fallback بس لو الصيدلية لسه معدّلتش حاجة
+const DEFAULT_RETURN_POLICY_AR =
     "لا يُسمح باسترجاع أو استبدال الأدوية إلا في حالة وجود عيب مصنعي أو خطأ في الصرف، خلال 3 أيام من تاريخ الشراء وبإبراز الفاتورة الأصلية، وبشرط أن يكون المنتج في عبوته الأصلية دون فتح.";
+const DEFAULT_RETURN_POLICY_EN =
+    "Medicines may only be returned or exchanged in case of a manufacturing defect or dispensing error, within 3 days of purchase with the original invoice, and provided the product is unopened in its original packaging.";
 
 // ==================== PRINT RECEIPT ====================
 export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
     const printArea = useRef();
     const [paperWidth, setPaperWidth] = useState("80"); // 58 / 80 / A4 — الافتراضي 80مم
-    const [pharmacyInfo, setPharmacyInfo] = useState({ name: "", vatNumber: "" });
+    const [pharmacyInfo, setPharmacyInfo] = useState({
+        name: "",
+        vatNumber: "",
+        returnPolicyAr: DEFAULT_RETURN_POLICY_AR,
+        returnPolicyEn: DEFAULT_RETURN_POLICY_EN,
+    });
 
     useEffect(() => {
         if (!pharmacyId) return;
@@ -23,20 +31,30 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
         if (cached) {
             const data = JSON.parse(cached);
             if (data.receipt_paper_width) setPaperWidth(data.receipt_paper_width);
-            setPharmacyInfo({ name: data.name_ar || "", vatNumber: data.tax_number || "" });
+            setPharmacyInfo({
+                name: data.name_ar || "",
+                vatNumber: data.tax_number || "",
+                returnPolicyAr: data.return_policy_ar || DEFAULT_RETURN_POLICY_AR,
+                returnPolicyEn: data.return_policy_en || DEFAULT_RETURN_POLICY_EN,
+            });
         }
 
         // لو فيه نت، حاول تجيب نسخة محدثة وتخزنها لاستخدامها بعدين أوفلاين
         if (navigator.onLine) {
             supabase
                 .from("pharmacy_settings")
-                .select("receipt_paper_width, name_ar, tax_number")
+                .select("receipt_paper_width, name_ar, tax_number, return_policy_ar, return_policy_en")
                 .eq("pharmacy_id", pharmacyId)
                 .single()
                 .then(({ data }) => {
                     if (data) {
                         if (data.receipt_paper_width) setPaperWidth(data.receipt_paper_width);
-                        setPharmacyInfo({ name: data.name_ar || "", vatNumber: data.tax_number || "" });
+                        setPharmacyInfo({
+                            name: data.name_ar || "",
+                            vatNumber: data.tax_number || "",
+                            returnPolicyAr: data.return_policy_ar || DEFAULT_RETURN_POLICY_AR,
+                            returnPolicyEn: data.return_policy_en || DEFAULT_RETURN_POLICY_EN,
+                        });
                         localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify(data));
                     }
                 })
@@ -50,7 +68,11 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
     const pageCSS = isA4
         ? `@page{size:A4;margin:14mm}html,body{width:auto}`
         : `@page{size:${paperWidth}mm auto;margin:0}html,body{width:${effectiveWidth}mm;margin:0 auto}`;
-    const fullHtml = `<html dir="rtl"><head><style>${pageCSS}body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:4px 6px;font-size:12px;color:#000;background:#fff}h2{margin:4px 0;font-size:15px}table{width:100%;border-collapse:collapse;table-layout:fixed}td:first-child{width:42%;word-wrap:break-word;overflow-wrap:break-word;white-space:normal}td,th{padding:2px 4px;border-bottom:1px solid #ddd;font-size:11px}hr{border:1px dashed #999}.total{font-weight:700;font-size:14px}.dose{font-size:10px;color:#555;font-style:italic}.name-en{font-size:10px;color:#000;direction:ltr;text-align:right}.policy{font-size:9px;color:#000;margin-top:10px;line-height:1.5;text-align:center}.header{text-align:center;margin-bottom:12px}@media print{body{padding:2px 4px}}</style></head><body>${printArea.current.innerHTML}</body></html>`;
+    const fullHtml = `<html dir="rtl"><head><style>${pageCSS}body{font-family:'Tajawal',Arial,sans-serif;margin:0;padding:4px 6px;font-size:12px;color:#000;background:#fff}h2{margin:4px 0;font-size:15px}table{width:100%;border-collapse:collapse;table-layout:fixed}td:first-child{width:42%;word-wrap:break-word;overflow-wrap:break-word;white-space:normal}td,th{padding:2px 4px;border-bottom:1px solid #ddd;font-size:11px}hr{border:1px dashed #999}.total{font-weight:700;font-size:14px}.dose{font-size:10px;color:#555;font-style:italic}.name-en{font-size:10px;color:#000;direction:ltr;text-align:right}.policy{font-size:11px;color:#000;font-weight:500;margin-top:10px;line-height:1.6;text-align:center}.policy-ar{direction:rtl}.policy-en{direction:ltr;margin-top:6px;color:#222}.policy-title{font-size:10px;font-weight:700;color:#000;margin-bottom:3px}.header{text-align:center;margin-bottom:12px}@media print{body{padding:2px 4px}}</style></head><body>${printArea.current.innerHTML}</body></html>`;
+
+    // ملاحظة: من غير قصد paperHeightMM هنا — main process بيحسب طول الصفحة
+    // بنفسه من scrollHeight الفعلي لنافذة الطباعة (أدق من أي تقدير من هنا)،
+    // وبعت paperHeightMM كان هيلغي الحساب ده ويفرض رقم غير دقيق.
     await printHTML(fullHtml, {
     silent: true,
     paperWidthMM: isA4 ? undefined : Number(paperWidth),
@@ -216,12 +238,13 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
                     </div>
                 )}
 
-                {!invoice.isReturn && (
+                {!invoice.isReturn && (pharmacyInfo.returnPolicyAr || pharmacyInfo.returnPolicyEn) && (
                     <div
                         className="policy"
                         style={{
-                            fontSize: 10,
-                            color: "#666",
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: "#000",
                             marginTop: 10,
                             lineHeight: 1.6,
                             textAlign: "center",
@@ -229,7 +252,20 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
                             paddingTop: 6,
                         }}
                     >
-                        {RETURN_POLICY_TEXT}
+                        {pharmacyInfo.returnPolicyAr && (
+                            <div className="policy-ar" dir="rtl">
+                                {pharmacyInfo.returnPolicyAr}
+                            </div>
+                        )}
+                        {pharmacyInfo.returnPolicyEn && (
+                            <div
+                                className="policy-en"
+                                dir="ltr"
+                                style={{ marginTop: 6, color: "#222" }}
+                            >
+                                {pharmacyInfo.returnPolicyEn}
+                            </div>
+                        )}
                     </div>
                 )}
 
