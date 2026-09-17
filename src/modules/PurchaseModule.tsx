@@ -11,7 +11,7 @@ import { ProductFormModal } from "./ProductFormModal";
 import { RasdSettings } from "./RasdSettings";
 import { RasdQueue } from "../services/rasdService";
 import { Badge, Btn, IC, Modal, Pagination, Select, Table } from "../ui/primitives";
-import { queueEvent, replaceProductAltBarcodes } from "../lib/offlineAPI";
+import { queueEvent } from "../lib/offlineAPI";
 import { getDeviceId } from "../lib/deviceID";
 import { printHTML } from "../lib/printHelper";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
@@ -168,6 +168,11 @@ export function PurchaseModule({
     // 🆕 نافذة إضافة/تعديل صنف فوق فاتورة الشراء (من غير ما تقفل الفاتورة)
     const [showProductForm, setShowProductForm] = useState(false);
     const [productFormEditId, setProductFormEditId] = useState(null);
+    // 🆕 باركود مبدئي يتحط في كرت الصنف وقت الربط (مسار "باركود مش معروف" → اختيار صنف موجود)
+    const [productFormPrefillBarcode, setProductFormPrefillBarcode] = useState("");
+    // 🆕 بيانات السكان (تشغيلة/صلاحية/مصدر) المؤجلة لحد ما كرت الصنف يتحفظ، عشان نضيف
+    // السطر لفاتورة الشراء بنفس بيانات السكان الأصلية بعد الربط
+    const [pendingBarcodeLinkScan, setPendingBarcodeLinkScan] = useState(null);
     const [searchText, setSearchText] = useState("");
     const [searchResults, setSearchResults] = useState([]);
     const [showDropdown, setShowDropdown] = useState(false);
@@ -182,82 +187,18 @@ export function PurchaseModule({
     const [unmatchedLinkSearchPurch, setUnmatchedLinkSearchPurch] = useState("");
 
     // ربط باركود جديد (اتقرا بالسكانر ومتلقاش صنف) بصنف موجود عندنا — للحالة اللي الشركة غيّرت الـ GTIN
-    // 🛠️ بيتضاف كباركود للصنف مش بيستبدل باركوده — لو عنده باركود أساسي بالفعل (يعني لسه فيه رصيد
-    // فعلي بالباركود القديم)، الجديد بيتسجل كـ"باركود بديل" جنبه. لو مالوش باركود أساسي، بيتسجل كأساسي.
-    const linkUnmatchedBarcodeToProductPurch = async (product) => {
+    // 🛠️ بدل الكتابة المباشرة الصامتة، بيفتح كرت الصنف (ProductFormModal) محمّل ببيانات
+    // الصنف والباركود الجديد متعبي جاهز، عشان الصيدلي يراجع/يكمل الاسم الإنجليزي وسعر
+    // البيع وقت الربط نفسه. إضافة السطر لفاتورة الشراء بتحصل بعد الحفظ في onSaved.
+    const linkUnmatchedBarcodeToProductPurch = (product) => {
         const scan = unmatchedScanPurch;
         if (!scan?.gtin) return;
-        const newGtin = scan.gtin;
-        const alreadyLinked = product.barcode === newGtin || (product.altBarcodes || []).includes(newGtin);
-        const hadNoBarcode = !product.barcode;
-        let updatedProduct = product;
-
-        if (!alreadyLinked) {
-            if (hadNoBarcode) {
-                updatedProduct = { ...product, barcode: newGtin };
-                setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
-                const fieldResult = await queueEvent({
-                    id: crypto.randomUUID(),
-                    type: "PRODUCT_FIELD_UPDATE",
-                    timestamp: new Date().toISOString(),
-                    pharmacy_id: pharmacyId,
-                    payload: { id: product.id, pharmacy_id: pharmacyId, updates: { barcode: newGtin } },
-                });
-                if (!fieldResult.synced) {
-                    showToast("📴 تم حفظ الباركود محليًا - هيتزامن لما النت يرجع", "warning");
-                }
-            } else {
-                const updatedAlts = [...(product.altBarcodes || []), newGtin];
-                updatedProduct = { ...product, altBarcodes: updatedAlts };
-                setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
-                const altResult = await replaceProductAltBarcodes(product.id, pharmacyId, updatedAlts);
-                if (!altResult.synced) {
-                    showToast("📴 تم حفظ الباركود البديل محليًا - هيتزامن لما النت يرجع", "warning");
-                }
-            }
-        }
-
-        const barcodeRow = (scan.batch || scan.expiry)
-            ? {
-                product_id: product.id, pharmacy_id: pharmacyId,
-                base_barcode: newGtin,
-                batch_number: scan.batch || null,
-                expiry_date: scan.expiry || null,
-            }
-            : null;
-        if (barcodeRow) {
-            const linkResult = await queueEvent({
-                id: crypto.randomUUID(),
-                type: "BARCODE_LINK",
-                timestamp: new Date().toISOString(),
-                pharmacy_id: pharmacyId,
-                payload: { barcodeRow },
-            });
-            if (!linkResult.synced) {
-                showToast("📴 تم حفظ بيانات التشغيلة محليًا - هيتزامن لما النت يرجع", "warning");
-            }
-        }
-
-        if (alreadyLinked) {
-            showToast(`الباركود ده متسجل بالفعل لصنف "${product.nameAr || product.name}"`);
-        } else if (hadNoBarcode) {
-            showToast(`✅ تم تسجيل باركود "${product.nameAr || product.name}" (${newGtin})`, "success");
-        } else {
-            showToast(`✅ تم إضافة (${newGtin}) كباركود بديل لصنف "${product.nameAr || product.name}" — الباركود القديم (${product.barcode}) لسه شغال`, "success");
-        }
-
         setUnmatchedScanPurch(null);
         setUnmatchedLinkSearchPurch("");
-        if (scan.source === "edit") {
-            addItemToEdit(updatedProduct, scan.expiry || "", scan.batch || "");
-        } else {
-            const existSameDate = items.find((i) => i.id === updatedProduct.id && (i.expiry_date || "") === (scan.expiry || ""));
-            if (existSameDate || !scan.expiry) {
-                addItem(updatedProduct, scan.expiry || "", scan.batch || "");
-            } else {
-                addItemAsNew(updatedProduct, scan.expiry || "", scan.batch || "");
-            }
-        }
+        setPendingBarcodeLinkScan(scan); // نحتفظ بالتشغيلة/الصلاحية/المصدر لحد ما الفورم يتحفظ
+        setProductFormEditId(product.id);
+        setProductFormPrefillBarcode(scan.gtin);
+        setShowProductForm(true);
     };
     // ملحوظة: items/selSupplier/manualSubtotal/manualTax/showNew بقوا جايين من App (props)
     // بدل ما يكونوا state محلي هنا، عشان يفضلوا موجودين حتى لو الكومبوننت اتقفل وفتح تاني (تغيير تاب).
@@ -2892,7 +2833,7 @@ for (const ci of standaloneOfferItems) {
             {/* 🆕 نافذة إضافة/تعديل صنف — تظهر فوق فاتورة الشراء وتفضل الفاتورة مفتوحة خلفها */}
             <ProductFormModal
                 open={showProductForm}
-                onClose={() => { setShowProductForm(false); setReviewNewProductIdx(null); setProductFormPrefillName(""); }}
+                onClose={() => { setShowProductForm(false); setReviewNewProductIdx(null); setProductFormPrefillName(""); setProductFormPrefillBarcode(""); setPendingBarcodeLinkScan(null); setProductFormEditId(null); }}
                 editingId={productFormEditId}
                 products={products}
                 setProducts={setProducts}
@@ -2900,6 +2841,7 @@ for (const ci of standaloneOfferItems) {
                 pharmacyId={pharmacyId}
                 currentUser={currentUser}
                 prefillName={productFormPrefillName}
+                prefillBarcode={productFormPrefillBarcode}
                 jokerPendingItems={jokerPendingItems}
                 setJokerPendingItems={setJokerPendingItems}
                 onSaved={(saved) => {
@@ -2908,6 +2850,25 @@ for (const ci of standaloneOfferItems) {
                         resolveReviewItem(reviewNewProductIdx, saved);
                         setReviewNewProductIdx(null);
                         setProductFormPrefillName("");
+                        return;
+                    }
+                    // 🆕 لو الفتح ده كان من مسار "باركود مش معروف → ربط بصنف موجود"، أضف السطر
+                    // لفاتورة الشراء بنفس بيانات السكان الأصلية (تشغيلة/صلاحية/مصدر) بدل الإضافة العادية
+                    if (pendingBarcodeLinkScan && saved?.id) {
+                        const scan = pendingBarcodeLinkScan;
+                        setPendingBarcodeLinkScan(null);
+                        setProductFormPrefillBarcode("");
+                        setProductFormEditId(null);
+                        if (scan.source === "edit") {
+                            addItemToEdit(saved, scan.expiry || "", scan.batch || "");
+                        } else {
+                            const existSameDate = items.find((i) => i.id === saved.id && (i.expiry_date || "") === (scan.expiry || ""));
+                            if (existSameDate || !scan.expiry) {
+                                addItem(saved, scan.expiry || "", scan.batch || "");
+                            } else {
+                                addItemAsNew(saved, scan.expiry || "", scan.batch || "");
+                            }
+                        }
                         return;
                     }
                     // لو صنف جديد (مش تعديل)، نضيفه تلقائياً لسطور الفاتورة الحالية

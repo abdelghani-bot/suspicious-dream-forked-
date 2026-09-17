@@ -464,7 +464,7 @@ const confirmAddSubCat2 = async () => {
                 ...blank, ...p,
                 nameAr: p.nameAr || p.name_ar || p.name || "",
                 nameEn: p.nameEn || p.name_en || "",
-                gtin: p.barcode || "", // 🆕 GTIN بيتحمّل فورًا مع الفورم، مش منتظر رد أي استعلام
+                gtin: prefillBarcode || p.barcode || "", // 🛠️ لو وصل prefillBarcode مع editingId مع بعض (مسار "ربط باركود بصنف موجود")، الباركود الجديد له الأولوية على القديم/الفاضي المسجل على الصنف
                 price: String(p.taxable ? Math.round((p.price * 1.15) * 100) / 100 : p.price),
                 cost: String(p.cost),
                 minStock: String(p.min_stock || p.minStock || ""),

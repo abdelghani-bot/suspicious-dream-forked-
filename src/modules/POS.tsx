@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { logAudit } from "../lib/auditLog"; // 🆕 لتسجيل عمليات استبدال الباركود (مش الإضافة العادية)
 import { COLORS, tint } from "../theme";
 import { BarcodeScanner } from "../components/BarcodeScanner";
 import { TAX_RATE } from "../data/seedData";
 import { normGtin } from "../lib/barcodeUtils";
-import { todayLocal } from "../lib/dateUtils";
+import { todayLocal, nameSimilarity } from "../lib/dateUtils"; // 🆕 nameSimilarity لترتيب نتايج ربط الباركود بالتشابه
 import { sellFromBatches } from "../lib/inventoryUtils";
 import { CART_AREA_HEIGHT, DEFAULT_DOSE_TEMPLATES, DOSAGE_LABEL_SIZES, MAX_INVOICES, emptyInvoice, playWarningBeep } from "../lib/posConstants";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
@@ -86,6 +87,10 @@ export function POS({
     // بدل ما نرفض بس، بنسيب الكاشير يربط الكود الجديد بالصنف الصح يدويًا، والنظام يحدث الباركود تلقائي.
     const [unmatchedScan, setUnmatchedScan] = useState(null); // { gtin/code, batch, expiry, serial }
     const [unmatchedLinkSearch, setUnmatchedLinkSearch] = useState("");
+    // 🆕 خطوة تأكيد قبل اعتماد الربط (نفس نمط شاشة الجرد) — بدل التنفيذ المباشر عند الضغط على نتيجة.
+    const [selectedUnmatchedCandidate, setSelectedUnmatchedCandidate] = useState(null);
+    // 🆕 "add" (افتراضي) = باركود بديل جنب القديم لو الصنف عنده باركود بالفعل، "replace" = استبدال صريح
+    const [unmatchedLinkMode, setUnmatchedLinkMode] = useState("add");
 
     // ── ملصق الجرعة ──
     const [doseLabelItem, setDoseLabelItem] = useState(null);
@@ -777,30 +782,40 @@ export function POS({
     };
 
     // ── ربط باركود جديد (اتقرا بالسكانر ومتلقاش صنف) بصنف موجود عندنا — للحالة اللي الشركة غيّرت الـ GTIN ──
-    // 🛠️ الباركود الجديد بقى بيتضاف للصنف مش بيستبدل باركوده — لو الصنف عنده باركود أساسي بالفعل
-    // (يعني لسه فيه رصيد فعلي على الرف بالباركود القديم)، الجديد بيتسجل كـ"باركود بديل" جنبه، مش بدله.
-    // لو الصنف مالوش باركود أساسي أصلاً، الجديد بيتسجل كباركود أساسي زي أول مرة.
-    const linkUnmatchedBarcodeToProduct = async (product) => {
+    // 🛠️ لو الصنف عنده باركود أساسي بالفعل، الكاشير هو اللي بيختار "إضافة كباركود بديل" أو "استبدال"
+    // من شاشة التأكيد (مش قرار تلقائي)، لأن الاتنين احتمالين واقعيين: أوفرلاب مقصود، أو خطأ إدخال قديم.
+    // لو الصنف مالوش باركود أساسي أصلاً، مفيش تعارض والباركود بيتسجل كأساسي على طول.
+    const linkUnmatchedBarcodeToProduct = async (product, mode = "add") => {
         const newGtin = unmatchedScan.gtin;
         if (!newGtin) return;
+        const label = product.nameAr || product.name;
         const alreadyLinked = product.barcode === newGtin || (product.altBarcodes || []).includes(newGtin);
         const hadNoBarcode = !product.barcode;
         let updatedProduct = product;
 
         if (!alreadyLinked) {
-            if (hadNoBarcode) {
+            if (hadNoBarcode || mode === "replace") {
+                const oldBarcode = product.barcode;
                 // تحديث محلي فوري (متفائل)، والكتابة الفعلية بتعدي على طابور الأوفلاين
-                updatedProduct = { ...product, barcode: newGtin };
+                updatedProduct = { ...product, barcode: newGtin, barcode_status: "linked" };
                 setProducts((prev) => prev.map((x) => (x.id === product.id ? updatedProduct : x)));
                 const fieldResult = await queueEvent({
                     id: crypto.randomUUID(),
                     type: "PRODUCT_FIELD_UPDATE",
                     timestamp: new Date().toISOString(),
                     pharmacy_id: pharmacyId,
-                    payload: { id: product.id, pharmacy_id: pharmacyId, updates: { barcode: newGtin } },
+                    payload: { id: product.id, pharmacy_id: pharmacyId, updates: { barcode: newGtin, barcode_status: "linked" } },
                 });
                 if (!fieldResult.synced) {
                     showToast("📴 تم حفظ الباركود محليًا - هيتزامن لما النت يرجع", "warning");
+                }
+                if (!hadNoBarcode && mode === "replace") {
+                    logAudit({
+                        pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
+                        entityId: product.id, entityLabel: label,
+                        oldValue: { barcode: oldBarcode }, newValue: { barcode: newGtin },
+                        description: `تم استبدال باركود "${label}" من ${oldBarcode} إلى ${newGtin} (من نقطة البيع)`,
+                    });
                 }
             } else {
                 const updatedAlts = [...(product.altBarcodes || []), newGtin];
@@ -837,16 +852,20 @@ export function POS({
         }
 
         if (alreadyLinked) {
-            showToast(`الباركود ده متسجل بالفعل لصنف "${product.nameAr || product.name}"`);
+            showToast(`الباركود ده متسجل بالفعل لصنف "${label}"`);
         } else if (hadNoBarcode) {
-            showToast(`✅ تم تسجيل باركود "${product.nameAr || product.name}" (${newGtin})`, "success");
+            showToast(`✅ تم تسجيل باركود "${label}" (${newGtin})`, "success");
+        } else if (mode === "replace") {
+            showToast(`✅ تم استبدال باركود "${label}" بالكود الجديد (${newGtin})`, "success");
         } else {
-            showToast(`✅ تم إضافة (${newGtin}) كباركود بديل لصنف "${product.nameAr || product.name}" — الباركود القديم (${product.barcode}) لسه شغال`, "success");
+            showToast(`✅ تم إضافة (${newGtin}) كباركود بديل لصنف "${label}" — الباركود القديم (${product.barcode}) لسه شغال`, "success");
         }
 
         const pendingScan = unmatchedScan;
         setUnmatchedScan(null);
         setUnmatchedLinkSearch("");
+        setSelectedUnmatchedCandidate(null);
+        setUnmatchedLinkMode("add");
         const norm = (v) => (v ? String(v).slice(0, 7) : "");
         addToCart({
             ...updatedProduct,
@@ -1037,6 +1056,11 @@ export function POS({
             keywords.includes(searchLower)
         );
     });
+    // 🆕 نفس isPendingLink المستخدمة في شاشة الأصناف — بتعتمد على barcode_status لو موجود
+    const isPendingLinkPOS = (p) => p.barcode_status ? p.barcode_status === "pending_link" : (!p.barcode || String(p.barcode).trim() === "");
+    // 🆕 الأصناف قيد الربط تترتب آخر القايمة (مش بتتخفي) عشان ما تتلخبطش مع صنف تاني قريب
+    // الاسم وسط نتايج البحث العادية — الترتيب مستقر (stable sort) فبيحافظ على ترتيب باقي النتايج
+    filtered.sort((a, b) => (isPendingLinkPOS(a) ? 1 : 0) - (isPendingLinkPOS(b) ? 1 : 0));
     // لو البحث طابق المادة الفعالة (مش الاسم التجاري)، نبرز ده في النتيجة
     // عشان المستخدم يفهم ليه ظهرت أسماء تجارية مختلفة لنفس المادة
     const isIngredientMatch = (p) => {
@@ -1905,6 +1929,8 @@ showToast("تمت عملية البيع ✓");
                                     ↓↑ تنقل · Enter إضافة · Esc إلغاء
                                 </div>
                                 {filtered.slice(0, 50).map((p, idx) => {
+                                    const list50 = filtered.slice(0, 50);
+                                    const showPendingDivider = isPendingLinkPOS(p) && (idx === 0 || !isPendingLinkPOS(list50[idx - 1]));
                                     const batchesWithRemaining = (p.batches || [])
                                         .filter((b) => b.expiry_date)
                                         .map((b) => {
@@ -1929,8 +1955,13 @@ showToast("تمت عملية البيع ✓");
                                             ? COLORS.gold
                                             : COLORS.green;
                                     return (
+                                        <div key={p.id}>
+                                        {showPendingDivider && (
+                                            <div style={{ padding: "5px 14px", fontSize: 10, fontWeight: 700, color: COLORS.gold, background: "rgba(0,0,0,0.03)" }}>
+                                                ⚠️ قيد الربط — لسه من غير باركود دولي
+                                            </div>
+                                        )}
                                         <div
-                                            key={p.id}
                                             style={{
                                                 padding: "7px 14px",
                                                 cursor: "pointer",
@@ -1939,7 +1970,7 @@ showToast("تمت عملية البيع ✓");
                                                 justifyContent: "space-between",
                                                 alignItems: "center",
                                                 background:
-                                                    idx === highlightedIdx ? COLORS.surfaceAlt : "transparent",
+                                                    idx === highlightedIdx ? COLORS.surfaceAlt : (isPendingLinkPOS(p) ? "rgba(212,175,55,0.06)" : "transparent"),
                                             }}
                                             onMouseEnter={() => setHighlightedIdx(idx)}
                                             onMouseLeave={() => setHighlightedIdx(-1)}
@@ -2058,6 +2089,7 @@ showToast("تمت عملية البيع ✓");
                                                     </>
                                                 )}
                                             </div>
+                                        </div>
                                         </div>
                                     );
                                 })}
@@ -3128,14 +3160,14 @@ showToast("تمت عملية البيع ✓");
             {/* ── باركود اتقرا ومتلقاش صنف مطابق — الأرجح إن الشركة غيّرت الـ GTIN. نسيب الكاشير يربطه بصنف موجود ── */}
             <Modal
                 open={!!unmatchedScan}
-                onClose={() => { setUnmatchedScan(null); setUnmatchedLinkSearch(""); }}
+                onClose={() => { setUnmatchedScan(null); setUnmatchedLinkSearch(""); setSelectedUnmatchedCandidate(null); setUnmatchedLinkMode("add"); }}
                 title="⚠️ باركود غير معروف"
             >
-                {unmatchedScan && (
+                {unmatchedScan && !selectedUnmatchedCandidate && (
                     <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
                         <div style={{ color: COLORS.textDim, fontSize: 13, lineHeight: 1.7 }}>
                             الباركود <span style={{ color: COLORS.gold, fontWeight: 700 }}>{unmatchedScan.gtin}</span> مش متسجل لأي صنف عندك — يمكن الشركة المنتجة غيّرت الـ GTIN.
-                            لو الصنف ده موجود عندك بباركود قديم، دوّر عليه واختاره تحت وهيتحدث باركوده تلقائيًا لهذا الكود الجديد.
+                            لو الصنف ده موجود عندك بباركود قديم، دوّر عليه واختاره تحت.
                         </div>
                         <input
                             autoFocus
@@ -3144,15 +3176,28 @@ showToast("تمت عملية البيع ✓");
                             placeholder="🔍 دوّر باسم الصنف اللي عايز تربطه بالباركود ده..."
                             style={{ width: "100%", background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "8px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }}
                         />
-                        {unmatchedLinkSearch.trim() && (
-                            <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
-                                {products
-                                    .filter((p) => !p.is_disabled && ((p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase()) || (p.nameEn || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase())))
-                                    .slice(0, 20)
-                                    .map((p) => (
+                        {unmatchedLinkSearch.trim() && (() => {
+                            const q = unmatchedLinkSearch.trim();
+                            const qLower = q.toLowerCase();
+                            const candidates = products
+                                .filter((p) => !p.is_disabled)
+                                .map((p) => {
+                                    const nameAr = p.nameAr || p.name || "";
+                                    const nameEn = p.nameEn || p.name_en || "";
+                                    const score = Math.max(nameSimilarity(q, nameAr), nameSimilarity(q, nameEn));
+                                    const boost = nameAr.toLowerCase().includes(qLower) || nameEn.toLowerCase().includes(qLower) ? 0.15 : 0;
+                                    return { p, score: score + boost };
+                                })
+                                .filter((x) => x.score >= 0.35)
+                                .sort((a, b) => b.score - a.score)
+                                .slice(0, 20)
+                                .map((x) => x.p);
+                            return (
+                                <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                                    {candidates.map((p) => (
                                         <div
                                             key={p.id}
-                                            onClick={() => linkUnmatchedBarcodeToProduct(p)}
+                                            onClick={() => setSelectedUnmatchedCandidate(p)}
                                             style={{ padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, fontSize: 13, color: COLORS.textPrimary, display: "flex", justifyContent: "space-between" }}
                                             onMouseEnter={(e) => { e.currentTarget.style.background = COLORS.surfaceAlt; }}
                                             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
@@ -3161,13 +3206,46 @@ showToast("تمت عملية البيع ✓");
                                             <span style={{ color: COLORS.textDim, fontSize: 11 }}>الباركود الحالي: {p.barcode || "—"}</span>
                                         </div>
                                     ))}
-                                {products.filter((p) => (p.nameAr || p.name || "").toLowerCase().includes(unmatchedLinkSearch.trim().toLowerCase())).length === 0 && (
-                                    <div style={{ padding: 14, fontSize: 12.5, color: COLORS.textDim, textAlign: "center" }}>مفيش نتائج مطابقة</div>
-                                )}
-                            </div>
-                        )}
+                                    {candidates.length === 0 && (
+                                        <div style={{ padding: 14, fontSize: 12.5, color: COLORS.textDim, textAlign: "center" }}>مفيش نتائج قريبة</div>
+                                    )}
+                                </div>
+                            );
+                        })()}
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
                             <Btn variant="ghost" onClick={() => { setUnmatchedScan(null); setUnmatchedLinkSearch(""); }}>إلغاء</Btn>
+                        </div>
+                    </div>
+                )}
+
+                {unmatchedScan && selectedUnmatchedCandidate && (
+                    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ fontSize: 13, color: COLORS.textDim }}>الكود الممسوح:</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary, marginBottom: 10 }}>{unmatchedScan.gtin}</div>
+                        <div style={{ fontSize: 13, color: COLORS.textDim }}>هيتربط بـ:</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.textPrimary, marginBottom: 14 }}>
+                            {selectedUnmatchedCandidate.nameAr || selectedUnmatchedCandidate.name}
+                        </div>
+
+                        {selectedUnmatchedCandidate.barcode && (
+                            <div style={{ marginBottom: 14, padding: 10, borderRadius: 8, background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 12, color: COLORS.gold, marginBottom: 8 }}>
+                                    ⚠️ الصنف ده عنده باركود مسجل بالفعل: <b>{selectedUnmatchedCandidate.barcode}</b>
+                                </div>
+                                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 6, cursor: "pointer" }}>
+                                    <input type="radio" checked={unmatchedLinkMode === "add"} onChange={() => setUnmatchedLinkMode("add")} />
+                                    إضافة الكود الجديد كباركود إضافي (الاتنين هيفضلوا شغالين)
+                                </label>
+                                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                                    <input type="radio" checked={unmatchedLinkMode === "replace"} onChange={() => setUnmatchedLinkMode("replace")} />
+                                    استبدال الباركود القديم بالجديد (لو القديم كان خطأ إدخال)
+                                </label>
+                            </div>
+                        )}
+
+                        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                            <Btn variant="ghost" onClick={() => setSelectedUnmatchedCandidate(null)}>رجوع للبحث</Btn>
+                            <Btn icon="check" onClick={() => linkUnmatchedBarcodeToProduct(selectedUnmatchedCandidate, unmatchedLinkMode)}>تأكيد الربط</Btn>
                         </div>
                     </div>
                 )}

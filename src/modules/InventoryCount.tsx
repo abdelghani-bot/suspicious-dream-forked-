@@ -91,6 +91,9 @@ export function InventoryCount({
 
     // ==================== 🆕 إضافة صنف جديد من نفس شاشة الجرد ====================
     const [showAddProductModal, setShowAddProductModal] = useState(false);
+    // 🆕 null = صنف جديد كليًا، أو id لصنف موجود بالفعل بيتربط بباركود جديد —
+    // بيتحكم في هل ProductFormModal يفتح فاضي ولا محمّل ببيانات الصنف القائم
+    const [addProductEditingId, setAddProductEditingId] = useState(null);
 
     // ==================== 🆕 استيراد الجرد من إكسيل ====================
     const invExcelInputRef = useRef(null);
@@ -395,22 +398,16 @@ export function InventoryCount({
         setEditingCostValue("");
     };
 
-    // 🆕 ربط باركود جديد/متغير بصنف موجود بالفعل — بيحدّث حقل الباركود في الصنف
-    // نفسه (نفس آلية saveProduct المستخدمة في تحديثات الصنف الجزئية زي is_standalone_offer)
-    // وبعدين يضيفه لسطر الجرد الحالي مباشرة عشان الصيدلي يكمل بدون انقطاع.
-    const linkBarcodeToProduct = async (product) => {
-        const { error } = await saveProduct({ id: product.id, barcode: unmatchedBarcode }, pharmacyId, true);
-        if (error) {
-            showToast("فشل ربط الباركود: " + error, "error");
-            return;
-        }
-        const updatedProduct = { ...product, barcode: unmatchedBarcode };
-        setProducts((prev) => prev.map((p) => (p.id === product.id ? updatedProduct : p)));
-        showToast(`تم ربط الباركود بـ "${product.nameAr || product.name}" ✓`);
+    // 🆕 ربط باركود جديد/متغير بصنف موجود بالفعل — بدل الكتابة المباشرة الصامتة،
+    // بيفتح كرت الصنف (ProductFormModal) نفسه محمّل ببيانات الصنف والباركود الجديد
+    // متعبي جاهز، عشان كرت الصنف يفضل هو مركز الحقيقة الوحيد (مثلاً تأكيد الاسم
+    // الإنجليزي وسعر البيع وقت الربط) بدل ما الربط يعدي من غير ما يلمس الكرت.
+    // الحفظ الفعلي وإضافة السطر لقائمة الجرد بيحصلوا في onSaved بتاع المودال.
+    const linkBarcodeToProduct = (product) => {
         setShowLinkBarcodeModal(false);
-        addProductToCount(updatedProduct);
-        setUnmatchedBarcode("");
-        setLinkSearch("");
+        setAddProductEditingId(product.id);
+        setShowAddProductModal(true);
+        // unmatchedBarcode يفضل زي ما هو في الـ state — هيتبعت كـ prefillBarcode للمودال
     };
 
     // 🆕 قايمة "أصناف لسه ماتجردتش": أي صنف عنده رصيد في النظام ومعملهوش سكان/إضافة
@@ -1928,15 +1925,18 @@ export function InventoryCount({
                 </div>
             </Modal>
 
-            {/* 🆕 فورم إضافة صنف جديد من نفس شاشة الجرد — نفس الفورم الموحّد المستخدم
-                في شاشة الأصناف وفاتورة الشراء. لو جاي من مسار "الباركود مش موجود"،
-                الباركود بييجي متعبي جاهز في الفورم (prefillBarcode). بعد الحفظ، الصنف
-                الجديد بيتضاف تلقائيًا لسطر الجرد الحالي عشان الاستمرارية تفضل من غير
-                ما الصيدلي يقطع الجرد. */}
+            {/* 🆕 فورم كرت الصنف من نفس شاشة الجرد — بيتفتح في حالتين:
+                (1) editingId=null: صنف جديد كليًا (مسار "مش لاقيه؟ ضيفه كصنف جديد")
+                (2) editingId=addProductEditingId: صنف موجود بالفعل بيتربط بباركود جديد
+                    (مسار linkBarcodeToProduct) — بيفتح محمّل ببيانات الصنف القائم،
+                    مع الباركود الجديد متعبي جاهز في prefillBarcode، عشان الصيدلي
+                    يراجع/يكمل الاسم الإنجليزي وسعر البيع وقت الربط نفسه.
+                في الحالتين، بعد الحفظ الصنف بيتضاف تلقائيًا لسطر الجرد الحالي عشان
+                الاستمرارية تفضل من غير ما الصيدلي يقطع الجرد. */}
             <ProductFormModal
                 open={showAddProductModal}
-                onClose={() => setShowAddProductModal(false)}
-                editingId={null}
+                onClose={() => { setShowAddProductModal(false); setAddProductEditingId(null); }}
+                editingId={addProductEditingId}
                 products={products}
                 setProducts={setProducts}
                 showToast={showToast}
@@ -1947,6 +1947,7 @@ export function InventoryCount({
                     setShowAddProductModal(false);
                     addProductToCount(savedProduct);
                     setUnmatchedBarcode("");
+                    setAddProductEditingId(null);
                 }}
             />
         </div>
