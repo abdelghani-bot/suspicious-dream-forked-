@@ -8,7 +8,7 @@ import { Btn, Input, Modal, Select } from "../ui/primitives";
 // ==================== RASSD SETTINGS ====================
 export function RasdSettings({ showToast, products, pharmacyId }) {
   const [config, setConfig] = useState(() => {
-    const saved = localStorage.getItem("rasd_config");
+    const saved = localStorage.getItem(`rasd_config_${pharmacyId}`);
     return saved
       ? JSON.parse(saved)
       : {
@@ -28,7 +28,7 @@ export function RasdSettings({ showToast, products, pharmacyId }) {
       .then(({ data }) => {
         if (data?.rasd_config) {
           setConfig(data.rasd_config);
-          localStorage.setItem("rasd_config", JSON.stringify(data.rasd_config));
+          localStorage.setItem(`rasd_config_${pharmacyId}`, JSON.stringify(data.rasd_config));
         }
       });
   }, [pharmacyId]);
@@ -246,6 +246,12 @@ export function RasdSettings({ showToast, products, pharmacyId }) {
     }
   };
 
+  // 🆕 تأكيد إضافي (دفاع في العمق) إن الطابور مربوط بمعرف الصيدلية الصحيح من هنا كمان،
+  // مش معتمدين بس على App.jsx لو الشاشة دي اتفتحت/اتحدّثت قبل ما الـ effect الرئيسي يشتغل.
+  useEffect(() => {
+    if (pharmacyId) RasdQueue.setPharmacyId(pharmacyId);
+  }, [pharmacyId]);
+
   // تحديث عداد الطابور كل شوية عشان يبان تحديث لحظي
   useEffect(() => {
     const update = () =>
@@ -264,7 +270,7 @@ export function RasdSettings({ showToast, products, pharmacyId }) {
   };
 
   const save = async () => {
-    localStorage.setItem("rasd_config", JSON.stringify(config));
+    localStorage.setItem(`rasd_config_${pharmacyId}`, JSON.stringify(config));
     RasdQueue.stop();
     RasdQueue.start(showToast); // إعادة تشغيل المؤقت بالمدة الجديدة لو اتغيرت
     if (pharmacyId) {

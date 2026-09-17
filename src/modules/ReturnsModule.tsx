@@ -57,6 +57,11 @@ export function ReturnsModule({
     }, [dayClosedToday, openShiftToday]);
 
     const [supportsCardRefund, setSupportsCardRefund] = useState(false);
+    // 🆕 دفاع في العمق: تأكيد إن الطابور مربوط بمعرف الصيدلية الصحيح قبل أي enqueue من هنا،
+    // زي نفس الفكرة في RasdSettings.jsx — منعتمدش بس على App.jsx.
+    useEffect(() => {
+        if (pharmacyId) RasdQueue.setPharmacyId(pharmacyId);
+    }, [pharmacyId]);
     useEffect(() => {
         if (!pharmacyId) return;
         // إعداد الصيدلية (supports_card_refund) — قراءة نادرة ومش حرجة أوفلاين.
@@ -475,7 +480,7 @@ export function ReturnsModule({
             setSales((prev) =>
                 prev.map((s) =>
                     s.id === selInvoice.id
-                        ? { ...s, items: updatedItems, returned: allReturned, returnDate: allReturned ? today : s.returnDate }
+                        ? { ...s, items: updatedItems, returned: allReturned, returnDate: allReturned ? today : s.returnDate, returnCreatedAt: allReturned ? nowISO : s.returnCreatedAt }
                         : s
                 )
             );
@@ -611,7 +616,7 @@ export function ReturnsModule({
         });
 
         // ── 6) رصد — بدون تغيير، RasdQueue له آلية طابور خاصة به ──
-        const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+        const rasdConfig = JSON.parse(localStorage.getItem(`rasd_config_${pharmacyId}`) || "{}");
         const isRasdDrugReturnLine = (i) => (i.category || i.main_category || i.mainCategory) === "دواء";
         const salesSerializedReturns =
             type === "sales" && selInvoice

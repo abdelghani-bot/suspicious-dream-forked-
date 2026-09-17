@@ -214,7 +214,7 @@ export function Dashboard({
     // ── حسابات المبيعات ──
     const todaySales = sales.filter((s) => isTodayRecord(s) && !s.returned);
     const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
-    const todayCreditPaid = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
+    const todayCreditPaid = creditPayments.filter((p) => isTodayRecord(p)).reduce((a, p) => a + p.amount, 0);
     // 🆕 المرتجعات هنا بتتحسب من treasury_entries (نفس مصدر تقفيل اليوم) مش من sales.returned مباشرة،
     // عشان: 1) مرتجع فاتورة آجل ميتخصمش من الخزنة (مفيش كاش خرج أصلاً)، 2) المرتجع الجزئي (مش كل الفاتورة) يتحسب صح.
     const todayReturnsForDash = (treasuryEntries || [])
@@ -508,7 +508,7 @@ export function Dashboard({
     const totalAlertsCount = alertCenterGroups.reduce((a, g) => a + g.count, 0);
 
     // ══════════ تايم لاين حركة اليوم (بالساعة) ══════════
-    const todaySalesForTimeline = sales.filter((s) => s.date === todayISO && !s.returned);
+    const todaySalesForTimeline = sales.filter((s) => isTodayRecord(s) && !s.returned);
     const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0, rev: 0 }));
     todaySalesForTimeline.forEach((s) => {
         const t = s.created_at || s.time || null;
@@ -628,8 +628,12 @@ export function Dashboard({
         const creditPaid = isToday ? todayCreditPaid : monthCreditCollected;
         const ajilTotal = isToday ? todayAjilTotal : monthAjilTotal;
         const returns = isToday ? todayReturnsForDash : monthReturnsForDash;
+        const isTodayReturn = (s) => {
+            if (!s.returnCreatedAt) return s.returnDate === today; // سجلات قديمة قبل إضافة الحقل الجديد
+            return new Date(s.returnCreatedAt).getTime() >= todayStartTs;
+        };
         const returnsCnt = isToday
-            ? sales.filter((s) => s.returned && s.returnDate === today).length
+            ? sales.filter((s) => s.returned && isTodayReturn(s)).length
             : sales.filter((s) => s.returned && s.returnDate?.startsWith(monthKey)).length;
 
         return (

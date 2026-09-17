@@ -20,6 +20,18 @@ import { saveProduct, replaceProductBarcodes, replaceProductAltBarcodes, replace
 const ADD_NEW_SUB2 = "➕ إضافة شكل صيدلاني جديد...";
 const ADD_NEW_UNIT = "➕ إضافة وحدة جديدة...";
 
+// 🆕 تطبيع اسم البراند بالإنجليزي — ده المفتاح المرجعي (source of truth) لربط
+// البراند، لأن الإنجليزي بخط لاتيني ثابت (عكس العربي اللي بيختلف بكتابة كل واحد).
+// lowercase + إزالة مسافات زيادة أول/آخر النص وبينها + إزالة أي رموز مش حروف/أرقام.
+function normalizeBrandEn(s) {
+    return (s || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 export function ProductFormModal({
     open,
     onClose,
@@ -161,6 +173,28 @@ export function ProductFormModal({
     });
     return map;
 }, [products]);
+// 🆕 عكس الاتجاه: الإنجليزي (بعد التطبيع) هو المفتاح، والعربي مشتق منه — ده اللي بيمنع
+// إن نفس البراند يتسجل بعدة كتابات عربية مختلفة كأنهم براندات منفصلة. لو نفس المفتاح
+// الإنجليزي اتكرر بأكتر من كتابة عربية، بناخد الأكتر تكرارًا (الأكثر استخدامًا فعليًا).
+const brandArFromEnMap = useMemo(() => {
+    const counts = {};
+    products.forEach((p) => {
+        const cat = p.main_category || p.mainCategory || "";
+        const enRaw = (p.brand_name_en || "").trim();
+        const ar = (p.brand_name || "").trim();
+        if (cat === "دواء" || !enRaw || !ar) return;
+        const key = normalizeBrandEn(enRaw);
+        if (!key) return;
+        counts[key] = counts[key] || {};
+        counts[key][ar] = (counts[key][ar] || 0) + 1;
+    });
+    const map = {};
+    Object.keys(counts).forEach((key) => {
+        const variants = counts[key];
+        map[key] = Object.keys(variants).sort((a, b) => variants[b] - variants[a])[0];
+    });
+    return map;
+}, [products]);
 // 🆕 البراند → الشركة المنتجة، بنفس منطق brandEnMap بالظبط
 const brandManufacturerMap = useMemo(() => {
     const map = {};
@@ -211,6 +245,20 @@ useEffect(() => {
     manufacturerAutoRef.current = suggested;
 }, [isNonDrug, form.brandName, brandManufacturerMap]);
 
+// 🆕 المنطق المعكوس: البراند بالإنجليزي هو المرجع. لو المستخدم كتب إنجليزي بيطابق
+// (بعد التطبيع) براند مسجل قبل كده، نملي العربي تلقائيًا من brandArFromEnMap —
+// بنفس أسلوب باقي حقول الـ auto-fill (منسيبش تعديل يدوي يتكتب فوقه).
+const brandArAutoRef = useRef("");
+useEffect(() => {
+    if (!isNonDrug) return;
+    const key = normalizeBrandEn(form.brandNameEn);
+    const suggested = key ? (brandArFromEnMap[key] || "") : "";
+    if (suggested && (form.brandName.trim() === "" || form.brandName === brandArAutoRef.current)) {
+        F("brandName", suggested);
+    }
+    brandArAutoRef.current = suggested;
+}, [isNonDrug, form.brandNameEn, brandArFromEnMap]);
+
 const subCat2AutoRef = useRef("");
 useEffect(() => {
     if (!isNonDrug || !form.itemType) return;
@@ -230,8 +278,16 @@ useEffect(() => {
         });
         return Array.from(set).sort((a, b) => a.localeCompare(b, "ar"));
     }, [products]);
-    // 🆕 نفس الفكرة بالظبط بس للبراند بالإنجليزي — مبنية من brandEnMap (كل قيمة فريدة)
-    const knownBrandsEn = useMemo(() => Array.from(new Set(Object.values(brandEnMap))).sort((a, b) => a.localeCompare(b)), [brandEnMap]);
+    // 🆕 نفس الفكرة بالظبط بس للبراند بالإنجليزي — مبنية من brandEnMap، لكن التفرقة بالمفتاح
+    // المُطبّع (normalizeBrandEn) مش النص الخام، عشان "Nivea" و"nivea " ما يتحسبوش خيارين مختلفين
+    const knownBrandsEn = useMemo(() => {
+        const seen = new Map(); // normalized key → أول شكل عرض شفناه
+        Object.values(brandEnMap).forEach((en) => {
+            const key = normalizeBrandEn(en);
+            if (key && !seen.has(key)) seen.set(key, en);
+        });
+        return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+    }, [brandEnMap]);
 
     useEffect(() => {
         if (!pharmacyId) return;
@@ -831,7 +887,7 @@ const confirmAddSubCat2 = async () => {
                             <Input label="الاسم بالإنجليزي" value={form.nameEn} onChange={(v) => F("nameEn", v)} placeholder="Nivea Cream 400ml" dir="ltr" lang="en" />
                             {!brandEn && form.brandName && (
     <div style={{ gridColumn: "1 / -1", fontSize: 11, color: COLORS.gold, marginTop: -6 }}>
-        💡 أول مرة تستخدم براند "{form.brandName}" — اكتب اسمه بالإنجليزي في خانة "البراند بالإنجليزي"، وبعد كده هيتملي لوحده تلقائيًا لأي صنف جديد بنفس البراند.
+        💡 أول مرة تستخدم براند "{form.brandName}" — اكتب اسمه بالإنجليزي في خانة "البراند بالإنجليزي"، وبعد كده أي صنف جديد بنفس البراند الإنجليزي هيتملى عربيه لوحده تلقائيًا (حتى لو اتكتب بطريقة مختلفة شوية).
     </div>
 )}
                             

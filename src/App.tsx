@@ -502,7 +502,7 @@ export default function PharmacyPro() {
                 // هتترفع تلقائيًا أول ما الاتصال يرجع، من غير ما توقف إخراج المخزون المحلي.
                 let rasdQueued = false;
                 try {
-                    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+                    const rasdConfig = JSON.parse(localStorage.getItem(`rasd_config_${pharmacyId}`) || "{}");
                     if (rasdConfig.enabled) {
                         const rasdItems = expiredItems
                             .map((i) => {
@@ -537,10 +537,15 @@ export default function PharmacyPro() {
     );
 
     // تشغيل الرفع التلقائي الدوري لعمليات رصد المتراكمة (Queue)
+    // 🆕 لازم نربط الطابور بمعرف الصيدلية الحالي أول حاجة، وقبل أي enqueue/flush —
+    // وبنعيد الربط كل مرة pharmacyId يتغيّر (تسجيل خروج/دخول بحساب صيدلية تانية على
+    // نفس المتصفح من غير reload كامل)، عشان مايفضلش شغال على معرف صيدلية قديم.
     useEffect(() => {
+        RasdQueue.setPharmacyId(pharmacyId);
+        if (!pharmacyId) return;
         RasdQueue.start(showToast);
         return () => RasdQueue.stop();
-    }, [showToast]);
+    }, [pharmacyId, showToast]);
 
     const currentShift = shifts.find(
         (s) => !s.end_time && s.user === currentUser?.name
@@ -609,7 +614,7 @@ export default function PharmacyPro() {
                 // اللي بتقرا الإعداد بشكل sync (طابور رصد، حفظ الفواتير، ...) تشتغل بأحدث نسخة
                 // من غير ما تحتاج تتحول كلها لـ async.
                 if (rasdRow?.data?.rasd_config) {
-                    localStorage.setItem("rasd_config", JSON.stringify(rasdRow.data.rasd_config));
+                    localStorage.setItem(`rasd_config_${pharmacyId}`, JSON.stringify(rasdRow.data.rasd_config));
                 }
                 setProducts(
                     (p.data ?? []).map((row) => ({
@@ -642,6 +647,7 @@ export default function PharmacyPro() {
                     (sa.data ?? []).map((row) => ({
                         ...row,
                         returnDate: row.return_date ?? row.returnDate ?? undefined,
+                        returnCreatedAt: row.return_created_at ?? row.returnCreatedAt ?? undefined,
                     }))
                 );
                 setReturnsData(ret.data ?? []);

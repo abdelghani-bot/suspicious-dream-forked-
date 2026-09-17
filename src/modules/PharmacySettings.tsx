@@ -57,7 +57,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
         // ميفضلش فاضي وقت التحميل، وبرضه يبقى عندنا نسخة جاهزة نرجعلها لو الـ fetch فشل تحت.
         let cachedSettings = null;
         try {
-            const raw = localStorage.getItem("pharmacy_settings");
+            const raw = localStorage.getItem(`pharmacy_settings_${pharmacyId}`);
             if (raw) {
                 cachedSettings = JSON.parse(raw);
                 setSettings(cachedSettings);
@@ -109,7 +109,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                     // 🆕 نحدّث الكاش المحلي بأحدث نسخة من السيرفر كل ما التحميل ينجح،
                     // عشان يفضل مطابق للحقيقي وقت الاستخدام أوفلاين لاحقًا.
                     try {
-                        localStorage.setItem("pharmacy_settings", JSON.stringify(fresh));
+                        localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify(fresh));
                     } catch (err) {
                         console.error("failed to cache pharmacy_settings:", err);
                     }
@@ -183,7 +183,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
 
         // نحدّث الكاش المحلي فورًا (نفس شكل الفورم عشان أي قراءة تالية أوفلاين تلاقيه جاهز)
         try {
-            localStorage.setItem("pharmacy_settings", JSON.stringify(settings));
+            localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify(settings));
         } catch (err) {
             console.error("failed to cache pharmacy_settings on save:", err);
         }

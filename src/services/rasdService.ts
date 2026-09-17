@@ -342,20 +342,39 @@ export const RasdService = {
 // بدل ما نبعت كل عملية لرصد فورًا ونستنى الرد (وممكن يفشل البيع لو النت بطيء أو رصد واقع)
 // بنسجل العملية في طابور محلي، وبنرفع كل اللي اتراكم كل فترة (زي أنظمة رصد الحقيقية اللي بترفع كل 10 دقايق)
 export const RasdQueue = {
-  STORAGE_KEY: "rasd_queue",
+  // 🆕 قبل كده كان STORAGE_KEY ثابت ("rasd_queue") لكل الصيدليات على نفس الجهاز/المتصفح —
+  // يعني عمليات معلّقة (بيع/إرجاع/إخراج) لصيدلية معينة ممكن تتقرا/تترفع باسم صيدلية تانية
+  // فاتحة نفس المتصفح (GLN غلط تتبعت لـ SFDA). دلوقتي المفتاح مبني على pharmacyId، لازم
+  // تتنادى setPharmacyId(pharmacyId) قبل أي استخدام (enqueue/flush/start...).
+  pharmacyId: null,
   MAX_ATTEMPTS: 30, // بعدها نعتبرها "فشل نهائي" ونسيبها للمراجعة اليدوية بدل ما نحاول للأبد
   timer: null,
 
+  setPharmacyId(pharmacyId) {
+    if (this.pharmacyId === pharmacyId) return;
+    this.stop(); // مؤقت الصيدلية القديمة (لو شغال) لازم يقف قبل ما نبدل المعرف
+    this.pharmacyId = pharmacyId || null;
+  },
+
+  _key() {
+    return `rasd_queue_${this.pharmacyId}`;
+  },
+
   _load() {
+    if (!this.pharmacyId) return []; // بدون معرف صيدلية معروف، منقراش أي طابور تخمينًا
     try {
-      return JSON.parse(localStorage.getItem(this.STORAGE_KEY) || "[]");
+      return JSON.parse(localStorage.getItem(this._key()) || "[]");
     } catch {
       return [];
     }
   },
 
   _save(queue) {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(queue));
+    if (!this.pharmacyId) {
+      console.error("RasdQueue._save called without a pharmacyId set — ignoring to avoid cross-tenant writes");
+      return;
+    }
+    localStorage.setItem(this._key(), JSON.stringify(queue));
   },
 
   // type: "sale" | "saleCancel" | "return" | "accept" | "acceptByBatch" | "returnByBatch" | "transferByBatch" | "transferCancelByBatch" | "deactivate"
@@ -401,7 +420,8 @@ export const RasdQueue = {
   },
 
   async flush(showToast) {
-    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    if (!this.pharmacyId) return;
+    const rasdConfig = JSON.parse(localStorage.getItem(`rasd_config_${this.pharmacyId}`) || "{}");
     if (!rasdConfig.enabled || !rasdConfig.apiUrl) return;
     RasdService.configure(rasdConfig);
 
@@ -438,8 +458,9 @@ export const RasdQueue = {
   },
 
   start(showToast) {
+    if (!this.pharmacyId) return; // من غير معرف صيدلية معروف منشغّلش المؤقت خالص
     if (this.timer) return; // منع تشغيل أكتر من مؤقت واحد لو الـ effect اتنفذ أكتر من مرة
-    const rasdConfig = JSON.parse(localStorage.getItem("rasd_config") || "{}");
+    const rasdConfig = JSON.parse(localStorage.getItem(`rasd_config_${this.pharmacyId}`) || "{}");
     const intervalMin = Number(rasdConfig.uploadIntervalMinutes) || 10;
     this.flush(showToast); // أول تشغيل فورًا عشان ماينتظرش أول فترة كاملة
     this.timer = setInterval(() => this.flush(showToast), intervalMin * 60 * 1000);

@@ -106,7 +106,10 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
     }, [products]);
 
     // 🆕 عدادات "ناقص بيانات" لهيدرات الجدول (باركود / فئة / مورد) — بتتحدث تلقائيًا مع أي تعديل على products
-    const noBarcodeCount = useMemo(() => products.filter((p) => !p.barcode || String(p.barcode).trim() === "").length, [products]);
+    // بخصوص الباركود: بنعتمد على barcode_status لو موجود (بيتحسب تلقائي في ProductFormModal)،
+    // ولو صنف قديم لسه معندوش الحقل ده، بنرجع لفحص الباركود نفسه كـ fallback.
+    const isPendingLink = (p) => p.barcode_status ? p.barcode_status === "pending_link" : (!p.barcode || String(p.barcode).trim() === "");
+    const noBarcodeCount = useMemo(() => products.filter(isPendingLink).length, [products]);
     const noCategoryCount = useMemo(() => products.filter((p) => !(p.main_category || p.mainCategory || p.category) || String(p.main_category || p.mainCategory || p.category).trim() === "").length, [products]);
     const noSupplierCount = useMemo(() => products.filter((p) => !p.supplier || String(p.supplier).trim() === "").length, [products]);
 
@@ -172,7 +175,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             if (priceMax !== null && price > priceMax) return false;
 
             // 🆕 فلاتر "ناقص بيانات": بدون باركود / بدون فئة / بدون مورد — كل واحد بيتفعّل من هيدر عموده في الجدول
-            if (filterNoBarcode && p.barcode && String(p.barcode).trim() !== "") return false;
+            if (filterNoBarcode && !isPendingLink(p)) return false;
             if (filterNoCategory && (p.main_category || p.mainCategory || p.category) && String(p.main_category || p.mainCategory || p.category).trim() !== "") return false;
             if (filterNoSupplier && p.supplier && String(p.supplier).trim() !== "") return false;
 
@@ -584,7 +587,7 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
             </div>
 
             {/* ── Stats ── */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 12, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 12, marginBottom: 16 }}>
                 <StatCard label="إجمالي الأصناف" value={products.length} icon="inventory" color={COLORS.blue} />
                 <div onClick={() => setShowLowStock(true)} style={{ cursor: "pointer" }}>
                     <StatCard label="مخزون منخفض" value={lowStockList.length} icon="alert" color={COLORS.gold} />
@@ -594,6 +597,11 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                 </div>
                 <div onClick={() => setShowStockoutForecast(true)} style={{ cursor: "pointer" }}>
                     <StatCard label="⏳ توقع قرب النفاد" value={stockoutForecastList.length} icon="alert" color={COLORS.coral} />
+                </div>
+                {/* 🆕 أصناف لسه مالهاش باركود دولي (اتسجلت وقت الرصيد الافتتاحي أو من كتالوج مورد
+                    من غير باركود مطبوع) — الضغط عليها بيفعّل نفس فلتر "الباركود" في هيدر الجدول تحت */}
+                <div onClick={() => setFilterNoBarcode(true)} style={{ cursor: "pointer" }}>
+                    <StatCard label="⚠️ قيد الربط" value={noBarcodeCount} icon="alert" color={COLORS.gold} />
                 </div>
                 <StatCard label="أدوية أساسية" value={products.filter((p) => p.is_essential || p.isEssential).length} icon="pill" color={COLORS.gold} />
                 <StatCard label="قيمة المخزون" value={products.reduce((s, p) => s + (p.cost || 0) * (p.stock || 0), 0).toFixed(0) + " ر.س"} icon="money" color={COLORS.purple} />
@@ -643,7 +651,13 @@ export function ProductsModule({ products, setProducts, suppliers, sales, purcha
                             {mfr ? <Badge color={COLORS.blueSoft} text={COLORS.blue}>{mfr.name}</Badge> : <span style={{ color: COLORS.border, fontSize: 11 }}>—</span>}
                             {p.supplier && <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 3 }}>المورد: {p.supplier}</div>}
                         </div>,
-                        <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: "monospace" }}>{p.barcode}</span>,
+                        isPendingLink(p) ? (
+                            <span onClick={() => openEdit(p)} style={{ fontSize: 11, color: COLORS.gold, cursor: "pointer", fontWeight: 700 }} title="اضغط للربط بباركود">
+                                🔗 ربط بباركود
+                            </span>
+                        ) : (
+                            <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: "monospace" }}>{p.barcode}</span>
+                        ),
                         <div>
                             <Badge>{p.main_category || p.mainCategory || p.category}</Badge>
                             {p.subCategory2 && <div style={{ fontSize: 10, color: COLORS.border, marginTop: 3 }}>{p.subCategory1 && p.subCategory1 + " · "}{p.subCategory2}</div>}
