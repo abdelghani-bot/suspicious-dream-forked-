@@ -451,6 +451,31 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             if (error) throw error;
             break;
         }
+        // ==================== التحويل بين الصيدليات ====================
+        // event.id بيتبعت كـ client_id: لو نفس الحدث اتنفذ قبل كده السيرفر بيرجّع نجاح من غير تكرار
+        case "TRANSFER_SEND": {
+            const { partner_id, lines, notes, created_by } = event.payload;
+            const { error } = await supabase.rpc("send_pharmacy_transfer", {
+                p_partner_id: partner_id,
+                p_lines: lines,
+                p_notes: notes ?? null,
+                p_created_by: created_by ?? null,
+                p_client_id: event.id,
+            });
+            if (error) throw error;
+            break;
+        }
+        case "TRANSFER_RECEIVE": {
+            const { transfer_id, received_by, item_map } = event.payload;
+            const { error } = await supabase.rpc("receive_pharmacy_transfer", {
+                p_transfer_id: transfer_id,
+                p_received_by: received_by ?? null,
+                p_client_id: event.id,
+                p_item_map: item_map ?? null,
+            });
+            if (error) throw error;
+            break;
+        }
         // ==================== الأوردرات + الجوكر ====================
         case "ORDER_INSERT": {
             const { error } = await supabase.from("orders").insert(event.payload.order);

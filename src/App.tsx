@@ -32,6 +32,7 @@ import { Reports } from "./modules/Reports";
 import { ReturnsModule } from "./modules/ReturnsModule";
 import { ShiftModule } from "./modules/ShiftModule";
 import { SuppliersModule } from "./modules/SuppliersModule";
+import { PharmacyTransferModule } from "./modules/PharmacyTransferModule";
 import { TargetModule } from "./modules/TargetModule";
 import { TaxReport } from "./modules/TaxReport";
 import { TreasuryModule } from "./modules/TreasuryModule";
@@ -824,6 +825,7 @@ export default function PharmacyPro() {
         { id: "purchase", label: "فواتير الشراء", icon: "purchase" },
         { id: "products", label: "الأصناف", icon: "inventory" },
         { id: "suppliers", label: "الموردون", icon: "suppliers" },
+        { id: "pharmacy_transfers", label: "التحويل بين الصيدليات", icon: "suppliers" },
         { id: "purchase_returns", label: "مرتجع المشتريات", icon: "returns" },
         { id: "inventory_count", label: "الجرد", icon: "count" },
         { id: "inventory_statement", label: "كشف المخزون", icon: "inventory" },
@@ -993,7 +995,7 @@ export default function PharmacyPro() {
                             { label: null, color: GROUP_COLORS.main, ids: ["dashboard"] },
                             { label: "الفريق والالتزام", color: GROUP_COLORS.team, ids: ["shift", "attendance"] },
                             { label: "العملاء والمبيعات", color: GROUP_COLORS.sales, ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
-                            { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "suppliers", "purchase_returns", "inventory_count", "inventory_statement"] },
+                            { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "suppliers", "pharmacy_transfers", "purchase_returns", "inventory_count", "inventory_statement"] },
                             { label: "التقارير", color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "financial_health", "cash_flow", "treasury"] },
                             { label: "الإدارة", color: GROUP_COLORS.admin, ids: ["pharmacy_settings", "permissions", "rasd_settings", "audit_log"] },
                         ];
@@ -1386,6 +1388,18 @@ export default function PharmacyPro() {
                             setJokerPendingItems={setJokerPendingItems}
                         />
                     )}
+                    {tab === "pharmacy_transfers" && canView("pharmacy_transfers") && (
+                       <PharmacyTransferModule
+                            products={products}
+                            setProducts={setProducts}
+                            showToast={showToast}
+                            pharmacyId={pharmacyId}
+                            currentUser={currentUser}
+                            canAdd={canAdd("pharmacy_transfers")}
+                            canEdit={canEdit("pharmacy_transfers")}
+                            canDelete={canDelete("pharmacy_transfers")}
+    />
+)}
                     {tab === "customers" && canView("customers") && (
                         <CustomersModule
                             customers={customers}

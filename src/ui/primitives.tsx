@@ -308,11 +308,16 @@ export const Select = ({ label, value, onChange, options, style = {} }) => (
         boxSizing: "border-box",
       }}
     >
-      {options.map((o) => (
-        <option key={o.v || o} value={o.v || o}>
-          {o.l || o}
-        </option>
-      ))}
+      {options.map((o) => {
+        const isObj = o !== null && typeof o === "object";
+        const v = isObj ? (o.v ?? o.value ?? "") : o;
+        const l = isObj ? (o.l ?? o.label ?? v) : o;
+        return (
+          <option key={String(v)} value={v}>
+            {l}
+          </option>
+        );
+      })}
     </select>
   </div>
 );

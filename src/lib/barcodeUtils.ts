@@ -1,5 +1,3 @@
-import { toString } from "../function toString() { [native code] }/undefined";
-
 // ==================== RASSD BARCODE PARSER ====================
 
 // 🆕 فحص موحّد: الباركود ده فعلاً GS1 (له أقواس AI زي (01).. أو بادئة GS1-128 بدون أقواس)

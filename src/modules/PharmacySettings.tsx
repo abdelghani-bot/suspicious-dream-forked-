@@ -89,6 +89,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         address: data.address || "",
                         vatNumber: data.tax_number || "",
                         licenseNumber: data.license_number || "",
+                        gln: data.gln || "", // 🆕 لازم يتسجل هنا قبل استخدام قسم التحويلات بين الصيدليات
                         labelSize: data.label_size || "50x30",
                         labelDpi: data.label_dpi || "203",
                         barcodeMarginMm: data.barcode_margin_mm ?? 2.5,
@@ -124,6 +125,9 @@ export function PharmacySettings({ showToast, pharmacyId }) {
         { key: "address", label: "العنوان" },
         { key: "vatNumber", label: "الرقم الضريبي" },
         { key: "licenseNumber", label: "رقم الترخيص" },
+        // 🆕 الـ GLN (Global Location Number) — نفس المعرّف المستخدم في تكامل رصد،
+        // ودلوقتي كمان هوية الصيدلية في قسم التحويلات بين الصيدليات (pharmacy_transfers)
+        { key: "gln", label: "GLN الصيدلية (١٣ رقم)" },
     ];
 
     const LABEL_SIZES = [
@@ -153,6 +157,13 @@ export function PharmacySettings({ showToast, pharmacyId }) {
     const save = async () => {
         if (!pharmacyId) return;
 
+        // 🆕 تنبيه بسيط (مش حظر) لو الـ GLN اتكتب بصيغة غريبة — الـ GS1 GLN لازم يكون
+        // ١٣ رقم بالظبط، لكن سايبين الحفظ يكمل عشان مش كل الحالات مضمونة عندنا ١٠٠٪
+        const glnTrimmed = (settings.gln || "").trim();
+        if (glnTrimmed && !/^\d{13}$/.test(glnTrimmed)) {
+            showToast("⚠️ الـ GLN المفروض يكون ١٣ رقم بالظبط — اتحفظ زي ما هو بس راجعه", "warning");
+        }
+
         // 🆕 نشيل أي فئة القيمة فيها فاضية (اليوزر فتح الحقل ومسحه) قبل الحفظ
         const cleanedCategoryDiscounts = Object.fromEntries(
             Object.entries(settings.categoryCostDiscounts || {}).filter(([, v]) => v !== "" && v != null)
@@ -165,6 +176,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             address: settings.address,
             tax_number: settings.vatNumber,
             license_number: settings.licenseNumber,
+            gln: glnTrimmed || null, // 🆕
             updated_at: new Date().toISOString(),
             label_size: settings.labelSize || "50x30",
             label_dpi: settings.labelDpi || "203",
