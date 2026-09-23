@@ -11,6 +11,31 @@ import { computeAvailableForPayment } from "../lib/treasuryUtils";
 import { Badge, Btn, IC, Input, Modal } from "../ui/primitives";
 import { printHTML } from "../lib/printHelper"; // 🆕 كشف حساب المورد — نفس helper الطباعة المستخدم في الخزينة
 
+// ── إعدادات طلب الشراء ──
+const DRUG_SUPPLY_CATEGORY = "أدوية";             // ⚠ عدّلها لاسم فئة الأدوية عندك
+const ACTIVE_ORDER_STATUSES = ["مسودة", "مُرسل"]; // الحالات اللي بتعلّم الصنف "مطلوب"
+const STALE_ORDER_DAYS = 7;                        // بعدها الطلب المُرسل يتعلّم "قديم"
+// 🆕 (ج) أسباب إلغاء طلب الشراء / صنف داخله
+const ORDER_CANCEL_REASONS = ["مديونية", "نقص عند المورد", "سعر غير مناسب", "غير ذلك"];
+
+// اسم الصنف في الطلب: الأدوية بالإنجليزي فقط، وباقي الفئات زي ما هي
+const orderDisplayName = (p) => {
+  const fallback = p?.name || p?.nameAr || "";
+  if ((p?.supply_category || "") !== DRUG_SUPPLY_CATEGORY) return { name: fallback, missingEn: false };
+  const en = (p.name_en || p.nameEn || "").trim();
+  return en ? { name: en, missingEn: false } : { name: fallback, missingEn: true };
+};
+
+// رسالة الواتساب: ترقيم + عدد الأصناف، والأصناف بكمية صفر (مؤجلة بالميزانية) مبتتبعتش
+const buildOrderMessage = (items, date) => {
+  const lines = (items || []).filter((i) => (+i.orderQty || 0) > 0 && i.status !== "ملغي");
+  return (
+    `طلب شراء - ${date}\n` +
+    lines.map((i, n) => `${n + 1}. ${i.name} — ${i.orderQty}`).join("\n") +
+    `\n\nإجمالي الأصناف: ${lines.length}`
+  );
+};
+
 export function SuppliersModule({
   suppliers,
   setSuppliers,
@@ -38,7 +63,14 @@ export function SuppliersModule({
   const [filterStatus, setFilterStatus] = useState("all");
   const [supplierNameSearch, setSupplierNameSearch] = useState(""); // 🆕 بحث سريع باسم المورد
   // 🆕 تاب "قائمة الموردين" / "تحليل الموردين" + فلتر الفئة
-  const [supplierViewTab, setSupplierViewTab] = useState("list"); // "list" | "analysis"
+  const [supplierViewTab, setSupplierViewTab] = useState("list"); // "list" | "analysis" | "orders"
+  // 🆕 (ج) فلتر حالة طلبات الشراء في تاب "طلبات الشراء" + مودال الإلغاء (طلب كامل أو صنف واحد)
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState("all"); // "all" | "مسودة" | "مُرسل" | "ملغي"
+  const [showCancelModal, setShowCancelModal] = useState(null); // { order, itemId? }
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelNote, setCancelNote] = useState("");
+  const [expandedOrderIds, setExpandedOrderIds] = useState({});
+  const toggleOrderExpand = (id) => setExpandedOrderIds((p) => ({ ...p, [id]: !p[id] }));
   const [categoryFilter, setCategoryFilter] = useState(null); // فئة توريد محددة من "تحليل الموردين"
   const [analysisMonths, setAnalysisMonths] = useState(12); // 🆕 مدى شارت المشتريات/السداد الشهري
   const [analysisSupplierIds, setAnalysisSupplierIds] = useState([]); // 🆕 موردين محددين للمقارنة (فاضي = كل الموردين)
@@ -717,6 +749,45 @@ export function SuppliersModule({
     return fallbackCost ?? 0;
   };
 
+  // كمية الطلب المقترحة لصنف (نفس معادلة generateOrder القديمة)
+  const computeOrderQty = (p, days) => {
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const monthlySales = (sales || [])
+      .filter((s) => new Date(s.date) >= since)
+      .reduce((sum, s) => { const si = s.items?.find((i) => i.id === p.id); return sum + (si?.qty || 0); }, 0);
+    const needed = Math.ceil((monthlySales / 30) * days) - p.stock;
+    return Math.max(needed, p.min_stock || 1);
+  };
+
+  // خريطة الأصناف المطلوبة حاليًا: { [productId]: [{ orderId, supplierId, supplierName, qty, date, status, stale }] }
+  // بتتحسب من الطلبات النشطة نفسها، فلما الطلب يتلغي أو يتستلم الفلاج بيختفي لوحده
+  const activeOrderedMap = useMemo(() => {
+    const map = {};
+    const now = Date.now();
+    (orders || []).forEach((o) => {
+      if (!ACTIVE_ORDER_STATUSES.includes(o.status)) return;
+      const ageDays = Math.floor((now - new Date(o.date).getTime()) / 86400000);
+      (o.items || []).forEach((it) => {
+        if (it.status === "ملغي") return;          // (ج): إلغاء صنف بعينه
+        if (!(+it.orderQty > 0)) return;
+        if (!map[it.id]) map[it.id] = [];
+        map[it.id].push({
+          orderId: o.id,
+          supplierId: o.supplier_id,
+          supplierName: o.supplier_name,
+          qty: +it.orderQty,
+          date: o.date,
+          status: o.status,
+          stale: ageDays >= STALE_ORDER_DAYS,
+        });
+      });
+    });
+    return map;
+  }, [orders]);
+
+  const getOrderedFor = (productId) => activeOrderedMap[productId] || [];
+
   // نقل صنف من الطلب الحالي لقائمة انتظار مورد أرخص (بيتضاف تلقائياً أول ما يتفتح طلب شراء لنفس المورد ده)
   const moveItemToSupplier = (item, targetSupplierId, targetSupplierName) => {
     setOrderItems((prev) => prev.filter((x) => x.id !== item.id));
@@ -760,15 +831,19 @@ export function SuppliersModule({
       return false;
     });
     const items = lowStock.map((p) => {
-      const mv = getMovementClass(p.id);
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const monthlySales = (sales || []).filter((s) => new Date(s.date) >= thirtyDaysAgo)
-        .reduce((sum, s) => { const si = s.items?.find((i) => i.id === p.id); return sum + (si?.qty || 0); }, 0);
-      const dailyRate = monthlySales / 30;
-      const neededQty = Math.ceil(dailyRate * coverageDays) - p.stock;
-      const orderQty = Math.max(neededQty, p.min_stock || 1);
-      return { id: p.id, name: p.name, currentStock: p.stock, minStock: p.min_stock || p.minStock || 0, orderQty, cost: getInitialCostFor(p.id, targetSupplier.id, p.cost), movement: mv, editable: true };
+      const { name, missingEn } = orderDisplayName(p);
+      return {
+        id: p.id,
+        name,
+        missingEn,
+        auto: true, // اتولّد تلقائي — الكمية بتتحدث لما تغيّر "التغطية بالأيام"
+        currentStock: p.stock,
+        minStock: p.min_stock || p.minStock || 0,
+        orderQty: computeOrderQty(p, coverageDays),
+        cost: getInitialCostFor(p.id, targetSupplier.id, p.cost),
+        movement: getMovementClass(p.id),
+        editable: true,
+      };
     }).filter((i) => i.orderQty > 0)
       .sort((a, b) => ["fast","regular","normal","slow","very_slow"].indexOf(a.movement.class) - ["fast","regular","normal","slow","very_slow"].indexOf(b.movement.class));
     // ضمّ أي أصناف كانت اتنقلت لهذا المورد لأنه الأرخص، وامسحها من قائمة الانتظار
@@ -828,12 +903,23 @@ export function SuppliersModule({
     showToast(`تم التوزيع حسب الميزانية — استخدام ${used.toFixed(2)} من ${budget.toFixed(2)} ر.س${cutCount ? ` — ${cutCount} صنف اتأجل` : ""}`, "success");
   };
 
-  // ========== حفظ الأوردر ==========
-    const saveOrder = async () => {
+  // ========== حفظ الأوردر (مسودة أو مُرسل) ==========
+    const saveOrder = async (mode = "draft") => {
         if (!showOrderForm || orderItems.length === 0) { showToast("لا توجد أصناف للطلب", "error"); return; }
         const orderId = `ORD-${Date.now()}`;
         const totalCost = orderItems.reduce((sum, i) => sum + (+i.cost || 0) * (+i.orderQty || 0), 0);
-        const order = { id: orderId, supplier_id: showOrderForm.id, supplier_name: showOrderForm.name, date: todayLocal(), coverage_days: coverageDays, budget: orderBudget ? +orderBudget : null, items: orderItems, total_cost: totalCost, status: "مسودة", pharmacy_id: pharmacyId };
+        const order = {
+          id: orderId,
+          supplier_id: showOrderForm.id,
+          supplier_name: showOrderForm.name,
+          date: todayLocal(),
+          coverage_days: coverageDays,
+          budget: orderBudget ? +orderBudget : null,
+          items: orderItems,
+          total_cost: totalCost,
+          status: mode === "sent" ? "مُرسل" : "مسودة",
+          pharmacy_id: pharmacyId,
+        };
 
         const result = await queueEvent({
             id: crypto.randomUUID(),
@@ -864,14 +950,64 @@ export function SuppliersModule({
             setJokerPendingItems((prev) => prev.map((j) => (jokerIdsUsed.includes(j.id) ? { ...j, status: "ordered" } : j)));
         }
 
+        const whatsapp = showOrderForm.whatsapp;
+        const msg = buildOrderMessage(orderItems, order.date);
         setShowOrderForm(null);
         setOrderItems([]);
-        showToast("تم حفظ الأوردر ✓");
-        if (showOrderForm.whatsapp) {
-            const msg = `طلب شراء - ${order.date}\n` + orderItems.map((i) => `• ${i.name}: ${i.orderQty} وحدة`).join("\n");
-            window.open(`https://wa.me/${showOrderForm.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
+        showToast(mode === "sent" ? "تم حفظ الأوردر كمُرسل ✓" : "تم حفظ الأوردر كمسودة ✓");
+        if (mode === "sent" && whatsapp) {
+            window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
         }
     };
+
+  // ========== (ج) إلغاء طلب شراء كامل أو صنف واحد جواه ==========
+  // بيسجّل السبب + تاريخ الإلغاء + المستخدم اللي ألغى، والأصناف الملغية فلاجها ("مطلوب عند...") بيختفي لوحده
+  // لأنه بيتحسب من activeOrderedMap اللي بيستبعد status === "ملغي"
+  const cancelOrderOrItem = async ({ order, itemId = null, reason, note = "" }) => {
+    if (!reason) { showToast("اختر سبب الإلغاء", "error"); return; }
+    const now = new Date().toISOString();
+    const cancelMeta = {
+      cancelled_reason: reason,
+      cancelled_note: note || null,
+      cancelled_by: currentUser?.name || currentUser?.id || null,
+      cancelled_at: now,
+    };
+
+    let updatedItems;
+    let newStatus = order.status;
+    if (itemId) {
+      // إلغاء صنف واحد بس جوه الطلب — باقي الأصناف والطلب نفسه فاضلين زي ما هم
+      updatedItems = (order.items || []).map((it) =>
+        it.id === itemId ? { ...it, status: "ملغي", ...cancelMeta } : it
+      );
+      const stillActive = updatedItems.some((it) => it.status !== "ملغي" && (+it.orderQty || 0) > 0);
+      if (!stillActive) newStatus = "ملغي"; // آخر صنف اتلغى يلغي الطلب كله تلقائيًا
+    } else {
+      // إلغاء الطلب كله — كل الأصناف بتاخد نفس الفلاج
+      updatedItems = (order.items || []).map((it) => ({ ...it, status: "ملغي", ...cancelMeta }));
+      newStatus = "ملغي";
+    }
+
+    const updatedOrder = {
+      ...order,
+      items: updatedItems,
+      status: newStatus,
+      ...(newStatus === "ملغي" && !itemId ? cancelMeta : {}),
+    };
+
+    const result = await queueEvent({
+      id: crypto.randomUUID(),
+      type: "ORDER_UPDATE",
+      timestamp: now,
+      pharmacy_id: pharmacyId,
+      payload: { id: order.id, updates: { items: updatedItems, status: newStatus, ...(newStatus === "ملغي" && !itemId ? cancelMeta : {}) } },
+    });
+    if (!result.synced && result.error) {
+      showToast("⚠️ الإلغاء اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+    }
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? updatedOrder : o)));
+    showToast(itemId ? "تم إلغاء الصنف ✓" : "تم إلغاء الطلب ✓");
+  };
 
   // 🆕 تجاهل صنف نهائيًا من حساب الطلبات التلقائية (auto_order = false) — بيفضل يظهر في شاشة الصنف نفسه
   // كـ checkbox لو حبيت ترجّعه تاني في أي وقت
@@ -1181,6 +1317,7 @@ export function SuppliersModule({
         {[
           { k: "list",     l: "📋 قائمة الموردين" },
           { k: "analysis", l: "📊 تحليل الموردين" },
+          { k: "orders",   l: "🧾 طلبات الشراء" },
         ].map((t) => (
           <button key={t.k} onClick={() => setSupplierViewTab(t.k)} style={{
             padding: "10px 18px", border: "none", borderBottom: `2px solid ${supplierViewTab === t.k ? COLORS.blue : "transparent"}`,
@@ -1616,6 +1753,154 @@ export function SuppliersModule({
         );
       })()}
 
+      {/* ===== 🆕 (ج) تاب: طلبات الشراء — عرض، ترقيم، حالة، وإلغاء (طلب كامل أو صنف واحد) ===== */}
+      {supplierViewTab === "orders" && (() => {
+        const filteredOrders = (orders || [])
+          .filter((o) => ordersStatusFilter === "all" || o.status === ordersStatusFilter)
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
+        const statusColor = (s) => s === "ملغي" ? COLORS.red : s === "مُرسل" ? COLORS.green : COLORS.gold;
+        return (
+          <div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+              {[
+                { k: "all",    l: "الكل" },
+                { k: "مسودة",  l: "مسودة" },
+                { k: "مُرسل",  l: "مُرسل" },
+                { k: "ملغي",   l: "ملغي" },
+              ].map((f) => (
+                <button key={f.k} onClick={() => setOrdersStatusFilter(f.k)}
+                  style={{
+                    padding: "6px 14px", borderRadius: 20, border: "1px solid",
+                    borderColor: ordersStatusFilter === f.k ? COLORS.blue : COLORS.border,
+                    background: ordersStatusFilter === f.k ? COLORS.blueSoft : "transparent",
+                    color: ordersStatusFilter === f.k ? COLORS.blue : COLORS.textDim,
+                    fontSize: 12, cursor: "pointer", fontWeight: ordersStatusFilter === f.k ? 700 : 400,
+                  }}>{f.l}</button>
+              ))}
+            </div>
+
+            {filteredOrders.length === 0 && (
+              <div style={{ textAlign: "center", color: COLORS.textDim, padding: 30 }}>لا توجد طلبات شراء</div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {filteredOrders.map((order) => {
+                const items = order.items || [];
+                const activeItems = items.filter((it) => it.status !== "ملغي");
+                const cancelledItems = items.filter((it) => it.status === "ملغي");
+                const totalUnits = activeItems.reduce((s, it) => s + (+it.orderQty || 0), 0);
+                const isExpanded = !!expandedOrderIds[order.id];
+                return (
+                  <div key={order.id} style={{ background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }} onClick={() => toggleOrderExpand(order.id)}>
+                        <span style={{ color: COLORS.textDim, fontSize: 12, display: "inline-block", transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary }}>{order.supplier_name}</div>
+                          <div style={{ fontSize: 11, color: COLORS.textDim }}>{order.date} — {activeItems.length} صنف — {totalUnits} وحدة{cancelledItems.length ? ` — ${cancelledItems.length} صنف ملغي` : ""}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(order.status), background: `${statusColor(order.status)}1a`, border: `1px solid ${statusColor(order.status)}55`, borderRadius: 20, padding: "3px 10px" }}>
+                          {order.status}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{(+order.total_cost || 0).toFixed(2)} ر.س</span>
+                        {order.status !== "ملغي" && (
+                          <button onClick={() => { setShowCancelModal({ order }); setCancelReason(""); setCancelNote(""); }}
+                            style={{ fontSize: 11, background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                            إلغاء الطلب
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {order.status === "ملغي" && order.cancelled_reason && (
+                      <div style={{ marginTop: 8, fontSize: 11.5, color: COLORS.red }}>
+                        سبب الإلغاء: {order.cancelled_reason}{order.cancelled_note ? ` — ${order.cancelled_note}` : ""}
+                        {order.cancelled_at ? ` — ${new Date(order.cancelled_at).toLocaleString("ar")}` : ""}
+                        {order.cancelled_by ? ` — بواسطة ${order.cancelled_by}` : ""}
+                      </div>
+                    )}
+
+                    {isExpanded && (
+                      <div style={{ marginTop: 12, overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ background: COLORS.surfaceAlt }}>
+                              {["#", "الصنف", "الكمية", "سعر الوحدة", "الإجمالي", "الحالة", ""].map((h) => (
+                                <th key={h} style={{ padding: "7px 8px", textAlign: "right", color: COLORS.textDim, fontSize: 11 }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {items.map((it, i) => (
+                              <tr key={it.id} style={{ borderBottom: `1px solid ${COLORS.border}`, opacity: it.status === "ملغي" ? 0.55 : 1 }}>
+                                <td style={{ padding: "6px 8px", color: COLORS.textDim, fontSize: 11 }}>{i + 1}</td>
+                                <td style={{ padding: "6px 8px", color: COLORS.textPrimary, fontSize: 12.5 }}>
+                                  <span dir="auto">{it.name}</span>
+                                  {it.status === "ملغي" && it.cancelled_reason && (
+                                    <div style={{ fontSize: 10, color: COLORS.red, marginTop: 2 }}>
+                                      ملغي: {it.cancelled_reason}{it.cancelled_note ? ` — ${it.cancelled_note}` : ""}
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px 8px", color: COLORS.textDim, fontSize: 12.5 }}>{it.orderQty}</td>
+                                <td style={{ padding: "6px 8px", color: COLORS.textDim, fontSize: 12.5 }}>{(+it.cost || 0).toFixed(2)}</td>
+                                <td style={{ padding: "6px 8px", color: COLORS.textPrimary, fontSize: 12.5, fontWeight: 700 }}>{((+it.cost || 0) * (+it.orderQty || 0)).toFixed(2)}</td>
+                                <td style={{ padding: "6px 8px", fontSize: 11, color: it.status === "ملغي" ? COLORS.red : COLORS.green }}>{it.status === "ملغي" ? "ملغي" : "نشط"}</td>
+                                <td style={{ padding: "6px 8px" }}>
+                                  {order.status !== "ملغي" && it.status !== "ملغي" && (
+                                    <button onClick={() => { setShowCancelModal({ order, itemId: it.id }); setCancelReason(""); setCancelNote(""); }}
+                                      style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 5, padding: "2px 8px", cursor: "pointer" }}>
+                                      إلغاء الصنف
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ===== 🆕 (ج) Modal إلغاء طلب شراء أو صنف بعينه — سبب + ملاحظة حرة ===== */}
+      {showCancelModal && (
+        <Modal open title={showCancelModal.itemId ? "إلغاء صنف من الطلب" : "إلغاء طلب الشراء"} onClose={() => setShowCancelModal(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>سبب الإلغاء</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {ORDER_CANCEL_REASONS.map((r) => (
+                  <button key={r} type="button" onClick={() => setCancelReason(r)}
+                    style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: cancelReason === r ? COLORS.red : COLORS.border, background: cancelReason === r ? `${COLORS.red}1a` : "transparent", color: cancelReason === r ? COLORS.red : COLORS.textDim, fontSize: 12, cursor: "pointer", fontWeight: cancelReason === r ? 700 : 400 }}>
+                    {cancelReason === r ? "✓ " : ""}{r}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: COLORS.textDim, display: "block", marginBottom: 6 }}>ملاحظة حرة (اختياري)</label>
+              <textarea value={cancelNote} onChange={(e) => setCancelNote(e.target.value)} rows={3}
+                style={{ width: "100%", background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "9px 12px", color: COLORS.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowCancelModal(null)}>تراجع</Btn>
+            <Btn icon="check" variant="danger" onClick={async () => {
+              await cancelOrderOrItem({ order: showCancelModal.order, itemId: showCancelModal.itemId, reason: cancelReason, note: cancelNote });
+              setShowCancelModal(null);
+            }}>تأكيد الإلغاء</Btn>
+          </div>
+        </Modal>
+      )}
+
       {/* ===== Modal المرتجع التلقائي ===== */}
       {showAutoReturn && (
         <Modal open title={`🔄 مرتجع تلقائي — ${showAutoReturn.name}`} onClose={() => setShowAutoReturn(null)} wide>
@@ -1686,7 +1971,15 @@ export function SuppliersModule({
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <label style={{ color: COLORS.textDim, fontSize: 13 }}>تغطية لمدة:</label>
             <input type="number" min="1" value={coverageDays}
-              onChange={(e) => { setCoverageDays(+e.target.value); generateOrder(showOrderForm); }}
+              onChange={(e) => {
+                const days = Math.max(1, +e.target.value || 1);
+                setCoverageDays(days);
+                setOrderItems((prev) => prev.map((it) => {
+                  if (!it.auto) return it; // الأصناف المضافة يدويًا أو الجوكر متتغيرش
+                  const p = (products || []).find((x) => x.id === it.id);
+                  return p ? { ...it, orderQty: computeOrderQty(p, days) } : it;
+                }));
+              }}
               style={{ width: 70, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "6px 10px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
             <span style={{ color: COLORS.textDim, fontSize: 13 }}>يوم</span>
           </div>
@@ -1736,7 +2029,12 @@ export function SuppliersModule({
                 {(products || [])
                   .filter((p) => {
                     const q = manualProductSearch.toLowerCase();
-                    return (p.name || "").toLowerCase().includes(q) || (p.nameAr || "").toLowerCase().includes(q) || (p.id || "").toLowerCase().includes(q);
+                    return (
+                      (p.name || "").toLowerCase().includes(q) ||
+                      (p.nameAr || "").toLowerCase().includes(q) ||
+                      (p.name_en || p.nameEn || "").toLowerCase().includes(q) ||
+                      (p.id || "").toLowerCase().includes(q)
+                    );
                   })
                   .filter((p) => !orderItems.some((oi) => oi.id === p.id))
                   .slice(0, 15)
@@ -1744,9 +2042,11 @@ export function SuppliersModule({
                     <div
                       key={p.id}
                       onMouseDown={() => {
+                        const { name, missingEn } = orderDisplayName(p);
                         setOrderItems((prev) => [...prev, {
                           id: p.id,
-                          name: p.name || p.nameAr,
+                          name,
+                          missingEn,
                           currentStock: p.stock || 0,
                           minStock: p.min_stock || p.minStock || 0,
                           orderQty: 1,
@@ -1759,9 +2059,12 @@ export function SuppliersModule({
                       }}
                       style={{ padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}
                     >
-                      <span style={{ fontSize: 13, color: COLORS.textPrimary }}>{p.name || p.nameAr}</span>
+                      <span style={{ fontSize: 13, color: COLORS.textPrimary }}>{orderDisplayName(p).name}</span>
                       <span style={{ fontSize: 11, color: COLORS.textDim, textAlign: "left" }}>
                         <div>مخزون: {p.stock || 0}</div>
+                        {getOrderedFor(p.id).length > 0 && (
+                          <div style={{ color: COLORS.gold }}>📌 اتطلب من {getOrderedFor(p.id)[0].supplierName}</div>
+                        )}
                         {(() => {
                           const cheapest = getCheapestSupplierForProduct(p.id);
                           const sameSupplierCost = getProductCostBySupplier(p.id).find((r) => r.supplierId === showOrderForm.id);
@@ -1775,7 +2078,12 @@ export function SuppliersModule({
                   ))}
                 {(products || []).filter((p) => {
                   const q = manualProductSearch.toLowerCase();
-                  return (p.name || "").toLowerCase().includes(q) || (p.nameAr || "").toLowerCase().includes(q) || (p.id || "").toLowerCase().includes(q);
+                  return (
+                    (p.name || "").toLowerCase().includes(q) ||
+                    (p.nameAr || "").toLowerCase().includes(q) ||
+                    (p.name_en || p.nameEn || "").toLowerCase().includes(q) ||
+                    (p.id || "").toLowerCase().includes(q)
+                  );
                 }).length === 0 && (
                   <div style={{ padding: 14, color: COLORS.textDim, textAlign: "center", fontSize: 13 }}>لا توجد أصناف مطابقة</div>
                 )}
@@ -1783,11 +2091,30 @@ export function SuppliersModule({
             )}
           </div>
 
+          {(() => {
+            const active = orderItems.filter((i) => (+i.orderQty || 0) > 0);
+            const totalUnits = active.reduce((s, i) => s + (+i.orderQty || 0), 0);
+            const flaggedCount = orderItems.filter((i) => getOrderedFor(i.id).length > 0).length;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, color: COLORS.textPrimary, fontWeight: 700 }}>
+                  عدد الأصناف: {active.length}
+                </span>
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>إجمالي الوحدات: {totalUnits}</span>
+                {flaggedCount > 0 && (
+                  <Btn variant="secondary" onClick={() => setOrderItems((prev) => prev.filter((i) => getOrderedFor(i.id).length === 0))}>
+                    استبعاد كل المطلوب عند غيري ({flaggedCount})
+                  </Btn>
+                )}
+              </div>
+            );
+          })()}
+
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: COLORS.surfaceAlt }}>
-                  {["الصنف", "الحركة", "المخزون", "الحد الأدنى", "سعر الوحدة", "الكمية المطلوبة", "الإجمالي", ""].map((h) => (
+                  {["#", "الصنف", "الحركة", "المخزون", "الحد الأدنى", "سعر الوحدة", "الكمية المطلوبة", "الإجمالي", ""].map((h) => (
                     <th key={h} style={{ padding: "9px 10px", textAlign: "right", color: COLORS.textDim, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
@@ -1797,10 +2124,32 @@ export function SuppliersModule({
                   const cheaper = getCheapestSupplierForProduct(item.id, showOrderForm.id);
                   const showCheaperHint = cheaper && cheaper.cost < (+item.cost || 0);
                   const deferredByBudget = orderBudget && +orderBudget > 0 && (+item.orderQty || 0) === 0;
+                  const orderedRows = getOrderedFor(item.id);
+                  const orderedElsewhere = orderedRows.length > 0;
                   return (
-                  <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}`, background: deferredByBudget ? `${COLORS.gold}14` : "transparent" }}>
+                  <tr key={item.id} style={{
+                    borderBottom: `1px solid ${COLORS.border}`,
+                    background: orderedElsewhere ? tint(COLORS.gold, 0.08) : deferredByBudget ? `${COLORS.gold}14` : "transparent",
+                  }}>
+                    <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 12, width: 32 }}>{i + 1}</td>
                     <td style={{ padding: "8px 10px", color: COLORS.textPrimary, fontSize: 13 }}>
-                      {item.name}
+                      <span dir="auto">{item.name}</span>
+                      {item.missingEn && (
+                        <span title="مفيش اسم إنجليزي للصنف ده — بيظهر الاسم الحالي" style={{ fontSize: 10, color: COLORS.gold, marginRight: 6 }}>⚠ بدون اسم إنجليزي</span>
+                      )}
+                      {orderedRows.map((r) => (
+                        <div key={r.orderId} style={{ marginTop: 3, fontSize: 10.5, color: COLORS.gold }}>
+                          📌 اتطلب من {r.supplierName} — {r.qty} وحدة — {r.date} ({r.status}{r.stale ? " — قديم" : ""})
+                        </div>
+                      ))}
+                      {orderedElsewhere && (
+                        <button
+                          onClick={() => setOrderItems((p) => p.filter((_, j) => j !== i))}
+                          style={{ marginTop: 3, fontSize: 10, background: "transparent", border: `1px solid ${COLORS.gold}`, color: COLORS.gold, borderRadius: 5, padding: "1px 6px", cursor: "pointer" }}
+                        >
+                          استبعاد
+                        </button>
+                      )}
                       {deferredByBudget && (
                         <span style={{ fontSize: 10, color: COLORS.gold, fontWeight: 700, marginRight: 6 }}>⏸️ مؤجل لحد ميزانية تانية</span>
                       )}
@@ -1858,7 +2207,7 @@ export function SuppliersModule({
               {orderItems.length > 0 && (
                 <tfoot>
                   <tr style={{ borderTop: `2px solid ${COLORS.border}` }}>
-                    <td colSpan={6} style={{ padding: "10px", textAlign: "left", color: COLORS.textDim, fontSize: 13, fontWeight: 700 }}>
+                    <td colSpan={7} style={{ padding: "10px", textAlign: "left", color: COLORS.textDim, fontSize: 13, fontWeight: 700 }}>
                       الإجمالي الكلي للطلب
                     </td>
                     <td colSpan={2} style={{ padding: "10px", color: COLORS.textPrimary, fontSize: 15, fontWeight: 800, whiteSpace: "nowrap" }}>
@@ -1870,14 +2219,13 @@ export function SuppliersModule({
             </table>
           </div>
           {orderItems.length === 0 && <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>لا توجد أصناف ناقصة</div>}
-          <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end", flexWrap: "wrap" }}>
             <Btn variant="ghost" onClick={() => setShowOrderForm(null)}>إلغاء</Btn>
-            <Btn icon="check" onClick={saveOrder}>حفظ الأوردر</Btn>
-            {showOrderForm.whatsapp && (
-              <Btn icon="whatsapp" onClick={() => {
-                const msg = `طلب شراء - ${new Date().toLocaleDateString("ar")}\n` + orderItems.map((i) => `• ${i.name}: ${i.orderQty} وحدة`).join("\n");
-                window.open(`https://wa.me/${showOrderForm.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
-              }}>إرسال واتساب</Btn>
+            <Btn icon="check" variant="secondary" onClick={() => saveOrder("draft")}>حفظ كمسودة</Btn>
+            {showOrderForm.whatsapp ? (
+              <Btn icon="whatsapp" onClick={() => saveOrder("sent")}>حفظ وإرسال واتساب</Btn>
+            ) : (
+              <Btn icon="check" onClick={() => saveOrder("sent")}>حفظ كمُرسل</Btn>
             )}
           </div>
         </Modal>

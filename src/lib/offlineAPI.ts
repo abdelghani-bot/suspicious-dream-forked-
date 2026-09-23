@@ -482,6 +482,15 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             if (error) throw error;
             break;
         }
+        // 🆕 (ج) تحديث عام على طلب شراء موجود — إلغاء طلب كامل أو صنف بعينه جواه
+        // (items/status/cancelled_reason/cancelled_note/cancelled_by/cancelled_at)
+        case "ORDER_UPDATE": {
+            const { id, updates } = event.payload;
+            const { error } = await supabase.from("orders")
+                .update(updates).eq("id", id).eq("pharmacy_id", event.pharmacy_id);
+            if (error) throw error;
+            break;
+        }
         // 🆕 مختلفة عن JOKER_UPDATE الموجودة (اللي بتحدث qty لصنف واحد) —
         // دي لتحديث الـ status لمجموعة أصناف جوكر مع بعض دفعة واحدة
         case "JOKER_STATUS_UPDATE": {

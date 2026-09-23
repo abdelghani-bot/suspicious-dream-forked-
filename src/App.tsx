@@ -42,6 +42,8 @@ import { IC, Toast } from "./ui/primitives";
 import { supabase } from "./lib/supabaseClient";
 import { initOfflineSync } from "./lib/offlineAPI";
 import { PharmaLogo } from "./components/PharmaLogo";
+import { OnboardingChecklist } from "./modules/OnboardingChecklist";
+import { isOnboardingComplete } from "./lib/onboardingAPI";
 
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
@@ -159,6 +161,17 @@ export default function PharmacyPro() {
             });
     }, [pharmacyId]);
     const [tab, setTab] = useState("dashboard");
+
+    // ── حالة "إعداد الصيدلية": نخفي الـ sidebar item لحد ما نتأكد إن فيه خطوات لسه ناقصة ──
+    // القيمة الافتراضية true (مخفي) عشان الصيدليات القديمة/المكتملة ما يظهرلهاش وميض.
+    // isOnboardingComplete بترجع false لو الفحص فشل → العنصر يفضل ظاهر (fail-safe).
+    const [onboardingDone, setOnboardingDone] = useState(true);
+    useEffect(() => {
+        if (!pharmacyId || currentUser?.role !== "admin") { setOnboardingDone(true); return; }
+        let active = true;
+        isOnboardingComplete(pharmacyId).then((done) => { if (active) setOnboardingDone(done); });
+        return () => { active = false; };
+    }, [pharmacyId, currentUser?.role]);
     const [toast, setToast] = useState(null);
 
     // ── صلاحيات الدور الحالي (تتحكم في ظهور الأقسام + ما بداخلها) ──
@@ -808,6 +821,7 @@ export default function PharmacyPro() {
     const TABS = [
         // ── الرئيسية ──
         { id: "dashboard", label: "الرئيسية", icon: "dashboard" },
+        { id: "onboarding", label: "إعداد الصيدلية", icon: "settings" },
 
         // ── الفريق والالتزام ──
         { id: "shift", label: "الشفتات", icon: "shift" },
@@ -992,7 +1006,7 @@ export default function PharmacyPro() {
                         };
 
                         const groups = [
-                            { label: null, color: GROUP_COLORS.main, ids: ["dashboard"] },
+                            { label: null, color: GROUP_COLORS.main, ids: ["dashboard", "onboarding"] },
                             { label: "الفريق والالتزام", color: GROUP_COLORS.team, ids: ["shift", "attendance"] },
                             { label: "العملاء والمبيعات", color: GROUP_COLORS.sales, ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
                             { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "suppliers", "pharmacy_transfers", "purchase_returns", "inventory_count", "inventory_statement"] },
@@ -1018,7 +1032,14 @@ export default function PharmacyPro() {
                         const isAdminUser = currentUser?.role === "admin";
                         const visibleGroups = groups
                             .filter((g) => g.label !== "الإدارة" || isAdminUser)
-                            .map((g) => ({ ...g, ids: g.ids.filter((id) => canViewSidebarTab(id)) }))
+                            .map((g) => ({
+                                ...g,
+                                ids: g.ids.filter((id) =>
+                                    canViewSidebarTab(id) &&
+                                    // "إعداد الصيدلية": للأدمن فقط، ويختفي لما كل الخطوات تكتمل
+                                    (id !== "onboarding" || (isAdminUser && !onboardingDone))
+                                ),
+                            }))
                             .filter((g) => g.ids.length > 0);
 
                         return visibleGroups.map((group, gi) => (
@@ -1316,6 +1337,14 @@ export default function PharmacyPro() {
                             canViewPurchaseReturns={canView("returns", "purchases")}
                             canEditSalesReturns={canEdit("returns", "sales")}
                             canEditPurchaseReturns={canEdit("returns", "purchases")}
+                        />
+                    )}
+                    {tab === "onboarding" && currentUser?.role === "admin" && (
+                        <OnboardingChecklist
+                            pharmacyId={pharmacyId}
+                            currentUserId={currentUser?.id}
+                            onNavigate={setTab}
+                            onComplete={() => setOnboardingDone(true)}
                         />
                     )}
                     {tab === "rasd_settings" && currentUser?.role === "admin" && <RasdSettings showToast={showToast} products={products} pharmacyId={pharmacyId} />}
