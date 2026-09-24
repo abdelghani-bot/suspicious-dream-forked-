@@ -128,6 +128,8 @@ interface StepMeta {
   cta: string;
   // Where the CTA should navigate — wire to your router/section state.
   targetSection?: string;
+  // Optional sub-tab within targetSection (e.g. salaries lives inside treasury).
+  targetTab?: string;
 }
 
 const STEP_META: Record<string, StepMeta> = {
@@ -183,8 +185,9 @@ const STEP_META: Record<string, StepMeta> = {
     title: "بيانات الموظفين والرواتب",
     description: "إدخال بيانات الموظفين وربط حساباتهم لاحتساب الرواتب والحوافز",
     icon: UserSquare2,
-    cta: "إدخال البيانات",
-    targetSection: "attendance", // مفيش تاب موظفين مستقل حاليًا
+    cta: "الذهاب لتاب الرواتب",
+    targetSection: "treasury",
+    targetTab: "salaries",
   },
 };
 
@@ -215,7 +218,7 @@ function StatusIcon({ status }: { status: StepStatus }) {
 interface OnboardingChecklistProps {
   pharmacyId: string;
   currentUserId?: string;
-  onNavigate?: (section: string) => void; // بيتوصّل بـ setTab في App.tsx
+  onNavigate?: (section: string, tab?: string) => void; // بيتوصّل بـ setTab في App.tsx
   onComplete?: () => void; // بتتنادى مرة واحدة لما كل الخطوات تبقى "مكتمل" (percent === 100)
 }
 
@@ -472,7 +475,7 @@ export function OnboardingChecklist({
                       <div style={{ display: "flex", gap: 8 }}>
                         {meta.targetSection && (
                           <button
-                            onClick={() => onNavigate?.(meta.targetSection!)}
+                            onClick={() => onNavigate?.(meta.targetSection!, meta.targetTab)}
                             style={{
                               fontSize: 13,
                               fontWeight: 600,

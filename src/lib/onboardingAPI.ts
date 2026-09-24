@@ -98,12 +98,23 @@ export async function seedOnboardingSteps(pharmacyId: string): Promise<void> {
 
 /**
  * True once every onboarding step is 'done'. Use this to hide the
- * "إعداد الصيدلية" sidebar item once setup is finished — cheap
- * enough to call on app load / sidebar render since it's a single
- * indexed query, not a full row fetch.
+ * "إعداد الصيدلية" sidebar item once setup is finished.
+ * Returns false (keep visible) if steps haven't been seeded yet —
+ * zero rows is "not started", not "complete".
  */
 export async function isOnboardingComplete(pharmacyId: string): Promise<boolean> {
-  const { count, error } = await supabase
+  const { count: totalCount, error: totalError } = await supabase
+    .from("pharmacy_onboarding_steps")
+    .select("*", { count: "exact", head: true })
+    .eq("pharmacy_id", pharmacyId);
+
+  if (totalError) {
+    console.error(totalError);
+    return false; // fail safe: keep the item visible if the check fails
+  }
+  if (!totalCount) return false; // not seeded yet -> definitely not complete
+
+  const { count: unfinishedCount, error } = await supabase
     .from("pharmacy_onboarding_steps")
     .select("*", { count: "exact", head: true })
     .eq("pharmacy_id", pharmacyId)
@@ -111,7 +122,7 @@ export async function isOnboardingComplete(pharmacyId: string): Promise<boolean>
 
   if (error) {
     console.error(error);
-    return false; // fail safe: keep the item visible if the check fails
+    return false;
   }
-  return count === 0;
+  return unfinishedCount === 0;
 }

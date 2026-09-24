@@ -18,7 +18,7 @@ import { printHTML } from "../lib/printHelper";
 // الصافي اليومي/الشهري في تاب "السجل"، ونعرضها في بند منفصل بدل ما تتخلط بحركة اليوم الفعلية.
 const TREASURY_BALANCE_SUBTYPES = new Set(["supplier_payment", "fixed", "license", "salary", "leave_cashout", "end_of_service", "opening_balance", "balance_settlement"]);
 
-export function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, users = [], showToast, shifts, entries, setEntries, returns = [], products = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true }) {
+export function TreasuryModule({ sales, creditPayments, purchases, suppliers, pharmacyId, currentUser, users = [], showToast, shifts, entries, setEntries, returns = [], products = [], canViewSub = (_sub) => true, canEditSub = (_sub) => true, canAddSub = (_sub) => true, canDeleteSub = (_sub) => true, initialTab }) {
     const canViewDayClosing = canViewSub("day_closing");
     const canEditDayClosing = canEditSub("day_closing");
     const canViewOverview = canViewSub("overview");
@@ -31,6 +31,10 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const canAddLicense = canAddSub("licenses");
     const canPayLicense = canEditSub("licenses");
     const [activeTab, setActiveTab] = useState(canViewDayClosing ? "today" : canViewOverview ? "shifts" : "today");
+    // 🆕 لو حد برا (زي شاشة onboarding) بعت initialTab، افتحه بدل التاب الافتراضي
+    useEffect(() => {
+        if (initialTab) setActiveTab(initialTab);
+    }, [initialTab]);
     const [fixedExpenses, setFixedExpenses] = useState([]);
     const [licenses, setLicenses] = useState([]);
     const [showFixedForm, setShowFixedForm] = useState(false);

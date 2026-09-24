@@ -161,6 +161,8 @@ export default function PharmacyPro() {
             });
     }, [pharmacyId]);
     const [tab, setTab] = useState("dashboard");
+    // 🆕 يسمح لـ onboarding (أو أي مكان تاني) يفتح تاب معين جوه شاشة الخزينة مباشرة
+    const [treasuryInitialTab, setTreasuryInitialTab] = useState(null);
 
     // ── حالة "إعداد الصيدلية": نخفي الـ sidebar item لحد ما نتأكد إن فيه خطوات لسه ناقصة ──
     // القيمة الافتراضية true (مخفي) عشان الصيدليات القديمة/المكتملة ما يظهرلهاش وميض.
@@ -1343,7 +1345,10 @@ export default function PharmacyPro() {
                         <OnboardingChecklist
                             pharmacyId={pharmacyId}
                             currentUserId={currentUser?.id}
-                            onNavigate={setTab}
+                            onNavigate={(section, subTab) => {
+                                setTab(section);
+                                if (subTab) setTreasuryInitialTab(subTab);
+                            }}
                             onComplete={() => setOnboardingDone(true)}
                         />
                     )}
@@ -1548,6 +1553,7 @@ export default function PharmacyPro() {
                             canEditSub={(sub) => canEdit("treasury", sub)}
                             canAddSub={(sub) => canAdd("treasury", sub)}
                             canDeleteSub={(sub) => canDelete("treasury", sub)}
+                            initialTab={treasuryInitialTab}
                         />
                     )}
                     {tab === "shift" && canView("shift") && (
