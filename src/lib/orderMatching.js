@@ -1,0 +1,61 @@
+// lib/orderMatching.js
+// منطق مطابقة فاتورة الشراء بطلب الشراء النشط — معزول عشان يتستخدم من PurchaseModule ويتختبر لوحده.
+
+// مصدر واحد للحقيقة: SuppliersModule بيستورد الثابت ده من هنا (بدل ما يعرّفه محليًا)
+export const ACTIVE_ORDER_STATUSES = ["مسودة", "مُرسل"]; // الحالات اللي بتعلّم الصنف "مطلوب"
+export const RECEIVED_ORDER_STATUS = "تم الاستلام";
+
+// مفتاح ترتيب الطلبات بالوقت: بنعتمد على الـ timestamp اللي جوه id الطلب (ORD-<ms>)
+// لأنه موجود في الطلبات الجديدة (لسه محفوظة محليًا) والقديمة (جاية من الداتابيز) بنفس الشكل،
+// وبعدها created_at ثم date كاحتياطي. الـ date لوحده مش كفاية لأنه يوم بس (طلبات نفس اليوم كانت بتتلخبط).
+export const orderSortKey = (o) => {
+  const m = /^ORD-(\d+)$/.exec(String(o?.id || ""));
+  if (m) return +m[1];
+  return new Date(o?.created_at || o?.date).getTime() || 0;
+};
+
+/**
+ * بيدور على أقدم طلب نشط لنفس المورد (وفيه صنف واحد على الأقل من أصناف الفاتورة)،
+ * ويحسب الكميات المستلمة لكل صنف، ويرجّع نسخة محدّثة من الطلب من غير ما يعدّل أي حاجة بره.
+ *
+ * @param {Array}  orders        - كل الطلبات (من الـ state)
+ * @param {string} supplierId
+ * @param {Array}  invoiceItems  - أصناف الفاتورة: {id, qty, bonusQty}
+ * @param {string} invoiceId     - id الفاتورة اللي استلمنا بيها (بيتسجل على الطلب)
+ * @returns {{order: Object, updates: Object}|null}
+ *   order   → الطلب كامل بعد التحديث (للـ setOrders)
+ *   updates → الحقول اللي اتغيرت بس (للـ ORDER_UPDATE event)
+ *   null    → مفيش طلب نشط مناسب، والفاتورة تفضل من غير ربط عادي
+ */
+export function matchInvoiceToOrder(orders, supplierId, invoiceItems, invoiceId = null) {
+  const receivedById = {};
+  (invoiceItems || []).forEach((i) => {
+    receivedById[i.id] = (receivedById[i.id] || 0) + (+i.qty || 0) + (+i.bonusQty || 0);
+  });
+
+  // الطلبات بتيجي من الـ state مرتبة تنازلي (الأحدث الأول)، فلازم نرتّبها تصاعدي عشان "الأقدم"
+  const orderTime = orderSortKey;
+
+  const order = (orders || [])
+    .filter((o) => o.supplier_id === supplierId && ACTIVE_ORDER_STATUSES.includes(o.status))
+    // الطلب لازم يشترك مع الفاتورة في صنف واحد على الأقل (غير ملغي) — وإلا فاتورة لأصناف تانية خالص متقفلش الطلب غلط
+    .filter((o) => (o.items || []).some((it) => it.status !== "ملغي" && receivedById[it.id] !== undefined))
+    .sort((a, b) => orderTime(a) - orderTime(b) || String(a.id).localeCompare(String(b.id)))[0];
+
+  if (!order) return null;
+
+  // الكمية المستلمة بتتسجل على كل صنف للمراجعة بس — الفلاج بيختفي لأن حالة الطلب خرجت من ACTIVE_ORDER_STATUSES
+  const items = (order.items || []).map((it) => {
+    const received = receivedById[it.id];
+    if (received === undefined) return it; // الصنف ده مكانش في الفاتورة دي
+    return { ...it, received_qty: (+it.received_qty || 0) + received };
+  });
+
+  const updates = {
+    items,
+    status: RECEIVED_ORDER_STATUS,
+    received_at: new Date().toISOString(),
+    received_via_invoice_id: invoiceId,
+  };
+  return { order: { ...order, ...updates }, updates };
+}

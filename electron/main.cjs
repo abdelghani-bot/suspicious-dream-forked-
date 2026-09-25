@@ -453,12 +453,14 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_manufacturers_cache_pharmacy ON manufacturers_cache(pharmacy_id);
-  -- 🆕 كاش المواد الفعالة (قراءة فقط — full-replace)، نفس نمط manufacturers_cache بالظبط
+  -- 🆕 كاش المواد الفعالة (full-replace + upsert فردي)، بقى فيه فلاجات is_essential و requires_prescription_archive
   CREATE TABLE IF NOT EXISTS active_ingredients_cache (
     id TEXT PRIMARY KEY,
     pharmacy_id TEXT NOT NULL,
     name_ar TEXT,
     name_en TEXT,
+    is_essential INTEGER NOT NULL DEFAULT 0,
+    requires_prescription_archive INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_active_ingredients_cache_pharmacy ON active_ingredients_cache(pharmacy_id);
@@ -625,6 +627,20 @@ CREATE INDEX IF NOT EXISTS idx_attendance_gaps_cache_pharmacy ON attendance_gaps
   );
   CREATE INDEX IF NOT EXISTS idx_item_types_cache_pharmacy ON item_types_cache(pharmacy_id);
 `);
+
+// 🆕 Migration: إضافة فلاجات is_essential و requires_prescription_archive لأجهزة كان عندها
+// الجدول من قبل إضافة العمودين دول (CREATE TABLE IF NOT EXISTS مبيلحقش يضيفهم لوحده)
+(function migrateActiveIngredientsFlags() {
+    const columns = db.prepare(`PRAGMA table_info(active_ingredients_cache)`).all();
+    const hasEssential = columns.some((c) => c.name === "is_essential");
+    const hasArchive = columns.some((c) => c.name === "requires_prescription_archive");
+    if (!hasEssential) {
+        db.exec(`ALTER TABLE active_ingredients_cache ADD COLUMN is_essential INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!hasArchive) {
+        db.exec(`ALTER TABLE active_ingredients_cache ADD COLUMN requires_prescription_archive INTEGER NOT NULL DEFAULT 0`);
+    }
+})();
 
 ipcMain.handle("app:getVersion", () => app.getVersion());
 
@@ -1527,10 +1543,18 @@ ipcMain.handle("offline:refreshActiveIngredientsCache", (_event, { pharmacyId, r
         const tx = db.transaction((items) => {
             db.prepare("DELETE FROM active_ingredients_cache WHERE pharmacy_id = ?").run(pharmacyId);
             const stmt = db.prepare(`
-        INSERT INTO active_ingredients_cache (id, pharmacy_id, name_ar, name_en, updated_at)
-        VALUES (@id, @pharmacy_id, @name_ar, @name_en, @updated_at)
+        INSERT INTO active_ingredients_cache (id, pharmacy_id, name_ar, name_en, is_essential, requires_prescription_archive, updated_at)
+        VALUES (@id, @pharmacy_id, @name_ar, @name_en, @is_essential, @requires_prescription_archive, @updated_at)
       `);
-            for (const a of items) stmt.run({ id: a.id, pharmacy_id: pharmacyId, name_ar: a.name_ar || null, name_en: a.name_en || null, updated_at: now });
+            for (const a of items) stmt.run({
+                id: a.id,
+                pharmacy_id: pharmacyId,
+                name_ar: a.name_ar || null,
+                name_en: a.name_en || null,
+                is_essential: a.is_essential ? 1 : 0,
+                requires_prescription_archive: a.requires_prescription_archive ? 1 : 0,
+                updated_at: now,
+            });
         });
         tx(rows || []);
         return { success: true };
@@ -1540,7 +1564,7 @@ ipcMain.handle("offline:refreshActiveIngredientsCache", (_event, { pharmacyId, r
 });
 
 ipcMain.handle("offline:getActiveIngredientsCache", (_event, pharmacyId) => {
-    return db.prepare("SELECT id, name_ar, name_en FROM active_ingredients_cache WHERE pharmacy_id = ? ORDER BY name_ar").all(pharmacyId);
+    return db.prepare("SELECT id, name_ar, name_en, is_essential, requires_prescription_archive FROM active_ingredients_cache WHERE pharmacy_id = ? ORDER BY name_ar").all(pharmacyId);
 });
 
 // upsert فردي — بيتنادى لما تضيف مادة فعالة جديدة أونلاين/أوفلاين، من غير ما يمسح الباقي
@@ -1549,19 +1573,45 @@ ipcMain.handle("offline:upsertActiveIngredientCache", (_event, { pharmacyId, ite
     try {
         const now = new Date().toISOString();
         db.prepare(`
-      INSERT INTO active_ingredients_cache (id, pharmacy_id, name_ar, name_en, updated_at)
-      VALUES (@id, @pharmacy_id, @name_ar, @name_en, @updated_at)
+      INSERT INTO active_ingredients_cache (id, pharmacy_id, name_ar, name_en, is_essential, requires_prescription_archive, updated_at)
+      VALUES (@id, @pharmacy_id, @name_ar, @name_en, @is_essential, @requires_prescription_archive, @updated_at)
       ON CONFLICT(id) DO UPDATE SET
         name_ar = excluded.name_ar,
         name_en = excluded.name_en,
+        is_essential = excluded.is_essential,
+        requires_prescription_archive = excluded.requires_prescription_archive,
         updated_at = excluded.updated_at
     `).run({
             id: item.id,
             pharmacy_id: pharmacyId,
             name_ar: item.name_ar || null,
             name_en: item.name_en || null,
+            is_essential: item.is_essential ? 1 : 0,
+            requires_prescription_archive: item.requires_prescription_archive ? 1 : 0,
             updated_at: now,
         });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
+// 🆕 تحديث فلاجات مادة فعالة واحدة محليًا فورًا (optimistic) — التزامن الفعلي بيتم عبر queueEvent
+// + ACTIVE_INGREDIENT_FIELD_UPDATE في offlineAPI.ts (نفس نمط PRODUCT_FIELD_UPDATE)
+ipcMain.handle("offline:updateActiveIngredientFlagsCache", (_event, { id, updates }) => {
+    try {
+        const sets = [];
+        const params = { id };
+        if ("is_essential" in updates) {
+            sets.push("is_essential = @is_essential");
+            params.is_essential = updates.is_essential ? 1 : 0;
+        }
+        if ("requires_prescription_archive" in updates) {
+            sets.push("requires_prescription_archive = @requires_prescription_archive");
+            params.requires_prescription_archive = updates.requires_prescription_archive ? 1 : 0;
+        }
+        if (sets.length === 0) return { success: true };
+        db.prepare(`UPDATE active_ingredients_cache SET ${sets.join(", ")} WHERE id = @id`).run(params);
         return { success: true };
     } catch (err) {
         return { success: false, error: String(err) };

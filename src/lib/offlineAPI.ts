@@ -683,6 +683,14 @@ case "PRODUCT_INGREDIENTS_REPLACE": {
             if (error) throw error;
             break;
         }
+        // 🆕 تحديث فلاج (أساسي / يتطلب أرشفة وصفة) لمادة فعالة — نفس نمط PRODUCT_FIELD_UPDATE بالظبط
+        case "ACTIVE_INGREDIENT_FIELD_UPDATE": {
+            const { id, updates } = event.payload;
+            const { error } = await supabase.from("active_ingredients")
+                .update(updates).eq("id", id);
+            if (error) throw error;
+            break;
+        }
         case "SIZE_UNIT_INSERT": {
             const { error } = await supabase.from("size_units").insert(event.payload.record);
             if (error) throw error;
@@ -1521,6 +1529,22 @@ export async function saveProduct(product: any, pharmacyId: string, editing: boo
     });
 }
 
+// 🆕 تعديل الحد الأقصى فقط (من شاشة طلب الشراء) — الـ payload للسيرفر minimal (id + max_stock)
+// عشان ما نلمسش المخزون أو أي عمود تاني، والكاش المحلي ياخد الصنف كامل بمخزونه الحالي
+export async function saveProductMaxStock(product: any, maxStock: number, pharmacyId: string) {
+    await window.offlineAPI?.upsertProductsCache?.({
+        pharmacyId,
+        products: [{ ...product, max_stock: maxStock }],
+    });
+    return queueEvent({
+        id: crypto.randomUUID(),
+        type: "PRODUCT_SAVE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { product: { id: product.id, max_stock: maxStock }, editing: true, pharmacy_id: pharmacyId },
+    });
+}
+
 export async function replaceProductBarcodes(productId: string, pharmacyId: string, rows: any[]) {
     return queueEvent({
         id: crypto.randomUUID(),
@@ -1600,6 +1624,29 @@ export async function addActiveIngredient(pharmacyId: string, nameAr?: string, n
     });
 
     return { id, synced: result.synced, error: result.error };
+}
+// 🆕 تحديث فلاج (أساسي / يتطلب أرشفة وصفة) لمادة فعالة — نفس منطق addActiveIngredient بالظبط:
+// تحديث محلي فوري (optimistic) في الكاش + queueEvent للمزامنة مع Supabase
+export async function updateActiveIngredientFlags(
+    id: string,
+    pharmacyId: string,
+    updates: { is_essential?: boolean; requires_prescription_archive?: boolean }
+) {
+    try {
+        await window.offlineAPI?.updateActiveIngredientFlagsCache?.({ id, updates });
+    } catch (err) {
+        console.error("updateActiveIngredientFlagsCache failed:", err);
+    }
+
+    const result = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "ACTIVE_INGREDIENT_FIELD_UPDATE",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { id, updates },
+    });
+
+    return { synced: result.synced, error: result.error };
 }
 // 🆕 نفس منطق addItemType/deleteItemType بالظبط بس لوحدات الحجم/الوزن (sizeUnit) —
 // نفس الجدول-الفرعي الديناميكي (id, name_ar, name_en, pharmacy_id)، جدول Supabase منفصل

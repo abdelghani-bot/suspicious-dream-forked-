@@ -12,6 +12,7 @@ import { RasdSettings } from "./RasdSettings";
 import { RasdQueue } from "../services/rasdService";
 import { Badge, Btn, IC, Modal, Pagination, Select, Table } from "../ui/primitives";
 import { queueEvent } from "../lib/offlineAPI";
+import { matchInvoiceToOrder } from "../lib/orderMatching";
 import { getDeviceId } from "../lib/deviceID";
 import { printHTML } from "../lib/printHelper";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
@@ -164,6 +165,8 @@ export function PurchaseModule({
     canEdit = true,
     jokerPendingItems = [],
     setJokerPendingItems = () => { },
+    orders = [],                 // 🆕 طلبات الشراء (من App) — عشان الفاتورة تقفل الطلب النشط لنفس المورد
+    setOrders = () => { },
 }) {
     // 🆕 نافذة إضافة/تعديل صنف فوق فاتورة الشراء (من غير ما تقفل الفاتورة)
     const [showProductForm, setShowProductForm] = useState(false);
@@ -1570,6 +1573,7 @@ export function PurchaseModule({
 
         const allNewBatchesByProduct = {}; // 🆕 متراكم عبر كل الفواتير المُنشأة، عشان تحديث products مرة واحدة في الآخر
         const createdInvoiceIds = [];
+        const createdInvoiceItems = []; // 🆕 أصناف كل الفواتير اللي اتحفظت فعلًا — للمطابقة مع طلب الشراء
 
         for (const batchGroup of invoiceBatches) {
             const batchItems = batchGroup.rowKeys
@@ -1731,11 +1735,36 @@ export function PurchaseModule({
             });
 
             createdInvoiceIds.push(po.id);
+            createdInvoiceItems.push(...po.items);
         }
 
         if (createdInvoiceIds.length === 0) {
             showToast("فشل حفظ كل الفواتير", "error");
             return;
+        }
+
+        // 🆕 مطابقة الفواتير بأقدم طلب شراء نشط لنفس المورد (لو موجود) — إغلاق دورة الشراء.
+        // بنعملها مرة واحدة بعد الـ loop (مش جواه) عشان لو الفاتورة اتقسمت لأكتر من فاتورة
+        // نفس الطلب ميتحدّثش أكتر من مرة، والكميات المستلمة تتجمع من كل الفواتير.
+        // try/catch عشان أي فشل هنا ميوقفش باقي الحفظ (المخزون والكاش تحت).
+        try {
+            const match = matchInvoiceToOrder(orders, selSupplier, createdInvoiceItems, createdInvoiceIds[0]);
+            if (match) {
+                const orderUpdateResult = await queueEvent({
+                    id: crypto.randomUUID(),
+                    type: "ORDER_UPDATE",
+                    pharmacy_id: pharmacyId,
+                    timestamp: new Date().toISOString(),
+                    payload: { id: match.order.id, updates: match.updates },
+                });
+                if (!orderUpdateResult.synced && orderUpdateResult.error) {
+                    showToast("⚠️ الفاتورة اتحفظت لكن تحديث حالة طلب الشراء فشل مؤقتًا — هيتزامن لاحقًا", "warning");
+                }
+                setOrders((prev) => prev.map((o) => (o.id === match.order.id ? match.order : o)));
+            }
+        } catch (err) {
+            console.error("order matching failed:", err);
+            showToast("⚠️ الفاتورة اتحفظت لكن ربطها بطلب الشراء فشل", "warning");
         }
 
         // بنبني القوائم المحدّثة مرة واحدة عشان نستخدمها في: (1) React state و(2) الحفظ في products_cache المحلي

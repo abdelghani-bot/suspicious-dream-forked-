@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     refreshActiveIngredientsCache: (payload) => ipcRenderer.invoke("offline:refreshActiveIngredientsCache", payload),
     getActiveIngredientsCache: (pharmacyId) => ipcRenderer.invoke("offline:getActiveIngredientsCache", pharmacyId),
     upsertActiveIngredientCache: (payload) => ipcRenderer.invoke("offline:upsertActiveIngredientCache", payload),
+    // 🆕 تحديث فلاجات (أساسي / يتطلب أرشفة وصفة) لمادة فعالة واحدة محليًا فورًا
+    updateActiveIngredientFlagsCache: (payload) => ipcRenderer.invoke("offline:updateActiveIngredientFlagsCache", payload),
     getLoyaltyPointsCache: (pharmacyId) => ipcRenderer.invoke("offline:getLoyaltyPointsCache", pharmacyId),
     upsertLoyaltyPointsCache: (data) => ipcRenderer.invoke("offline:upsertLoyaltyPointsCache", data),
     applyLoyaltyDeltaCache: (data) => ipcRenderer.invoke("offline:applyLoyaltyDeltaCache", data),

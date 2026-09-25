@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { queueEvent, insertTreasuryEntry } from "../lib/offlineAPI";
+import { queueEvent, insertTreasuryEntry, saveProductMaxStock } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { TAX_RATE } from "../data/seedData";
 import { logAudit } from "../lib/auditLog";
@@ -8,20 +8,24 @@ import { todayLocal } from "../lib/dateUtils";
 import { computeStockoutForecast } from "../lib/inventoryUtils";
 import { SUPPLY_CATEGORIES, SUPPLY_CATEGORY_ICONS } from "../lib/productConstants";
 import { computeAvailableForPayment } from "../lib/treasuryUtils";
-import { Badge, Btn, IC, Input, Modal } from "../ui/primitives";
+import { Badge, Btn, IC, Input, Modal, Pagination } from "../ui/primitives";
 import { printHTML } from "../lib/printHelper"; // 🆕 كشف حساب المورد — نفس helper الطباعة المستخدم في الخزينة
+import { ACTIVE_ORDER_STATUSES, RECEIVED_ORDER_STATUS, orderSortKey } from "../lib/orderMatching"; // 🆕 مصدر واحد لحالات الطلب النشطة
 
 // ── إعدادات طلب الشراء ──
-const DRUG_SUPPLY_CATEGORY = "أدوية";             // ⚠ عدّلها لاسم فئة الأدوية عندك
-const ACTIVE_ORDER_STATUSES = ["مسودة", "مُرسل"]; // الحالات اللي بتعلّم الصنف "مطلوب"
+// فئات التوريد اللي اسمها في طلب الشراء بيظهر بالإنجليزي فقط (الأدوية + الكوزمتك الطبي)
+// القيم لازم تتطابق حرفيًا مع SUPPLY_CATEGORIES في lib/productConstants
+const ENGLISH_NAME_SUPPLY_CATEGORIES = ["دواء", "كوزمتك طبي"];
+// ACTIVE_ORDER_STATUSES (الحالات اللي بتعلّم الصنف "مطلوب") بقت مستوردة من lib/orderMatching
+const ORDERS_PAGE_SIZE = 20;                       // 🆕 عدد الطلبات في الصفحة الواحدة في تاب "طلبات الشراء"
 const STALE_ORDER_DAYS = 7;                        // بعدها الطلب المُرسل يتعلّم "قديم"
 // 🆕 (ج) أسباب إلغاء طلب الشراء / صنف داخله
 const ORDER_CANCEL_REASONS = ["مديونية", "نقص عند المورد", "سعر غير مناسب", "غير ذلك"];
 
-// اسم الصنف في الطلب: الأدوية بالإنجليزي فقط، وباقي الفئات زي ما هي
+// اسم الصنف في الطلب: الأدوية والكوزمتك الطبي بالإنجليزي فقط، وباقي الفئات زي ما هي
 const orderDisplayName = (p) => {
   const fallback = p?.name || p?.nameAr || "";
-  if ((p?.supply_category || "") !== DRUG_SUPPLY_CATEGORY) return { name: fallback, missingEn: false };
+  if (!ENGLISH_NAME_SUPPLY_CATEGORIES.includes(p?.supply_category || "")) return { name: fallback, missingEn: false };
   const en = (p.name_en || p.nameEn || "").trim();
   return en ? { name: en, missingEn: false } : { name: fallback, missingEn: true };
 };
@@ -57,6 +61,8 @@ export function SuppliersModule({
   canEditSub = (_sub) => true,
   jokerPendingItems = [],
   setJokerPendingItems = () => {},
+  orders,     // 🆕 مرفوعين لـ App عشان PurchaseModule يقدر يقفل الطلب لما فاتورة الشراء تتسجل
+  setOrders,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -65,7 +71,8 @@ export function SuppliersModule({
   // 🆕 تاب "قائمة الموردين" / "تحليل الموردين" + فلتر الفئة
   const [supplierViewTab, setSupplierViewTab] = useState("list"); // "list" | "analysis" | "orders"
   // 🆕 (ج) فلتر حالة طلبات الشراء في تاب "طلبات الشراء" + مودال الإلغاء (طلب كامل أو صنف واحد)
-  const [ordersStatusFilter, setOrdersStatusFilter] = useState("all"); // "all" | "مسودة" | "مُرسل" | "ملغي"
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState("all"); // "all" | "مسودة" | "مُرسل" | "تم الاستلام" | "ملغي"
+  const [ordersPage, setOrdersPage] = useState(1); // 🆕 Pagination لقائمة الطلبات
   const [showCancelModal, setShowCancelModal] = useState(null); // { order, itemId? }
   const [cancelReason, setCancelReason] = useState("");
   const [cancelNote, setCancelNote] = useState("");
@@ -78,7 +85,6 @@ export function SuppliersModule({
   const [showJokerReview, setShowJokerReview] = useState(false);
   const [jokerReviewSupplier, setJokerReviewSupplier] = useState({}); // { [groupKey]: supplierId }
   const [payments, setPayments] = useState([]);
-  const [orders, setOrders] = useState([]);
   const [showDetail, setShowDetail] = useState(null);
   const [showPayForm, setShowPayForm] = useState(null);
   const [showOrderForm, setShowOrderForm] = useState(null);
@@ -153,12 +159,10 @@ export function SuppliersModule({
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  // تحميل الدفعات والأوردرات
+  // تحميل الدفعات (الأوردرات بقت بتتحمّل في App وجاية كـ props)
   useEffect(() => {
     supabase.from("payments").select("*").order("date", { ascending: true })
       .then(({ data }) => { if (data) setPayments(data); });
-    supabase.from("orders").select("*").order("created_at", { ascending: false })
-      .then(({ data }) => { if (data) setOrders(data); });
   }, []);
 
   // ========== حالة المورد ==========
@@ -756,8 +760,43 @@ export function SuppliersModule({
     const monthlySales = (sales || [])
       .filter((s) => new Date(s.date) >= since)
       .reduce((sum, s) => { const si = s.items?.find((i) => i.id === p.id); return sum + (si?.qty || 0); }, 0);
-    const needed = Math.ceil((monthlySales / 30) * days) - p.stock;
-    return Math.max(needed, p.min_stock || 1);
+    const stock  = +p.stock || 0;
+    const min    = +(p.min_stock ?? p.minStock ?? 0) || 0;
+    const max    = +(p.max_stock ?? p.maxStock ?? 0) || 0; // 0 = غير محدد
+    const demand = Math.ceil((monthlySales / 30) * days);   // احتياج "أيام التغطية" حسب حركة الصنف
+
+    // المستوى المستهدف بعد وصول الطلب:
+    //  - فيه حركة بيع: أيام التغطية هي اللي بتحدد الكمية (الحد الأدنى بيحدد بس إمتى الصنف يدخل الطلب)
+    //  - مفيش حركة بيع: نرجع للحد الأدنى + هامش صغير (10% أو وحدة)، أو وحدة واحدة لو مفيش حد أدنى
+    let target;
+    if (demand > 0) target = demand;
+    else target = min > 0 ? min + Math.max(1, Math.ceil(min * 0.1)) : stock + 1;
+
+    // الحد الأقصى (لو موجود) سقف للطلب التلقائي
+    if (max > 0) target = Math.min(target, max);
+
+    return Math.max(target - stock, 0);
+  };
+
+  // 🆕 حفظ الحد الأقصى للصنف من شاشة طلب الشراء (payload minimal — ما بيلمسش المخزون ولا باقي الأعمدة)
+  const saveMaxStock = async (productId, value) => {
+    const prod = (products || []).find((x) => x.id === productId);
+    if (!prod) return;
+    const v = Math.max(0, +value || 0);
+    if ((+prod.max_stock || 0) === v) return; // مفيش تغيير
+
+    const result = await saveProductMaxStock(prod, v, pharmacyId);
+    if (!result.synced && result.error) {
+      showToast("خطأ في حفظ الحد الأقصى: " + result.error, "error");
+      return;
+    }
+    setProducts((prev) => prev.map((x) => (x.id === productId ? { ...x, max_stock: v } : x)));
+    logAudit({
+      pharmacyId, userName: currentUser?.name, action: "update", entityType: "product",
+      entityId: productId, entityLabel: prod.name,
+      oldValue: { max_stock: prod.max_stock || 0 }, newValue: { max_stock: v },
+      description: `تعديل الحد الأقصى للصنف "${prod.name}" من شاشة طلب الشراء`,
+    });
   };
 
   // خريطة الأصناف المطلوبة حاليًا: { [productId]: [{ orderId, supplierId, supplierName, qty, date, status, stale }] }
@@ -839,6 +878,7 @@ export function SuppliersModule({
         auto: true, // اتولّد تلقائي — الكمية بتتحدث لما تغيّر "التغطية بالأيام"
         currentStock: p.stock,
         minStock: p.min_stock || p.minStock || 0,
+        maxStock: +(p.max_stock ?? p.maxStock ?? 0) || 0,
         orderQty: computeOrderQty(p, coverageDays),
         cost: getInitialCostFor(p.id, targetSupplier.id, p.cost),
         movement: getMovementClass(p.id),
@@ -1068,6 +1108,7 @@ export function SuppliersModule({
       name: group.name,
       currentStock: 0,
       minStock: 0,
+      maxStock: 0,
       orderQty: group.qty,
       cost: group.price,
       movement: { class: "joker", label: "⚠ جوكر (فرصة ضائعة)", color: COLORS.gold },
@@ -1757,8 +1798,26 @@ export function SuppliersModule({
       {supplierViewTab === "orders" && (() => {
         const filteredOrders = (orders || [])
           .filter((o) => ordersStatusFilter === "all" || o.status === ordersStatusFilter)
-          .sort((a, b) => new Date(b.date) - new Date(a.date));
-        const statusColor = (s) => s === "ملغي" ? COLORS.red : s === "مُرسل" ? COLORS.green : COLORS.gold;
+          // الطلبات النشطة (مسودة/مُرسل) الأول، وجوه كل مجموعة الأحدث فالأقدم
+          .sort((a, b) => {
+            const aRank = ACTIVE_ORDER_STATUSES.includes(a.status) ? 0 : 1;
+            const bRank = ACTIVE_ORDER_STATUSES.includes(b.status) ? 0 : 1;
+            return aRank - bRank || orderSortKey(b) - orderSortKey(a);
+          });
+        const pagedOrders = filteredOrders.slice((ordersPage - 1) * ORDERS_PAGE_SIZE, ordersPage * ORDERS_PAGE_SIZE);
+        // حالة الصنف جوه الطلب: نشط / ملغي، ولو الطلب اتستلم: مستلم / مستلم جزئي / لم يُستلم (حسب received_qty)
+        const itemStatus = (order, it) => {
+          if (it.status === "ملغي") return { label: "ملغي", color: COLORS.red };
+          if (order.status === RECEIVED_ORDER_STATUS) {
+            const got = +it.received_qty || 0;
+            if (got <= 0) return { label: "لم يُستلم", color: COLORS.textDim };
+            return got >= (+it.orderQty || 0)
+              ? { label: "مستلم", color: COLORS.green }
+              : { label: "مستلم جزئي", color: COLORS.gold };
+          }
+          return { label: "نشط", color: COLORS.green };
+        };
+        const statusColor = (s) => s === "ملغي" ? COLORS.red : s === "مُرسل" ? COLORS.green : s === RECEIVED_ORDER_STATUS ? COLORS.blue : COLORS.gold;
         return (
           <div>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
@@ -1766,9 +1825,10 @@ export function SuppliersModule({
                 { k: "all",    l: "الكل" },
                 { k: "مسودة",  l: "مسودة" },
                 { k: "مُرسل",  l: "مُرسل" },
+                { k: RECEIVED_ORDER_STATUS, l: "تم الاستلام" },
                 { k: "ملغي",   l: "ملغي" },
               ].map((f) => (
-                <button key={f.k} onClick={() => setOrdersStatusFilter(f.k)}
+                <button key={f.k} onClick={() => { setOrdersStatusFilter(f.k); setOrdersPage(1); }}
                   style={{
                     padding: "6px 14px", borderRadius: 20, border: "1px solid",
                     borderColor: ordersStatusFilter === f.k ? COLORS.blue : COLORS.border,
@@ -1784,7 +1844,7 @@ export function SuppliersModule({
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {filteredOrders.map((order) => {
+              {pagedOrders.map((order) => {
                 const items = order.items || [];
                 const activeItems = items.filter((it) => it.status !== "ملغي");
                 const cancelledItems = items.filter((it) => it.status === "ملغي");
@@ -1805,7 +1865,7 @@ export function SuppliersModule({
                           {order.status}
                         </span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{(+order.total_cost || 0).toFixed(2)} ر.س</span>
-                        {order.status !== "ملغي" && (
+                        {ACTIVE_ORDER_STATUSES.includes(order.status) && (
                           <button onClick={() => { setShowCancelModal({ order }); setCancelReason(""); setCancelNote(""); }}
                             style={{ fontSize: 11, background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
                             إلغاء الطلب
@@ -1819,6 +1879,12 @@ export function SuppliersModule({
                         سبب الإلغاء: {order.cancelled_reason}{order.cancelled_note ? ` — ${order.cancelled_note}` : ""}
                         {order.cancelled_at ? ` — ${new Date(order.cancelled_at).toLocaleString("ar")}` : ""}
                         {order.cancelled_by ? ` — بواسطة ${order.cancelled_by}` : ""}
+                      </div>
+                    )}
+
+                    {order.status === RECEIVED_ORDER_STATUS && (
+                      <div style={{ marginTop: 8, fontSize: 11.5, color: COLORS.blue }}>
+                        استُلم بفاتورة شراء{order.received_at ? ` — ${new Date(order.received_at).toLocaleDateString("ar")}` : ""}
                       </div>
                     )}
 
@@ -1844,12 +1910,12 @@ export function SuppliersModule({
                                     </div>
                                   )}
                                 </td>
-                                <td style={{ padding: "6px 8px", color: COLORS.textDim, fontSize: 12.5 }}>{it.orderQty}</td>
+                                <td style={{ padding: "6px 8px", color: COLORS.textDim, fontSize: 12.5 }}>{it.orderQty}{it.received_qty != null ? ` (مستلم ${it.received_qty})` : ""}</td>
                                 <td style={{ padding: "6px 8px", color: COLORS.textDim, fontSize: 12.5 }}>{(+it.cost || 0).toFixed(2)}</td>
                                 <td style={{ padding: "6px 8px", color: COLORS.textPrimary, fontSize: 12.5, fontWeight: 700 }}>{((+it.cost || 0) * (+it.orderQty || 0)).toFixed(2)}</td>
-                                <td style={{ padding: "6px 8px", fontSize: 11, color: it.status === "ملغي" ? COLORS.red : COLORS.green }}>{it.status === "ملغي" ? "ملغي" : "نشط"}</td>
+                                <td style={{ padding: "6px 8px", fontSize: 11, color: itemStatus(order, it).color }}>{itemStatus(order, it).label}</td>
                                 <td style={{ padding: "6px 8px" }}>
-                                  {order.status !== "ملغي" && it.status !== "ملغي" && (
+                                  {ACTIVE_ORDER_STATUSES.includes(order.status) && it.status !== "ملغي" && (
                                     <button onClick={() => { setShowCancelModal({ order, itemId: it.id }); setCancelReason(""); setCancelNote(""); }}
                                       style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 5, padding: "2px 8px", cursor: "pointer" }}>
                                       إلغاء الصنف
@@ -1866,6 +1932,7 @@ export function SuppliersModule({
                 );
               })}
             </div>
+            <Pagination page={ordersPage} onPageChange={setOrdersPage} totalItems={filteredOrders.length} pageSize={ORDERS_PAGE_SIZE} />
           </div>
         );
       })()}
@@ -2049,6 +2116,7 @@ export function SuppliersModule({
                           missingEn,
                           currentStock: p.stock || 0,
                           minStock: p.min_stock || p.minStock || 0,
+                          maxStock: +(p.max_stock ?? p.maxStock ?? 0) || 0,
                           orderQty: 1,
                           cost: getInitialCostFor(p.id, showOrderForm.id, p.cost),
                           movement: { class: "manual", label: "إضافة يدوية", color: COLORS.blue },
@@ -2114,7 +2182,7 @@ export function SuppliersModule({
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: COLORS.surfaceAlt }}>
-                  {["#", "الصنف", "الحركة", "المخزون", "الحد الأدنى", "سعر الوحدة", "الكمية المطلوبة", "الإجمالي", ""].map((h) => (
+                  {["#", "الصنف", "الحركة", "المخزون", "الحد الأدنى", "الحد الأقصى", "سعر الوحدة", "الكمية المطلوبة", "الإجمالي", ""].map((h) => (
                     <th key={h} style={{ padding: "9px 10px", textAlign: "right", color: COLORS.textDim, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
@@ -2171,6 +2239,19 @@ export function SuppliersModule({
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.currentStock}</td>
                     <td style={{ padding: "8px 10px", color: COLORS.textDim, fontSize: 13 }}>{item.minStock}</td>
                     <td style={{ padding: "8px 10px" }}>
+                      <input type="number" min="0" value={item.maxStock ?? 0}
+                        title="الحد الأقصى للصنف (0 = غير محدد) — بيتحفظ على كرت الصنف"
+                        onChange={(e) => {
+                          const v = Math.max(0, +e.target.value || 0);
+                          const p = (products || []).find((x) => x.id === item.id);
+                          setOrderItems((prev) => prev.map((x, j) => j === i
+                            ? { ...x, maxStock: v, ...(x.auto && p ? { orderQty: computeOrderQty({ ...p, max_stock: v }, coverageDays) } : {}) }
+                            : x));
+                        }}
+                        onBlur={() => saveMaxStock(item.id, item.maxStock)}
+                        style={{ width: 60, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
                       <input type="number" min="0" step="0.01" value={item.cost ?? ""}
                         onChange={(e) => setOrderItems((prev) => prev.map((x, j) => j === i ? { ...x, cost: +e.target.value } : x))}
                         style={{ width: 80, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 8px", color: COLORS.textPrimary, fontSize: 13, outline: "none" }} />
@@ -2207,7 +2288,7 @@ export function SuppliersModule({
               {orderItems.length > 0 && (
                 <tfoot>
                   <tr style={{ borderTop: `2px solid ${COLORS.border}` }}>
-                    <td colSpan={7} style={{ padding: "10px", textAlign: "left", color: COLORS.textDim, fontSize: 13, fontWeight: 700 }}>
+                    <td colSpan={8} style={{ padding: "10px", textAlign: "left", color: COLORS.textDim, fontSize: 13, fontWeight: 700 }}>
                       الإجمالي الكلي للطلب
                     </td>
                     <td colSpan={2} style={{ padding: "10px", color: COLORS.textPrimary, fontSize: 15, fontWeight: 800, whiteSpace: "nowrap" }}>

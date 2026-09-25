@@ -25,6 +25,7 @@ import { POS } from "./modules/POS";
 import { PermissionsModule, SYSTEM_SECTIONS, permKey } from "./modules/PermissionsModule";
 import { PharmacySettings } from "./modules/PharmacySettings";
 import { ProductsModule } from "./modules/ProductsModule";
+import { ActiveIngredientsModule } from "./modules/ActiveIngredientsModule";
 import { PromotionsModule } from "./modules/PromotionsModule";
 import { PurchaseModule } from "./modules/PurchaseModule";
 import { RasdSettings } from "./modules/RasdSettings";
@@ -59,6 +60,8 @@ export default function PharmacyPro() {
     // 🆕 أصناف الجوكر المعلقة — كل صنف جوكر اتسجل في فاتورة بيع بفئته الرئيسية، بيفضل هنا لحد ما يدخل
     // طلب شراء تلقائي لمورد نفس الفئة، أو يتربط بصنف حقيقي بعد إضافته في شاشة الأصناف
     const [jokerPendingItems, setJokerPendingItems] = useStorage("ph_joker_pending", []);
+    // 🆕 طلبات الشراء — مرفوعة هنا عشان SuppliersModule (إنشاء/إلغاء) وPurchaseModule (إغلاق الطلب عند تسجيل الفاتورة) يشتركوا في نفس الـ state
+    const [orders, setOrders] = useStorage("ph_orders", []);
     const [creditPayments, setCreditPayments] = useState([]);
 
     // 🆕 تصنيف العملاء (VIP/نمط الشراء/الاتجاه) محسوب مرة واحدة هنا، ومتبعت لأي موديول محتاجه
@@ -582,7 +585,7 @@ export default function PharmacyPro() {
             setIsLoading(true);
 
             try {
-                const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng, jkp, altBc] = await Promise.all([
+                const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng, jkp, altBc, ord] = await Promise.all([
                     supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
                     supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
                     supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
@@ -599,13 +602,15 @@ export default function PharmacyPro() {
                     supabase.from("joker_pending_items").select("*").eq("pharmacy_id", pharmacyId),
                     // 🆕 الباركودات البديلة البسيطة (مش دفعات GS1) لكل الأصناف — نفس نمط product_ingredients
                     supabase.from("product_alt_barcodes").select("product_id, barcode").eq("pharmacy_id", pharmacyId),
+                    // 🆕 طلبات الشراء (الأحدث الأول)
+                    supabase.from("orders").select("*").eq("pharmacy_id", pharmacyId).order("created_at", { ascending: false }),
                 ]);
 
                 // 🆕 مهم جدًا: عميل Supabase مش بيرمي (throw) لما الطلب يفشل بسبب مشكلة نت —
                 // بيرجع { data: null, error: {...} } عادي. لو مانتحققش من error هنا، هنكمل
                 // ونمسح الحالة بـ (p.data ?? []) رغم إننا أوفلاين فعليًا. أول خطأ حقيقي بيوقفنا
                 // فورًا (بنرميه إحنا يدويًا) عشان الـ catch تحت يمسكه ويحافظ على النسخة المحلية.
-                const results = { p, s, c, sa, pu, ret, cp, inv, mfr, allProdIng, jkp, altBc };
+                const results = { p, s, c, sa, pu, ret, cp, inv, mfr, allProdIng, jkp, altBc, ord };
                 for (const [key, res] of Object.entries(results)) {
                     if (res?.error) {
                         throw new Error(`فشل تحميل ${key}: ${res.error.message || res.error}`);
@@ -671,6 +676,7 @@ export default function PharmacyPro() {
                 setInventoryLogs(inv.data ?? []);
                 setManufacturers(mfr.data ?? []);
                 setJokerPendingItems(jkp.data ?? []);
+                setOrders(ord.data ?? []);
                 setPurchases(
                     (pu.data ?? []).map((item) => ({
                         ...item,
@@ -840,6 +846,7 @@ export default function PharmacyPro() {
         // ── المخزون والموردين ──
         { id: "purchase", label: "فواتير الشراء", icon: "purchase" },
         { id: "products", label: "الأصناف", icon: "inventory" },
+        { id: "active_ingredients", label: "المواد الفعالة", icon: "pill" },
         { id: "suppliers", label: "الموردون", icon: "suppliers" },
         { id: "pharmacy_transfers", label: "التحويل بين الصيدليات", icon: "suppliers" },
         { id: "purchase_returns", label: "مرتجع المشتريات", icon: "returns" },
@@ -1011,7 +1018,7 @@ export default function PharmacyPro() {
                             { label: null, color: GROUP_COLORS.main, ids: ["dashboard", "onboarding"] },
                             { label: "الفريق والالتزام", color: GROUP_COLORS.team, ids: ["shift", "attendance"] },
                             { label: "العملاء والمبيعات", color: GROUP_COLORS.sales, ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
-                            { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "suppliers", "pharmacy_transfers", "purchase_returns", "inventory_count", "inventory_statement"] },
+                            { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "active_ingredients", "suppliers", "pharmacy_transfers", "purchase_returns", "inventory_count", "inventory_statement"] },
                             { label: "التقارير", color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "financial_health", "cash_flow", "treasury"] },
                             { label: "الإدارة", color: GROUP_COLORS.admin, ids: ["pharmacy_settings", "permissions", "rasd_settings", "audit_log"] },
                         ];
@@ -1293,6 +1300,8 @@ export default function PharmacyPro() {
                             canEdit={canEdit("purchase")}
                             jokerPendingItems={jokerPendingItems}
                             setJokerPendingItems={setJokerPendingItems}
+                            orders={orders}
+                            setOrders={setOrders}
                         />
                     )}
                     {tab === "sales_returns" && canView("returns", "sales") && (
@@ -1399,6 +1408,13 @@ export default function PharmacyPro() {
                             setJokerPendingItems={setJokerPendingItems}
                         />
                     )}
+                    {tab === "active_ingredients" && canView("active_ingredients") && (
+                        <ActiveIngredientsModule
+                            pharmacyId={pharmacyId}
+                            showToast={showToast}
+                            canEdit={canEdit("active_ingredients")}
+                        />
+                    )}
                     {tab === "suppliers" && canView("suppliers") && (
                         <SuppliersModule
                             suppliers={suppliers}
@@ -1420,6 +1436,8 @@ export default function PharmacyPro() {
                             canEditSub={(sub) => canEdit("suppliers", sub)}
                             jokerPendingItems={jokerPendingItems}
                             setJokerPendingItems={setJokerPendingItems}
+                            orders={orders}
+                            setOrders={setOrders}
                         />
                     )}
                     {tab === "pharmacy_transfers" && canView("pharmacy_transfers") && (

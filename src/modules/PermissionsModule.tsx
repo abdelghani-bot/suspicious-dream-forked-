@@ -14,6 +14,7 @@ export const SYSTEM_SECTIONS = [
       { id: "purchases", label: "مرتجع المشتريات" },
     ] },
   { id: "products",          label: "الأصناف والمخزون",    icon: "💊" },
+  { id: "active_ingredients", label: "المواد الفعالة",     icon: "🧪" },
   { id: "suppliers",         label: "الموردون",             icon: "🏭", subItems: [
       { id: "purchase_order", label: "طلب شراء" },
       { id: "payment",        label: "سداد" },
@@ -135,7 +136,7 @@ export function PermissionsModule({
         if (!map[role]) map[role] = {};
         // 🆕 دور "مخزن": يشوف ويعدّل بس في الشراء والأصناف والموردين والجرد،
         // وميشوفش المبيعات/العملاء/الخزنة/التقارير المالية أصلاً.
-        const WAREHOUSE_SECTIONS = ["purchase", "products", "suppliers", "returns", "inventory_count", "expiry_report", "inventory_statement"];
+        const WAREHOUSE_SECTIONS = ["purchase", "products", "active_ingredients", "suppliers", "returns", "inventory_count", "expiry_report", "inventory_statement"];
         SYSTEM_SECTIONS.forEach((sec) => {
           const canEditDefault = role === "cashier"
             ? sec.id === "pos"
