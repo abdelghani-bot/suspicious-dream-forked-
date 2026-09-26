@@ -24,6 +24,8 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
   const [filterManufacturer, setFilterManufacturer] = useState("");
   const [search, setSearch] = useState("");
   const [showInvoiceDetail, setShowInvoiceDetail] = useState(null);
+  // 🆕 عرض صورة الوصفة المرفقة بالفاتورة بالحجم الكامل (lightbox)
+  const [zoomPrescriptionImg, setZoomPrescriptionImg] = useState(null);
   const [showPrint, setShowPrint] = useState(null);
   const [selectedPaymentGroup, setSelectedPaymentGroup] = useState(null); // 🆕 فلتر تفاعلي لجدول تقرير السداد والمصروفات
 
@@ -808,6 +810,33 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
               <span>طريقة الدفع: <span style={{ color: COLORS.textPrimary }}>{showInvoiceDetail.payment}</span></span>
             )}
           </div>
+          {/* 🆕 الوصفة الطبية المرفقة — بتظهر بس لو الفاتورة فيها صورة محفوظة (prescription_img) */}
+          {(showInvoiceDetail.prescription_img || showInvoiceDetail.patient_name) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: COLORS.surfaceAlt, border: `1px solid ${tint(COLORS.blue, 0.3)}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+              {showInvoiceDetail.prescription_img && (
+                <img
+                  src={showInvoiceDetail.prescription_img}
+                  alt="الوصفة الطبية"
+                  onClick={() => setZoomPrescriptionImg(showInvoiceDetail.prescription_img)}
+                  style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: `1px solid ${COLORS.border}`, flexShrink: 0 }}
+                />
+              )}
+              <div style={{ fontSize: 12, color: COLORS.textDim }}>
+                <div style={{ color: COLORS.blue, fontWeight: 700 }}>📎 وصفة طبية مرفقة</div>
+                {showInvoiceDetail.patient_name && (
+                  <div style={{ color: COLORS.textPrimary, marginTop: 2 }}>باسم: {showInvoiceDetail.patient_name}</div>
+                )}
+                {showInvoiceDetail.prescription_img && (
+                  <div
+                    onClick={() => setZoomPrescriptionImg(showInvoiceDetail.prescription_img)}
+                    style={{ color: COLORS.blue, marginTop: 2, cursor: "pointer", textDecoration: "underline" }}
+                  >
+                    عرض بالحجم الكامل ⤢
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div style={{ overflowX: "auto", marginBottom: 14 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -847,6 +876,16 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
         </Modal>
       )}
       {showPrint && <PrintReceipt invoice={showPrint} onClose={() => setShowPrint(null)} pharmacyId={pharmacyId} customerPhone={showPrint.customer_phone} />}
+      {/* 🆕 lightbox لصورة الوصفة بالحجم الكامل */}
+      {zoomPrescriptionImg && (
+        <Modal open title="الوصفة الطبية" onClose={() => setZoomPrescriptionImg(null)}>
+          <img
+            src={zoomPrescriptionImg}
+            alt="الوصفة الطبية"
+            style={{ width: "100%", maxHeight: "75vh", objectFit: "contain", borderRadius: 8, display: "block" }}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

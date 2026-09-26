@@ -41,6 +41,7 @@ export function Dashboard({
     treasuryEntries = [],
     promos = [],
     returnsData = [],
+    autoPromoProducts = [],
 }) {
     const alerts = useEssentialAlerts(products);
     const [salesTab, setSalesTab] = useState("today"); // "today" | "month" | "compare"
@@ -52,6 +53,13 @@ export function Dashboard({
     const [missedToday, setMissedToday] = useState({ count: 0, value: 0, items: [] });
     const [missedMonth, setMissedMonth] = useState({ count: 0, value: 0, items: [] });
     const [showMissedModal, setShowMissedModal] = useState(false);
+
+    // ── ملف الوصفات الطبية: أرشيف صور الوصفات مربوط بفواتير البيع، للعرض وقت زيارة التفتيش الصيدلي ──
+    const [rxPeriod, setRxPeriod] = useState("month"); // "today" | "week" | "month" | "custom" — الشهر افتراضيًا لأن التفتيش غالبًا بيطلب فترة أوسع من يوم واحد
+    const [rxCustomFrom, setRxCustomFrom] = useState("");
+    const [rxCustomTo, setRxCustomTo] = useState("");
+    const [showRxListModal, setShowRxListModal] = useState(false);
+    const [zoomRxInvoice, setZoomRxInvoice] = useState(null); // الفاتورة المفتوحة حاليًا بالحجم الكامل (صورة + بيانات الفاتورة مع بعض)
 
     const today = todayLocal();
     const monthKey = today.substring(0, 7);
@@ -254,6 +262,27 @@ export function Dashboard({
         .reduce((a, e) => a + (e.amount || 0), 0);
 
     const monthSales = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned);
+
+    // ── فواتير بها وصفة طبية مرفقة (prescription_img) — مفلترة حسب rxPeriod ──
+    const rxWeekStart = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 6);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    })();
+    const rxInRange = (s) => {
+        if (!s.date) return false;
+        if (rxPeriod === "today") return s.date === today;
+        if (rxPeriod === "week") return s.date >= rxWeekStart && s.date <= today;
+        if (rxPeriod === "month") return s.date.startsWith(monthKey);
+        // custom
+        if (rxCustomFrom && s.date < rxCustomFrom) return false;
+        if (rxCustomTo && s.date > rxCustomTo) return false;
+        return true;
+    };
+    const rxInvoices = sales
+        .filter((s) => s.prescription_img && !s.returned && rxInRange(s))
+        .sort((a, b) => (b.created_at || b.date || "").localeCompare(a.created_at || a.date || ""));
+    const rxTotal = rxInvoices.reduce((a, s) => a + (s.total || 0), 0);
     const monthCashSales = monthSales.filter((s) => s.payment !== "آجل");
     const monthRev = monthCashSales.reduce((a, s) => a + s.total, 0);
     const monthCreditCollected = creditPayments.filter((p) => p.date?.startsWith(monthKey)).reduce((a, p) => a + p.amount, 0);
@@ -706,31 +735,9 @@ export function Dashboard({
         if (p.end_date < today) return false;
         return isPromoFulfillable(p, products.find((pr) => pr.id === p.product_id), products);
     });
-    // 🆕 أقرب تاريخ صلاحية لكل صنف من فواتير الشراء (batches) + fallback لـ p.expiry — نفس منطق
-    // productEarliestExpiry في PromotionsModule، عشان الكارت ده يطابق العروض التلقائية الحقيقية
-    // بدل ما يعتمد بس على p.expiry اللي ممكن يبقى فاضي أو قديم لو الصلاحية متسجلة في الباتش بس
-    const dashProductEarliestExpiry = (() => {
-        const map = {};
-        (purchases || []).forEach((pu) => {
-            const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
-            (items || []).forEach((item) => {
-                const expiry = item.expiry_date || item.expiry;
-                if (!expiry || !item.id) return;
-                if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
-            });
-        });
-        (products || []).forEach((p) => {
-            if (p.expiry && (!map[p.id] || p.expiry < map[p.id])) map[p.id] = p.expiry;
-        });
-        return map;
-    })();
-    const autoPromoProducts = products
-        .map((p) => ({ ...p, expiry: dashProductEarliestExpiry[p.id] || p.expiry }))
-        .filter((p) => {
-            if (!p.expiry) return false;
-            const daysLeft = Math.ceil((new Date(p.expiry).getTime() - Date.now()) / 86400000);
-            return daysLeft > 0 && daysLeft <= 90 && (p.stock ?? 0) > 0;
-        });
+    // 🛠️ فيكس: autoPromoProducts بقت جاية كـ prop من App.tsx (نفس المصدر اللي بيغذي تاب العروض
+    // التلقائية ونقطة البيع — computeAutoPromoForProduct)، بدل ما الداشبورد يحسب نسخته الخاصة.
+    // كده الكارت بقى انعكاس حقيقي، ومستحيل يظهر فيه صنف (زي دواء) مش موجود فعليًا كعرض حقيقي.
 
     // ══════════ كارت تغيير الأسعار ══════════
     const oneWeekAgo = todayLocal(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
@@ -902,6 +909,142 @@ export function Dashboard({
                         {privacyMode ? "🙈 إظهار" : "👁 إخفاء"}
                     </button>
                 </div>
+            )}
+
+            {/* ── ملف الوصفات الطبية: مدخل مباشر ثابت فوق كل التابات، لعرضه بسرعة وقت زيارة التفتيش الصيدلي ── */}
+            <div
+                onClick={() => setShowRxListModal(true)}
+                style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                    background: tint(VAR.accent2, 0.08), border: `1px solid ${tint(VAR.accent2, 0.3)}`,
+                    borderRadius: 10, padding: "10px 16px", marginBottom: 16, cursor: "pointer",
+                    maxWidth: 1100, marginLeft: "auto", marginRight: "auto",
+                }}
+            >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>🩺</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: VAR.text }}>ملف الوصفات الطبية</span>
+                    <span style={{ fontSize: 11, color: VAR.muted }}>— اعرضه مباشرة للتفتيش الصيدلي وقت الزيارة</span>
+                </div>
+                <span style={{
+                    background: `${VAR.accent2}26`, color: VAR.accent2,
+                    borderRadius: 99, fontSize: 12, padding: "3px 10px", fontWeight: 700, fontFamily: "monospace",
+                }}>
+                    {rxInvoices.length} فاتورة
+                </span>
+            </div>
+
+            {/* ── جاليري ملف الوصفات الطبية — الصور مربوطة بفاتورة البيع، للعرض السريع وقت التفتيش ── */}
+            <Modal
+                open={showRxListModal}
+                onClose={() => setShowRxListModal(false)}
+                title={`ملف الوصفات الطبية (${rxInvoices.length})`}
+            >
+                <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, marginBottom: 12 }}>
+                    {[
+                        { key: "today", label: "اليوم" },
+                        { key: "week", label: "الأسبوع" },
+                        { key: "month", label: "الشهر" },
+                        { key: "custom", label: "مخصص" },
+                    ].map((t) => (
+                        <button
+                            key={t.key}
+                            onClick={() => setRxPeriod(t.key)}
+                            style={{
+                                flex: 1, fontSize: 11, fontWeight: 600, padding: "6px 0", borderRadius: 6,
+                                background: rxPeriod === t.key ? VAR.accent2 : "transparent",
+                                color: rxPeriod === t.key ? VAR.bg : VAR.muted,
+                                border: "none", cursor: "pointer", fontFamily: "inherit",
+                                transition: "all 0.15s",
+                            }}
+                        >
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
+
+                {rxPeriod === "custom" && (
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, color: VAR.muted, display: "flex", alignItems: "center", gap: 6 }}>
+                            من
+                            <input
+                                type="date"
+                                value={rxCustomFrom}
+                                onChange={(e) => setRxCustomFrom(e.target.value)}
+                                style={{ background: VAR.surface2, border: `1px solid ${VAR.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: VAR.text, fontFamily: "inherit" }}
+                            />
+                        </label>
+                        <label style={{ fontSize: 11, color: VAR.muted, display: "flex", alignItems: "center", gap: 6 }}>
+                            إلى
+                            <input
+                                type="date"
+                                value={rxCustomTo}
+                                onChange={(e) => setRxCustomTo(e.target.value)}
+                                style={{ background: VAR.surface2, border: `1px solid ${VAR.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: VAR.text, fontFamily: "inherit" }}
+                            />
+                        </label>
+                    </div>
+                )}
+
+                <div style={{ fontSize: 11, color: VAR.muted, marginBottom: 10 }}>
+                    {rxInvoices.length} فاتورة · إجمالي {S(rxTotal.toFixed(0) + " ر.س")}
+                </div>
+
+                {rxInvoices.length === 0 ? (
+                    <div style={{ textAlign: "center", color: VAR.muted, fontSize: 13, padding: "30px 0" }}>
+                        لا توجد فواتير بها وصفة طبية في الفترة دي
+                    </div>
+                ) : (
+                    <div style={{
+                        display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10,
+                        maxHeight: 480, overflowY: "auto", padding: "2px",
+                    }}>
+                        {rxInvoices.map((inv) => (
+                            <div
+                                key={inv.id}
+                                onClick={() => setZoomRxInvoice(inv)}
+                                style={{
+                                    borderRadius: 8, overflow: "hidden", cursor: "pointer",
+                                    border: `1px solid ${VAR.border}`, background: VAR.surface2,
+                                }}
+                            >
+                                <img
+                                    src={inv.prescription_img}
+                                    alt="الوصفة الطبية"
+                                    style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }}
+                                />
+                                <div style={{ padding: "5px 6px" }}>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: VAR.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                        {inv.patient_name || inv.customer_name || "زبون عادي"}
+                                    </div>
+                                    <div style={{ fontSize: 9, color: VAR.muted, marginTop: 1 }}>
+                                        {inv.date} · #{inv.id}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Modal>
+
+            {/* عرض الوصفة بالحجم الكامل — مع بيانات فاتورة البيع المرتبطة بيها، عشان تفضل الصورة موثّقة كمرجع مش صورة منفصلة */}
+            {zoomRxInvoice && (
+                <Modal open title={`وصفة طبية — فاتورة #${zoomRxInvoice.id}`} onClose={() => setZoomRxInvoice(null)}>
+                    <img
+                        src={zoomRxInvoice.prescription_img}
+                        alt="الوصفة الطبية"
+                        style={{ width: "100%", maxHeight: "65vh", objectFit: "contain", borderRadius: 8, display: "block", marginBottom: 12 }}
+                    />
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 12, color: VAR.muted, borderTop: `1px solid ${VAR.border}`, paddingTop: 10 }}>
+                        <span>رقم الفاتورة: <span style={{ color: VAR.text, fontWeight: 700 }}>{zoomRxInvoice.id}</span></span>
+                        <span>التاريخ: <span style={{ color: VAR.text, fontWeight: 700 }}>{zoomRxInvoice.date}</span></span>
+                        {zoomRxInvoice.patient_name && (
+                            <span>باسم: <span style={{ color: VAR.text, fontWeight: 700 }}>{zoomRxInvoice.patient_name}</span></span>
+                        )}
+                        <span>العميل: <span style={{ color: VAR.text, fontWeight: 700 }}>{zoomRxInvoice.customer_name || "زبون عادي"}</span></span>
+                        <span>الإجمالي: <span style={{ color: VAR.text, fontWeight: 700 }}>{(zoomRxInvoice.total || 0).toFixed(0)} ر.س</span></span>
+                    </div>
+                </Modal>
             )}
 
             {/* ── Hero Strip: أهم الأرقام بارزة وظاهرة دايمًا من غير ما تفتح أي كارت ── */}
@@ -1183,7 +1326,7 @@ export function Dashboard({
                                     onClick={(e) => e.stopPropagation()}
                                     style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${VAR.border}`, background: VAR.bg, color: VAR.text, fontSize: 11, fontFamily: "inherit" }}
                                 >
-                                    {[5, 10, 15, 20, 30].map((n) => (
+                                    {[5, 10, 15, 20, 30, 50, 100].map((n) => (
                                         <option key={n} value={n}>أعلى {n} صنف</option>
                                     ))}
                                 </select>

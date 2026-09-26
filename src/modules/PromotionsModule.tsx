@@ -6,7 +6,7 @@ import {
 } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { todayLocal } from "../lib/dateUtils";
-import { DEFAULT_AUTO_PROMO_CONFIG, PROMO_TYPES, blankPromoDetails, computeAutoPromoForProduct, computePromoElasticity, describePromo, detectSupplierOfferPattern, getPromoMinRequiredQty, getPromoTypeConfig, isPromoFulfillable } from "../lib/promoUtils";
+import { DEFAULT_AUTO_PROMO_CONFIG, PROMO_TYPES, blankPromoDetails, computePromoElasticity, describePromo, detectSupplierOfferPattern, getPromoMinRequiredQty, getPromoTypeConfig, isPromoFulfillable } from "../lib/promoUtils";
 import { openWhatsApp } from "../lib/whatsapp";
 import { trendConfig, vipConfig } from "./CustomersModule";
 import { Badge, Btn, Input, Modal, Table } from "../ui/primitives";
@@ -119,6 +119,7 @@ export function PromotionsModule({
     promos, setPromos,
     discountRules, setDiscountRules,
     autoPromoConfig, setAutoPromoConfig,
+    autoPromoProducts = [],
     canAdd = true, canEdit = true, canDelete = true,
 }) {
     const [activeTab, setActiveTab] = useState("auto"); // auto | manual
@@ -236,53 +237,9 @@ const stopAutoPromo = (productId) => {
         });
     }, [pharmacyId]);
 
-    // الأصناف التلقائية (غير دواء + فيها صلاحية قريبة)
-    const productEarliestExpiry = useMemo(() => {
-        const map = {};
-        (purchases || []).forEach((pu) => {
-            const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
-            items.forEach((item) => {
-                const expiry = item.expiry_date || item.expiry;
-                if (!expiry || !item.id) return;
-                if (!map[item.id] || expiry < map[item.id]) map[item.id] = expiry;
-            });
-        });
-        (products || []).forEach((p) => {
-            if (p.expiry && (!map[p.id] || p.expiry < map[p.id])) {
-                map[p.id] = p.expiry;
-            }
-        });
-        return map;
-    }, [purchases, products]);
-const productFirstStocked = useMemo(() => {
-        const map = {};
-        (purchases || []).forEach((pu) => {
-            const items = typeof pu.items === "string" ? JSON.parse(pu.items) : pu.items || [];
-            items.forEach((item) => {
-                if (!item.id) return;
-                const d = pu.date || pu.created_at;
-                if (!d) return;
-                if (!map[item.id] || d < map[item.id]) map[item.id] = d;
-            });
-        });
-        return map;
-    }, [purchases]);
-    const getProductExpiry = (p) =>
-        productEarliestExpiry[p.id] || p.expiry || null;
-
-    const autoPromoProducts = products.reduce((acc, p) => {
-        const expiry = getProductExpiry(p);
-        // 🆕 نفس الدالة بالظبط اللي بتحسب سعر نقطة البيع (computeAutoPromoForProduct) — مفيش أي اختلاف منطق
-        const result = computeAutoPromoForProduct(p, discountRules, expiry, sales, autoPromoConfig, productFirstStocked[p.id] || null);
-        if (!result) return acc;
-
-        acc.push({
-            ...p, expiry, autoDiscount: result.autoDiscount,
-            reasonExpiry: result.reasonExpiry, reasonStagnant: result.reasonStagnant,
-            daysSinceLastSale: result.daysSinceLastSale,
-        });
-        return acc;
-    }, []).sort((a, b) => b.autoDiscount - a.autoDiscount);
+    // 🛠️ فيكس: autoPromoProducts (وحساباتها الوسيطة productEarliestExpiry/productFirstStocked)
+    // بقت جاية كـ prop جاهزة من App.tsx — نفس المصدر اللي بيغذي الداشبورد ونقطة البيع، بدل ما
+    // كل مكون يحسبها بمنطقه الخاص وممكن يفرق عن التاني.
 
     // ── دالة طباعة Shelf Label — دلوقتي بتفتح معاينة أول (بدل ما تطبع على طول) ──
     // offerName: اسم/مناسبة العرض (عروض العيد، اليوم الوطني، رمضان...) بيظهر في مكان اسم الصيدلية القديم
@@ -529,21 +486,45 @@ products.forEach((p) => {
         setSuggestionEdits((prev) => ({ ...prev, [key]: { ...getSuggestionEdit({ key, buyQty: "", getQty: "" }), ...prev[key], ...patch } }));
 
     const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>([]);
-    // 🛠️ الفيكس: القراءة كانت بتحصل جوه useState initializer وقت الـ mount مباشرة، وده ممكن يحصل
-    // قبل ما pharmacyId يوصل فعليًا (زي باقي الداتا في الملف ده) فتقرأ بمفتاح "..._undefined" وترجع فاضية.
-    // بننقلها لـ useEffect مربوط بـ pharmacyId، نفس النمط المستخدم مع سجل الطباعة والمصنّعين تحت.
+    // 🛠️ الفيكس: التجاهل كان متخزن في localStorage بس (خاص بالجهاز/المتصفح)، فلو حصل تجاهل من
+    // جهاز وفتحت من جهاز/متصفح تاني (أو الكاش اتمسح) الاقتراح كان بيرجع يظهر تاني.
+    // دلوقتي بنقرا من جدول dismissed_supplier_offers في Supabase (مربوط بالـ pharmacy_id) —
+    // وبنسيب localStorage كـ fallback بس لو أوفلاين، نفس نمط أوفلاين-أول المستخدم في باقي الملف.
     useEffect(() => {
         if (!pharmacyId) return;
-        try {
-            setDismissedSuggestions(JSON.parse(localStorage.getItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`) || "[]"));
-        } catch { setDismissedSuggestions([]); }
+        const loadLocalFallback = () => {
+            try {
+                setDismissedSuggestions(JSON.parse(localStorage.getItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`) || "[]"));
+            } catch { setDismissedSuggestions([]); }
+        };
+        if (!navigator.onLine) { loadLocalFallback(); return; }
+        supabase
+            .from("dismissed_supplier_offers")
+            .select("suggestion_key")
+            .eq("pharmacy_id", pharmacyId)
+            .then(({ data, error }) => {
+                if (error) { console.error("load dismissed_supplier_offers failed, falling back to local:", error); loadLocalFallback(); return; }
+                const keys = (data || []).map((r) => r.suggestion_key);
+                setDismissedSuggestions(keys);
+                try { localStorage.setItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`, JSON.stringify(keys)); } catch { }
+            });
     }, [pharmacyId]);
-    const dismissSuggestion = (key) => {
+    const dismissSuggestion = async (key) => {
+        // تحديث فوري (optimistic) للحالة المحلية + الكاش، زي باقي الكتابات في الملف ده
         setDismissedSuggestions((prev) => {
-            const next = [...prev, key];
+            const next = prev.includes(key) ? prev : [...prev, key];
             try { localStorage.setItem(`pharmacypro_dismissed_supplier_offers_${pharmacyId}`, JSON.stringify(next)); } catch { }
             return next;
         });
+        try {
+            const { error } = await supabase
+                .from("dismissed_supplier_offers")
+                .upsert({ pharmacy_id: pharmacyId, suggestion_key: key }, { onConflict: "pharmacy_id,suggestion_key" });
+            if (error) throw error;
+        } catch (err) {
+            // أوفلاين أو فشل الكتابة — التجاهل فضل شغال محليًا (localStorage) وهيتزامن أول ما النت يرجع
+            console.error("dismissSuggestion supabase upsert failed (will stay local-only for now):", err);
+        }
     };
     const visibleSuggestions = supplierSuggestions.filter((s) => !dismissedSuggestions.includes(s.key));
 

@@ -10,7 +10,7 @@ import { useEssentialAlerts } from "./hooks/useEssentialAlerts";
 import { useStorage } from "./hooks/useStorage";
 import { logAudit } from "./lib/auditLog";
 import { emptyInvoice } from "./lib/posConstants";
-import { DEFAULT_AUTO_PROMO_CONFIG, getEffectivePrice } from "./lib/promoUtils";
+import { DEFAULT_AUTO_PROMO_CONFIG, getEffectivePrice, computeAutoPromoForProduct } from "./lib/promoUtils";
 import { AttendanceModule } from "./modules/AttendanceModule";
 import { AuditLogModule } from "./modules/AuditLogModule";
 import { CashFlowPlannerModule } from "./modules/CashFlowPlannerModule";
@@ -378,6 +378,26 @@ export default function PharmacyPro() {
         });
         return map;
     }, [purchases]);
+    // 🆕 مصدر حقيقة واحد لـ"الأصناف المؤهلة لعرض تلقائي" (غير دواء + قواعد discountRules)
+    // بدل ما الداشبورد وقسم العروض كل واحد يحسبها لوحده بمنطق مختلف. نفس الدالة اللي
+    // نقطة البيع بتستخدمها (getEffectivePrice بيستخدم نفس المنطق) — Dashboard وPromotionsModule
+    // بياخدوها كـ prop جاهزة تحت وميحسبوهاش تاني.
+    const autoPromoProducts = useMemo(() => {
+        return products.reduce((acc, p) => {
+            const expiry = posProductEarliestExpiry[p.id] || p.expiry || null;
+            const result = computeAutoPromoForProduct(
+                p, posDiscountRules, expiry, sales, posAutoPromoConfig, posProductFirstStocked[p.id] || null
+            );
+            if (!result) return acc;
+            acc.push({
+                ...p, expiry, autoDiscount: result.autoDiscount,
+                reasonExpiry: result.reasonExpiry, reasonStagnant: result.reasonStagnant,
+                daysSinceLastSale: result.daysSinceLastSale,
+            });
+            return acc;
+        }, []).sort((a, b) => b.autoDiscount - a.autoDiscount);
+    }, [products, posDiscountRules, posProductEarliestExpiry, sales, posAutoPromoConfig, posProductFirstStocked]);
+
     // تحميل العروض وقواعد الخصم وإعدادات العروض التلقائية للـ POS
     // 🆕 كل استعلام هنا بيتحقق من error بشكل صريح (زي loadData الرئيسية بالظبط)، لأن
     // supabase-js مش بيرمي على فشل الشبكة — بيرجع { data: null, error }. لو فشل، بنقرا
@@ -1255,6 +1275,7 @@ export default function PharmacyPro() {
                             treasuryEntries={treasuryEntries}
                             promos={posPromos}
                             returnsData={returnsData}
+                            autoPromoProducts={autoPromoProducts}
                         />
                     )}
                     {tab === "pos" && canView("pos") && (
@@ -1542,6 +1563,7 @@ export default function PharmacyPro() {
                             setDiscountRules={setPosDiscountRules}
                             autoPromoConfig={posAutoPromoConfig}
                             setAutoPromoConfig={setPosAutoPromoConfig}
+                            autoPromoProducts={autoPromoProducts}
                             enrichedCustomers={enrichedCustomers}
                             canAdd={canAdd("promotions")}
                             canEdit={canEdit("promotions")}
