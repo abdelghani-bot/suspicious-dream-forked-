@@ -95,6 +95,15 @@ export function SuppliersModule({
   const [orderBudget, setOrderBudget] = useState("");
   // ── أصناف منقولة لمورد أرخص، بانتظار فتح طلب الشراء الخاص به (جلسة حالية فقط) ──
   const [pendingBySupplier, setPendingBySupplier] = useState({});
+  // 🆕 مقارنة عروض الموردين
+  const [showQuoteCompare, setShowQuoteCompare] = useState(false);      // فتح/قفل شاشة المقارنة
+  const [compareStep, setCompareStep] = useState("pick");                // "pick" | "table" | "preview"
+  const [compareSupplierIds, setCompareSupplierIds] = useState([]);      // الموردين المُختارين للمقارنة
+  const [compareItems, setCompareItems] = useState([]);                  // [{ id, name, missingEn, currentStock, minStock, orderQty, offers: {[supplierId]: discount} }]
+  const [compareManualSearch, setCompareManualSearch] = useState("");    // بحث إضافة صنف يدوي لجدول المقارنة
+  const [compareManualSearchOpen, setCompareManualSearchOpen] = useState(false);
+  const [compareResult, setCompareResult] = useState(null);              // { assigned: {itemId: supplierId}, tied: [{itemId, supplierIds}] }
+  const [tieChoices, setTieChoices] = useState({});                      // اختيار المستخدم اليدوي للأصناف المتعادلة
   const [manualProductSearch, setManualProductSearch] = useState("");
   const [manualProductSearchOpen, setManualProductSearchOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState({});
@@ -899,6 +908,200 @@ export function SuppliersModule({
     setShowOrderForm(targetSupplier);
   };
 
+  // ========== مقارنة عروض الموردين ==========
+
+  // فتح شاشة المقارنة من جديد (تصفير كامل)
+  const openQuoteCompare = () => {
+    setCompareStep("pick");
+    setCompareSupplierIds([]);
+    setCompareItems([]);
+    setCompareManualSearch("");
+    setCompareManualSearchOpen(false);
+    setCompareResult(null);
+    setTieChoices({});
+    setShowQuoteCompare(true);
+  };
+
+  // بناء قائمة الأصناف الناقصة تلقائيًا حسب اتحاد فئات كل الموردين المُختارين
+  // (نفس منطق lowStock بتاع generateOrder، بس بفئات موحّدة بدل مورد واحد)
+  const buildCompareBaseItems = (supplierIds) => {
+    const chosenSuppliers = suppliers.filter((s) => supplierIds.includes(s.id));
+    const categories = [...new Set(chosenSuppliers.flatMap((s) => s.supply_categories || []))];
+    const noSpecificCategory = categories.length === 0;
+    const lowStock = (products || []).filter((p) => {
+      if (p.auto_order === false) return false;
+      const belowMin = p.stock <= (p.min_stock || p.minStock || 0);
+      if (!belowMin) return false;
+      if (noSpecificCategory) return true;
+      const productCategory = p.supply_category || "";
+      return productCategory ? categories.includes(productCategory) : false;
+    });
+    return lowStock.map((p) => {
+      const { name, missingEn } = orderDisplayName(p);
+      return {
+        id: p.id, name, missingEn,
+        currentStock: p.stock,
+        minStock: p.min_stock || p.minStock || 0,
+        orderQty: computeOrderQty(p, coverageDays),
+        offers: {}, // {[supplierId]: discountPercent}
+      };
+    });
+  };
+
+  // الانتقال من "اختيار الموردين" لـ"جدول المقارنة"
+  const proceedToCompareTable = () => {
+    if (compareSupplierIds.length < 2) { showToast("اختار موردين اتنين على الأقل للمقارنة", "error"); return; }
+    setCompareItems(buildCompareBaseItems(compareSupplierIds));
+    setCompareStep("table");
+  };
+
+  // إضافة صنف يدويًا لجدول المقارنة (مش بالضرورة ناقص تحت الحد الأدنى)
+  const addManualCompareItem = (p) => {
+    if (compareItems.some((i) => i.id === p.id)) return;
+    const { name, missingEn } = orderDisplayName(p);
+    setCompareItems((prev) => [...prev, {
+      id: p.id, name, missingEn,
+      currentStock: p.stock,
+      minStock: p.min_stock || p.minStock || 0,
+      orderQty: 1,
+      offers: {},
+    }]);
+    setCompareManualSearch("");
+    setCompareManualSearchOpen(false);
+  };
+
+  const removeCompareItem = (itemId) => {
+    setCompareItems((prev) => prev.filter((i) => i.id !== itemId));
+  };
+
+  // تسجيل/تعديل خصم مورد معين على صنف معين
+  const setCompareOffer = (itemId, supplierId, discount) => {
+    setCompareItems((prev) => prev.map((i) => (i.id === itemId
+      ? { ...i, offers: { ...i.offers, [supplierId]: discount === "" ? undefined : +discount } }
+      : i)));
+  };
+
+  // ========== حساب المقارنة: تحديد أفضل مورد لكل صنف ==========
+  const runComparison = () => {
+    const withOffers = compareItems.filter((item) =>
+      Object.values(item.offers || {}).some((v) => v !== undefined && v !== null && v !== ""));
+    if (withOffers.length === 0) { showToast("سجّل خصم مورد واحد على الأقل قبل المقارنة", "error"); return; }
+
+    const assigned = {};   // itemId -> supplierId (محسوم بشكل واضح)
+    const tied = [];       // [{ itemId, supplierIds }]  (تعادل، محتاج اختيار يدوي)
+    compareItems.forEach((item) => {
+      const offers = Object.entries(item.offers || {}).filter(([, v]) => v !== undefined && v !== null && v !== "");
+      if (offers.length === 0) return;
+      const maxDiscount = Math.max(...offers.map(([, v]) => +v));
+      const topSuppliers = offers.filter(([, v]) => +v === maxDiscount).map(([sid]) => sid);
+      if (topSuppliers.length === 1) {
+        assigned[item.id] = topSuppliers[0];
+      } else {
+        tied.push({ itemId: item.id, supplierIds: topSuppliers });
+      }
+    });
+    setCompareResult({ assigned, tied });
+    setTieChoices({});
+    setCompareStep("preview");
+  };
+
+  // اختيار المستخدم لمورد صنف متعادل
+  const chooseTieSupplier = (itemId, supplierId) => {
+    setTieChoices((prev) => ({ ...prev, [itemId]: supplierId }));
+  };
+
+  // إعادة تخصيص أي صنف في المعاينة لمورد تاني (حتى لو كان اتحسم تلقائيًا) — كل حاجة قابلة للتعديل
+  const reassignPreviewItem = (itemId, supplierId) => {
+    setCompareResult((prev) => {
+      if (!prev) return prev;
+      return {
+        assigned: { ...prev.assigned, [itemId]: supplierId },
+        tied: prev.tied.filter((t) => t.itemId !== itemId),
+      };
+    });
+    setTieChoices((prev) => { const p = { ...prev }; delete p[itemId]; return p; });
+  };
+
+  // الأصناف النهائية مجمّعة حسب المورد (بعد دمج اختيارات التعادل)
+  const previewBySupplier = useMemo(() => {
+    if (!compareResult) return {};
+    const map = {};
+    compareItems.forEach((item) => {
+      const supplierId = compareResult.assigned[item.id] || tieChoices[item.id];
+      if (!supplierId) return;
+      if (!map[supplierId]) map[supplierId] = [];
+      map[supplierId].push(item);
+    });
+    return map;
+  }, [compareResult, tieChoices, compareItems]);
+
+  // عدد الأصناف المتعادلة اللي لسه محتاجة اختيار المستخدم
+  const pendingTieCount = useMemo(() => {
+    if (!compareResult) return 0;
+    return compareResult.tied.filter((t) => !tieChoices[t.itemId]).length;
+  }, [compareResult, tieChoices]);
+
+  // ========== تأكيد نهائي: إنشاء طلب شراء منفصل (مسودة) لكل مورد ==========
+  const confirmCompareOrders = async () => {
+    if (pendingTieCount > 0) { showToast(`فيه ${pendingTieCount} صنف لسه محتاج تختار له مورد`, "error"); return; }
+    const supplierIds = Object.keys(previewBySupplier);
+    if (supplierIds.length === 0) { showToast("لا توجد أصناف موزّعة لإنشاء طلبات", "error"); return; }
+
+    const createdOrders = [];
+    for (const supplierId of supplierIds) {
+      const supplier = suppliers.find((s) => s.id === supplierId);
+      if (!supplier) continue;
+      const items = previewBySupplier[supplierId].map((item) => {
+        const discount = +item.offers[supplierId] || 0;
+        const baseCost = getInitialCostFor(item.id, supplierId, 0);
+        return {
+          id: item.id,
+          name: item.name,
+          missingEn: item.missingEn,
+          currentStock: item.currentStock,
+          minStock: item.minStock,
+          orderQty: item.orderQty,
+          cost: baseCost,
+          discount,
+          netCost: +(baseCost * (1 - discount / 100)).toFixed(4),
+          editable: true,
+        };
+      });
+      const totalCost = items.reduce((sum, i) => sum + (+i.netCost || 0) * (+i.orderQty || 0), 0);
+      const order = {
+        id: `ORD-${Date.now()}-${supplierId}`,
+        supplier_id: supplier.id,
+        supplier_name: supplier.name,
+        date: todayLocal(),
+        items,
+        total_cost: totalCost,
+        status: "مسودة",
+        pharmacy_id: pharmacyId,
+        source: "quote_compare",
+      };
+      const result = await queueEvent({
+        id: crypto.randomUUID(),
+        type: "ORDER_INSERT",
+        timestamp: new Date().toISOString(),
+        pharmacy_id: pharmacyId,
+        payload: { order },
+      });
+      if (!result.synced && result.error) {
+        showToast(`⚠️ طلب ${supplier.name} اتحفظ محليًا وهيتزامن لاحقًا — ${result.error}`, "warning");
+      }
+      createdOrders.push(order);
+    }
+
+    setOrders((prev) => [...createdOrders, ...prev]);
+    showToast(`تم إنشاء ${createdOrders.length} طلب شراء كمسودة من المقارنة ✓`, "success");
+    setShowQuoteCompare(false);
+    setCompareStep("pick");
+    setCompareSupplierIds([]);
+    setCompareItems([]);
+    setCompareResult(null);
+    setTieChoices({});
+  };
+
   // ========== توزيع الأصناف حسب الميزانية المتاحة ==========
   // بترتب الأصناف حسب أولوية التوقيت (الأقرب لنفاذ المخزون الأول، وبعدين الأسرع حركة عند التعادل)،
   // وبعدين بتوزع الميزانية بالتتابع: كل صنف ياخد كميته الكاملة لحد ما الميزانية تخلص،
@@ -1047,6 +1250,28 @@ export function SuppliersModule({
     }
     setOrders((prev) => prev.map((o) => (o.id === order.id ? updatedOrder : o)));
     showToast(itemId ? "تم إلغاء الصنف ✓" : "تم إلغاء الطلب ✓");
+  };
+
+  // 🆕 تحويل مسودة لطلب مُرسل (نشط) — عشان تقدر تشاركها مع المورد
+  const markOrderSent = async (order) => {
+    const updatedOrder = { ...order, status: "مُرسل" };
+    const result = await queueEvent({
+      id: crypto.randomUUID(),
+      type: "ORDER_UPDATE",
+      timestamp: new Date().toISOString(),
+      pharmacy_id: pharmacyId,
+      payload: { id: order.id, updates: { status: "مُرسل" } },
+    });
+    if (!result.synced && result.error) {
+      showToast("⚠️ التحويل اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+    }
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? updatedOrder : o)));
+    showToast("تم تحويل الطلب إلى مُرسل ✓");
+    const supplier = suppliers.find((s) => s.id === order.supplier_id);
+    if (supplier?.whatsapp) {
+      const msg = buildOrderMessage(order.items, order.date);
+      window.open(`https://wa.me/${supplier.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
+    }
   };
 
   // 🆕 تجاهل صنف نهائيًا من حساب الطلبات التلقائية (auto_order = false) — بيفضل يظهر في شاشة الصنف نفسه
@@ -1820,6 +2045,12 @@ export function SuppliersModule({
         const statusColor = (s) => s === "ملغي" ? COLORS.red : s === "مُرسل" ? COLORS.green : s === RECEIVED_ORDER_STATUS ? COLORS.blue : COLORS.gold;
         return (
           <div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              {/* 🆕 مقارنة عروض الموردين */}
+              <Btn size="sm" icon="purchase" variant="secondary" onClick={openQuoteCompare}>
+                مقارنة عروض الموردين
+              </Btn>
+            </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
               {[
                 { k: "all",    l: "الكل" },
@@ -1865,6 +2096,12 @@ export function SuppliersModule({
                           {order.status}
                         </span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{(+order.total_cost || 0).toFixed(2)} ر.س</span>
+                        {order.status === "مسودة" && (
+                          <button onClick={() => markOrderSent(order)}
+                            style={{ fontSize: 11, background: "transparent", border: `1px solid ${COLORS.green}`, color: COLORS.green, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                            تحويل لمُرسل
+                          </button>
+                        )}
                         {ACTIVE_ORDER_STATUSES.includes(order.status) && (
                           <button onClick={() => { setShowCancelModal({ order }); setCancelReason(""); setCancelNote(""); }}
                             style={{ fontSize: 11, background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
@@ -2309,6 +2546,202 @@ export function SuppliersModule({
               <Btn icon="check" onClick={() => saveOrder("sent")}>حفظ كمُرسل</Btn>
             )}
           </div>
+        </Modal>
+      )}
+
+      {/* ===== 🆕 Modal مقارنة عروض الموردين ===== */}
+      {showQuoteCompare && (
+        <Modal open title="مقارنة عروض الموردين" onClose={() => setShowQuoteCompare(false)} wide>
+
+          {/* ── خطوة 1: اختيار الموردين ── */}
+          {compareStep === "pick" && (
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 10 }}>
+                اختار موردين اتنين على الأقل هتقارن بين عروضهم
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+                {suppliers.map((s) => {
+                  const selected = compareSupplierIds.includes(s.id);
+                  return (
+                    <button key={s.id} type="button"
+                      onClick={() => setCompareSupplierIds((prev) =>
+                        selected ? prev.filter((id) => id !== s.id) : [...prev, s.id])}
+                      style={{
+                        padding: "6px 14px", borderRadius: 20, border: "1px solid",
+                        borderColor: selected ? COLORS.blue : COLORS.border,
+                        background: selected ? COLORS.blueSoft : "transparent",
+                        color: selected ? COLORS.blue : COLORS.textDim,
+                        fontSize: 12, cursor: "pointer", fontWeight: selected ? 700 : 400,
+                      }}>
+                      {selected ? "✓ " : ""}{s.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <Btn variant="ghost" onClick={() => setShowQuoteCompare(false)}>إلغاء</Btn>
+                <Btn icon="check" onClick={proceedToCompareTable}>التالي</Btn>
+              </div>
+            </div>
+          )}
+
+          {/* ── خطوة 2: جدول الخصومات ── */}
+          {compareStep === "table" && (
+            <div>
+              <div style={{ position: "relative", marginBottom: 14 }}>
+                <Input placeholder="ابحث عن صنف تضيفه يدويًا للمقارنة..."
+                  value={compareManualSearch}
+                  onChange={(val) => { setCompareManualSearch(val); setCompareManualSearchOpen(true); }}
+                  onFocus={() => setCompareManualSearchOpen(true)} />
+                {compareManualSearchOpen && compareManualSearch.trim() && (
+                  <div style={{
+                    position: "absolute", insetInlineStart: 0, insetInlineEnd: 0, top: "100%", zIndex: 20,
+                    background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                    maxHeight: 220, overflowY: "auto", marginTop: 4,
+                  }}>
+                    {(products || [])
+                      .filter((p) => !compareItems.some((ci) => ci.id === p.id))
+                      .filter((p) => (p.name || "").includes(compareManualSearch) || (p.name_en || "").toLowerCase().includes(compareManualSearch.toLowerCase()))
+                      .slice(0, 20)
+                      .map((p) => (
+                        <div key={p.id} onClick={() => addManualCompareItem(p)}
+                          style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${COLORS.border}` }}>
+                          {orderDisplayName(p).name} <span style={{ color: COLORS.textDim, fontSize: 11 }}>({p.stock} بالمخزون)</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ overflowX: "auto" }}>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: `2fr repeat(${compareSupplierIds.length}, 1fr) auto`,
+                  gap: 6, marginBottom: 8, minWidth: 480,
+                }}>
+                  <div style={{ fontSize: 11, color: COLORS.textDim, fontWeight: 700 }}>الصنف</div>
+                  {compareSupplierIds.map((sid) => (
+                    <div key={sid} style={{ fontSize: 11, color: COLORS.textDim, fontWeight: 700, textAlign: "center" }}>
+                      {suppliers.find((s) => s.id === sid)?.name} — خصم %
+                    </div>
+                  ))}
+                  <div />
+                </div>
+
+                {compareItems.length === 0 && (
+                  <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>
+                    لا توجد أصناف ناقصة لفئات الموردين المُختارين — ضيف أصناف يدويًا من البحث فوق
+                  </div>
+                )}
+
+                {compareItems.map((item) => (
+                  <div key={item.id} style={{
+                    display: "grid", gridTemplateColumns: `2fr repeat(${compareSupplierIds.length}, 1fr) auto`,
+                    gap: 6, marginBottom: 6, alignItems: "center", minWidth: 480,
+                  }}>
+                    <div style={{ fontSize: 13 }}>
+                      {item.name}
+                      <div style={{ fontSize: 10, color: COLORS.textDim }}>مخزون: {item.currentStock} · كمية الطلب: {item.orderQty}</div>
+                    </div>
+                    {compareSupplierIds.map((sid) => (
+                      <input key={sid} type="number" min="0" max="100" placeholder="—"
+                        value={item.offers[sid] ?? ""}
+                        onChange={(e) => setCompareOffer(item.id, sid, e.target.value)}
+                        style={{
+                          background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6,
+                          padding: "6px 8px", color: COLORS.textPrimary, fontSize: 12, outline: "none", textAlign: "center",
+                        }} />
+                    ))}
+                    <button onClick={() => removeCompareItem(item.id)}
+                      style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", padding: 4 }}>
+                      <IC n="trash" s={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18 }}>
+                <Btn variant="ghost" onClick={() => setCompareStep("pick")}>رجوع</Btn>
+                <Btn icon="check" onClick={runComparison}>مقارنة</Btn>
+              </div>
+            </div>
+          )}
+
+          {/* ── خطوة 3: المعاينة النهائية ── */}
+          {compareStep === "preview" && compareResult && (
+            <div>
+              {compareResult.tied.length > 0 && (
+                <div style={{
+                  background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`,
+                  borderRadius: 10, padding: 14, marginBottom: 16,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.gold, marginBottom: 10 }}>
+                    يحتاج اختيارك — خصم متساوٍ بين أكتر من مورد ({compareResult.tied.length})
+                  </div>
+                  {compareResult.tied.map((t) => {
+                    const item = compareItems.find((i) => i.id === t.itemId);
+                    if (!item) return null;
+                    return (
+                      <div key={t.itemId} style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 13, marginBottom: 6 }}>{item.name}</div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {t.supplierIds.map((sid) => {
+                            const chosen = tieChoices[t.itemId] === sid;
+                            return (
+                              <button key={sid} type="button" onClick={() => chooseTieSupplier(t.itemId, sid)}
+                                style={{
+                                  padding: "5px 12px", borderRadius: 16, border: "1px solid",
+                                  borderColor: chosen ? COLORS.blue : COLORS.border,
+                                  background: chosen ? COLORS.blueSoft : "transparent",
+                                  color: chosen ? COLORS.blue : COLORS.textDim, fontSize: 12, cursor: "pointer",
+                                }}>
+                                {chosen ? "✓ " : ""}{suppliers.find((s) => s.id === sid)?.name} ({item.offers[sid]}%)
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {Object.entries(previewBySupplier).map(([supplierId, items]) => (
+                <div key={supplierId} style={{
+                  border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, marginBottom: 12,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                    {suppliers.find((s) => s.id === supplierId)?.name} — {items.length} صنف
+                  </div>
+                  {items.map((item) => (
+                    <div key={item.id} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "6px 0", borderTop: `1px solid ${COLORS.border}`, fontSize: 12,
+                    }}>
+                      <div>{item.name} <span style={{ color: COLORS.textDim }}>(خصم {item.offers[supplierId]}%)</span></div>
+                      <select value={supplierId} onChange={(e) => reassignPreviewItem(item.id, e.target.value)}
+                        style={{
+                          background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6,
+                          padding: "4px 8px", color: COLORS.textPrimary, fontSize: 12,
+                        }}>
+                        {compareSupplierIds.map((sid) => (
+                          <option key={sid} value={sid}>{suppliers.find((s) => s.id === sid)?.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18 }}>
+                <Btn variant="ghost" onClick={() => setCompareStep("table")}>رجوع للجدول</Btn>
+                <Btn icon="check" onClick={confirmCompareOrders} disabled={pendingTieCount > 0}>
+                  تأكيد وإنشاء {Object.keys(previewBySupplier).length} طلب شراء (مسودة)
+                </Btn>
+              </div>
+            </div>
+          )}
+
         </Modal>
       )}
 

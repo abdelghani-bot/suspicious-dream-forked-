@@ -8,6 +8,7 @@ import { todayLocal } from "../lib/dateUtils";
 import { Badge, Btn, Input, Modal, Table } from "../ui/primitives";
 import { queueEvent, saveProduct } from "../lib/offlineAPI"; // 🆕 عدّل المسار حسب مكان الملف عندك
 import { ProductFormModal } from "./ProductFormModal"; // 🆕 عدّل المسار حسب مكان الملف عندك
+import { ShortageReviewBanner } from "./ShortageReviewBanner"; // 🆕 بانر مراجعة النواقص بعد الرصيد الافتتاحي
 
 export function InventoryCount({
     products,
@@ -24,6 +25,7 @@ export function InventoryCount({
     // categoryCostDiscounts: { [supply_category]: percentNumber }. المصدر الوحيد لتعديل النسب
     // دي بقى شاشة "بيانات الصيدلية" (PharmacySettings) — هنا بنقرأها بس.
     pharmacySettings = {},
+    onNavigateToShortageReview, // 🆕 بيوديك لتاب "شورتيج ريفيو" — مرره من App.tsx زي setTab("shortage_review")
 }) {
     const [showNew, setShowNew] = useState(false);
     const [countItems, setCountItems] = useState([]);
@@ -39,6 +41,8 @@ export function InventoryCount({
     // — بيتحكم في ظهور عمود التكلفة والبلوك الإجباري، من غير ما يأثر على منطق الجرد
     // الأعمى أو أي مسار تاني في الشاشة.
     const [countMode, setCountMode] = useState("دوري");
+    // 🆕 بيظهر بعد ما رصيد افتتاحي يتحفظ بنجاح — بانر يقترح مراجعة الأصناف اللي رصيدها صفر
+    const [showShortageBanner, setShowShortageBanner] = useState(false);
 
     // 🆕 التكلفة الافتراضية لسطر الرصيد الافتتاحي: تكلفة قديمة (لو موجودة وأكبر من صفر)
     // ← وإلا سعر البيع × (1 − نسبة خصم فئة التوريد) ← وإلا صفر (يتلوّن أحمر ويتعدل يدوي).
@@ -1019,6 +1023,10 @@ export function InventoryCount({
 
         setShowNew(false);
         setNotes("");
+        // 🆕 لو ده كان رصيد افتتاحي (مش جرد دوري عادي)، اعرض بانر اقتراح مراجعة النواقص
+        if (countMode === "افتتاحي") {
+            setShowShortageBanner(true);
+        }
         // 🆕 نوضح للصيدلي لو تحديث الجرد ده غيّر أسعار بيع أصناف كمان، مش بس الكميات
         const priceNote = priceChangedIds.length > 0 ? ` (تم تحديث سعر بيع ${priceChangedIds.length} صنف)` : "";
         showToast(
@@ -1035,6 +1043,13 @@ export function InventoryCount({
 
     return (
         <div>
+            {/* 🆕 بانر مراجعة النواقص — بيظهر بس بعد ما رصيد افتتاحي يتحفظ بنجاح في نفس الجلسة */}
+            {showShortageBanner && (
+                <ShortageReviewBanner
+                    count={products.filter((p) => (p.stock || 0) <= 0 && !p.shortage_reviewed_at).length}
+                    onReviewNow={() => onNavigateToShortageReview?.()}
+                />
+            )}
             <div
                 style={{
                     display: "flex",

@@ -401,6 +401,8 @@ export function Dashboard({
         const diff = (new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24);
         return diff < 90 && diff > 0;
     });
+    // 🆕 أصناف مُعلَّمة يدويًا من كارت الصنف كـ "غير متوفر بالسوق السعودي"
+    const marketShortages = products.filter((p) => p.not_available_market);
 
     // ══════════ بيانات مركز التنبيهات ══════════
     const todayISO = todayLocal();
@@ -497,6 +499,7 @@ export function Dashboard({
         { key: "variance", icon: "🧮", label: "أصناف تحتاج تسوية رصيد", count: pendingVariance.length, color: COLORS.red, tab: "purchase" },
         { key: "lowstock", icon: "📦", label: "مخزون منخفض", count: lowStock.length, color: COLORS.gold, tab: "products" },
         { key: "expiry", icon: "⏰", label: "أصناف قرب الانتهاء", count: expiringSoon.length, color: COLORS.gold, tab: "products" },
+        { key: "market_shortage", icon: "🚫", label: "أصناف ناقصة بالسوق السعودي", count: marketShortages.length, color: COLORS.red, tab: "products" },
         { key: "supplier", icon: "🧾", label: "استحقاق مورد قريب/متأخر", count: supplierDues.length, color: COLORS.red, tab: "suppliers" },
         { key: "newcust", icon: "🆕", label: "عملاء جدد هذا الأسبوع", count: newCustomers.length, color: COLORS.green, tab: "customers" },
         { key: "lostcust", icon: "👻", label: "عملاء مختفون", count: disappearedCustomers.length, color: COLORS.textDim, tab: "customers" },
@@ -797,7 +800,7 @@ export function Dashboard({
     // 🆕 كانت openCard قيمة واحدة (string) يعني كارت واحد بس مفتوح في نفس الوقت (أكورديون).
     // عشان تاب المخزون يقدر يفتح "قيمة المخزون" و"مبيعات الأقسام" مع بعض للمقارنة البصرية،
     // حولناها لـ Set من المفاتيح المفتوحة، وكل كارت بيتفتح/يتقفل لوحده من غير ما يقفل غيره.
-    const [openCards, setOpenCards] = useState(new Set(["sales"])); // 🆕 كارت "المبيعات والفرص" مفتوح افتراضيًا عشان أهم رقم يبان أول ما تدخل الصفحة
+    const [openCards, setOpenCards] = useState(new Set(["sales", "actions"])); // 🆕 "إجراءات سريعة" مفتوح افتراضيًا كمان
 
     // 🆕 openCards واحدة مشتركة بين كل التابات (مش لكل تاب حالته الخاصة)، فلو مسيبناها
     // زي ما هي، بمجرد ما تدخل تاب المخزون مفيش أي cardKey فيها بيساوي "sales"
@@ -1358,6 +1361,28 @@ export function Dashboard({
                                                         const days = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
                                                         return <AlertRow key={p.id} text={p.name} badge={days < 30 ? `${days} يوم` : `${Math.ceil(days / 30)} شهر`} color={VAR.warn} VAR={VAR} />;
                                                     })
+                                            )}
+                                            {g.key === "market_shortage" && (
+                                                marketShortages.length === 0 ? <EmptyAlertRow text="لا توجد أصناف ناقصة بالسوق السعودي ✅" muted={VAR.muted} /> :
+                                                    marketShortages.slice(0, 8).map((p) => (
+                                                        <div key={p.id} style={{ display: "flex", alignItems: "center", padding: "6px 0", gap: 10, fontSize: 12 }}>
+                                                            <div style={{ width: 6, height: 6, borderRadius: "50%", background: VAR.danger, flexShrink: 0 }} />
+                                                            <div style={{ flex: 1, color: VAR.text }}>{p.name}</div>
+                                                            {p.shortage_report_url ? (
+                                                                <a
+                                                                    href={p.shortage_report_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, background: `${VAR.danger}1f`, color: VAR.danger, fontWeight: 600, textDecoration: "none" }}
+                                                                >
+                                                                    🔗 بلاغ النقص
+                                                                </a>
+                                                            ) : (
+                                                                <div style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, background: `${VAR.muted}1f`, color: VAR.muted, fontWeight: 600 }}>مفيش رابط بلاغ</div>
+                                                            )}
+                                                        </div>
+                                                    ))
                                             )}
                                             {g.key === "supplier" && (
                                                 supplierDues.length === 0 ? <EmptyAlertRow text="لا توجد استحقاقات قريبة" muted={VAR.muted} /> :

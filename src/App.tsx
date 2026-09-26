@@ -45,6 +45,7 @@ import { initOfflineSync } from "./lib/offlineAPI";
 import { PharmaLogo } from "./components/PharmaLogo";
 import { OnboardingChecklist } from "./modules/OnboardingChecklist";
 import { isOnboardingComplete } from "./lib/onboardingAPI";
+import { default as ShortageReview } from "./modules/ShortageReview";
 
 // ==================== MAIN APP ====================
 export default function PharmacyPro() {
@@ -752,11 +753,14 @@ export default function PharmacyPro() {
         const quarterEndMonth = [2, 5, 8, 11].find((m) => m >= now.getMonth()) ?? 2;
         const qEnd = new Date(now.getFullYear(), quarterEndMonth + 1, 0);
         const taxDaysLeft = Math.ceil((qEnd - now) / (1000 * 60 * 60 * 24));
+        // 🆕 أصناف رصيدها صفر ولسه محدش راجعها (قرر يظهرها أو يخفيها من طلبات الشراء)
+        const shortageReviewCount = products.filter((p) => (p.stock || 0) <= 0 && !p.shortage_reviewed_at).length;
         return {
             products: lowStockCount + expiringCount + essentialAlerts.length,
             suppliers: supplierDueCount,
             customers: disappearedCount + newCustomersCount + customerOverdueCount,
             tax_report: taxDaysLeft <= 14 ? 1 : 0,
+            shortage_review: shortageReviewCount,
         };
     }, [products, suppliers, purchases, customers, essentialAlerts, sales, creditPayments]);
 
@@ -852,6 +856,7 @@ export default function PharmacyPro() {
         { id: "purchase_returns", label: "مرتجع المشتريات", icon: "returns" },
         { id: "inventory_count", label: "الجرد", icon: "count" },
         { id: "inventory_statement", label: "كشف المخزون", icon: "inventory" },
+        { id: "shortage_review", label: "مراجعة النواقص", icon: "alert" },
 
         // ── التقارير ──
         { id: "expiry_report", label: "تقرير تواريخ الصلاحية", icon: "alert" },
@@ -1018,7 +1023,7 @@ export default function PharmacyPro() {
                             { label: null, color: GROUP_COLORS.main, ids: ["dashboard", "onboarding"] },
                             { label: "الفريق والالتزام", color: GROUP_COLORS.team, ids: ["shift", "attendance"] },
                             { label: "العملاء والمبيعات", color: GROUP_COLORS.sales, ids: ["customers", "loyalty", "pos", "sales_returns", "promotions", "target"] },
-                            { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "active_ingredients", "suppliers", "pharmacy_transfers", "purchase_returns", "inventory_count", "inventory_statement"] },
+                            { label: "المخزون والموردين", color: GROUP_COLORS.stock, ids: ["purchase", "products", "active_ingredients", "suppliers", "pharmacy_transfers", "purchase_returns", "inventory_count", "inventory_statement", "shortage_review"] },
                             { label: "التقارير", color: GROUP_COLORS.reports, ids: ["expiry_report", "reports", "tax_report", "financial_health", "cash_flow", "treasury"] },
                             { label: "الإدارة", color: GROUP_COLORS.admin, ids: ["pharmacy_settings", "permissions", "rasd_settings", "audit_log"] },
                         ];
@@ -1027,6 +1032,7 @@ export default function PharmacyPro() {
                         const SIDEBAR_TAB_PERM: Record<string, [string, string?]> = {
                             sales_returns: ["returns", "sales"],
                             purchase_returns: ["returns", "purchases"],
+                            shortage_review: ["inventory_count"],
                         };
                         const canViewSidebarTab = (id: string) => {
                             const [section, sub] = SIDEBAR_TAB_PERM[id] || [id, undefined];
@@ -1389,7 +1395,11 @@ export default function PharmacyPro() {
                             canAddSub={(sub) => canAdd("inventory_count", sub)}
                             canEditSub={(sub) => canEdit("inventory_count", sub)}
                             pharmacySettings={pharmacySettings}
+                            onNavigateToShortageReview={() => setTab("shortage_review")}
                         />
+                    )}
+                    {tab === "shortage_review" && canView("inventory_count") && (
+                        <ShortageReview pharmacyId={pharmacyId} />
                     )}
                     {tab === "products" && canView("products") && (
                         <ProductsModule
