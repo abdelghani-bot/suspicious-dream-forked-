@@ -899,6 +899,30 @@ export function POS({
         showToast("المخزون نفد! تم تسجيل الصنف في قائمة الأصناف اللي محتاجة تسوية", "error");
     };
 
+    // ── 🆕 العكس: الصنف رصيده موجود في النظام لكن الكاشير مش لاقيه على الرف ("رصيد وهمي") ──
+    // بنشيل السطر من السلة (مينفعش يتباع حاجة مش موجودة) ونسجل حدث shelf_missing في نفس سجل
+    // الفروقات، فيظهر في "أصناف تحتاج تسوية رصيد" في مركز التنبيهات، والمطلوب تنقيص رصيده.
+    const handleShelfMissing = async (item) => {
+        setInv((p) => ({ ...p, cart: p.cart.filter((i) => i.lineId !== item.lineId) }));
+        const prod = products.find((x) => x.id === item.id);
+        const systemStock = prod?.stock ?? item.stock ?? 0;
+        try {
+            const result = await logInventoryVariance({
+                pharmacyId,
+                productId: item.id,
+                eventType: "shelf_missing",
+                createdBy: currentUser?.name || null,
+                notes: `"${item.nameAr || item.name}" رصيده بالنظام ${systemStock} لكن مش موجود على الرف (اتبلّغ من نقطة البيع)`,
+            });
+            if (!result.synced) {
+                showToast("📴 الملحوظة اتسجلت محليًا - هتتزامن لما النت يرجع", "warning");
+            }
+        } catch (err) {
+            console.error("logInventoryVariance (shelf_missing) failed:", err);
+        }
+        showToast("تم تسجيل الصنف في قائمة الأصناف اللي محتاجة تسوية (رصيد مش موجود على الرف)", "error");
+    };
+
     // 🆕 دواء لازم تشغيلة/صلاحية حقيقية تتربط بيه (تتبع وسلامة المريض ورصد لاحقًا) —
     // نفس تعريف isDrugItem المستخدم في addToCart.
     const zeroStockIsDrug = zeroStockPrompt
@@ -2731,6 +2755,13 @@ showToast("تمت عملية البيع ✓");
                                                 {displayTotal.toFixed(2)}
                                             </td>
                                             <td style={{ textAlign: "center" }}>
+                                                {!item.isGift && !item.isMissed && !item.isJoker && (
+                                                    <button
+                                                        onClick={() => handleShelfMissing(item)}
+                                                        title="مش لاقيه على الرف (رصيده في النظام غلط)"
+                                                        style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 13, padding: "0 4px" }}
+                                                    >📭</button>
+                                                )}
                                                 <button
                                                     onClick={() => setInv((p) => ({
                                                         ...p,

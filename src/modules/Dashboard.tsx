@@ -1478,6 +1478,7 @@ export function Dashboard({
                                                     pendingVariance.slice(0, 8).map((v) => {
                                                         const prod = products.find((p) => p.id === v.product_id);
                                                         const eventLabel = v.event_type === "scan_zero_stock" ? "رصيد صفر بالسكانر"
+                                                            : v.event_type === "shelf_missing" ? "مش على الرف (رصيد وهمي)"
                                                             : v.event_type === "manual_adjustment" ? "تسوية يدوية"
                                                                 : v.event_type === "shift_variance" ? "عجز/زيادة شفت"
                                                                     : v.event_type;

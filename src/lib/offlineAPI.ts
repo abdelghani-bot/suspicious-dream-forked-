@@ -1210,7 +1210,7 @@ export async function getPharmacySettings(pharmacyId: string) {
 export async function logInventoryVariance(params: {
     pharmacyId: string;
     productId: string;
-    eventType: "scan_zero_stock" | "manual_adjustment" | "shift_variance";
+    eventType: "scan_zero_stock" | "shelf_missing" | "manual_adjustment" | "shift_variance";
     createdBy?: string | null;
     notes?: string | null;
 }): Promise<{ id: string; synced: boolean }> {
@@ -1228,7 +1228,7 @@ export async function logInventoryVariance(params: {
     };
 
     // 🆕
-    if (eventType === "scan_zero_stock") {
+    if (eventType === "scan_zero_stock" || eventType === "shelf_missing") {
         try {
             await window.offlineAPI?.addVarianceLogCacheEntry?.(row);
         } catch (err) {
