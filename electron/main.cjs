@@ -759,6 +759,63 @@ ipcMain.handle("offline:insertSaleCache", (_event, invoice) => {
     }
 });
 
+// 🆕 full mirror/refresh لجدول sales_cache بعد كل تحميل ناجح من Supabase — بديل عن الاعتماد
+// بس على insertSaleCache الفردي وقت إنشاء فاتورة جديدة (اللي كان بيسجل بس فواتير الجهاز ده).
+// نفس منطق offline:refreshPromotionsCache: DELETE بالـpharmacy_id ثم INSERT دفعة واحدة جوه
+// transaction، عشان لو فيه صيدلية بأكتر من تيرمينال يبقى كل جهاز عنده نسخة محدّثة من كل
+// الفواتير (بما فيها صورة الوصفة) مش بس اللي اتعملت عليه هو.
+ipcMain.handle("offline:upsertSalesCache", (_event, { pharmacyId, sales }) => {
+    try {
+        const now = new Date().toISOString();
+        const tx = db.transaction((rows) => {
+            db.prepare("DELETE FROM sales_cache WHERE pharmacy_id = ?").run(pharmacyId);
+            const stmt = db.prepare(`
+        INSERT INTO sales_cache (
+          id, pharmacy_id, customer_id, customer_name, patient_name, date, created_at,
+          items, subtotal, tax_amount, discount_amt, discount_type, total, payment,
+          payment_split, shift_id, returned, cashier_name, cashier_user_id,
+          points_redeemed, prescription_img, updated_at
+        ) VALUES (
+          @id, @pharmacy_id, @customer_id, @customer_name, @patient_name, @date, @created_at,
+          @items, @subtotal, @tax_amount, @discount_amt, @discount_type, @total, @payment,
+          @payment_split, @shift_id, @returned, @cashier_name, @cashier_user_id,
+          @points_redeemed, @prescription_img, @updated_at
+        )
+      `);
+            for (const s of rows) {
+                stmt.run({
+                    id: s.id,
+                    pharmacy_id: pharmacyId,
+                    customer_id: s.customer_id || null,
+                    customer_name: s.customer_name || null,
+                    patient_name: s.patient_name || null,
+                    date: s.date || null,
+                    created_at: s.created_at || now,
+                    items: typeof s.items === "string" ? s.items : JSON.stringify(s.items || []),
+                    subtotal: s.subtotal ?? null,
+                    tax_amount: s.tax_amount ?? null,
+                    discount_amt: s.discount_amt ?? null,
+                    discount_type: s.discount_type || null,
+                    total: s.total ?? null,
+                    payment: s.payment || null,
+                    payment_split: s.payment_split ? (typeof s.payment_split === "string" ? s.payment_split : JSON.stringify(s.payment_split)) : null,
+                    shift_id: s.shift_id || null,
+                    returned: s.returned ? 1 : 0,
+                    cashier_name: s.cashier_name || null,
+                    cashier_user_id: s.cashier_user_id || null,
+                    points_redeemed: s.points_redeemed ?? null,
+                    prescription_img: s.prescription_img || null,
+                    updated_at: now,
+                });
+            }
+        });
+        tx(sales || []);
+        return { success: true, count: (sales || []).length };
+    } catch (err) {
+        return { success: false, error: String(err) };
+    }
+});
+
 // جلب فواتير عميل/فرع معين — للاستخدام في سجل المبيعات وانت أوفلاين
 ipcMain.handle("offline:getSalesCache", (_event, { pharmacyId, customerId, limit }) => {
     let rows;

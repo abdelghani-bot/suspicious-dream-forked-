@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("offlineAPI", {
     // 🆕 كاش المبيعات المحلي (sales_cache) — لقراءة/فتح الفواتير أوفلاين
     insertSaleCache: (invoice) => ipcRenderer.invoke("offline:insertSaleCache", invoice),
     getSalesCache: (params) => ipcRenderer.invoke("offline:getSalesCache", params),
+    upsertSalesCache: (payload) => ipcRenderer.invoke("offline:upsertSalesCache", payload),
     getSaleById: (saleId) => ipcRenderer.invoke("offline:getSaleById", saleId),
     // 🆕 كاش فواتير الشراء المحلي (purchase_invoices_cache)
     insertPurchaseInvoiceCache: (invoice) => ipcRenderer.invoke("offline:insertPurchaseInvoiceCache", invoice),

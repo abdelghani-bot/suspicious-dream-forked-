@@ -11,6 +11,7 @@ import { computeAvailableForPayment } from "../lib/treasuryUtils";
 import { Badge, Btn, IC, Input, Modal, Pagination } from "../ui/primitives";
 import { printHTML } from "../lib/printHelper"; // 🆕 كشف حساب المورد — نفس helper الطباعة المستخدم في الخزينة
 import { ACTIVE_ORDER_STATUSES, RECEIVED_ORDER_STATUS, orderSortKey } from "../lib/orderMatching"; // 🆕 مصدر واحد لحالات الطلب النشطة
+import * as XLSX from "xlsx"; // 🆕 استيراد عروض أسعار الموردين (Excel) في شاشة المقارنة
 
 // ── إعدادات طلب الشراء ──
 // فئات التوريد اللي اسمها في طلب الشراء بيظهر بالإنجليزي فقط (الأدوية + الكوزمتك الطبي)
@@ -21,6 +22,9 @@ const ORDERS_PAGE_SIZE = 20;                       // 🆕 عدد الطلبات
 const STALE_ORDER_DAYS = 7;                        // بعدها الطلب المُرسل يتعلّم "قديم"
 // 🆕 (ج) أسباب إلغاء طلب الشراء / صنف داخله
 const ORDER_CANCEL_REASONS = ["مديونية", "نقص عند المورد", "سعر غير مناسب", "غير ذلك"];
+
+// 🆕 مقارنة عروض الموردين: فرق أقل من النسبة دي بين أعلى خصمين يُعتبر "شبه تعادل"
+const TIE_THRESHOLD_PCT = 1;
 
 // اسم الصنف في الطلب: الأدوية والكوزمتك الطبي بالإنجليزي فقط، وباقي الفئات زي ما هي
 const orderDisplayName = (p) => {
@@ -63,6 +67,7 @@ export function SuppliersModule({
   setJokerPendingItems = () => {},
   orders,     // 🆕 مرفوعين لـ App عشان PurchaseModule يقدر يقفل الطلب لما فاتورة الشراء تتسجل
   setOrders,
+  setReturnsData = () => {}, // 🆕 كان مستخدم في saveAutoReturn من غير ما يتعرّف (ReferenceError) — اختياري، مرّره من App لو عندك state للمرتجعات
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -103,6 +108,8 @@ export function SuppliersModule({
   const [compareManualSearch, setCompareManualSearch] = useState("");    // بحث إضافة صنف يدوي لجدول المقارنة
   const [compareManualSearchOpen, setCompareManualSearchOpen] = useState(false);
   const [compareResult, setCompareResult] = useState(null);              // { assigned: {itemId: supplierId}, tied: [{itemId, supplierIds}] }
+  const [compareImportReview, setCompareImportReview] = useState(null);  // 🆕 { supplierId, matched: [{itemId, name, discount, priceMismatch}], unmatched: [rowName] }
+  const [compareImporting, setCompareImporting] = useState(null);        // 🆕 supplierId اللي جاري استيراد ملفه حاليًا (تعطيل الزرار)
   const [tieChoices, setTieChoices] = useState({});                      // اختيار المستخدم اليدوي للأصناف المتعادلة
   const [manualProductSearch, setManualProductSearch] = useState("");
   const [manualProductSearchOpen, setManualProductSearchOpen] = useState(false);
@@ -164,6 +171,7 @@ export function SuppliersModule({
     // 🆕 "عام": بيورد أي صنف من فئاته بشكل عام. "متخصص": بيورد بس الأصناف المربوطة بيه صراحة
     // (product.linked_supplier_ids) حتى لو باقي أصناف نفس الفئة مش متاحة عنده فعليًا.
     supplier_type: "عام",
+    preferred_tiebreak: false, // 🆕 يترجّح عليه تلقائيًا عند تعادل قريب (فرق أقل من TIE_THRESHOLD_PCT) في مقارنة عروض الموردين
   };
   const [form, setForm] = useState(blank);
   const F = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -177,7 +185,7 @@ export function SuppliersModule({
   // ========== حالة المورد ==========
   const getSupplierStatus = (supplier) => {
     const supPurchases = purchases.filter(
-      (p) => p.supplier === supplier.id && p.payment_status !== "مسددة"
+      (p) => p.supplier === supplier.id && p.payment_status !== "مسددة" && getPurchaseNetDebt(p) > DEBT_EPS
     );
     if (supPurchases.length === 0) return "green";
     const today = new Date();
@@ -317,6 +325,8 @@ export function SuppliersModule({
 
   // 🆕 دين فاتورة شراء واحدة بعد خصم المسدد والمرتجع
   const getPurchaseNetDebt = (po) => (po.total || 0) - (po.paid || 0) - (po.returned_amount || 0);
+  // 🆕 هامش صغير للأرقام العشرية (floating point) — فروق زي 1e-14 بعد السداد/المرتجع مش بتتعامل كدين حقيقي
+  const DEBT_EPS = 0.005;
 
   // ========== أعمار الدين لرصيد أول المدة ==========
   const getOpeningBalanceAging = (details = []) => {
@@ -384,13 +394,13 @@ export function SuppliersModule({
   // ═══════════════════════════════════════════════════
   const applyReturnFIFO = (supplierId, totalReturnAmount) => {
     const unpaid = purchases
-      .filter((p) => p.supplier === supplierId && getPurchaseNetDebt(p) > 0)
+      .filter((p) => p.supplier === supplierId && getPurchaseNetDebt(p) > DEBT_EPS)
       .sort((a, b) => new Date(a.date) - new Date(b.date)); // الأقدم أولاً
 
     let remaining = totalReturnAmount;
     const updates = [];
     for (const po of unpaid) {
-      if (remaining <= 0) break;
+      if (remaining <= DEBT_EPS) break;
       const debt = getPurchaseNetDebt(po);
       const allocate = Math.min(remaining, debt);
       const newReturnedAmount = (po.returned_amount || 0) + allocate;
@@ -399,7 +409,7 @@ export function SuppliersModule({
     }
     // لو فاضل remaining > 0 معناه المرتجع أكبر من كل الديون المفتوحة
     // نطرحه من أقدم فاتورة على الإطلاق (حتى لو مسددة) فيبقى رصيد دائن (returned_amount > total)
-    if (remaining > 0) {
+    if (remaining > DEBT_EPS) {
       const oldestAny = purchases
         .filter((p) => p.supplier === supplierId)
         .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
@@ -597,17 +607,17 @@ export function SuppliersModule({
 
         // 2) الباقي (إن وجد) يوزّع على فواتير الشراء من الأقدم فالأحدث
         const unpaid = purchases
-            .filter((p) => p.supplier === supplierId && getPurchaseNetDebt(p) > 0)
+            .filter((p) => p.supplier === supplierId && getPurchaseNetDebt(p) > DEBT_EPS)
             .sort((a, b) => new Date(a.date) - new Date(b.date));
 
         const updates = [];
         for (const po of unpaid) {
-            if (remaining <= 0) break;
+            if (remaining <= DEBT_EPS) break;
             const balance = getPurchaseNetDebt(po);
             const payment = Math.min(remaining, balance);
             const newPaid = (po.paid || 0) + payment;
             const stillOwed = (po.total - (po.returned_amount || 0)) - newPaid;
-            updates.push({ id: po.id, paid: newPaid, payment_status: stillOwed <= 0 ? "مسددة" : "مسددة جزئياً" });
+            updates.push({ id: po.id, paid: newPaid, payment_status: stillOwed <= DEBT_EPS ? "مسددة" : "مسددة جزئياً" });
             remaining -= payment;
         }
 
@@ -924,28 +934,38 @@ export function SuppliersModule({
 
   // بناء قائمة الأصناف الناقصة تلقائيًا حسب اتحاد فئات كل الموردين المُختارين
   // (نفس منطق lowStock بتاع generateOrder، بس بفئات موحّدة بدل مورد واحد)
+  // 🆕 بنجيب الأصناف من آخر طلب نشط (مسودة/مُرسل) اتشارك فعليًا مع كل مورد مختار للمقارنة —
+  // مش إعادة حساب نواقص جديدة، لأن المقارنة لازم تكون على نفس الأصناف اللي شافها الموردين دول بالظبط
   const buildCompareBaseItems = (supplierIds) => {
-    const chosenSuppliers = suppliers.filter((s) => supplierIds.includes(s.id));
-    const categories = [...new Set(chosenSuppliers.flatMap((s) => s.supply_categories || []))];
-    const noSpecificCategory = categories.length === 0;
-    const lowStock = (products || []).filter((p) => {
-      if (p.auto_order === false) return false;
-      const belowMin = p.stock <= (p.min_stock || p.minStock || 0);
-      if (!belowMin) return false;
-      if (noSpecificCategory) return true;
-      const productCategory = p.supply_category || "";
-      return productCategory ? categories.includes(productCategory) : false;
+    const relevantOrders = supplierIds
+      .map((sid) => (orders || [])
+        .filter((o) => o.supplier_id === sid && ACTIVE_ORDER_STATUSES.includes(o.status))
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0])
+      .filter(Boolean);
+
+    if (relevantOrders.length === 0) return [];
+
+    const byId = {};
+    relevantOrders.forEach((order) => {
+      (order.items || []).forEach((it) => {
+        if (byId[it.id]) {
+          // نفس الصنف اتطلب من أكتر من مورد بكمية مختلفة — نمسك أكبر كمية كمرجع للمقارنة
+          byId[it.id].orderQty = Math.max(byId[it.id].orderQty, +it.orderQty || 0);
+          return;
+        }
+        const p = (products || []).find((x) => x.id === it.id);
+        byId[it.id] = {
+          id: it.id,
+          name: it.name,
+          missingEn: it.missingEn || false,
+          currentStock: p ? p.stock : (it.currentStock ?? 0), // مخزون لحظي من الصنف، مش المحفوظ وقت المسودة
+          minStock: it.minStock ?? 0,
+          orderQty: +it.orderQty || 0,
+          offers: {}, // {[supplierId]: discountPercent}
+        };
+      });
     });
-    return lowStock.map((p) => {
-      const { name, missingEn } = orderDisplayName(p);
-      return {
-        id: p.id, name, missingEn,
-        currentStock: p.stock,
-        minStock: p.min_stock || p.minStock || 0,
-        orderQty: computeOrderQty(p, coverageDays),
-        offers: {}, // {[supplierId]: discountPercent}
-      };
-    });
+    return Object.values(byId);
   };
 
   // الانتقال من "اختيار الموردين" لـ"جدول المقارنة"
@@ -981,6 +1001,155 @@ export function SuppliersModule({
       : i)));
   };
 
+  // 🆕 تطبيع اسم الصنف للمطابقة: حروف كبيرة، إزالة نقط/نجوم/رموز زيادة، توحيد المسافات
+  const normalizeCompareName = (name) =>
+    (name || "").toString().toUpperCase().replace(/[.*،,]/g, " ").replace(/\s+/g, " ").trim();
+
+  // 🆕 تشابه نصّين بمقارنة الأزواج الحرفية المتتالية (bigrams) — بيلحق اختصارات الموردين
+  // زي "ACICAL PLUS 30CHW TABS" مقابل "ACICAL PLUS 30 CHEWABLE TABLETS" حتى لو مش نفس الحروف حرفيًا
+  const bigrams = (s) => { const out = []; for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2)); return out; };
+  const nameSimilarity = (a, b) => {
+    const bigA = bigrams(a), bigB = bigrams(b);
+    if (bigA.length === 0 || bigB.length === 0) return a === b ? 1 : 0;
+    const counts = {};
+    bigB.forEach((bg) => { counts[bg] = (counts[bg] || 0) + 1; });
+    let matches = 0;
+    bigA.forEach((bg) => { if (counts[bg] > 0) { matches++; counts[bg]--; } });
+    return (2 * matches) / (bigA.length + bigB.length);
+  };
+  const FUZZY_MATCH_THRESHOLD = 0.45; // تحت الرقم ده الصنف يتحط في "بدون تطابق" بدل ما يتقترح غلط
+
+  // 🆕 تفسير قيمة خصم من أي شكل: كسر (0.15)، نسبة (15)، أو نص فيه علامة سالبة بعد الرقم ("16.670-")
+  const parseDiscountValue = (raw) => {
+    if (raw === undefined || raw === null || raw === "") return null;
+    const s = String(raw).replace(/[^0-9.]/g, "");
+    if (!s) return null;
+    let v = parseFloat(s);
+    if (isNaN(v)) return null;
+    if (Math.abs(v) <= 1) v *= 100; // كسر عشري -> نسبة مئوية
+    return Math.abs(v);
+  };
+
+  // 🆕 خصم الصف: أول عمود اسمه فيه "disc" (خصم1) وتاني عمود كده (خصم2) لو موجودين ومركّبين مع بعض،
+  // وإلا فولباك على Subtotal/Total Before Vat لو الملف مبعتش عمود خصم صريح
+  const rowDiscountPercent = (row, discKeys, subKey, netKey) => {
+    const d1 = discKeys[0] ? parseDiscountValue(row[discKeys[0]]) : null;
+    const d2 = discKeys[1] ? parseDiscountValue(row[discKeys[1]]) : null;
+    if (d1 !== null) {
+      const combined = d2 && d2 > 0 ? 1 - (1 - d1 / 100) * (1 - d2 / 100) : d1 / 100;
+      return Math.round(combined * 10000) / 100;
+    }
+    const subtotal = +row[subKey] || 0;
+    const net = +row[netKey] || 0;
+    return subtotal > 0 ? Math.round((1 - net / subtotal) * 10000) / 100 : null;
+  };
+
+  // 🆕 قراءة ملف عرض سعر مورد (Excel) ومطابقته بأصناف جدول المقارنة الحالي بالاسم الإنجليزي
+  // مطابقة على مرحلتين: تطابق حرفي بعد التطبيع (ثقة كاملة)، وبعدها تشابه تقريبي للباقي (يحتاج تأكيدك في المراجعة)
+  const importSupplierQuoteFile = async (supplierId, file) => {
+    setCompareImporting(supplierId);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      if (rows.length === 0) { showToast("الملف فاضي أو مش مقروء", "error"); return; }
+
+      const headerKeys = Object.keys(rows[0]);
+      const nameKey = headerKeys.find((k) => /product\s*name/i.test(k)) || "Product Name";
+      const saleKey = headerKeys.find((k) => /sale\s*price/i.test(k)) || "Sale Price";
+      const subKey = headerKeys.find((k) => /subtotal/i.test(k)) || "Subtotal";
+      const netKey = headerKeys.find((k) => /total\s*before\s*vat/i.test(k)) || "Total Before Vat";
+      const discKeys = headerKeys.filter((k) => /disc/i.test(k)).sort(); // Discount1/Discount2 أو DISC
+
+      const fileRows = rows
+        .map((row) => ({ row, rawName: (row[nameKey] || "").toString().trim() }))
+        .filter((r) => r.rawName);
+      if (fileRows.length === 0) { showToast(`مفيش عمود اسمه "Product Name" في الملف`, "error"); return; }
+
+      const itemsByNorm = {};
+      compareItems.forEach((it) => { itemsByNorm[normalizeCompareName(it.name)] = it; });
+
+      const matched = [];
+      const remainingItems = new Map(compareItems.map((it) => [it.id, it]));
+      const remainingRows = [];
+
+      // مرحلة 1: تطابق حرفي كامل بعد التطبيع
+      fileRows.forEach(({ row, rawName }) => {
+        const item = itemsByNorm[normalizeCompareName(rawName)];
+        if (item && remainingItems.has(item.id)) {
+          matched.push({ itemId: item.id, name: item.name, rowName: rawName, row, confidence: "exact", accepted: true });
+          remainingItems.delete(item.id);
+        } else {
+          remainingRows.push({ row, rawName, norm: normalizeCompareName(rawName) });
+        }
+      });
+
+      // مرحلة 2: تشابه تقريبي (bigrams) لأي صنف وصف لسه من غير تطابق — أفضل نتيجة تفوز، وبشرط تعدي الحد الأدنى
+      const remainingItemsList = [...remainingItems.values()];
+      const pairs = [];
+      remainingItemsList.forEach((item) => {
+        const itemNorm = normalizeCompareName(item.name);
+        remainingRows.forEach((r, idx) => {
+          const score = nameSimilarity(itemNorm, r.norm);
+          if (score >= FUZZY_MATCH_THRESHOLD) pairs.push({ itemId: item.id, rowIdx: idx, score });
+        });
+      });
+      pairs.sort((a, b) => b.score - a.score);
+      const usedItems = new Set();
+      const usedRows = new Set();
+      pairs.forEach(({ itemId, rowIdx, score }) => {
+        if (usedItems.has(itemId) || usedRows.has(rowIdx)) return;
+        const item = remainingItems.get(itemId);
+        const { row, rawName } = remainingRows[rowIdx];
+        matched.push({ itemId, name: item.name, rowName: rawName, row, confidence: "fuzzy", score, accepted: true });
+        usedItems.add(itemId); usedRows.add(rowIdx);
+      });
+
+      const unmatched = remainingRows.filter((_, idx) => !usedRows.has(idx)).map((r) => r.rawName);
+
+      // إتمام كل صف متطابق ببيانات الخصم والسعر
+      const finalMatched = matched.map((m) => {
+        const discount = rowDiscountPercent(m.row, discKeys, subKey, netKey);
+        const product = (products || []).find((p) => p.id === m.itemId);
+        const rowSalePrice = +m.row[saleKey] || 0;
+        const currentPrice = +product?.price || 0;
+        const priceMismatch = rowSalePrice > 0 && currentPrice > 0 && Math.abs(rowSalePrice - currentPrice) > 0.01;
+        return { ...m, discount, rowSalePrice, currentPrice, priceMismatch };
+      });
+
+      if (finalMatched.length === 0) { showToast("مفيش أي صنف اتطابق مع جدول المقارنة، حتى تقريبيًا", "error"); return; }
+      setCompareImportReview({ supplierId, matched: finalMatched, unmatched });
+    } catch (err) {
+      console.error("importSupplierQuoteFile failed:", err);
+      showToast("تعذّر قراءة الملف — تأكد إنه بصيغة Excel صحيحة", "error");
+    } finally {
+      setCompareImporting(null);
+    }
+  };
+
+  // 🆕 اعتماد نتيجة المراجعة: تطبيق الخصومات المستوردة على offers[supplierId] لكل صنف اتطابق
+  const applyCompareImportReview = () => {
+    if (!compareImportReview) return;
+    const { supplierId, matched } = compareImportReview;
+    const toApply = matched.filter((m) => m.accepted && m.discount !== null);
+    if (toApply.length === 0) { showToast("مفيش صنف متأكّد منه للتطبيق", "error"); return; }
+    setCompareItems((prev) => prev.map((item) => {
+      const m = toApply.find((x) => x.itemId === item.id);
+      return m ? { ...item, offers: { ...item.offers, [supplierId]: m.discount } } : item;
+    }));
+    showToast(`تم تطبيق خصومات ${toApply.length} صنف من الملف ✓`);
+    setCompareImportReview(null);
+  };
+
+  // 🆕 قبول/إلغاء صف مطابقة تقريبية في شاشة المراجعة
+  const toggleCompareImportRowAccepted = (itemId) => {
+    setCompareImportReview((prev) => prev && ({
+      ...prev,
+      matched: prev.matched.map((m) => (m.itemId === itemId ? { ...m, accepted: !m.accepted } : m)),
+    }));
+  };
+
   // ========== حساب المقارنة: تحديد أفضل مورد لكل صنف ==========
   const runComparison = () => {
     const withOffers = compareItems.filter((item) =>
@@ -988,16 +1157,20 @@ export function SuppliersModule({
     if (withOffers.length === 0) { showToast("سجّل خصم مورد واحد على الأقل قبل المقارنة", "error"); return; }
 
     const assigned = {};   // itemId -> supplierId (محسوم بشكل واضح)
-    const tied = [];       // [{ itemId, supplierIds }]  (تعادل، محتاج اختيار يدوي)
+    const tied = [];       // [{ itemId, supplierIds }]  (تعادل حقيقي أو شبه تعادل بدون مفضّل، محتاج اختيار يدوي)
     compareItems.forEach((item) => {
       const offers = Object.entries(item.offers || {}).filter(([, v]) => v !== undefined && v !== null && v !== "");
       if (offers.length === 0) return;
       const maxDiscount = Math.max(...offers.map(([, v]) => +v));
-      const topSuppliers = offers.filter(([, v]) => +v === maxDiscount).map(([sid]) => sid);
-      if (topSuppliers.length === 1) {
-        assigned[item.id] = topSuppliers[0];
+      // 🆕 "شبه تعادل": أي عرض خصمه قريب من الأعلى بفارق أقل من TIE_THRESHOLD_PCT
+      const nearTopSuppliers = offers.filter(([, v]) => maxDiscount - +v < TIE_THRESHOLD_PCT).map(([sid]) => sid);
+      if (nearTopSuppliers.length === 1) {
+        assigned[item.id] = nearTopSuppliers[0];
       } else {
-        tied.push({ itemId: item.id, supplierIds: topSuppliers });
+        // 🆕 لو فيه مورد مفضّل ضمن شبه المتعادلين، يترجّح عليه تلقائيًا من غير سؤال المستخدم
+        const preferred = nearTopSuppliers.find((sid) => suppliers.find((s) => s.id === sid)?.preferred_tiebreak);
+        if (preferred) assigned[item.id] = preferred;
+        else tied.push({ itemId: item.id, supplierIds: nearTopSuppliers });
       }
     });
     setCompareResult({ assigned, tied });
@@ -1252,6 +1425,33 @@ export function SuppliersModule({
     showToast(itemId ? "تم إلغاء الصنف ✓" : "تم إلغاء الطلب ✓");
   };
 
+  // 🆕 إنهاء الطلب يدويًا حتى لو ناقص أصناف — للحالة اللي المورد بيقول فيها "الباقي مش هيتوفر"
+  // (نفاد عند المورد، توقف تصنيع، إلخ)، عشان الطلب ميفضلش عالق "مُرسل" للأبد في انتظار كمية مش جاية
+  const closeOrderManually = async (order) => {
+    const shortItems = (order.items || []).filter(
+      (it) => it.status !== "ملغي" && (+it.orderQty || 0) > (+it.received_qty || 0)
+    );
+    if (shortItems.length > 0) {
+      const ok = window.confirm(
+        `فيه ${shortItems.length} صنف لسه ناقص كمية (${shortItems.map((i) => i.name).join("، ")}). تأكيد إنهاء الطلب رغم كده؟`
+      );
+      if (!ok) return;
+    }
+    const updates = { status: RECEIVED_ORDER_STATUS, received_at: new Date().toISOString(), closed_with_shortfall: shortItems.length > 0 };
+    const result = await queueEvent({
+      id: crypto.randomUUID(),
+      type: "ORDER_UPDATE",
+      timestamp: new Date().toISOString(),
+      pharmacy_id: pharmacyId,
+      payload: { id: order.id, updates },
+    });
+    if (!result.synced && result.error) {
+      showToast("⚠️ الإنهاء اتحفظ محليًا وهيتزامن لاحقًا — خطأ مؤقت: " + result.error, "warning");
+    }
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, ...updates } : o)));
+    showToast(shortItems.length > 0 ? "تم إنهاء الطلب رغم وجود نواقص ✓" : "تم إنهاء الطلب ✓");
+  };
+
   // 🆕 تحويل مسودة لطلب مُرسل (نشط) — عشان تقدر تشاركها مع المورد
   const markOrderSent = async (order) => {
     const updatedOrder = { ...order, status: "مُرسل" };
@@ -1366,8 +1566,9 @@ export function SuppliersModule({
   const getMonthlyChart = (supplierId) => {
     const months = [];
     for (let i = 5; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
+      // 🆕 بنبني الشهر من أول يوم فيه — setMonth على يوم 29/30/31 كان بيقفز لشهر بعده ويكرر/يخفي شهور
+      const now_ = new Date();
+      const d = new Date(now_.getFullYear(), now_.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const label = d.toLocaleDateString("ar", { month: "short" });
       const purchases_ = purchases.filter((p) => p.supplier === supplierId && p.date?.startsWith(key)).reduce((s, p) => s + p.total, 0);
@@ -1409,8 +1610,9 @@ export function SuppliersModule({
     const idsSet = supplierIds.length > 0 ? new Set(supplierIds) : null;
     const months = [];
     for (let i = monthsCount - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
+      // 🆕 بنبني الشهر من أول يوم فيه — setMonth على يوم 29/30/31 كان بيقفز لشهر بعده ويكرر/يخفي شهور
+      const now_ = new Date();
+      const d = new Date(now_.getFullYear(), now_.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const label = d.toLocaleDateString("ar", { month: "short", year: "2-digit" });
       const purchases_ = purchases
@@ -1450,6 +1652,7 @@ export function SuppliersModule({
       supply_categories: s.supply_categories || [],
       gln: s.gln || "",
       supplier_type: s.supplier_type || "عام",
+      preferred_tiebreak: s.preferred_tiebreak || false,
     });
     setShowForm(true);
   };
@@ -1470,6 +1673,7 @@ export function SuppliersModule({
             opening_balance_details: form.opening_balance_details || [],
             gln: form.gln || null,
             supplier_type: form.supplier_type || "عام",
+            preferred_tiebreak: !!form.preferred_tiebreak,
         };
 
         if (editing) {
@@ -1749,11 +1953,11 @@ export function SuppliersModule({
                   )}
 
                   {/* فواتير مستحقة */}
-                  {supPurchases.filter((p) => getPurchaseNetDebt(p) > 0).length > 0 && (
+                  {supPurchases.filter((p) => getPurchaseNetDebt(p) > DEBT_EPS).length > 0 && (
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 6 }}>الفواتير المستحقة:</div>
                       {supPurchases
-                        .filter((p) => getPurchaseNetDebt(p) > 0)
+                        .filter((p) => getPurchaseNetDebt(p) > DEBT_EPS)
                         .sort((a, b) => new Date(a.date) - new Date(b.date))
                         .slice(0, 3)
                         .map((po) => {
@@ -2030,17 +2234,16 @@ export function SuppliersModule({
             return aRank - bRank || orderSortKey(b) - orderSortKey(a);
           });
         const pagedOrders = filteredOrders.slice((ordersPage - 1) * ORDERS_PAGE_SIZE, ordersPage * ORDERS_PAGE_SIZE);
-        // حالة الصنف جوه الطلب: نشط / ملغي، ولو الطلب اتستلم: مستلم / مستلم جزئي / لم يُستلم (حسب received_qty)
+        // حالة الصنف جوه الطلب: نشط / ملغي، ولو حصله استلام (كلي أو جزئي عبر فاتورة أو أكتر): مستلم / مستلم جزئي / لم يُستلم
+        // 🆕 مبني على received_qty نفسه مش على حالة الطلب ككل، عشان طلب متقسّم على عدة فواتير من نفس
+        // المورد يبين تقدمه أول بأول بدل ما يفضل قايل "نشط" للكل لحد ما آخر فاتورة توصل وتقفل الطلب
         const itemStatus = (order, it) => {
           if (it.status === "ملغي") return { label: "ملغي", color: COLORS.red };
-          if (order.status === RECEIVED_ORDER_STATUS) {
-            const got = +it.received_qty || 0;
-            if (got <= 0) return { label: "لم يُستلم", color: COLORS.textDim };
-            return got >= (+it.orderQty || 0)
-              ? { label: "مستلم", color: COLORS.green }
-              : { label: "مستلم جزئي", color: COLORS.gold };
-          }
-          return { label: "نشط", color: COLORS.green };
+          const got = +it.received_qty || 0;
+          if (got <= 0) return { label: "نشط", color: COLORS.green };
+          return got >= (+it.orderQty || 0)
+            ? { label: "مستلم", color: COLORS.green }
+            : { label: "مستلم جزئي", color: COLORS.gold };
         };
         const statusColor = (s) => s === "ملغي" ? COLORS.red : s === "مُرسل" ? COLORS.green : s === RECEIVED_ORDER_STATUS ? COLORS.blue : COLORS.gold;
         return (
@@ -2100,6 +2303,12 @@ export function SuppliersModule({
                           <button onClick={() => markOrderSent(order)}
                             style={{ fontSize: 11, background: "transparent", border: `1px solid ${COLORS.green}`, color: COLORS.green, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
                             تحويل لمُرسل
+                          </button>
+                        )}
+                        {order.status === "مُرسل" && (
+                          <button onClick={() => closeOrderManually(order)}
+                            style={{ fontSize: 11, background: "transparent", border: `1px solid ${COLORS.blue}`, color: COLORS.blue, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                            إنهاء الطلب
                           </button>
                         )}
                         {ACTIVE_ORDER_STATUSES.includes(order.status) && (
@@ -2623,6 +2832,22 @@ export function SuppliersModule({
                   {compareSupplierIds.map((sid) => (
                     <div key={sid} style={{ fontSize: 11, color: COLORS.textDim, fontWeight: 700, textAlign: "center" }}>
                       {suppliers.find((s) => s.id === sid)?.name} — خصم %
+                      <div>
+                        <label style={{
+                          display: "inline-block", marginTop: 4, fontSize: 10, cursor: compareImporting ? "default" : "pointer",
+                          color: COLORS.blue, border: `1px solid ${COLORS.blue}`, borderRadius: 5, padding: "1px 8px",
+                          opacity: compareImporting && compareImporting !== sid ? 0.5 : 1,
+                        }}>
+                          {compareImporting === sid ? "جارٍ القراءة…" : "📥 استيراد ملف"}
+                          <input type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
+                            disabled={!!compareImporting}
+                            onChange={(e) => {
+                              const file = e.target.files[0];
+                              e.target.value = ""; // يسمح برفع نفس الملف تاني لو احتاج
+                              if (file) importSupplierQuoteFile(sid, file);
+                            }} />
+                        </label>
+                      </div>
                     </div>
                   ))}
                   <div />
@@ -2630,7 +2855,7 @@ export function SuppliersModule({
 
                 {compareItems.length === 0 && (
                   <div style={{ textAlign: "center", color: COLORS.textDim, padding: 20 }}>
-                    لا توجد أصناف ناقصة لفئات الموردين المُختارين — ضيف أصناف يدويًا من البحث فوق
+                    مفيش طلب شراء (مسودة/مُرسل) مشترك مع الموردين المُختارين — شارك مسودة الطلب من كرت كل مورد الأول، أو ضيف أصناف يدويًا من البحث فوق
                   </div>
                 )}
 
@@ -2745,6 +2970,78 @@ export function SuppliersModule({
         </Modal>
       )}
 
+      {/* ===== 🆕 Modal مراجعة استيراد عرض سعر مورد قبل التطبيق ===== */}
+      {compareImportReview && (() => {
+        const sup = suppliers.find((s) => s.id === compareImportReview.supplierId);
+        const mismatches = compareImportReview.matched.filter((m) => m.priceMismatch);
+        return (
+          <Modal open title={`مراجعة ملف ${sup?.name || ""}`} onClose={() => setCompareImportReview(null)} wide>
+            <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 14 }}>
+              اتطابق {compareImportReview.matched.filter((m) => m.confidence === "exact").length} صنف تطابق مؤكد
+              {compareImportReview.matched.some((m) => m.confidence === "fuzzy") &&
+                ` و${compareImportReview.matched.filter((m) => m.confidence === "fuzzy").length} صنف تطابق تقريبي (راجعهم تحت)`}.
+              {compareImportReview.unmatched.length > 0 && ` (${compareImportReview.unmatched.length} صنف في الملف ما اتطابقش خالص)`}
+            </div>
+
+            {mismatches.length > 0 && (
+              <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.gold, marginBottom: 10 }}>
+                  ⚠ سعر بيع مختلف عن سعرك الحالي ({mismatches.length})
+                </div>
+                {mismatches.map((m) => (
+                  <div key={m.itemId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                    <span>{m.name}</span>
+                    <span style={{ color: COLORS.textDim }}>عندك: {m.currentPrice.toFixed(2)} — بالملف: {m.rowSalePrice.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 6 }}>
+                  ده تنبيه بس — الخصم هيتطبّق عادي، والقرار ليك
+                </div>
+              </div>
+            )}
+
+            <div style={{ maxHeight: 300, overflowY: "auto", marginBottom: 16 }}>
+              {compareImportReview.matched.map((m) => (
+                <div key={m.itemId} style={{ padding: "6px 4px", borderBottom: `1px solid ${COLORS.border}`, opacity: m.accepted ? 1 : 0.4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {m.confidence === "fuzzy" && (
+                        <input type="checkbox" checked={m.accepted} onChange={() => toggleCompareImportRowAccepted(m.itemId)}
+                          title="تطابق تقريبي — شيل العلامة لو مش صح" style={{ cursor: "pointer" }} />
+                      )}
+                      {m.priceMismatch && "⚠ "}{m.name}
+                    </span>
+                    <span style={{ fontWeight: 700 }}>{m.discount === null ? "؟" : `${m.discount}%`}</span>
+                  </div>
+                  {m.confidence === "fuzzy" && (
+                    <div style={{ fontSize: 10.5, color: COLORS.gold, marginTop: 2 }}>
+                      تقريبي من "{m.rowName}" — تأكد إنه نفس الصنف
+                    </div>
+                  )}
+                  {m.discount === null && (
+                    <div style={{ fontSize: 10.5, color: COLORS.red, marginTop: 2 }}>مفيش بيانات خصم واضحة في الملف لهذا الصف</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {compareImportReview.unmatched.length > 0 && (
+              <details style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 16 }}>
+                <summary style={{ cursor: "pointer" }}>أصناف الملف اللي ما اتطابقتش ({compareImportReview.unmatched.length})</summary>
+                <div style={{ marginTop: 6 }}>
+                  {compareImportReview.unmatched.map((n, i) => <div key={i}>{n}</div>)}
+                </div>
+              </details>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+              <Btn variant="ghost" onClick={() => setCompareImportReview(null)}>إلغاء</Btn>
+              <Btn icon="check" onClick={applyCompareImportReview}>تطبيق الخصومات</Btn>
+            </div>
+          </Modal>
+        );
+      })()}
+
       {/* ===== 🆕 Modal مراجعة أصناف الجوكر المعلّقة ===== */}
       {showJokerReview && (
         <Modal open title="⚠ أصناف جوكر معلّقة" onClose={() => setShowJokerReview(false)} wide>
@@ -2834,7 +3131,7 @@ export function SuppliersModule({
   </select>
 </div>
             <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 4 }}>ترتيب السداد (الأقدم أولاً):</div>
-            {purchases.filter((p) => p.supplier === showPayForm.id && getPurchaseNetDebt(p) > 0)
+            {purchases.filter((p) => p.supplier === showPayForm.id && getPurchaseNetDebt(p) > DEBT_EPS)
               .sort((a, b) => new Date(a.date) - new Date(b.date))
               .map((po) => {
                 const balance = getPurchaseNetDebt(po); // 🆕 صافي بعد المرتجع
@@ -3142,6 +3439,19 @@ export function SuppliersModule({
                 هيظهر له بس الأصناف اللي بتترّبط بيه صراحة من كرت الصنف، مش كل أصناف فئاته
               </div>
             )}
+          </div>
+
+          {/* 🆕 مورد مفضّل عند تعادل الأسعار في مقارنة عروض الموردين */}
+          <div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: COLORS.textPrimary }}>
+              <input type="checkbox" checked={!!form.preferred_tiebreak}
+                onChange={(e) => F("preferred_tiebreak", e.target.checked)}
+                style={{ width: 16, height: 16, cursor: "pointer" }} />
+              مورد مفضّل عند تعادل الأسعار
+            </label>
+            <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>
+              في مقارنة عروض الموردين، لو الفرق بين هذا المورد وأرخص عرض أقل من 1% يترجّح عليه تلقائيًا بدل السؤال اليدوي
+            </div>
           </div>
         </div>
 

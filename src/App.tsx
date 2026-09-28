@@ -692,6 +692,14 @@ export default function PharmacyPro() {
                         returnCreatedAt: row.return_created_at ?? row.returnCreatedAt ?? undefined,
                     }))
                 );
+                // 🆕 full sync لكاش المبيعات المحلي (sales_cache) — نفس فكرة upsertProductsCache
+                // فوق، عشان لو الصيدلية عندها أكتر من تيرمينال، كل جهاز يفضل عنده نسخة محدّثة من
+                // كل الفواتير (بما فيها صورة الوصفة المرفقة) مش بس اللي اتعملت عليه هو بالذات.
+                try {
+                    await window.offlineAPI?.upsertSalesCache?.({ pharmacyId, sales: sa.data ?? [] });
+                } catch (err) {
+                    console.error("upsertSalesCache failed:", err);
+                }
                 setReturnsData(ret.data ?? []);
                 setCreditPayments(cp.data ?? []);
                 setInventoryLogs(inv.data ?? []);
@@ -1469,6 +1477,7 @@ export default function PharmacyPro() {
                             setJokerPendingItems={setJokerPendingItems}
                             orders={orders}
                             setOrders={setOrders}
+                            setReturnsData={setReturnsData}
                         />
                     )}
                     {tab === "pharmacy_transfers" && canView("pharmacy_transfers") && (

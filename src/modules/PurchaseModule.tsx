@@ -272,9 +272,21 @@ export function PurchaseModule({
     const [itemSortMode, setItemSortMode] = useState("insertion"); // "insertion" | "alpha"
     const [itemSortDir, setItemSortDir] = useState("asc"); // "asc" | "desc"
 
+    // 🛠️ فيكس: كان بيعتمد على product.name افتراضًا إنه "الأصلي الإنجليزي" — لكن اتأكد إن
+    // الجدول عنده عمود name_en منفصل فعليًا (وname نفسه مش مضمون دايمًا إنجليزي). بقى بيفضّل
+    // name_en الحقيقي، وبعدين name كـfallback بس لو name_en فاضي.
     const englishNameOf = (item) => {
         const product = products.find((p) => p.id === item.id);
-        return (product?.name || item.name || "").toLowerCase();
+        return (item.name_en || product?.name_en || product?.name || item.name || "").toLowerCase();
+    };
+    // 🆕 اسم الصنف المعروض في جداول الفاتورة — بيفضّل الاسم الإنجليزي (name_en) دايمًا.
+    // لو الصف جاي من فاتورة قديمة اتسجلت قبل إضافة name_en (يعني item.name_en فاضي)،
+    // بيرجع لمنتج الكتالوج الحالي بنفس الـid ياخد name_en منه؛ ولو برضو مش موجود (صنف
+    // اتمسح من الكتالوج مثلاً) بيرجع لـname العادي وبعدين name_ar عشان الخلية متفضلش فاضية.
+    const itemDisplayName = (item) => {
+        if (item.name_en) return item.name_en;
+        const product = products.find((p) => p.id === item.id);
+        return product?.name_en || item.name || item.name_ar || "";
     };
     const applyItemSort = (list) => {
         if (itemSortMode !== "alpha") return list;
@@ -360,8 +372,11 @@ export function PurchaseModule({
         setEditItems((prev) => [
             ...prev,
             {
+                _rowKey: product.id + "_new_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
                 id: product.id,
                 name: product.name,
+                name_en: product.name_en,
+                name_ar: product.name_ar,
                 qty: 1,
                 bonusQty: 0,
                 discount1: 0,
@@ -400,7 +415,11 @@ export function PurchaseModule({
     // اللي البند ده زوّدها وقت الحفظ، قد إيه لسه فاضل في نفس الـ batch (batch_id) دلوقتي —
     // فالفرق هو اللي اتباع.
     const getSoldQtyForPurchaseItem = (editedItem) => {
-        const original = (showDetail?.items || []).find((oi) => oi.id === editedItem.id);
+        // 🆕 المطابقة بالـ batch_id (مش id الصنف بس) عشان لو الصنف متكرر بتواريخ مختلفة كل سطر
+        // ياخد أصله هو، والسطر الجديد (من غير batch_id) مايتحسبش عليه مبيعات سطر تاني.
+        const original = editedItem.batch_id
+            ? (showDetail?.items || []).find((oi) => oi.batch_id === editedItem.batch_id)
+            : (showDetail?.items || []).find((oi) => oi.id === editedItem.id && !oi.batch_id);
         if (!original) return 0; // بند جديد اتضاف في التعديل نفسه، معندوش تاريخ بيع خالص
         if (!original.batch_id) {
             // بند قديم من غير batch_id متسجل (قبل تتبع الباتشات) — منقدرش نحسب المتبقي
@@ -723,6 +742,7 @@ export function PurchaseModule({
     // ===== نهاية طباعة ZPL =====
     // ===== نهاية طباعة الباركود =====
 
+    const focusRowKeyRef = useRef<string | null>(null); // 🆕 السطر اللي المفروض الفوكس يروحله بعد الإضافة/السكان
     const lastKeyTimePurch = useRef<number>(0);
     const keyCountPurch = useRef<number>(0);
     const scanTimerPurch = useRef<ReturnType<typeof setTimeout>>(null);
@@ -734,14 +754,20 @@ export function PurchaseModule({
             setShowDropdown(false);
             return;
         }
-        const results = products
-            .filter(
-                (p) =>
-                    (p.name_ar || p.name || "").includes(val) ||
-                    (p.barcode || "").includes(val) ||
-                    (p.id || "").includes(val)
-            )
-            .slice(0, 8);
+        // 🛠️ فيكس: كان الشرط (p.name_ar || p.name || "").includes(val) — لو الصنف عنده اسم
+        // عربي، الـ|| بيوقف عندها وميفحصش الاسم الإنجليزي (p.name) خالص حتى لو موجود.
+        // دلوقتي بنفحص الاسمين مستقلين عن بعض، كل واحد بـ.includes() لوحده، مع .toLowerCase()
+        // على الاتنين عشان البحث يشتغل بأي حالة أحرف (مكانش فيه toLowerCase أصلاً قبل كده).
+        // وشلنا .slice(0, 8) عشان تاب دايمًا كل النتائج المطابقة مش أول 8 بس.
+        const q = val.trim().toLowerCase();
+        const results = products.filter(
+            (p) =>
+                (p.name_ar || "").toLowerCase().includes(q) ||
+                (p.name_en || "").toLowerCase().includes(q) ||
+                (p.name || "").toLowerCase().includes(q) ||
+                (p.barcode || "").includes(val) ||
+                (p.id || "").includes(val)
+        );
         setSearchResults(results);
         setShowDropdown(results.length > 0);
         setHighlightedPurchIdx(-1);
@@ -749,12 +775,14 @@ export function PurchaseModule({
     };
 
     const addItem = (p, expiry = "", batch = "") => {
+        const newRowKey = p.id + "_" + Date.now();
         setItems((prev) => {
             const ex = prev.find((i) => i.id === p.id && (i.expiry_date || "") === expiry);
-            if (ex && !expiry)
-                return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
-            if (ex && expiry)
-                return prev.map((i) => (i.id === p.id && i.expiry_date === expiry ? { ...i, qty: i.qty + 1 } : i));
+            if (ex) {
+                focusRowKeyRef.current = ex._rowKey || ex.id;
+                return prev.map((i) => (i === ex ? { ...i, qty: i.qty + 1 } : i));
+            }
+            focusRowKeyRef.current = newRowKey;
             return [
                 ...prev,
                 {
@@ -767,7 +795,7 @@ export function PurchaseModule({
                     newSalePrice: p.price,
                     expiry_date: expiry,
                     batch_number: batch,
-                    _rowKey: p.id + "_" + Date.now(),
+                    _rowKey: newRowKey,
                 },
             ];
         });
@@ -780,6 +808,8 @@ export function PurchaseModule({
 
     // إضافة نفس الصنف كصف جديد مستقل (تاريخ مختلف)
     const addItemAsNew = (p, expiry = "", batch = "") => {
+        const newRowKey = p.id + "_" + Date.now();
+        focusRowKeyRef.current = newRowKey;
         setItems((prev) => [
             ...prev,
             {
@@ -792,7 +822,7 @@ export function PurchaseModule({
                 newSalePrice: p.price,
                 expiry_date: expiry,
                 batch_number: batch,
-                _rowKey: p.id + "_" + Date.now(),
+                _rowKey: newRowKey,
             },
         ]);
         setSearchText("");
@@ -1225,19 +1255,16 @@ export function PurchaseModule({
     };
 
     // فوكس على خانة الكمية للصنف المضاف
+    // 🆕 بيروح للسطر اللي اتضاف/اتزود فعلًا (بالـ _rowKey) مش أول سطر للصنف — وبيشتغل صح
+    // حتى لو الجدول مترتب أبجديًا لأنه بيدوّر في الـ DOM مش بموضع السطر في المصفوفة.
     const focusNewItemQty = (p) => {
         setTimeout(() => {
-            setItems((prev) => {
-                const rowIndex = prev.findIndex((i) => i.id === p.id);
-                if (rowIndex !== -1) {
-                    const qtyCell = document.getElementById(`cell-${rowIndex}-qty`) as HTMLInputElement;
-                    if (qtyCell) { qtyCell.focus(); qtyCell.select(); }
-                    else searchRef.current?.focus();
-                } else {
-                    searchRef.current?.focus();
-                }
-                return prev;
-            });
+            const key = focusRowKeyRef.current;
+            const qtyCell = key
+                ? (document.querySelector(`input[data-rowkey="${CSS.escape(key)}"]`) as HTMLInputElement | null)
+                : null;
+            if (qtyCell) { qtyCell.focus(); qtyCell.select(); }
+            else searchRef.current?.focus();
         }, 80);
     };
 
@@ -1283,10 +1310,12 @@ export function PurchaseModule({
         return Math.round(afterDisc2 * 10000) / 10000;
     };
 
-    const updateItem = (id, field, value) => {
+    // 🆕 المطابقة بالـ _rowKey (مش product id) عشان لو نفس الصنف له أكتر من سطر
+    // (تواريخ صلاحية مختلفة) التعديل يتطبق على السطر الشغال عليه بس.
+    const updateItem = (rowKey, field, value) => {
         setItems((prev) =>
             prev.map((i) => {
-                if (i.id !== id) return i;
+                if ((i._rowKey || i.id) !== rowKey) return i;
                 const updated = { ...i, [field]: value };
 
                 if (field === "discount1") {
@@ -1761,6 +1790,14 @@ export function PurchaseModule({
                     showToast("⚠️ الفاتورة اتحفظت لكن تحديث حالة طلب الشراء فشل مؤقتًا — هيتزامن لاحقًا", "warning");
                 }
                 setOrders((prev) => prev.map((o) => (o.id === match.order.id ? match.order : o)));
+
+                // 🆕 المورد ورّد بخصم مختلف عن اللي فاز بيه وقت مقارنة عروض الموردين
+                if (match.discountMismatches && match.discountMismatches.length > 0) {
+                    const lines = match.discountMismatches
+                        .map((m) => `${m.name}: اتفقنا ${m.quotedDiscount}% ووصل ${m.actualDiscount}% (${m.diff > 0 ? "+" : ""}${m.diff}%)`)
+                        .join(" | ");
+                    showToast(`⚠️ خصم مختلف عن العرض المتفق عليه — ${lines}`, "warning");
+                }
             }
         } catch (err) {
             console.error("order matching failed:", err);
@@ -1768,18 +1805,28 @@ export function PurchaseModule({
         }
 
         // بنبني القوائم المحدّثة مرة واحدة عشان نستخدمها في: (1) React state و(2) الحفظ في products_cache المحلي
+        // 🆕 تجميع كل سطور نفس الصنف (تواريخ صلاحية مختلفة) — items.find كانت بتاخد أول سطر بس
+        // وبتتجاهل باقي الكميات في الـ state المحلي. الكمية بتتجمع، والتكلفة/السعر من آخر سطر.
+        const qtyByProduct = {};
+        const lastItemByProduct = {};
+        const standaloneById = {};
+        items.forEach((i) => {
+            qtyByProduct[i.id] = (qtyByProduct[i.id] || 0) + i.qty + (i.bonusQty || 0);
+            lastItemByProduct[i.id] = i;
+            if (i.standaloneOffer) standaloneById[i.id] = true;
+        });
         const updatedProducts = products.map((x) => {
-            const ci = items.find((i) => i.id === x.id);
+            const ci = lastItemByProduct[x.id];
             if (!ci) return x;
             return {
                 ...x,
-                stock: x.stock + ci.qty + (ci.bonusQty || 0),
+                stock: x.stock + qtyByProduct[x.id],
                 cost: ci.receivedCost,
                 price: ci.newSalePrice,
                 batches: allNewBatchesByProduct[x.id] ?? x.batches,
                 not_available_market: false,
                 auto_order: true,
-                is_standalone_offer: ci.standaloneOffer ? true : x.is_standalone_offer,
+                is_standalone_offer: standaloneById[x.id] ? true : x.is_standalone_offer,
             };
         });
         setProducts(updatedProducts);
@@ -1962,8 +2009,9 @@ for (const ci of standaloneOfferItems) {
                                         }
                                         setShowDetail(p);
                                         setEditItems(
-                                            p.items.map((i) => ({
+                                            p.items.map((i, idx) => ({
                                                 ...i,
+                                                _rowKey: (i.batch_id || i.id) + "_" + idx, // 🆕 مفتاح فريد لكل سطر (نفس الصنف ممكن يتكرر بتواريخ مختلفة)
                                                 receivedCost: i.cost,
                                                 newSalePrice: i.salePrice,
                                                 discount1: i.discount1 || 0,
@@ -2482,7 +2530,7 @@ for (const ci of standaloneOfferItems) {
                                    </td>
                                    <td style={{ padding: "6px 8px", fontSize: 13, color: COLORS.textPrimary, minWidth: 120 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        {item.name}
+        {itemDisplayName(item)}
         <button onClick={() => setShowProductCard(item)} title="عرض بيانات الصنف"
             style={{ background: "transparent", border: "none", color: COLORS.blue, cursor: "pointer", padding: 2, lineHeight: 1 }}>
             <IC n="eye" s={13} />
@@ -2491,7 +2539,7 @@ for (const ci of standaloneOfferItems) {
     {detectSupplierOfferPattern(item.name).isOffer && (
         <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 11, color: COLORS.gold, cursor: "pointer" }}>
             <input type="checkbox" checked={!!item.standaloneOffer}
-                onChange={(e) => updateItem(item.id, "standaloneOffer", e.target.checked)} />
+                onChange={(e) => updateItem(item._rowKey || item.id, "standaloneOffer", e.target.checked)} />
             🏷️ عرض من المورد — يظهر في قائمة العروض
         </label>
     )}
@@ -2499,11 +2547,12 @@ for (const ci of standaloneOfferItems) {
                                     <td style={{ padding: "4px" }}>
                                         <input
                                             id={`cell-${rowIndex}-qty`}
+                                            data-rowkey={item._rowKey || item.id}
                                             type="number"
                                             min="1"
                                             value={item.qty}
                                             onChange={(e) =>
-                                                updateItem(item.id, "qty", +e.target.value)
+                                                updateItem(item._rowKey || item.id, "qty", +e.target.value)
                                             }
                                             onKeyDown={(e) => handleCellKeyDown(e, rowIndex, "qty")}
                                             style={{ ...cellStyle, width: 55 }}
@@ -2518,7 +2567,7 @@ for (const ci of standaloneOfferItems) {
                                             step="0.01"
                                             value={item.discount1}
                                             onChange={(e) =>
-                                                updateItem(item.id, "discount1", +e.target.value)
+                                                updateItem(item._rowKey || item.id, "discount1", +e.target.value)
                                             }
                                             onKeyDown={(e) =>
                                                 handleCellKeyDown(e, rowIndex, "discount1")
@@ -2535,7 +2584,7 @@ for (const ci of standaloneOfferItems) {
                                             step="0.01"
                                             value={item.discount2}
                                             onChange={(e) =>
-                                                updateItem(item.id, "discount2", +e.target.value)
+                                                updateItem(item._rowKey || item.id, "discount2", +e.target.value)
                                             }
                                             onKeyDown={(e) =>
                                                 handleCellKeyDown(e, rowIndex, "discount2")
@@ -2551,7 +2600,7 @@ for (const ci of standaloneOfferItems) {
                                             step="0.0001"
                                             value={+(item.receivedCost ?? 0).toFixed(4)}
                                             onChange={(e) =>
-                                                updateItem(item.id, "receivedCost", +e.target.value)
+                                                updateItem(item._rowKey || item.id, "receivedCost", +e.target.value)
                                             }
                                             onKeyDown={(e) =>
                                                 handleCellKeyDown(e, rowIndex, "receivedCost")
@@ -2567,7 +2616,7 @@ for (const ci of standaloneOfferItems) {
                                             step="0.01"
                                             value={item.newSalePrice}
                                             onChange={(e) =>
-                                                updateItem(item.id, "newSalePrice", +e.target.value)
+                                                updateItem(item._rowKey || item.id, "newSalePrice", +e.target.value)
                                             }
                                             onKeyDown={(e) =>
                                                 handleCellKeyDown(e, rowIndex, "newSalePrice")
@@ -2600,7 +2649,7 @@ for (const ci of standaloneOfferItems) {
                                             min="0"
                                             value={item.bonusQty}
                                             onChange={(e) =>
-                                                updateItem(item.id, "bonusQty", +e.target.value)
+                                                updateItem(item._rowKey || item.id, "bonusQty", +e.target.value)
                                             }
                                             onKeyDown={(e) =>
                                                 handleCellKeyDown(e, rowIndex, "bonusQty")
@@ -2614,7 +2663,7 @@ for (const ci of standaloneOfferItems) {
                                             type="date"
                                             value={/^\d{4}-\d{2}$/.test(item.expiry_date || "") ? `${item.expiry_date}-01` : (item.expiry_date || "")}
                                             onChange={(e) =>
-                                                updateItem(item.id, "expiry_date", e.target.value)
+                                                updateItem(item._rowKey || item.id, "expiry_date", e.target.value)
                                             }
                                             onKeyDown={(e) => {
                                                 // السهام → يتركها للـ browser عشان تنقل بين شهر/سنة
@@ -2631,7 +2680,7 @@ for (const ci of standaloneOfferItems) {
                                             value={item.batch_number || ""}
                                             placeholder="تلقائي من السكان"
                                             onChange={(e) =>
-                                                updateItem(item.id, "batch_number", e.target.value)
+                                                updateItem(item._rowKey || item.id, "batch_number", e.target.value)
                                             }
                                             onKeyDown={(e) => handleCellKeyDown(e, rowIndex, "batch_number")}
                                             style={{ ...cellStyle, width: 110 }}
@@ -3014,7 +3063,7 @@ for (const ci of standaloneOfferItems) {
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
                         {printItems.map((item, idx) => (
                             <div
-                                key={item.id}
+                                key={`${item.id}_${item.batch_id || item._rowKey || idx}`}
                                 style={{
                                     display: "flex",
                                     justifyContent: "space-between",
@@ -3291,7 +3340,7 @@ for (const ci of standaloneOfferItems) {
                             <tbody>
                                 {applyItemSort(editItems).map((item, rowIndex) => (
                                     <tr
-                                        key={item.id}
+                                        key={item._rowKey || item.id}
                                         style={{ borderBottom: `1px solid ${COLORS.border}` }}
                                     >
                                         <td style={{ padding: "6px 8px", fontSize: 12, color: COLORS.textDim, textAlign: "center" }}>
@@ -3305,7 +3354,7 @@ for (const ci of standaloneOfferItems) {
                                                 minWidth: 120,
                                             }}
                                         >
-                                            {item.name}
+                                            {itemDisplayName(item)}
                                         </td>
                                         <td style={{ padding: "4px" }}>
                                             <input
@@ -3325,7 +3374,7 @@ for (const ci of standaloneOfferItems) {
                                                     }
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id ? { ...i, qty: newQty } : i
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id) ? { ...i, qty: newQty } : i
                                                         )
                                                     );
                                                 }}
@@ -3352,7 +3401,7 @@ for (const ci of standaloneOfferItems) {
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id)
                                                                 ? {
                                                                     ...i,
                                                                     discount1: +e.target.value,
@@ -3389,7 +3438,7 @@ for (const ci of standaloneOfferItems) {
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id)
                                                                 ? {
                                                                     ...i,
                                                                     discount2: +e.target.value,
@@ -3426,7 +3475,7 @@ for (const ci of standaloneOfferItems) {
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id)
                                                                 ? { ...i, receivedCost: +e.target.value }
                                                                 : i
                                                         )
@@ -3455,7 +3504,7 @@ for (const ci of standaloneOfferItems) {
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id)
                                                                 ? {
                                                                     ...i,
                                                                     newSalePrice: +e.target.value,
@@ -3496,7 +3545,7 @@ for (const ci of standaloneOfferItems) {
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id)
                                                                 ? { ...i, bonusQty: +e.target.value }
                                                                 : i
                                                         )
@@ -3523,7 +3572,7 @@ for (const ci of standaloneOfferItems) {
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id)
                                                                 ? { ...i, expiry_date: e.target.value }
                                                                 : i
                                                         )
@@ -3553,7 +3602,7 @@ for (const ci of standaloneOfferItems) {
                                                 onChange={(e) =>
                                                     setEditItems((prev) =>
                                                         prev.map((i) =>
-                                                            i.id === item.id
+                                                            (i._rowKey || i.id) === (item._rowKey || item.id)
                                                                 ? { ...i, batch_number: e.target.value }
                                                                 : i
                                                         )
@@ -3600,7 +3649,7 @@ for (const ci of standaloneOfferItems) {
                                                         return;
                                                     }
                                                     setEditItems((prev) =>
-                                                        prev.filter((i) => i.id !== item.id)
+                                                        prev.filter((i) => (i._rowKey || i.id) !== (item._rowKey || item.id))
                                                     );
                                                 }}
                                                 style={{
