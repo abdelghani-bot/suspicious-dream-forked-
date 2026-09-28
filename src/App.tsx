@@ -609,7 +609,7 @@ export default function PharmacyPro() {
                 const [p, s, c, sa, pu, ret, cp, inv, mfr, rasdRow, allProdIng, jkp, altBc, ord] = await Promise.all([
                     supabase.from("products").select("*").eq("pharmacy_id", pharmacyId),
                     supabase.from("suppliers").select("*").eq("pharmacy_id", pharmacyId),
-                    supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId),
+                    supabase.from("customers").select("*").eq("pharmacy_id", pharmacyId).is("deleted_at", null), // 🗑️ استبعاد العملاء المحذوفين (حذف ناعم)
                     supabase.from("sales").select("*").eq("pharmacy_id", pharmacyId),
                     supabase.from("purchases").select("*").eq("pharmacy_id", pharmacyId),
                     supabase.from("returns").select("*").eq("pharmacy_id", pharmacyId),

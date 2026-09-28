@@ -15,6 +15,8 @@ const DEFAULT_RETURN_POLICY_EN =
 // ==================== PRINT RECEIPT ====================
 export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
     const printArea = useRef();
+    // الفاتورة ممكن تيجي بـ discountAmt (camelCase) أو discount_amt (من قاعدة البيانات)
+    const discountAmount = invoice.discountAmt ?? invoice.discount_amt ?? 0;
     const [paperWidth, setPaperWidth] = useState("80"); // 58 / 80 / A4 — الافتراضي 80مم
     const [pharmacyInfo, setPharmacyInfo] = useState({
         name: "",
@@ -142,7 +144,6 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
                             .filter((item) => !item.isMissed && !item.isJoker)
                             .map((item, i) => (
                                 <tr key={i}>
-                                    {console.log('item data:', item)}
                                     <td>
                                         <div>{item.name}</div>
                                         {(item.nameEn || item.name_en) && (
@@ -197,11 +198,11 @@ export function PrintReceipt({ invoice, onClose, pharmacyId, customerPhone }) {
                         {(invoice.taxAmount || invoice.tax_amount || 0).toFixed(2)} ر.س
                     </span>
                 </div>
-                {invoice.discountAmt > 0 && (
+                {discountAmount > 0 && (
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <span>خصم</span>
                         <span>
-                            - {invoice.discountAmt || invoice.discount_amt || 0} ر.س
+                            - {Number(discountAmount).toFixed(2)} ر.س
                         </span>
                     </div>
                 )}

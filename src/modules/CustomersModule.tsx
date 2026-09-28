@@ -1,13 +1,15 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { queueEvent } from "../lib/offlineAPI";
+import { queueEvent, getLoyaltyPointsMap } from "../lib/offlineAPI";
 import { COLORS, SHADOW, tint } from "../theme";
-import { toLocaleString } from "../function toLocaleString() { [native code] }/undefined";
 import { logAudit } from "../lib/auditLog";
 import { todayLocal } from "../lib/dateUtils";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { openWhatsApp, sendBulk } from "../lib/whatsapp";
 import { Btn, Input, Modal } from "../ui/primitives";
+import { BarChart } from "./BarChart";
+import { CustomerCard } from "./CustomerCard";
+import { vipConfig, statusConfig, trendConfig } from "./customerConfig";
 
 export function CreditTab({ customers, onPay, sales = [], creditPayments = [] }) {
     // 🐛 FIX: كانت الدالة بتعمل query مباشر لـ supabase بدون فلترة pharmacy_id
@@ -272,28 +274,7 @@ export function computeCustomerStats(customer, sales = [], creditPayments = []) 
 
 
 
-// ── تصنيفات العميل الجاهزة للعرض (ألوان/تسميات) — مشتركة بين قسم العملاء وقسم العروض ──
-export const vipConfig = {
-    vip: { label: "👑 VIP", color: COLORS.gold, bg: COLORS.goldSoft },
-    excellent: { label: "⭐ ممتاز", color: COLORS.blue, bg: COLORS.blueSoft },
-    good: { label: "✅ جيد", color: COLORS.green, bg: COLORS.greenSoft },
-    weak: { label: "🔴 ضعيف", color: COLORS.red, bg: COLORS.redSoft },
-};
-
-
-export const statusConfig = {
-    new: { label: "🆕 جديد", color: COLORS.green },
-    regular: { label: "✅ منتظم", color: COLORS.blue },
-    at_risk: { label: "⚠️ في خطر", color: COLORS.gold },
-    inactive: { label: "💤 مختفي", color: COLORS.red },
-};
-
-
-export const trendConfig = {
-    up: { label: "📈 صعودي", icon: "📈", color: COLORS.green, bg: COLORS.greenSoft },
-    down: { label: "📉 نزولي", icon: "📉", color: COLORS.red, bg: COLORS.redSoft },
-    stable: { label: "➖ ثابت", icon: "➖", color: COLORS.textDim, bg: COLORS.surfaceAlt },
-};
+export { vipConfig, statusConfig, trendConfig };
 
 
 
@@ -326,6 +307,11 @@ export function CustomersModule({
     const [payAmount, setPayAmount] = useState("");
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [trendGroupView, setTrendGroupView] = useState(null); // "up" | "down" | "stable" | null
+    // 🗑️ تبويب المحذوفين (الحذف الناعم)
+    const [deletedCustomers, setDeletedCustomers] = useState<any[]>([]);
+    const [deletedLoading, setDeletedLoading] = useState(false);
+    const [deletedError, setDeletedError] = useState("");
+    const [deletedSearch, setDeletedSearch] = useState("");
 
     const blank = {
         id: "",
@@ -467,14 +453,18 @@ export function CustomersModule({
     // statusConfig/trendConfig/openWhatsApp/sendBulk) — عشان موديولات تانية زي قسم العروض
     // تقدر تستخدم نفس المنطق بالظبط من غير تكرار.
     const KIDS_COSMETICS_CATS = ["مستلزمات أطفال", "كوزمتك عادي", "كوزمتك طبي"];
-    const enriched = customers.map((c) => {
-        const stats = computeCustomerStats(c, sales, creditPayments);
-        const missedKidsCosmetics =
-            c.category === "family_with_kids" &&
-            !!stats &&
-            !KIDS_COSMETICS_CATS.some((cat) => (stats.categorySpend?.[cat] || 0) > 0);
-        return { ...c, stats, missedKidsCosmetics };
-    });
+    const enriched = useMemo(
+        () =>
+            customers.map((c) => {
+                const stats = computeCustomerStats(c, sales, creditPayments);
+                const missedKidsCosmetics =
+                    c.category === "family_with_kids" &&
+                    !!stats &&
+                    !KIDS_COSMETICS_CATS.some((cat) => (stats.categorySpend?.[cat] || 0) > 0);
+                return { ...c, stats, missedKidsCosmetics };
+            }),
+        [customers, sales, creditPayments]
+    );
 
     // ===== فلترة =====
     const filtered = enriched.filter((c) => {
@@ -512,290 +502,145 @@ export function CustomersModule({
     const vipCount = enriched.filter((c) => c.stats?.vipLevel === "vip").length;
     const inactiveCount = inactiveCustomers.length;
 
-    // ===== رسم بياني بسيط =====
-    const BarChart = ({ title, data, unit = "" }) => {
-        const max = Math.max(...data.map((d) => d.count), 1);
-        return (
-            <div
-                style={{
-                    background: COLORS.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                    border: `1px solid ${COLORS.border}`,
-                    borderRadius: 14,
-                    padding: 16,
-                }}
-            >
-                <div
-                    style={{
-                        fontWeight: 700,
-                        color: COLORS.textPrimary,
-                        fontSize: 14,
-                        marginBottom: 14,
-                    }}
-                >
-                    {title}
-                </div>
-                {data.map((d) => (
-                    <div key={d.label} style={{ marginBottom: 12 }}>
-                        <div
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                marginBottom: 4,
-                            }}
-                        >
-                            <span style={{ color: COLORS.textDim, fontSize: 12 }}>{d.label}</span>
-                            <span style={{ color: d.color, fontWeight: 700, fontSize: 13 }}>
-                                {unit ? d.count.toLocaleString("ar-SA") : d.count}{unit}
-                            </span>
-                        </div>
-                        <div style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 4, height: 8 }}>
-                            <div
-                                style={{
-                                    background: d.color,
-                                    height: "100%",
-                                    borderRadius: 4,
-                                    width: `${(d.count / max) * 100}%`,
-                                    transition: "width 0.5s",
-                                }}
-                            />
-                        </div>
-                    </div>
-                ))}
-            </div>
-        );
-    };
-
-    // ===== خط بياني مصغّر لاتجاه الشراء الشهري =====
-    const MiniTrend = ({ data, color, height = 40 }) => {
-        if (!data || data.length === 0) return null;
-        const values = data.map((d) => d.amount);
-        const max = Math.max(...values, 1);
-        const min = Math.min(...values, 0);
-        const range = max - min || 1;
-        const w = 100;
-        const toX = (i) => (values.length > 1 ? (i / (values.length - 1)) * w : w / 2);
-        const toY = (v) => height - ((v - min) / range) * (height - 8) - 4;
-        const points = values.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
-        return (
-            <div>
-                <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block" }}>
-                    <polyline points={points} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-                    {values.map((v, i) => (
-                        <circle key={i} cx={toX(i)} cy={toY(v)} r={1.8} fill={color} />
-                    ))}
-                </svg>
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                    {data.map((d, i) => (
-                        <span key={i} style={{ fontSize: 9, color: COLORS.textDim }}>{d.label}</span>
-                    ))}
-                </div>
-            </div>
-        );
-    };
-
     // ===== كارت العميل =====
     const [loyaltyMapC, setLoyaltyMapC] = useState<Record<string, number>>({});
 
+    // نقاط الولاء: الكاش المحلي (loyalty_points_cache) الأول عشان يظهر فوراً وأوفلاين،
+    // وبعدها لو فيه نت بنجيب الرصيد الأحدث من Supabase ونحدّث الكاش والشاشة.
+    const loyaltyRefreshedRef = useRef<Set<string>>(new Set());
+
     const loadLoyaltyC = async (customerId: string) => {
-        if (loyaltyMapC[customerId] !== undefined) return;
-        const { data } = await supabase
-            .from("loyalty_points")
-            .select("points")
-            .eq("customer_id", customerId)
-            .eq("pharmacy_id", pharmacyId)
-            .single();
-        setLoyaltyMapC((p) => ({ ...p, [customerId]: data?.points ?? 0 }));
+        // 1) من الكاش المحلي (شغال أوفلاين)
+        if (loyaltyMapC[customerId] === undefined) {
+            try {
+                const cachedMap = await getLoyaltyPointsMap(pharmacyId);
+                const cached = cachedMap?.[customerId];
+                if (cached) {
+                    setLoyaltyMapC((p) => ({ ...p, [customerId]: cached.points ?? 0 }));
+                }
+            } catch (err) {
+                console.warn("getLoyaltyPointsMap failed:", err);
+            }
+        }
+
+        // 2) تحديث من السيرفر لو أونلاين (مرة واحدة لكل عميل في الجلسة)
+        if (!navigator.onLine || loyaltyRefreshedRef.current.has(customerId)) return;
+        try {
+            const { data, error } = await supabase
+                .from("loyalty_points")
+                .select("*")
+                .eq("customer_id", customerId)
+                .eq("pharmacy_id", pharmacyId)
+                .maybeSingle();
+            if (error) return; // منخزنش 0 عند الفشل
+            loyaltyRefreshedRef.current.add(customerId);
+            setLoyaltyMapC((p) => ({ ...p, [customerId]: data?.points ?? 0 }));
+            if (data) {
+                try {
+                    await window.offlineAPI.upsertLoyaltyPointsCache({ pharmacyId, rows: [data] });
+                } catch (err) {
+                    console.error("upsertLoyaltyPointsCache failed:", err);
+                }
+            }
+        } catch (err) {
+            console.warn("loadLoyaltyC refresh failed (probably offline):", err);
+        }
     };
 
-    const CustomerCard = ({ c }) => {
-        const s = c.stats;
-        const vip = s ? vipConfig[s.vipLevel] : null;
-        const isExpanded = expandedCard === c.id;
-        const loyalty = loyaltyMapC[c.id];
+    const handleToggleCard = (c) => {
+        if (expandedCard !== c.id) { loadLoyaltyC(c.id); setExpandedCard(c.id); }
+        else setExpandedCard(null);
+    };
 
-        const debt = sales
-            .filter((x) => x.customer === c.id && x.payment === "آجل")
-            .reduce((sum, x) => sum + (x.total || 0), 0);
-
-        const handleExpand = () => {
-            if (!isExpanded) { loadLoyaltyC(c.id); setExpandedCard(c.id); }
-            else setExpandedCard(null);
-        };
-
-        return (
-            <div style={{
-                background: COLORS.surface,
-                backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-                border: `1px solid ${isExpanded ? (vip ? vip.color + "55" : COLORS.blue) : (vip ? vip.color + "33" : COLORS.border)}`,
-                borderRadius: 12,
-                overflow: "hidden",
-                transition: "border-color 0.2s",
-            }}>
-                {/* رأس الكارت — قابل للضغط */}
-                <div onClick={handleExpand} style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "10px 14px", cursor: "pointer", gap: 8,
-                }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                        <div style={{
-                            width: 34, height: 34, borderRadius: 8, background: "#1a2a5a",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 16, flexShrink: 0,
-                        }}>
-                            {c.category === "individual" ? "👤" : c.category === "family_no_kids" ? "👫" : "👨‍👩‍👧"}
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {c.name}
-                            </div>
-                            <div style={{ color: COLORS.textDim, fontSize: 10, fontWeight: 600 }}>{c.phone}</div>
-                        </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                        {vip && <span style={{ background: vip.bg, color: vip.color, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>{vip.label}</span>}
-                        {s?.trendDirection && s.activeMonthsCount >= 2 && (
-                            <span title={trendConfig[s.trendDirection].label} style={{ background: trendConfig[s.trendDirection].bg, color: trendConfig[s.trendDirection].color, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>
-                                {trendConfig[s.trendDirection].icon}
-                            </span>
-                        )}
-                        {debt > 0 && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>💳 {debt.toFixed(0)} ر.س</span>}
-                        {s?.isOverdue && <span style={{ background: COLORS.redSoft, color: COLORS.red, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>⏰ متأخر {s.daysOverdue} يوم</span>}
-                        {c.missedKidsCosmetics && <span style={{ background: COLORS.goldSoft, color: COLORS.gold, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700 }}>🎁 فرصة عرض</span>}
-                        <span style={{ color: COLORS.textDim, fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
-                    </div>
-                </div>
-
-                {/* التفاصيل */}
-                {isExpanded && (
-                    <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${COLORS.border}` }}>
-                        {/* إحصائيات */}
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5, marginTop: 10, marginBottom: 8 }}>
-                            {[
-                                { label: "إجمالي الزيارات", value: s?.totalVisits || 0, color: COLORS.blue },
-                                { label: "زيارات الشهر", value: s?.monthlyVisits || 0, color: COLORS.green },
-                                { label: "متوسط الفاتورة", value: s ? s.avgInvoice.toFixed(0) + " ر.س" : "-", color: COLORS.purple },
-                                { label: "إجمالي المشتريات", value: s ? s.totalSpent.toFixed(0) + " ر.س" : "-", color: COLORS.gold },
-                                { label: "مشتريات الشهر", value: s ? s.monthlySpent.toFixed(0) + " ر.س" : "-", color: COLORS.gold },
-                                { label: "آخر زيارة", value: s ? `${s.daysSinceLast} يوم` : "لم يزر", color: COLORS.textDim },
-                                { label: "نمط الشراء", value: s?.buyerType ? (s.buyerType === "شامل" ? "🌐 شامل" : s.buyerType) : "-", color: s?.buyerType === "شامل" ? COLORS.green : COLORS.blue },
-                            ].map((item) => (
-                                <div key={item.label} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 7, padding: "6px 7px" }}>
-                                    <div style={{ color: COLORS.textDim, fontSize: 9, fontWeight: 600 }}>{item.label}</div>
-                                    <div style={{ color: item.color, fontWeight: 700, fontSize: 12, marginTop: 1 }}>{item.value}</div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* نقاط الولاء */}
-                        {loyalty !== undefined && loyalty > 0 && (
-                            <div style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 7, padding: "6px 10px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span style={{ color: COLORS.gold, fontSize: 12 }}>🌟 نقاط الولاء</span>
-                                <span style={{ color: COLORS.gold, fontWeight: 800, fontSize: 13 }}>{loyalty.toFixed(2)} ر.س</span>
-                            </div>
-                        )}
-
-                        {/* شريط RFM */}
-                        {s && (
-                            <div style={{ marginBottom: 8 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                                    <span style={{ color: COLORS.textDim, fontSize: 10 }}>نقاط RFM</span>
-                                    <span style={{ color: vip?.color, fontSize: 10, fontWeight: 700 }}>{s.rfmScore}/100</span>
-                                </div>
-                                <div style={{ background: COLORS.surfaceAlt, borderRadius: 4, height: 4 }}>
-                                    <div style={{ background: vip?.color || COLORS.textDim, height: "100%", borderRadius: 4, width: `${s.rfmScore}%`, transition: "width 0.5s" }} />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* اتجاه الشراء الشهري */}
-                        {s?.monthlyTrend && (
-                            <div style={{ background: COLORS.surfaceAlt, borderRadius: 7, padding: "8px 10px", marginBottom: 8 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                    <span style={{ color: COLORS.textDim, fontSize: 10 }}>اتجاه الشراء (آخر 6 شهور)</span>
-                                    <span style={{ color: trendConfig[s.trendDirection].color, fontSize: 10, fontWeight: 700 }}>
-                                        {trendConfig[s.trendDirection].label}
-                                    </span>
-                                </div>
-                                <MiniTrend data={s.monthlyTrend} color={trendConfig[s.trendDirection].color} />
-                            </div>
-                        )}
-
-                        {/* آخر مشتريات */}
-                        {s?.lastItems?.length > 0 && (
-                            <div style={{ marginBottom: 8 }}>
-                                <div style={{ color: COLORS.textDim, fontSize: 10, marginBottom: 4 }}>آخر مشتريات ({s.lastItems.length} صنف):</div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                                    {s.lastItems.map((item, i) => (
-                                        <span key={i} style={{ background: COLORS.blueSoft, color: COLORS.blue, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 600 }}>
-                                            {item.name} × {item.qty}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* أزرار */}
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-                            <button onClick={() => openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 نتمنى أن تكونوا بخير`)}
-                                style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.green, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                                📱 واتساب
-                            </button>
-                            {c.missedKidsCosmetics && (
-                                <button onClick={() => openWhatsApp(c.phone, `مرحباً ${c.name}! 😊 عندنا عروض على مستلزمات الأطفال والعناية بالبشرة، تحب نبعتلك التفاصيل؟`)}
-                                    style={{ background: COLORS.goldSoft, border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                                    🎁 ابعت عرض
-                                </button>
-                            )}
-                            {canEdit && (
-                                <button onClick={() => openEdit(c)}
-                                    style={{ background: COLORS.blueSoft, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "5px 10px", color: COLORS.blue, fontSize: 11, cursor: "pointer" }}>
-                                    ✏️ تعديل
-                                </button>
-                            )}
-                            {canDelete && (
-                                <button onClick={async () => {
-                                    if (debt > 0) {
-                                        if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف عميل عليه مديونية", "error"); return; }
-                                        if (!window.confirm(`⚠️ على ${c.name} مديونية ${debt.toFixed(2)} ر.س
+    const handleDeleteCustomer = async (c) => {
+        const debt = c.stats?.debtRemaining || 0;
+        if (debt > 0) {
+            if (currentUser?.role !== "admin") { showToast("❌ لا يمكن حذف عميل عليه مديونية", "error"); return; }
+            if (!window.confirm(`⚠️ على ${c.name} مديونية ${debt.toFixed(2)} ر.س
 هل أنت متأكد من الحذف؟`)) return;
-                                    }
-                                    // 🆕 حذف أوفلاين-أول: مسح من الكاش المحلي فورًا + queueEvent بدل نداء مباشر
-                                    try {
-                                        await window.offlineAPI.deleteCustomerCache(c.id);
-                                    } catch (err) {
-                                        console.error("deleteCustomerCache failed:", err);
-                                    }
-                                    setCustomers((p) => p.filter((x) => x.id !== c.id));
-                                    await queueEvent({
-                                        id: crypto.randomUUID(),
-                                        type: "CUSTOMER_DELETE",
-                                        pharmacy_id: pharmacyId, // 🆕 على مستوى الـ event نفسه
-                                        timestamp: new Date().toISOString(),
-                                        payload: { id: c.id, pharmacy_id: pharmacyId },
-                                    });
-                                    logAudit({
-                                        pharmacyId, userName: currentUser?.name, action: "delete", entityType: "customer",
-                                        entityId: c.id, entityLabel: c.name,
-                                        oldValue: { name: c.name, debt },
-                                        description: `حذف العميل "${c.name}"${debt > 0 ? ` (وعليه مديونية ${debt.toFixed(2)} ر.س)` : ""}`,
-                                    });
-                                    showToast("تم حذف العميل");
-                                }}
-                                    style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.red, fontSize: 11, cursor: "pointer" }}>
-                                    🗑️ حذف
-                                </button>
-                            )}
-                            {debt > 0 && (
-                                <button onClick={() => openCreditModal && openCreditModal(c)}
-                                    style={{ background: "#2a1a00", border: `1px solid ${tint(COLORS.gold, 0.35)}`, borderRadius: 7, padding: "5px 10px", color: COLORS.gold, fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                                    💳 سداد آجل
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
+        }
+        // 🗑️ حذف ناعم (soft delete): بنعلّم العميل deleted_at بدل ما نمسحه،
+        // عشان فواتير الآجل والسجلات المرتبطة بيه تفضل سليمة ويمكن استرجاعه.
+        // مهم: لازم أي تحميل للعملاء (من Supabase ومن الكاش المحلي) يستبعد deleted_at.
+        const deletedAt = new Date().toISOString();
+        try {
+            await window.offlineAPI.deleteCustomerCache(c.id); // يختفي محلياً فوراً
+        } catch (err) {
+            console.error("deleteCustomerCache failed:", err);
+        }
+        setCustomers((p) => p.filter((x) => x.id !== c.id));
+        await queueEvent({
+            id: crypto.randomUUID(),
+            type: "CUSTOMER_UPDATE",
+            pharmacy_id: pharmacyId,
+            timestamp: deletedAt,
+            payload: {
+                id: c.id,
+                updates: { deleted_at: deletedAt, deleted_by: currentUser?.name || "" },
+                pharmacy_id: pharmacyId,
+            },
+        });
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "delete", entityType: "customer",
+            entityId: c.id, entityLabel: c.name,
+            oldValue: { name: c.name, debt },
+            description: `حذف (ناعم) العميل "${c.name}"${debt > 0 ? ` (وعليه مديونية ${debt.toFixed(2)} ر.س)` : ""}`,
+        });
+        showToast("تم حذف العميل");
+    };
+
+    // ===== 🗑️ المحذوفين: تحميل + استرجاع =====
+    const loadDeletedCustomers = async () => {
+        if (!navigator.onLine) {
+            setDeletedError("لازم يكون فيه اتصال بالإنترنت لعرض العملاء المحذوفين");
+            return;
+        }
+        setDeletedLoading(true);
+        setDeletedError("");
+        try {
+            const { data, error } = await supabase
+                .from("customers")
+                .select("*")
+                .eq("pharmacy_id", pharmacyId)
+                .not("deleted_at", "is", null)
+                .order("deleted_at", { ascending: false });
+            if (error) throw error;
+            setDeletedCustomers(data ?? []);
+        } catch (err: any) {
+            console.error("loadDeletedCustomers failed:", err);
+            setDeletedError("تعذر تحميل العملاء المحذوفين: " + (err?.message || err));
+        } finally {
+            setDeletedLoading(false);
+        }
+    };
+
+    const handleRestoreCustomer = async (c) => {
+        if (!window.confirm(`استرجاع العميل "${c.name}"؟`)) return;
+        const { deleted_at, deleted_by, ...restored } = c; // نشيل أعمدة الحذف من النسخة المحلية
+        try {
+            await window.offlineAPI.upsertCustomerCache(restored);
+        } catch (err) {
+            console.error("upsertCustomerCache (restore) failed:", err);
+        }
+        setCustomers((p) => (p.some((x) => x.id === c.id) ? p : [...p, restored]));
+        setDeletedCustomers((p) => p.filter((x) => x.id !== c.id));
+        await queueEvent({
+            id: crypto.randomUUID(),
+            type: "CUSTOMER_UPDATE",
+            pharmacy_id: pharmacyId,
+            timestamp: new Date().toISOString(),
+            payload: {
+                id: c.id,
+                updates: { deleted_at: null, deleted_by: null },
+                pharmacy_id: pharmacyId,
+            },
+        });
+        logAudit({
+            pharmacyId, userName: currentUser?.name, action: "update", entityType: "customer",
+            entityId: c.id, entityLabel: c.name,
+            description: `استرجاع العميل "${c.name}" بعد الحذف`,
+        });
+        showToast("تم استرجاع العميل ✓");
     };
 
     // ===== حفظ / تعديل =====
@@ -1026,6 +871,14 @@ export function CustomersModule({
                 <button style={tabBtn("credit")} onClick={() => setActiveTab("credit")}>
                     💳 المديونيات
                 </button>
+                {canDelete && (
+                    <button
+                        style={tabBtn("deleted")}
+                        onClick={() => { setActiveTab("deleted"); loadDeletedCustomers(); }}
+                    >
+                        🗑️ المحذوفين {deletedCustomers.length > 0 && `(${deletedCustomers.length})`}
+                    </button>
+                )}
             </div>
 
             {/* ===== تبويب: كل العملاء ===== */}
@@ -1135,7 +988,18 @@ export function CustomersModule({
                         }}
                     >
                         {filtered.map((c) => (
-                            <CustomerCard key={c.id} c={c} />
+                            <CustomerCard
+                                key={c.id}
+                                c={c}
+                                isExpanded={expandedCard === c.id}
+                                loyalty={loyaltyMapC[c.id]}
+                                canEdit={canEdit}
+                                canDelete={canDelete}
+                                onToggle={handleToggleCard}
+                                onEdit={openEdit}
+                                onDelete={handleDeleteCustomer}
+                                onOpenCredit={openCreditModal}
+                            />
                         ))}
                     </div>
                 </>
@@ -1545,6 +1409,79 @@ export function CustomersModule({
             )}
             {activeTab === "credit" && (
                 <CreditTab customers={enriched} onPay={openCreditModal} sales={sales} creditPayments={creditPayments} />
+            )}
+
+            {/* ===== تبويب: المحذوفين ===== */}
+            {activeTab === "deleted" && canDelete && (
+                <div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                        <input
+                            value={deletedSearch}
+                            onChange={(e) => setDeletedSearch(e.target.value)}
+                            placeholder="🔍 بحث بالاسم أو الهاتف..."
+                            style={{
+                                flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 8,
+                                border: `1px solid ${COLORS.border}`, background: COLORS.surface,
+                                color: COLORS.textPrimary, fontSize: 13,
+                            }}
+                        />
+                        <button
+                            style={tabBtn("__refresh")}
+                            onClick={loadDeletedCustomers}
+                            disabled={deletedLoading}
+                        >
+                            {deletedLoading ? "جاري التحميل..." : "🔄 تحديث"}
+                        </button>
+                    </div>
+
+                    {deletedError && (
+                        <div style={{ color: COLORS.red, fontSize: 13, marginBottom: 12 }}>{deletedError}</div>
+                    )}
+
+                    {!deletedLoading && !deletedError && deletedCustomers.length === 0 && (
+                        <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim, fontSize: 14 }}>
+                            لا يوجد عملاء محذوفين
+                        </div>
+                    )}
+
+                    <div style={{ display: "grid", gap: 8 }}>
+                        {deletedCustomers
+                            .filter((c) => {
+                                const q = deletedSearch.trim().toLowerCase();
+                                return !q || (c.name || "").toLowerCase().includes(q) || (c.phone || "").includes(q);
+                            })
+                            .map((c) => (
+                                <div
+                                    key={c.id}
+                                    style={{
+                                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                                        gap: 12, padding: "10px 14px", borderRadius: 10,
+                                        background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+                                        boxShadow: SHADOW.card, flexWrap: "wrap",
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ fontWeight: 800, fontSize: 14, color: COLORS.textPrimary }}>{c.name}</div>
+                                        <div style={{ fontSize: 12, color: COLORS.textDim }}>{c.phone}</div>
+                                        <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>
+                                            🗑️ اتحذف في {new Date(c.deleted_at).toLocaleString("ar-EG")}
+                                            {c.deleted_by ? ` بواسطة ${c.deleted_by}` : ""}
+                                        </div>
+                                    </div>
+                                    <button
+                                        style={{
+                                            background: COLORS.blueSoft, border: `1px solid ${COLORS.blue}`,
+                                            borderRadius: 8, padding: "6px 14px", color: COLORS.blue,
+                                            cursor: "pointer", fontSize: 13, fontWeight: 800,
+                                        }}
+                                        onClick={() => handleRestoreCustomer(c)}
+                                    >
+                                        ♻️ استرجاع
+                                    </button>
+                                </div>
+                            ))}
+                    </div>
+                </div>
             )}
             <Modal
                 open={!!trendGroupView}

@@ -5,7 +5,6 @@ import {
     getLoyaltyPointsMap, getLoyaltyTransactions, insertTreasuryEntry,
 } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
-import { toLocaleString } from "../function toLocaleString() { [native code] }/undefined";
 import { todayLocal } from "../lib/dateUtils";
 import { Btn, Modal, Pagination } from "../ui/primitives";
 
