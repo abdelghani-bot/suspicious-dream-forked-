@@ -642,6 +642,18 @@ CREATE INDEX IF NOT EXISTS idx_attendance_gaps_cache_pharmacy ON attendance_gaps
     }
 })();
 
+// 🆕 Migration: pharmacist_user_id في كاش جدول الدوام واستراحات الصلاة (الانتقال من الاسم للـ id).
+// الأجهزة اللي عندها الجداول من قبل محتاجة ALTER لأن CREATE TABLE IF NOT EXISTS مبيضيفش أعمدة لوحده.
+(function migratePharmacistUserId() {
+    for (const table of ["work_schedules_cache", "prayer_breaks_cache"]) {
+        const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!cols.some((c) => c.name === "pharmacist_user_id")) {
+            db.exec(`ALTER TABLE ${table} ADD COLUMN pharmacist_user_id TEXT`);
+        }
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_work_schedules_cache_user ON work_schedules_cache(pharmacy_id, pharmacist_user_id)`);
+})();
+
 ipcMain.handle("app:getVersion", () => app.getVersion());
 
 // ==================== كاش المنتجات محلياً (products_cache) ====================
@@ -1910,7 +1922,8 @@ ipcMain.handle("offline:upsertAttendanceLogCache", (_event, log) => {
       ON CONFLICT(id) DO UPDATE SET
         check_out=excluded.check_out, total_hours=excluded.total_hours,
         total_deductions=excluded.total_deductions, net_hours=excluded.net_hours,
-        late_minutes=excluded.late_minutes, auto_closed=excluded.auto_closed, updated_at=excluded.updated_at
+        late_minutes=excluded.late_minutes, auto_closed=excluded.auto_closed, updated_at=excluded.updated_at,
+        pharmacist_user_id=COALESCE(excluded.pharmacist_user_id, attendance_logs_cache.pharmacist_user_id)
     `).run({
             id: log.id,
             pharmacy_id: log.pharmacy_id,
@@ -1954,10 +1967,10 @@ ipcMain.handle("offline:upsertPrayerBreakCache", (_event, brk) => {
     try {
         db.prepare(`
       INSERT INTO prayer_breaks_cache (
-        id, pharmacy_id, attendance_id, pharmacist_name, date, prayer_name, prayer_time,
+        id, pharmacy_id, attendance_id, pharmacist_name, pharmacist_user_id, date, prayer_name, prayer_time,
         return_time, allowed_minutes, actual_minutes, deducted_minutes, updated_at
       ) VALUES (
-        @id, @pharmacy_id, @attendance_id, @pharmacist_name, @date, @prayer_name, @prayer_time,
+        @id, @pharmacy_id, @attendance_id, @pharmacist_name, @pharmacist_user_id, @date, @prayer_name, @prayer_time,
         @return_time, @allowed_minutes, @actual_minutes, @deducted_minutes, @updated_at
       )
       ON CONFLICT(id) DO NOTHING
@@ -1966,6 +1979,7 @@ ipcMain.handle("offline:upsertPrayerBreakCache", (_event, brk) => {
             pharmacy_id: brk.pharmacy_id,
             attendance_id: brk.attendance_id,
             pharmacist_name: brk.pharmacist_name || null,
+            pharmacist_user_id: brk.pharmacist_user_id || null,
             date: brk.date || null,
             prayer_name: brk.prayer_name || null,
             prayer_time: brk.prayer_time || null,
@@ -1999,19 +2013,21 @@ ipcMain.handle("offline:upsertWorkScheduleCache", (_event, row) => {
     try {
         db.prepare(`
       INSERT INTO work_schedules_cache (
-        id, pharmacy_id, pharmacist_name, day_of_week, shift_number, shift_start, shift_end,
+        id, pharmacy_id, pharmacist_name, pharmacist_user_id, day_of_week, shift_number, shift_start, shift_end,
         is_off, overtime_minutes, grace_minutes, is_ramadan, updated_at
       ) VALUES (
-        @id, @pharmacy_id, @pharmacist_name, @day_of_week, @shift_number, @shift_start, @shift_end,
+        @id, @pharmacy_id, @pharmacist_name, @pharmacist_user_id, @day_of_week, @shift_number, @shift_start, @shift_end,
         @is_off, @overtime_minutes, @grace_minutes, @is_ramadan, @updated_at
       )
       ON CONFLICT(id) DO UPDATE SET
         shift_start=excluded.shift_start, shift_end=excluded.shift_end, is_off=excluded.is_off,
-        overtime_minutes=excluded.overtime_minutes, grace_minutes=excluded.grace_minutes, updated_at=excluded.updated_at
+        overtime_minutes=excluded.overtime_minutes, grace_minutes=excluded.grace_minutes, updated_at=excluded.updated_at,
+        pharmacist_user_id=COALESCE(excluded.pharmacist_user_id, work_schedules_cache.pharmacist_user_id)
     `).run({
             id: row.id,
             pharmacy_id: row.pharmacy_id,
             pharmacist_name: row.pharmacist_name,
+            pharmacist_user_id: row.pharmacist_user_id || null,
             day_of_week: row.day_of_week,
             shift_number: row.shift_number,
             shift_start: row.shift_start || null,
@@ -2030,13 +2046,20 @@ ipcMain.handle("offline:upsertWorkScheduleCache", (_event, row) => {
 
 // 🆕 بيتنادى بعد إعادة كتابة جدول أسبوع صيدلي معين — بيمسح كل الصفوف القديمة بتاعته
 // (بنفس pharmacist_name + is_ramadan) ما عدا الصفوف الجديدة اللي لسه اتكتبت (excludeIds)
-ipcMain.handle("offline:deleteWorkSchedulesCacheByPharmacist", (_event, { pharmacyId, pharmacistName, isRamadan, excludeIds }) => {
+ipcMain.handle("offline:deleteWorkSchedulesCacheByPharmacist", (_event, { pharmacyId, pharmacistName, pharmacistUserId, isRamadan, excludeIds }) => {
     try {
-        const placeholders = (excludeIds || []).map(() => "?").join(",") || "''";
+        const ids = excludeIds || [];
+        const placeholders = ids.map(() => "?").join(",") || "''";
+        // 🆕 لو عندنا pharmacist_user_id بنطابق بيه، وكمان الصفوف القديمة اللي لسه من غير id بالاسم
+        // (عشان إعادة كتابة الجدول ماتسيبش صفوف يتيمة قديمة). من غير id بنرجع للمطابقة بالاسم زي الأول.
+        const who = pharmacistUserId
+            ? "(pharmacist_user_id = ? OR (pharmacist_user_id IS NULL AND pharmacist_name = ?))"
+            : "pharmacist_name = ?";
+        const whoParams = pharmacistUserId ? [pharmacistUserId, pharmacistName] : [pharmacistName];
         db.prepare(`
       DELETE FROM work_schedules_cache
-      WHERE pharmacy_id = ? AND pharmacist_name = ? AND is_ramadan = ? AND id NOT IN (${placeholders})
-    `).run(pharmacyId, pharmacistName, isRamadan ? 1 : 0, ...(excludeIds || []));
+      WHERE pharmacy_id = ? AND ${who} AND is_ramadan = ? AND id NOT IN (${placeholders})
+    `).run(pharmacyId, ...whoParams, isRamadan ? 1 : 0, ...ids);
         return { success: true };
     } catch (err) {
         return { success: false, error: String(err) };

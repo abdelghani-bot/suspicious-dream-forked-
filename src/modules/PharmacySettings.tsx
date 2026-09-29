@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabaseClient";
 import { queueEvent } from "../lib/offlineAPI";
 import { COLORS } from "../theme";
 import { Btn } from "../ui/primitives";
+import { setRamadanRanges } from "../lib/dateUtils"; // 🆕 فترات رمضان من إعدادات الصيدلية
 import { SUPPLY_CATEGORIES } from "../lib/productConstants"; // 🆕 قايمة فئات التوريد الثابتة (أدق من الفئة الرئيسية)
 
 // 🆕 نص سياسة الاسترجاع الافتراضي (عربي/إنجليزي) — يُستخدم أول مرة بس، وبعدين
@@ -61,6 +62,7 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             if (raw) {
                 cachedSettings = JSON.parse(raw);
                 setSettings(cachedSettings);
+                setRamadanRanges(cachedSettings?.ramadanRanges); // 🆕
             }
         } catch (err) {
             console.error("failed to read cached pharmacy_settings:", err);
@@ -105,8 +107,11 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         // 🆕 نسب الخصم الافتراضية لكل فئة توريد (تُستخدم لحساب تكلفة الرصيد الافتتاحي
                         // في شاشة الجرد تلقائيًا لما معندناش تكلفة قديمة من البرنامج السابق)
                         categoryCostDiscounts: data.category_cost_discounts || {},
+                        // 🆕 فترات رمضان [{start:"YYYY-MM-DD", end:"YYYY-MM-DD"}] — بتفعّل جدول رمضان تلقائيًا
+                        ramadanRanges: Array.isArray(data.ramadan_ranges) ? data.ramadan_ranges : [],
                     };
                     setSettings(fresh);
+                    setRamadanRanges(fresh.ramadanRanges); // 🆕
                     // 🆕 نحدّث الكاش المحلي بأحدث نسخة من السيرفر كل ما التحميل ينجح،
                     // عشان يفضل مطابق للحقيقي وقت الاستخدام أوفلاين لاحقًا.
                     try {
@@ -169,6 +174,16 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             Object.entries(settings.categoryCostDiscounts || {}).filter(([, v]) => v !== "" && v != null)
         );
 
+        // 🆕 فترات رمضان: نشيل الصفوف الفاضية تمامًا، ونرفض الحفظ لو صف ناقص أو البداية بعد النهاية
+        const rawRanges = settings.ramadanRanges || [];
+        const cleanedRamadanRanges = rawRanges
+            .filter((r) => r.start || r.end)
+            .map((r) => ({ start: r.start || "", end: r.end || "" }));
+        if (cleanedRamadanRanges.some((r) => !r.start || !r.end || r.start > r.end)) {
+            showToast("فترات رمضان: لازم تحدد تاريخ البداية والنهاية، والبداية قبل النهاية", "error");
+            return;
+        }
+
         const updates = {
             name_ar: settings.nameAr,
             name_en: settings.nameEn,
@@ -191,11 +206,13 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             dose_label_printer_name: settings.doseLabelPrinterName || null,
             // 🆕
             category_cost_discounts: cleanedCategoryDiscounts,
+            ramadan_ranges: cleanedRamadanRanges, // 🆕
         };
 
+        setRamadanRanges(cleanedRamadanRanges); // 🆕 يسري فورًا على الجهاز ده
         // نحدّث الكاش المحلي فورًا (نفس شكل الفورم عشان أي قراءة تالية أوفلاين تلاقيه جاهز)
         try {
-            localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify(settings));
+            localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify({ ...settings, ramadanRanges: cleanedRamadanRanges }));
         } catch (err) {
             console.error("failed to cache pharmacy_settings on save:", err);
         }
@@ -531,6 +548,71 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                             ))}
                         </div>
                     )}
+                </div>
+
+                {/* 🆕 فترات رمضان — أثناءها بيتفعّل جدول الدوام الرمضاني تلقائيًا */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 8 }}>
+                        فترات رمضان (بداية ونهاية شاملين) — بتفعّل جدول الدوام الرمضاني
+                    </label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 520 }}>
+                        {(settings.ramadanRanges || []).map((r, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                {["start", "end"].map((k) => (
+                                    <input
+                                        key={k}
+                                        type="date"
+                                        value={r[k] || ""}
+                                        onChange={(e) =>
+                                            setSettings((p) => ({
+                                                ...p,
+                                                ramadanRanges: (p.ramadanRanges || []).map((x, j) =>
+                                                    j === i ? { ...x, [k]: e.target.value } : x
+                                                ),
+                                            }))
+                                        }
+                                        style={{
+                                            background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`,
+                                            borderRadius: 8, padding: "6px 10px", color: COLORS.textPrimary,
+                                            fontSize: 13, outline: "none",
+                                        }}
+                                    />
+                                ))}
+                                <button
+                                    onClick={() =>
+                                        setSettings((p) => ({
+                                            ...p,
+                                            ramadanRanges: (p.ramadanRanges || []).filter((_, j) => j !== i),
+                                        }))
+                                    }
+                                    style={{
+                                        padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                                        border: `1px solid ${COLORS.border}`, background: "transparent",
+                                        color: COLORS.red, fontSize: 12.5, fontWeight: 600,
+                                    }}
+                                >
+                                    حذف
+                                </button>
+                            </div>
+                        ))}
+                        <div>
+                            <button
+                                onClick={() =>
+                                    setSettings((p) => ({
+                                        ...p,
+                                        ramadanRanges: [...(p.ramadanRanges || []), { start: "", end: "" }],
+                                    }))
+                                }
+                                style={{
+                                    padding: "6px 14px", borderRadius: 8, cursor: "pointer",
+                                    border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt,
+                                    color: COLORS.textPrimary, fontSize: 13, fontWeight: 600,
+                                }}
+                            >
+                                + إضافة فترة
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 {/* ✅ هنا كانت المشكلة - </div> ناقصة لإغلاق الـ grid */}

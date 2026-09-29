@@ -1,7 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { buildZatcaChainForInvoice } from "./zatca";
 import { authService } from "../services/authService"; // 🆕 عدّل المسار حسب مكان الملف الفعلي عندك
-import { calcCappedHours } from "./dateUtils";
+import { calcCappedHours, isRamadan, setRamadanRanges } from "./dateUtils";
 import { getDeviceId } from "./deviceID";
 
 export type QueuedEvent = {
@@ -182,29 +182,46 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             break;
         }
         case "ATTENDANCE_CHECKIN": {
-            // نفس شرط "مفيش سجل مفتوح" لكن بيتحقق وقت الـ sync (أونلاين فعلاً) مش وقت الفتح أوفلاين
-            const existing = await supabase.from("attendance_logs").select("id")
+            const rec = event.payload.record;
+            // 🆕 idempotent: لو السجل نفسه (بنفس الـ id) اتحفظ قبل كده (sync اتكرر) نتجاهله
+            if (rec?.id) {
+                const { data: same } = await supabase.from("attendance_logs").select("id").eq("id", rec.id).maybeSingle();
+                if (same) break;
+            }
+            // نفس شرط "مفيش سجل مفتوح" لكن بيتحقق وقت الـ sync (أونلاين فعلاً) — بالـ id لو متاح، وإلا بالاسم
+            const userId = event.payload.pharmacist_user_id || rec?.pharmacist_user_id || null;
+            let q = supabase.from("attendance_logs").select("id")
                 .eq("pharmacy_id", event.payload.pharmacy_id)
-                .eq("pharmacist_name", event.payload.pharmacist_name)
-                .eq("date", event.payload.date).is("check_out", null).maybeSingle();
+                .eq("date", event.payload.date).is("check_out", null);
+            q = userId ? q.eq("pharmacist_user_id", userId) : q.eq("pharmacist_name", event.payload.pharmacist_name);
+            const existing = await q.maybeSingle();
             if (!existing.data) {
-                const { error } = await supabase.from("attendance_logs").insert(event.payload.record);
+                const { error } = await supabase.from("attendance_logs").insert(rec);
                 if (error) throw error;
             }
             break;
         }
         case "ATTENDANCE_CHECKOUT": {
             // 🆕 حساب الساعات بيتأجل هنا (وقت النت الفعلي) بدل وقت إغلاق الشفت أوفلاين
-            const { pharmacy_id, pharmacist_name, date, check_out } = event.payload;
-            const { data: openLog } = await supabase.from("attendance_logs").select("*")
-                .eq("pharmacy_id", pharmacy_id).eq("pharmacist_name", pharmacist_name)
-                .eq("date", date).is("check_out", null).maybeSingle();
+            const { pharmacy_id, pharmacist_name, pharmacist_user_id, date, check_out } = event.payload;
+            let openQ = supabase.from("attendance_logs").select("*")
+                .eq("pharmacy_id", pharmacy_id).eq("date", date).is("check_out", null);
+            openQ = pharmacist_user_id ? openQ.eq("pharmacist_user_id", pharmacist_user_id) : openQ.eq("pharmacist_name", pharmacist_name);
+            const { data: openLog } = await openQ.maybeSingle();
             if (!openLog) break; // اتقفل فعلاً (مثلاً sync اتكرر)
 
-            const { data: schedRows } = await supabase.from("work_schedules").select("*")
+            // 🔧 بعد إضافة is_ramadan للقيد الفريد ممكن يبقى فيه صفين (عادي + رمضان) لنفس اليوم والشيفت،
+            // فـ maybeSingle() كان هيفشل. بنجيب الاتنين ونختار حسب تاريخ سجل الحضور (نفس منطق
+            // resolveExpectedShift: رمضان لو موجود وتاريخ السجل في رمضان، وإلا العادي).
+            const { data: schedList } = await supabase.from("work_schedules").select("*")
                 .eq("pharmacy_id", pharmacy_id).eq("pharmacist_name", pharmacist_name)
                 .eq("day_of_week", new Date(openLog.check_in).getDay())
-                .eq("shift_number", openLog.shift_number || 1).eq("is_off", false).maybeSingle();
+                .eq("shift_number", openLog.shift_number || 1).eq("is_off", false);
+            const wantRamadan = isRamadan(openLog.date || date);
+            const schedRows =
+                (wantRamadan ? (schedList || []).find((r: any) => !!r.is_ramadan) : null) ||
+                (schedList || []).find((r: any) => !r.is_ramadan) ||
+                null;
             const { data: breaks } = await supabase.from("prayer_breaks")
                 .select("deducted_minutes").eq("attendance_id", openLog.id);
 
@@ -247,10 +264,21 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
         // بنفس الفلتر (pharmacy_id + pharmacist_name + is_ramadan) ثم إدراج الصفوف الجديدة،
         // كلها جوه event واحد عشان لو النت اتقطع منتفضلش بحذف من غير إدراج.
         case "WORK_SCHEDULE_REPLACE_WEEK": {
-            const { pharmacy_id, pharmacist_name, is_ramadan, rows } = event.payload;
-            const { error: delError } = await supabase.from("work_schedules").delete()
-                .eq("pharmacy_id", pharmacy_id).eq("pharmacist_name", pharmacist_name).eq("is_ramadan", is_ramadan);
-            if (delError) throw delError;
+            const { pharmacy_id, pharmacist_name, pharmacist_user_id, is_ramadan, rows } = event.payload;
+            // 🆕 الحذف بالـ id لو متاح + أي صفوف قديمة من غير id بنفس الاسم؛ من غير id بنرجع للاسم زي الأول
+            if (pharmacist_user_id) {
+                const { error: delById } = await supabase.from("work_schedules").delete()
+                    .eq("pharmacy_id", pharmacy_id).eq("pharmacist_user_id", pharmacist_user_id).eq("is_ramadan", is_ramadan);
+                if (delById) throw delById;
+                const { error: delLegacy } = await supabase.from("work_schedules").delete()
+                    .eq("pharmacy_id", pharmacy_id).is("pharmacist_user_id", null)
+                    .eq("pharmacist_name", pharmacist_name).eq("is_ramadan", is_ramadan);
+                if (delLegacy) throw delLegacy;
+            } else {
+                const { error: delError } = await supabase.from("work_schedules").delete()
+                    .eq("pharmacy_id", pharmacy_id).eq("pharmacist_name", pharmacist_name).eq("is_ramadan", is_ramadan);
+                if (delError) throw delError;
+            }
             if (rows && rows.length > 0) {
                 const { error: insError } = await supabase.from("work_schedules").insert(rows);
                 if (insError) throw insError;
@@ -258,8 +286,16 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             break;
         }
         case "WORK_SCHEDULE_UPSERT": {
+            const row = event.payload.row;
+            const rows = Array.isArray(row) ? row : [row];
+            // 🔒 القيد الفريد بقى على (pharmacy_id, pharmacist_user_id, day_of_week, shift_number, is_ramadan).
+            // القيم NULL مش بتتعارض في الـ unique، فلو pharmacist_user_id أو is_ramadan ناقصين
+            // الـ upsert هيعمل صف مكرر بدل ما يحدّث الموجود — فبنرفض الـ event صراحةً.
+            if (rows.some((r: any) => !r?.pharmacist_user_id || typeof r?.is_ramadan !== "boolean")) {
+                throw new Error("WORK_SCHEDULE_UPSERT: pharmacist_user_id و is_ramadan (boolean) مطلوبين في كل صف");
+            }
             const { error } = await supabase.from("work_schedules")
-                .upsert(event.payload.row, { onConflict: "pharmacy_id,pharmacist_name,day_of_week,shift_number" });
+                .upsert(row, { onConflict: "pharmacy_id,pharmacist_user_id,day_of_week,shift_number,is_ramadan" });
             if (error) throw error;
             break;
         }
@@ -308,29 +344,19 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             if (error) throw error;
             break;
         }
-        // 🆕 مراجعة فجوة الحضور المشبوهة — لو اتـ"رفضت"، الخصم من late_minutes/net_hours
-        // بيتحسب هنا وقت المزامنة على بيانات attendance_logs الطازة (نفس فلسفة ATTENDANCE_CHECKOUT)
-        // بدل قيمة مطلقة محسوبة أوفلاين، عشان نتفادى overwrite لو حصل تعديل تاني على نفس السجل.
+        // 🆕 مراجعة فجوة الحضور المشبوهة — idempotent: الـ RPC بتقفل الفجوة وتخصم من attendance_logs
+        // في transaction واحدة، وبتنفّذ بس لو الفجوة لسه pending. لو الحدث اتكرر (retry / ضغطتين)
+        // بيرجع false ومفيش خصم تاني. الخصم بيتحسب على أحدث قيمة في الـ DB وقت المزامنة.
         case "GAP_REVIEW": {
-            const { gapId, approve, reviewedBy, reviewedAt, attendanceId, durationMinutes, pharmacyId } = event.payload;
-            const { error: gapErr } = await supabase.from("attendance_gaps").update({
-                review_status: approve ? "approved" : "rejected",
-                reviewed_at: reviewedAt, reviewed_by: reviewedBy,
-            }).eq("id", gapId);
-            if (gapErr) throw gapErr;
-
-            if (!approve && attendanceId) {
-                const { data: log } = await supabase.from("attendance_logs").select("*").eq("id", attendanceId).single();
-                if (log) {
-                    const currentLate = +log.late_minutes || 0;
-                    const currentNet = log.net_hours != null ? +log.net_hours : null;
-                    const { error: logErr } = await supabase.from("attendance_logs").update({
-                        late_minutes: currentLate + durationMinutes,
-                        net_hours: currentNet != null ? Math.max(0, currentNet - durationMinutes / 60) : null,
-                    }).eq("id", attendanceId).eq("pharmacy_id", pharmacyId);
-                    if (logErr) throw logErr;
-                }
-            }
+            const { gapId, approve, reviewedBy, reviewedAt, pharmacyId } = event.payload;
+            const { error } = await supabase.rpc("review_attendance_gap", {
+                p_gap_id: gapId,
+                p_pharmacy_id: pharmacyId ?? event.pharmacy_id,
+                p_approve: approve,
+                p_reviewed_by: reviewedBy,
+                p_reviewed_at: reviewedAt,
+            });
+            if (error) throw error;
             break;
         }
         case "GAP_THRESHOLD_UPDATE": {
@@ -346,7 +372,14 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
         // (sales_return, purchase_return, supplier_payment, shift_variance, daily_closing, manual_expense...)
         case "TREASURY_ENTRY_INSERT": {
             const { error } = await supabase.from("treasury_entries").insert(event.payload.entry);
-            if (error) throw error;
+            if (error) {
+                // 🆕 قيد تقفيل مكرر لنفس اليوم (unique index) — نميّزه برسالة واضحة
+                // بدل ما يتعامل معاه كفشل عادي ويتكرر في syncQueue من غير فايدة
+                if (error.code === "23505" && event.payload.entry?.sub_type === "daily_closing") {
+                    throw new Error("DUPLICATE_DAILY_CLOSING");
+                }
+                throw error;
+            }
             break;
         }
 
@@ -1193,10 +1226,12 @@ export async function getPharmacySettings(pharmacyId: string) {
         if (data && window.offlineAPI) {
             await window.offlineAPI.upsertPharmacySettingsCache({ pharmacyId, settings: data });
         }
+        setRamadanRanges(data?.ramadan_ranges); // 🆕 فترات رمضان من الإعدادات
         return { data, fromCache: false };
     } catch (err) {
         if (window.offlineAPI) {
             const cached = await window.offlineAPI.getPharmacySettingsCache(pharmacyId);
+            setRamadanRanges(cached?.ramadan_ranges); // 🆕 نفس الحاجة أوفلاين
             return { data: cached, fromCache: true };
         }
         return { data: null, fromCache: false };
@@ -1756,7 +1791,7 @@ export async function insertTreasuryEntry(entry: {
     pharmacy_id: string;
     created_by: string;
     ref_id?: string;
-}): Promise<{ id: string; synced: boolean }> {
+}): Promise<{ id: string; synced: boolean; error?: string }> {
     const id = crypto.randomUUID();
     const fullEntry = { id, ...entry };
 
@@ -1774,7 +1809,9 @@ export async function insertTreasuryEntry(entry: {
         payload: { entry: fullEntry },
     });
 
-    return { id, synced: result.synced };
+    // 🆕 بنرجّع الـ error كمان (مش بس synced) عشان الكود اللي بينادي يقدر يميّز
+    // حالات زي DUPLICATE_DAILY_CLOSING ويعرض رسالة مناسبة بدل رسالة نجاح عامة
+    return { id, synced: result.synced, error: result.error };
 }
 
 // 🆕 نسخة مجمّعة من insertTreasuryEntry — لحالات تقفيل اليوم/التقفيل بأثر رجعي اللي
@@ -1791,7 +1828,7 @@ export async function insertTreasuryEntries(entries: Array<{
     pharmacy_id: string;
     created_by: string;
     ref_id?: string;
-}>): Promise<Array<{ id: string; synced: boolean }>> {
+}>): Promise<Array<{ id: string; synced: boolean; error?: string }>> {
     const results = [];
     for (const entry of entries) {
         // insertTreasuryEntry بتعمل type "income" | "expense" بس — القيود من نوع "closing"
@@ -1810,7 +1847,7 @@ export async function insertTreasuryEntries(entries: Array<{
             pharmacy_id: entry.pharmacy_id, // 🆕 ناقص كان — لازم على مستوى الـ
             payload: { entry: fullEntry },
         });
-        results.push({ id, synced: result.synced });
+        results.push({ id, synced: result.synced, error: result.error });
     }
     return results;
 }

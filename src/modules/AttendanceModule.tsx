@@ -2,14 +2,14 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { queueEvent } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
-import { DAY_NAMES, calcCappedHours, diffMin, findHolidayForDate, fmt, fmtHours, getRotationPharmacistForDate, isRamadan, todayLocal } from "../lib/dateUtils";
+import { DAY_NAMES, calcCappedHours, diffMin, findHolidayForDate, fmt, fmtHours, findUserIdByName, getRotationTurnIndex, isRamadan, isSamePharmacist, resolveExpectedShift, rotationDisplayNames, todayLocal } from "../lib/dateUtils";
 import { SAUDI_CITIES, fetchPrayerTimes } from "../lib/prayerTimes";
 import { SYSTEM_SECTIONS } from "./PermissionsModule";
 
 // ══════════════════════════════════════════════════════
 // Component منفصل — ضعه خارج AttendanceModule
 // ══════════════════════════════════════════════════════
-export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, onSaved, globalToast, readOnly = false }: any) {
+export function WorkScheduleTab({ pharmacists, users = [], workSchedules, pharmacyId, todayDow, C, onSaved, globalToast, readOnly = false }: any) {
     const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
     const [selectedPharmacist, setSelectedPharmacist] = useState("");
@@ -32,7 +32,8 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
     // لما يختار صيدلي، يحمّل جدوله الموجود
     useEffect(() => {
         if (!selectedPharmacist) { setWeekForm(emptyWeek()); return; }
-        const pharmSchedules = workSchedules.filter((s: any) => s.pharmacist_name === selectedPharmacist && !!s.is_ramadan === (mode === "ramadan"));
+        const selectedId = findUserIdByName(users, selectedPharmacist);
+        const pharmSchedules = workSchedules.filter((s: any) => isSamePharmacist(s, selectedPharmacist, selectedId) && !!s.is_ramadan === (mode === "ramadan"));
         if (pharmSchedules.length === 0) { setWeekForm(emptyWeek()); return; }
 
         const newWeek = emptyWeek().map((day) => {
@@ -73,6 +74,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
         setSaving(true);
 
         const isRamadanMode = mode === "ramadan";
+        const selectedId = findUserIdByName(users, selectedPharmacist);
 
         // بناء الصفوف الجديدة
         const rows: any[] = [];
@@ -82,6 +84,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
                 rows.push({
                     pharmacy_id: pharmacyId,
                     pharmacist_name: selectedPharmacist,
+                    pharmacist_user_id: selectedId,
                     day_of_week: day.day_of_week,
                     shift_number: 1,
                     shift_start: null,
@@ -95,6 +98,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
                     rows.push({
                         pharmacy_id: pharmacyId,
                         pharmacist_name: selectedPharmacist,
+                        pharmacist_user_id: selectedId,
                         day_of_week: day.day_of_week,
                         shift_number: sh.shift_number,
                         shift_start: sh.shift_start,
@@ -117,7 +121,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
         try {
             for (const r of rowsWithIds) await window.offlineAPI.upsertWorkScheduleCache(r);
             await window.offlineAPI.deleteWorkSchedulesCacheByPharmacist({
-                pharmacyId, pharmacistName: selectedPharmacist, isRamadan: isRamadanMode, excludeIds: rowsWithIds.map((r) => r.id),
+                pharmacyId, pharmacistName: selectedPharmacist, pharmacistUserId: selectedId, isRamadan: isRamadanMode, excludeIds: rowsWithIds.map((r) => r.id),
             });
         } catch (err) {
             console.error("work schedule cache update failed:", err);
@@ -128,7 +132,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
             type: "WORK_SCHEDULE_REPLACE_WEEK",
             pharmacy_id: pharmacyId,
             timestamp: new Date().toISOString(),
-            payload: { pharmacy_id: pharmacyId, pharmacist_name: selectedPharmacist, is_ramadan: isRamadanMode, rows: rowsWithIds },
+            payload: { pharmacy_id: pharmacyId, pharmacist_name: selectedPharmacist, pharmacist_user_id: selectedId, is_ramadan: isRamadanMode, rows: rowsWithIds },
         });
 
         setSaving(false);
@@ -334,8 +338,9 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
                 <div style={{ marginTop: 16 }}>
                     <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>📋 الجداول المحفوظة</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {[...new Set(workSchedules.map((s: any) => s.pharmacist_name))].map((name: any) => {
-                            const pharmSchedules = workSchedules.filter((s: any) => s.pharmacist_name === name && !s.is_off);
+                        {Array.from(new Map(workSchedules.map((s: any) => [s.pharmacist_user_id || `name:${s.pharmacist_name}`, s] as [string, any])).values()).map((first: any) => {
+                            const name = (first.pharmacist_user_id && users.find((u: any) => String(u.id) === String(first.pharmacist_user_id))?.name) || first.pharmacist_name;
+                            const pharmSchedules = workSchedules.filter((s: any) => (first.pharmacist_user_id ? s.pharmacist_user_id === first.pharmacist_user_id : (!s.pharmacist_user_id && s.pharmacist_name === first.pharmacist_name)) && !s.is_off);
                             const totalHours = pharmSchedules.reduce((sum: number, s: any) => {
                                 if (!s.shift_start || !s.shift_end) return sum;
                                 const [sh, sm] = s.shift_start.split(":").map(Number);
@@ -365,7 +370,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
 // ══════════════════════════════════════════════════════════════════════════════
 // 🆕 التبديل الدوري (زي تبديل الجمعة بين صيادلة) — نمط مرن: أي عدد أسابيع متتالية لكل صيدلي
 // ══════════════════════════════════════════════════════════════════════════════
-export function RotationTab({ pharmacists, rotationSchedules, pharmacyId, C, onSaved, globalToast, readOnly = false }: any) {
+export function RotationTab({ pharmacists, users = [], rotationSchedules, pharmacyId, C, onSaved, globalToast, readOnly = false }: any) {
     const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
     const emptyForm = () => ({
         group_name: "", day_of_week: 5, pharmacist_names: [] as string[],
@@ -387,7 +392,7 @@ export function RotationTab({ pharmacists, rotationSchedules, pharmacyId, C, onS
     const startEdit = (r: any) => {
         setEditingId(r.id);
         setForm({
-            group_name: r.group_name, day_of_week: r.day_of_week, pharmacist_names: [...(r.pharmacist_names || [])],
+            group_name: r.group_name, day_of_week: r.day_of_week, pharmacist_names: [...rotationDisplayNames(r, users)],
             cycle_length: r.cycle_length, start_date: r.start_date, shift_start: r.shift_start, shift_end: r.shift_end,
         });
     };
@@ -398,9 +403,13 @@ export function RotationTab({ pharmacists, rotationSchedules, pharmacyId, C, onS
         if (form.pharmacist_names.length < 2) { globalToast("اختر صيدليين اتنين على الأقل"); return; }
         setSaving(true);
         const id = editingId || crypto.randomUUID();
+        // 🆕 pharmacist_ids بنفس ترتيب الأسماء؛ لو أي اسم مالوش id واضح (مكرر/مجهول) بنسيبها null ونرجع للأسماء
+        const memberIds = form.pharmacist_names.map((n: string) => findUserIdByName(users, n));
         const row = {
             id, pharmacy_id: pharmacyId, group_name: form.group_name.trim(), day_of_week: +form.day_of_week,
-            pharmacist_names: form.pharmacist_names, cycle_length: +form.cycle_length || 1,
+            pharmacist_names: form.pharmacist_names,
+            pharmacist_ids: memberIds.every((x: string | null) => !!x) ? memberIds : null,
+            cycle_length: +form.cycle_length || 1,
             start_date: form.start_date, shift_start: form.shift_start, shift_end: form.shift_end, active: true,
         };
         // 🆕 أوفلاين-أول: كتابة فورية في الكاش المحلي + queueEvent بدل نداء مباشر
@@ -516,13 +525,14 @@ export function RotationTab({ pharmacists, rotationSchedules, pharmacyId, C, onS
             <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>📋 التبديلات المحفوظة</div>
             {rotationSchedules.length === 0 && <div style={{ color: C.muted, fontSize: 13, padding: 20, textAlign: "center" }}>لا يوجد تبديل دوري محفوظ</div>}
             {rotationSchedules.map((r: any) => {
-                const nextTurn = getRotationPharmacistForDate(r, todayLocal());
+                const turnIdx = getRotationTurnIndex(r, todayLocal());
+                const nextTurn = turnIdx >= 0 ? rotationDisplayNames(r, users)[turnIdx] : null;
                 return (
                     <div key={r.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <div>
                                 <div style={{ fontWeight: 700, color: C.text, fontSize: 13 }}>{r.group_name} — {DAY_NAMES[r.day_of_week]}</div>
-                                <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{(r.pharmacist_names || []).join(" ← ")} · كل {r.cycle_length} أسبوع · {r.shift_start}–{r.shift_end}</div>
+                                <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{rotationDisplayNames(r, users).join(" ← ")} · كل {r.cycle_length} أسبوع · {r.shift_start}–{r.shift_end}</div>
                                 {nextTurn && <div style={{ fontSize: 12, color: C.accent, marginTop: 4, fontWeight: 700 }}>👤 الدور على: {nextTurn} (النهاردة)</div>}
                             </div>
                             {!readOnly && (
@@ -832,7 +842,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
 
     function checkForGap() {
         if (!currentUser?.name) return;
-        const myOpenLog = todayLogs.find((l) => l.pharmacist_name === currentUser.name && !l.check_out);
+        const myOpenLog = todayLogs.find((l) => isSamePharmacist(l, currentUser.name, userIdOf(currentUser.name)) && !l.check_out);
         if (!myOpenLog) return; // مفيش حضور مفتوح للمستخدم الحالي، مفيش داعي نسأل
 
         const lastBeat = localStorage.getItem(HEARTBEAT_KEY);
@@ -870,12 +880,13 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     // 🆕 حفظ سبب الفجوة اللي اختاره الصيدلي + تحميل الفجوات اللي لسه محتاجة مراجعة المدير
     async function submitGapReason(reason: string) {
         if (!pendingGap || !currentUser?.name) return;
-        const myOpenLog = todayLogs.find((l) => l.pharmacist_name === currentUser.name && !l.check_out);
+        const myOpenLog = todayLogs.find((l) => isSamePharmacist(l, currentUser.name, userIdOf(currentUser.name)) && !l.check_out);
         const gapRow = {
             id: crypto.randomUUID(),
             pharmacy_id: pharmacyId,
             attendance_id: myOpenLog?.id || null,
             pharmacist_name: currentUser.name,
+            pharmacist_user_id: myOpenLog?.pharmacist_user_id || userIdOf(currentUser.name),
             gap_start: pendingGap.start,
             gap_end: pendingGap.end,
             duration_minutes: pendingGap.minutes,
@@ -981,8 +992,8 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         setLoading(true);
         await loadPharmacists();
         const schedulesData = await loadWorkSchedules();
-        await Promise.all([loadOfficialHolidays(), loadRotationSchedules()]);
-        await autoCloseOrphanLogs(schedulesData);
+        const [holidaysData, rotationData] = await Promise.all([loadOfficialHolidays(), loadRotationSchedules()]);
+        await autoCloseOrphanLogs({ workSchedules: schedulesData, rotationSchedules: rotationData, officialHolidays: holidaysData });
         await Promise.all([loadTodayLogs(), loadPrayerSettings(), loadPrayerBreaks()]);
         try {
             const { data: settingsData } = await supabase
@@ -1004,55 +1015,69 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     // 🆕 إغلاق تلقائي لسجلات الحضور "اليتيمة" — لما صيدلي ينسى يسجل انصراف ويفضل السجل مفتوح من يوم سابق.
     // بنقفله على وقت نهاية دوامه المجدول (+ الأوفرتايم المسموح)، مش وقت اكتشاف المشكلة،
     // نفس منطق calcCappedHours بالظبط، عشان الساعات تتحسب صح ومايفضلش معلّق للأبد.
-    async function autoCloseOrphanLogs(schedulesData: any[]) {
-        // 🆕 عملية صيانة تلقائية مش يدوية — لو أوفلاين بنأجلها بأمان لحد فتح البرنامج ومعاه نت،
-        // بدل ما نحاول نكتب على بيانات مش موجودة عندنا كاملة (كل orphans كل الصيدليات)
+    async function autoCloseOrphanLogs(ctx: { workSchedules: any[]; rotationSchedules: any[]; officialHolidays: any[] }) {
+        // 🆕 عملية صيانة تلقائية مش يدوية — لو أوفلاين بنأجلها بأمان لحد فتح البرنامج ومعاه نت
         if (!navigator.onLine) return;
-        const { data: orphans } = await supabase
+        const { data: orphans, error: orphanErr } = await supabase
             .from("attendance_logs")
             .select("*")
             .eq("pharmacy_id", pharmacyId)
             .is("check_out", null)
             .lt("date", today);
-        if (!orphans || orphans.length === 0) return;
+        if (orphanErr || !orphans || orphans.length === 0) return;
+
+        const nowMs = Date.now();
+        let closedCount = 0;
 
         for (const log of orphans) {
-            const dow = new Date(log.check_in).getDay();
-            const schedule = (schedulesData || []).find(
-                (s: any) => s.pharmacist_name === log.pharmacist_name && s.day_of_week === dow && s.shift_number === (log.shift_number || 1) && !s.is_off
-            );
+            // الشفت المتوقع بنفس ترتيب الأولوية (إجازة ← تبديل دوري ← رمضان ← عادي) حسب تاريخ السجل نفسه
+            const logDate = log.date || todayLocal(new Date(log.check_in));
+            const dow = new Date(logDate + "T12:00:00").getDay();
+            const schedule = resolveExpectedShift(ctx, log.pharmacist_name, dow, log.shift_number || 1, logDate, log.pharmacist_user_id);
 
-            let closeISO: string;
+            let closeDate: Date;
+            let reason: string;
             if (schedule?.shift_start && schedule?.shift_end) {
                 const [startH, startM] = schedule.shift_start.split(":").map(Number);
                 const [endH, endM] = schedule.shift_end.split(":").map(Number);
                 const scheduledEnd = new Date(log.check_in);
                 scheduledEnd.setHours(endH, endM, 0, 0);
                 if (endH * 60 + endM <= startH * 60 + startM) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
-                const overtimeAllowed = +schedule.overtime_minutes || 0;
-                closeISO = new Date(scheduledEnd.getTime() + overtimeAllowed * 60000).toISOString();
+                closeDate = new Date(scheduledEnd.getTime() + (+schedule.overtime_minutes || 0) * 60000);
+                reason = "shift_end_plus_overtime";
             } else {
-                // مفيش جدول مطابق أصلاً — نقفله على نهاية يوم الحضور، وهيتحسب صفر ساعات زي ما بيحصل مع أي حضور خارج الدوام
-                const endOfDay = new Date(log.check_in);
-                endOfDay.setHours(23, 59, 59, 0);
-                closeISO = endOfDay.toISOString();
+                // مفيش جدول مطابق أصلاً — نقفله على نهاية يوم الحضور، وهيتحسب صفر ساعات زي أي حضور خارج الدوام
+                closeDate = new Date(log.check_in);
+                closeDate.setHours(23, 59, 59, 0);
+                reason = "no_matching_schedule";
             }
+
+            // شفت ليلي لسه شغال — ما نقفلوش ولا نحط check_out في المستقبل
+            if (closeDate.getTime() > nowMs) continue;
+            if (closeDate < new Date(log.check_in)) closeDate = new Date(log.check_in);
+            const closeISO = closeDate.toISOString();
 
             const { totalHours } = calcCappedHours(log.check_in, closeISO, schedule);
             const { data: breaks } = await supabase.from("prayer_breaks").select("deducted_minutes").eq("attendance_id", log.id);
             const totalDeductions = (breaks || []).reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
             const netHours = Math.max(0, totalHours - totalDeductions);
 
-            await supabase.from("attendance_logs").update({
+            // .is("check_out", null) يمنع جهازين من قفل نفس السجل مرتين
+            const { data: updated, error: updErr } = await supabase.from("attendance_logs").update({
                 check_out: closeISO,
                 total_hours: +totalHours.toFixed(2),
                 total_deductions: +totalDeductions.toFixed(2),
                 net_hours: +netHours.toFixed(2),
                 auto_closed: true,
-            }).eq("id", log.id).eq("pharmacy_id", pharmacyId);
+                auto_closed_at: new Date().toISOString(),
+                auto_closed_reason: reason,
+            }).eq("id", log.id).eq("pharmacy_id", pharmacyId).is("check_out", null).select("id");
+
+            if (updErr) { console.error("autoCloseOrphanLogs update failed:", log.id, updErr); continue; }
+            if (updated && updated.length > 0) closedCount++;
         }
 
-        globalToast(`⚠️ تم إغلاق ${orphans.length} سجل حضور تلقائيًا (نسيان تسجيل انصراف)`, "warn");
+        if (closedCount > 0) globalToast(`⚠️ تم إغلاق ${closedCount} سجل حضور تلقائيًا (نسيان تسجيل انصراف)`, "warn");
     }
 
     // 🆕 بقت بتفلتر من props.users الجاهز بدل query مباشر — نفس فلسفة تصحيح openCreditModal
@@ -1213,50 +1238,17 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     // ١) إجازة رسمية معتمدة لليوم ده (لو شغالة فيها بيستخدم ساعاتها، لو إجازة كاملة يرجع "مفيش شفت")
     // ٢) تبديل دوري (زي الجمعة) لو الصيدلي ضمن مجموعة تبديل في اليوم ده
     // ٣) الجدول الأسبوعي — نسخة رمضان لو الشهر رمضان وموجودة له نسخة، وإلا الجدول العادي
-    function getExpectedShift(pharmacistName: string, dow: number, shiftNumber: number, dateStr: string = today) {
-        const holiday = findHolidayForDate(officialHolidays, dateStr);
-        if (holiday) {
-            if (!holiday.is_worked) return null; // إجازة كاملة — مفيش دوام أصلاً
-            if (shiftNumber !== 1) return null; // ساعات الإجازة بتتحسب كشفت واحد بس
-            return {
-                pharmacist_name: pharmacistName, day_of_week: dow, shift_number: 1,
-                shift_start: holiday.work_hours_start, shift_end: holiday.work_hours_end,
-                is_off: false, overtime_minutes: 0, is_holiday: true, holiday_name: holiday.name,
-            };
-        }
+    const userIdOf = (name?: string | null) => findUserIdByName(users, name);
 
-        const rotation = rotationSchedules.find(
-            (r) => r.active && r.day_of_week === dow && (r.pharmacist_names || []).includes(pharmacistName)
-        );
-        if (rotation) {
-            if (shiftNumber !== 1) return null;
-            const turnPharmacist = getRotationPharmacistForDate(rotation, dateStr);
-            if (turnPharmacist !== pharmacistName) return null; // مش دوره — إجازة
-            return {
-                pharmacist_name: pharmacistName, day_of_week: dow, shift_number: 1,
-                shift_start: rotation.shift_start, shift_end: rotation.shift_end,
-                is_off: false, overtime_minutes: 0, is_rotation: true,
-            };
-        }
-
-        const ramadanActive = isRamadan();
-        if (ramadanActive) {
-            const ramadanMatch = workSchedules.find(
-                (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off && s.is_ramadan
-            );
-            if (ramadanMatch) return ramadanMatch;
-        }
-
-        return workSchedules.find(
-            (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off && !s.is_ramadan
-        );
+    function getExpectedShift(pharmacistName: string, dow: number, shiftNumber: number, dateStr: string = today, pharmacistUserId?: string | null) {
+        return resolveExpectedShift({ workSchedules, rotationSchedules, officialHolidays }, pharmacistName, dow, shiftNumber, dateStr, pharmacistUserId ?? userIdOf(pharmacistName));
     }
 
     // 🆕 هل سجل الحضور ده خارج جدول الدوام المعتمد؟ (مفيش شفت مطابق، أو الحضور كله وقع بعد نهاية الشفت + الأوفر تايم)
     function isOutsideSchedule(log: any) {
         if (!log?.check_in) return false;
         const dow = new Date(log.check_in).getDay();
-        const schedule = getExpectedShift(log.pharmacist_name, dow, log.shift_number || 1, log.date || todayLocal());
+        const schedule = getExpectedShift(log.pharmacist_name, dow, log.shift_number || 1, log.date || todayLocal(), log.pharmacist_user_id);
         if (!schedule) return true;
         if (log.check_out) {
             const { outsideSchedule } = calcCappedHours(log.check_in, log.check_out, schedule);
@@ -1265,16 +1257,35 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         return false;
     }
 
-    function getCurrentShiftNumber(pharmacistName: string) {
+    // 🆕 تحديد شفت الصيدلي الحالي — بالترتيب:
+    // ١) لو عنده سجل مفتوح النهاردة → نفس شفت السجل (عشان الكارت يعرض "انصراف" مش حضور جديد)
+    // ٢) الشفتات الفعلية لليوم (إجازة ← تبديل دوري ← رمضان ← عادي) مش كل صفوف workSchedules
+    // ٣) داخل شفت: البداية شاملة والنهاية غير شاملة (15:00 = شفت 2 مش شفت 1)، ويدعم شفت بيعدي نص الليل
+    // ٤) خارج كل الشفتات: أقرب شفت زمنيًا؛ ولو مفيش شفتات أصلاً بنرجع 1 وبتظهر رسالة "لا يوجد شفت مطابق"
+    function getCurrentShiftNumber(pharmacistName: string): number {
+        const openLog = todayLogs.find((l) => isSamePharmacist(l, pharmacistName, userIdOf(pharmacistName)) && !l.check_out);
+        if (openLog) return openLog.shift_number || 1;
+
         const now = new Date();
-        const nowTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-        const todaySchedules = workSchedules.filter((s) => s.pharmacist_name === pharmacistName && s.day_of_week === todayDow && !s.is_off);
-        for (const s of todaySchedules) {
-            if (nowTime >= s.shift_start && nowTime <= s.shift_end) return s.shift_number;
-        }
-        // لو مش في وقت شفت، رجّع أقرب شفت
-        if (todaySchedules.length > 0) return todaySchedules[0].shift_number;
-        return 1;
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+
+        const candidates = [1, 2]
+            .map((n) => getExpectedShift(pharmacistName, todayDow, n, today))
+            .filter((s: any) => s?.shift_start && s?.shift_end)
+            .map((s: any) => {
+                const start = toMin(s.shift_start);
+                let end = toMin(s.shift_end);
+                if (end <= start) end += 1440; // شفت بيعدي نص الليل
+                return { n: s.shift_number as number, start, end };
+            });
+        if (candidates.length === 0) return 1;
+
+        const inside = candidates.filter((c) => nowMin >= c.start && nowMin < c.end);
+        if (inside.length > 0) return inside.sort((x, y) => x.n - y.n)[0].n;
+
+        const dist = (c: { start: number; end: number }) => (nowMin < c.start ? c.start - nowMin : nowMin - c.end);
+        return candidates.sort((x, y) => dist(x) - dist(y) || x.n - y.n)[0].n;
     }
 
     function calcLateMinutes(pharmacistName: string, shiftNum: number, checkInTime: string) {
@@ -1293,19 +1304,20 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     async function handleCheckIn(pharmacistName: string) {
         if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الحضور", "error"); return; }
         const shiftNum = getCurrentShiftNumber(pharmacistName);
-        const existing = todayLogs.find((l) => l.pharmacist_name === pharmacistName && l.shift_number === shiftNum && !l.check_out);
+        const pharmacistUserId = userIdOf(pharmacistName);
+        const existing = todayLogs.find((l) => isSamePharmacist(l, pharmacistName, pharmacistUserId) && l.shift_number === shiftNum && !l.check_out);
         if (existing) { globalToast(`${pharmacistName} مسجّل بالفعل في شفت ${shiftNum}`, "warn"); return; }
 
         // إيجاد الشفت المفتوح للمستخدم الحالي
         const openShift = shifts.find((s) => !s.end_time && s.user === pharmacistName);
-        const schedule = getExpectedShift(pharmacistName, todayDow, shiftNum);
+        const schedule = getExpectedShift(pharmacistName, todayDow, shiftNum, today, pharmacistUserId);
         const lateMin = calcLateMinutes(pharmacistName, shiftNum, new Date().toISOString());
 
         const logRow = {
             id: crypto.randomUUID(),
             pharmacy_id: pharmacyId,
             pharmacist_name: pharmacistName,
-            pharmacist_user_id: users.find((u) => u.name === pharmacistName)?.id || null,
+            pharmacist_user_id: pharmacistUserId,
             date: today,
             check_in: new Date().toISOString(),
             shift_id: openShift?.id || null,
@@ -1321,13 +1333,13 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
             console.error("upsertAttendanceLogCache (checkin) failed:", err);
         }
         // بنستخدم event type ATTENDANCE_CHECKIN الموجود بالفعل جوه offlineSync.ts (نفس اللي بيستخدمه
-        // فتح الشفت تلقائيًا) لأن الشكل مطابق تمامًا: dedupe على pharmacist_name+date+check_out=null
+        // فتح الشفت تلقائيًا) لأن الشكل مطابق تمامًا: dedupe على pharmacist_user_id (أو الاسم لو مفيش id)+date+check_out=null
         await queueEvent({
             id: crypto.randomUUID(),
             type: "ATTENDANCE_CHECKIN",
             pharmacy_id: pharmacyId,
             timestamp: logRow.check_in,
-            payload: { pharmacy_id: pharmacyId, pharmacist_name: pharmacistName, date: today, record: logRow },
+            payload: { pharmacy_id: pharmacyId, pharmacist_name: pharmacistName, pharmacist_user_id: pharmacistUserId, date: today, record: logRow },
         });
 
         setTodayLogs((p) => [...p, logRow]);
@@ -1340,7 +1352,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     async function handleCheckOut(log: any) {
         if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الانصراف", "error"); return; }
         const now = new Date();
-        const schedule = getExpectedShift(log.pharmacist_name, new Date(log.check_in).getDay(), log.shift_number || 1, log.date || todayLocal());
+        const schedule = getExpectedShift(log.pharmacist_name, new Date(log.check_in).getDay(), log.shift_number || 1, log.date || todayLocal(), log.pharmacist_user_id);
         const { totalHours, capped, outsideSchedule } = calcCappedHours(log.check_in, now.toISOString(), schedule);
         const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
         const totalDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;
@@ -1381,6 +1393,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         const row = {
             id: crypto.randomUUID(),
             ...scheduleForm,
+            pharmacist_user_id: userIdOf(scheduleForm.pharmacist_name),
             pharmacy_id: pharmacyId,
             shift_start: scheduleForm.is_off ? null : scheduleForm.shift_start,
             shift_end: scheduleForm.is_off ? null : scheduleForm.shift_end,
@@ -1432,7 +1445,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
             if (minutesAfter >= 1 && minutesAfter <= allowed + 5) {
                 todayLogs.forEach((log) => {
                     if (!log.check_out) {
-                        const existing = prayerBreaks.find((b) => b.prayer_name === name && b.pharmacist_name === log.pharmacist_name);
+                        const existing = prayerBreaks.find((b) => b.prayer_name === name && isSamePharmacist(b, log.pharmacist_name, log.pharmacist_user_id));
                         if (!existing) setActivePrayerPopup({ prayer: name, prayerTime: isoTime, log, allowed });
                     }
                 });
@@ -1448,7 +1461,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         const record = {
             id: crypto.randomUUID(),
             pharmacy_id: pharmacyId, attendance_id: popup.log.id,
-            pharmacist_name: popup.log.pharmacist_name, date: today,
+            pharmacist_name: popup.log.pharmacist_name, pharmacist_user_id: popup.log.pharmacist_user_id || null, date: today,
             prayer_name: popup.prayer, prayer_time: popup.prayerTime,
             return_time: now.toISOString(), allowed_minutes: allowed,
             actual_minutes: actualMin, deducted_minutes: deducted,
@@ -1472,9 +1485,13 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         setPrayerBreaks((p) => [...p, record]);
     }
 
+    // ── مفتاح تجميع التقارير: الـ id لو موجود، وإلا الاسم ──
+    const pharmKeyOf = (l: any) => l.pharmacist_user_id || `name:${l.pharmacist_name}`;
+
     // ── حساب التقرير الشهري لكل صيدلي ──
-    function calcMonthlyStats(pharmacistName: string) {
-        const logs = monthlyLogs.filter((l) => l.pharmacist_name === pharmacistName);
+    function calcMonthlyStats(p: { key: string; id: string | null; name: string }) {
+        const pharmacistName = p.name;
+        const logs = monthlyLogs.filter((l) => pharmKeyOf(l) === p.key);
         const totalNet = logs.reduce((s, l) => s + (l.net_hours || 0), 0);
         const totalLate = logs.reduce((s, l) => s + (l.late_minutes || 0), 0);
         const daysWorked = logs.filter((l) => l.check_out).length;
@@ -1487,8 +1504,8 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         for (let d = 1; d <= daysInMonth; d++) {
             const dow = new Date(year, month, d).getDay();
             const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-            const schedule = getExpectedShift(pharmacistName, dow, 1, dateStr);
-            const schedule2 = getExpectedShift(pharmacistName, dow, 2, dateStr);
+            const schedule = getExpectedShift(pharmacistName, dow, 1, dateStr, p.id);
+            const schedule2 = getExpectedShift(pharmacistName, dow, 2, dateStr, p.id);
             [schedule, schedule2].forEach((s) => {
                 if (!s?.shift_start || !s?.shift_end) return;
                 const [sh, sm] = s.shift_start.split(":").map(Number);
@@ -1500,7 +1517,14 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         return { totalNet, totalLate, daysWorked, requiredHours };
     }
 
-    const uniquePharmacists = [...new Set(monthlyLogs.map((l) => l.pharmacist_name))];
+    const uniquePharmacists: { key: string; id: string | null; name: string }[] = Array.from(
+        new Map(monthlyLogs.map((l) => [pharmKeyOf(l), l] as [string, any])).values()
+    ).map((l: any) => ({
+        key: pharmKeyOf(l),
+        id: l.pharmacist_user_id || null,
+        // الاسم الحالي من المستخدمين لو الصيدلي اتغيّر اسمه، وإلا الاسم المسجّل في السجل
+        name: (l.pharmacist_user_id && users.find((u: any) => String(u.id) === String(l.pharmacist_user_id))?.name) || l.pharmacist_name,
+    }));
 
     // ── جدول الدوام مجمّع لكل صيدلي ──
     const scheduleByPharmacist: Record<string, any[]> = {};
@@ -1652,8 +1676,8 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                             {pharmacists.map((name) => {
                                 const shiftNum = getCurrentShiftNumber(name);
-                                const activeLog = todayLogs.find((l) => l.pharmacist_name === name && l.shift_number === shiftNum && !l.check_out);
-                                const doneLog = todayLogs.find((l) => l.pharmacist_name === name && l.shift_number === shiftNum && l.check_out);
+                                const activeLog = todayLogs.find((l) => isSamePharmacist(l, name, userIdOf(name)) && l.shift_number === shiftNum && !l.check_out);
+                                const doneLog = todayLogs.find((l) => isSamePharmacist(l, name, userIdOf(name)) && l.shift_number === shiftNum && l.check_out);
                                 const schedule = getExpectedShift(name, todayDow, shiftNum);
 
                                 return (
@@ -1767,6 +1791,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
             {tab === "schedule" && canViewTab("schedule") && (
                 <WorkScheduleTab
                     pharmacists={pharmacists}
+                    users={users}
                     workSchedules={workSchedules}
                     pharmacyId={pharmacyId}
                     todayDow={todayDow}
@@ -1781,6 +1806,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
             {tab === "rotation" && canViewTab("rotation") && (
                 <RotationTab
                     pharmacists={pharmacists}
+                    users={users}
                     rotationSchedules={rotationSchedules}
                     pharmacyId={pharmacyId}
                     C={C}
@@ -1937,10 +1963,11 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
 
                     {monthlyLogs.length === 0
                         ? <div style={{ ...cardStyle, textAlign: "center", color: C.muted, padding: 40 }}>لا يوجد سجلات لهذا الشهر</div>
-                        : uniquePharmacists.map((name) => {
-                            const { totalNet, totalLate, daysWorked, requiredHours } = calcMonthlyStats(name);
+                        : uniquePharmacists.map((ph) => {
+                            const name = ph.name;
+                            const { totalNet, totalLate, daysWorked, requiredHours } = calcMonthlyStats(ph);
                             const diff = totalNet - requiredHours;
-                            const pharmLogs = monthlyLogs.filter((l) => l.pharmacist_name === name);
+                            const pharmLogs = monthlyLogs.filter((l) => pharmKeyOf(l) === ph.key);
                             return (
                                 <div key={name} style={cardStyle}>
                                     {/* رأس الصيدلي */}

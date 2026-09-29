@@ -1071,7 +1071,15 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                 pharmacy_id: pharmacyId, created_by: currentUser.name,
             };
             const closingResults = await insertTreasuryEntries([closingEntryPayload]);
-            setEntries((p) => [{ ...closingEntryPayload, id: closingResults[0].id }, ...p]);
+            const closingResult = closingResults[0];
+            // 🆕 اليوم ده اتقفل بالفعل (unique index في treasury_entries) — رسالة واضحة
+            // بدل رسالة نجاح مضللة. القيود اللي فوق (دخل/مصروف اليوم) اتسجلت فعلاً في
+            // treasury_entries، فمنسبهاش ومنمسحش الفورم عشان المستخدم يقدر يراجع الفرق يدويًا.
+            if (closingResult.error === "DUPLICATE_DAILY_CLOSING") {
+                showToast("⚠️ اليوم ده مقفول بالفعل — مفيش داعي لتقفيله تاني", "error");
+                return;
+            }
+            setEntries((p) => [{ ...closingEntryPayload, id: closingResult.id }, ...p]);
             setClosingSaved(true);
             showToast(navigator.onLine ? "تم حفظ تقفيل اليوم ✓" : "تم حفظ تقفيل اليوم محليًا ✓ (سيُرفع عند توفر الاتصال)");
             setClosingForm({
