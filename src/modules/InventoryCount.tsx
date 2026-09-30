@@ -35,6 +35,9 @@ export function InventoryCount({
     const [repairing, setRepairing] = useState(false);
     const [scanInput, setScanInput] = useState(""); // 🆕 حقل السكانر أثناء الجرد
     const scanTimeoutRef = useRef(null); // 🆕 لتشغيل السكان تلقائي من غير الحاجة لضغط Enter
+    const [countPage, setCountPage] = useState(1); // 🆕 ترقيم صفحات جدول الجرد (آلاف الأسطر)
+    const COUNT_PAGE_SIZE = 50;
+    const draftWarnedRef = useRef(false);
     const scanInputRef = useRef(null); // 🆕 عشان نرجّع الفوكس لخانة السكانر بعد إدخال الكمية
 
     // 🆕 نوع الجرد: "افتتاحي" (أول رصيد بيتسجل للصيدلية) أو "دوري" (صيدلية شغالة بالفعل)
@@ -80,12 +83,23 @@ export function InventoryCount({
     // عشان لو الشاشة اتقفلت لأي سبب (كراش، قفل الجهاز، تغيير شاشة بالغلط) الجرد يفضل موجود.
     useEffect(() => {
         if (!showNew) return;
-        try {
-            localStorage.setItem(
-                DRAFT_KEY,
-                JSON.stringify({ countItems, notes, countMode, updated_at: Date.now() }) // 🆕 countMode مضاف
-            );
-        } catch { }
+        // ✅ مع آلاف الأسطر: debounce (مش كتابة على كل ضغطة زر) + نحفظ بس الحقول الأساسية
+        // (الاسم/التصنيف بيتعادوا من قايمة الأصناف وقت الاستئناف) عشان حد localStorage (~5MB).
+        const t = setTimeout(() => {
+            try {
+                const slim = countItems.map(({ name, category, diff, ...r }) => r);
+                localStorage.setItem(
+                    DRAFT_KEY,
+                    JSON.stringify({ countItems: slim, notes, countMode, updated_at: Date.now() })
+                );
+            } catch {
+                if (!draftWarnedRef.current) {
+                    draftWarnedRef.current = true;
+                    showToast("⚠️ تعذّر حفظ المسودة تلقائيًا (المساحة المحلية ممتلئة) — احفظ الجرد قريبًا", "error");
+                }
+            }
+        }, 600);
+        return () => clearTimeout(t);
     }, [countItems, notes, countMode, showNew]); // 🆕 countMode في الـ deps
 
     // ==================== 🆕 ربط باركود جديد/متغير بصنف موجود ====================
@@ -165,7 +179,14 @@ export function InventoryCount({
                     `فيه جرد متوقف من ${new Date(draft.updated_at).toLocaleString("ar-SA")} فيه ${draft.countItems.length} سطر.\nعايز تكمله؟ (إلغاء = ابدأ جرد جديد من الأول)`
                 );
                 if (resume) {
-                    setCountItems(draft.countItems);
+                    setCountItems(draft.countItems.map((r) => {
+                        const p = productsById.get(r.id);
+                        return {
+                            name: p?.name ?? "", category: p?.category,
+                            diff: (+r.actualQty || 0) - (+r.systemQty || 0), ...r,
+                        };
+                    }));
+                    setCountPage(1);
                     setNotes(draft.notes || "");
                     setCountMode(draft.countMode || mode); // 🆕 نرجّع نفس نوع الجرد اللي كان شغال بيه الدرافت
                     setSearch("");
@@ -195,7 +216,40 @@ export function InventoryCount({
     // hint (اختياري): {batchNumber, expiry} مستخرجة من باركود GS1 ثنائي — لو اتبعتت،
     // بنحدد أنهي سطر تشغيلة هو المقصود بالظبط ونركّز حقل الكمية بتاعه فورًا.
     const addProductToCount = (product, hint) => {
-        if (countItems.some((r) => r.id === product.id)) {
+        const existingRows = countItems.filter((r) => r.id === product.id);
+        if (existingRows.length > 0) {
+            // 🆕 الصنف متضاف بالفعل: لو الباركود GS1 فيه تشغيلة/صلاحية، نروح للسطر المطابق
+            // (أو نضيف سطر تشغيلة جديد لو مش موجودة) بدل ما نرفض — عشان السكانر يتنقل بين Batches نفس الصنف.
+            const focusRow = (lineKey) => {
+                const idx = countItems.findIndex((r) => r.lineKey === lineKey);
+                if (idx >= 0) setCountPage(Math.floor(idx / COUNT_PAGE_SIZE) + 1);
+                setTimeout(() => document.querySelector(`[data-linekey="${lineKey}"]`)?.focus(), 80);
+            };
+            if (hint && (hint.batchNumber || hint.expiry)) {
+                const match = existingRows.find(
+                    (r) =>
+                        (hint.batchNumber && r.batchNumber && hint.batchNumber === r.batchNumber) ||
+                        (hint.expiry && r.expiry === hint.expiry)
+                );
+                if (match) {
+                    focusRow(match.lineKey);
+                    return;
+                }
+                if (hint.expiry) {
+                    const lineKey = `${product.id}::${hint.expiry}::${Date.now()}`;
+                    setCountItems((p) => [...p, {
+                        id: product.id, lineKey, name: product.name, category: product.category,
+                        expiry: hint.expiry, batchNumber: hint.batchNumber || null,
+                        systemQty: 0, actualQty: 0, diff: 0, isNew: true, scanMatched: true,
+                        cost: getDefaultLineCost(0, product),
+                        salePrice: getDefaultLineSalePrice(0, product),
+                        costAutoLinked: true, reason: "",
+                    }]);
+                    setCountPage(Math.ceil((countItems.length + 1) / COUNT_PAGE_SIZE));
+                    focusRow(lineKey);
+                    return;
+                }
+            }
             showToast("الصنف ده متضاف في الجرد بالفعل");
             return;
         }
@@ -271,13 +325,14 @@ export function InventoryCount({
             });
         }
         setCountItems((p) => [...p, ...newRows]);
+        setCountPage(Math.ceil((countItems.length + newRows.length) / COUNT_PAGE_SIZE)); // 🆕 نروح لآخر صفحة (الأسطر الجديدة بتتضاف في الآخر)
         setSearch("");
         const matchedRow = newRows.find((r) => r.scanMatched);
         if (matchedRow) {
             // نركّز حقل الكمية بتاع التشغيلة المطابقة عشان الصيدلي يكتب الرقم على طول
             setTimeout(() => {
                 document.querySelector(`[data-linekey="${matchedRow.lineKey}"]`)?.focus();
-            }, 50);
+            }, 80);
         }
     };
 
@@ -318,8 +373,20 @@ export function InventoryCount({
                 if (gsIdx !== -1) {
                     cut = gsIdx;
                 } else {
-                    for (let i = 2; i < rest.length - 1; i++) {
-                        if (KNOWN_AI.has(rest.slice(i, i + 2))) {
+                    // ✅ من غير فاصل GS: مانقطعش عند أي رقمين شبه AI (رقم التشغيلة ممكن يحتوي
+                    // "10" أو "17" صدفة). بنقطع بس عند AI تاريخ (11/15/17) لسه ماتقراش وبعده
+                    // تاريخ YYMMDD صالح ثم نهاية الكود أو AI معروف، أو عند "21" (الرقم التسلسلي).
+                    const isYYMMDD = (v) => /^\d{2}(0[1-9]|1[0-2])(0\d|[12]\d|3[01])$/.test(v);
+                    for (let i = 1; i < rest.length - 1; i++) {
+                        const cand = rest.slice(i, i + 2);
+                        if (["11", "15", "17"].includes(cand) && out[cand] == null) {
+                            const after = i + 8;
+                            if (isYYMMDD(rest.slice(i + 2, i + 8)) &&
+                                (after === rest.length || KNOWN_AI.has(rest.slice(after, after + 2)))) {
+                                cut = i;
+                                break;
+                            }
+                        } else if (cand === "21" && out["21"] == null && i + 2 < rest.length) {
                             cut = i;
                             break;
                         }
@@ -358,10 +425,7 @@ export function InventoryCount({
         }
         const code = normGtin(gtinSource);
         if (!code) return;
-        const product = products.find(
-            (x) => normGtin(x.barcode) === code || normGtin(x.gtin) === code
-                || (x.altBarcodes || []).some((b) => normGtin(b) === code) // 🆕 باركود بديل
-        );
+        const product = barcodeIndex.get(code);
         if (!product) {
             // 🆕 بدل ما نرفض الباركود، نفتح مودال يخلي الصيدلي يربطه بصنف موجود
             // (باركود اتغير من المورد) أو يضيف صنف جديد بيه لو فعلاً مش مسجل خالص
@@ -441,7 +505,7 @@ export function InventoryCount({
 
     // 🆕 نسبة ضريبة القيمة المضافة الموحّدة (15%)، شاملة داخل product.price — لو فيه
     // ثابت مشترك تاني في البرنامج (زي إعدادات ZATCA) الأفضل يتستورد من هناك بدل الرقم ده.
-    const VAT_RATE = 0.15;
+    const VAT_RATE = +pharmacySettings?.vatRate > 0 ? +pharmacySettings.vatRate : 0.15; // 🆕 من إعدادات الصيدلية، والافتراضي 15%
 
     // 🆕 ملخص محاسبي سريع للجرد الجاري (قبل الحفظ) — بيتحسب من الأسطر اللي داخلة فعليًا
     // في الشاشة دلوقتي بس (مش الأصناف "لسه ماتجردتش" اللي بتتحسب auto-zero وقت الحفظ)،
@@ -449,6 +513,26 @@ export function InventoryCount({
     // (رصيد افتتاحي وجرد دوري) بنفس المنطق، لأن item.cost أصلاً بيتحدد بنفس الطريقة
     // (getDefaultLineCost) في الحالتين — الفرق إن الصيدلي بيعدّلها يدوي وهو شايفها بس
     // في الرصيد الافتتاحي.
+    // 🆕 فهرس الباركودات (باركود/GTIN/بدائل → صنف): بدل .find() + normGtin على كل الأصناف
+    // لكل مسح/صف إكسيل (5000 صف × 5000 صنف كان هيهنّج الاستيراد)
+    const barcodeIndex = useMemo(() => {
+        const m = new Map();
+        products.forEach((p) => {
+            [p.barcode, p.gtin, ...(p.altBarcodes || [])].forEach((b) => {
+                if (b == null) return;
+                const k = normGtin(b);
+                if (k && !m.has(k)) m.set(k, p);
+            });
+        });
+        return m;
+    }, [products]);
+
+    // 🆕 ترقيم صفحات الجدول: بنرسم صفحة واحدة (50 سطر) بدل كل الأسطر
+    const totalPages = Math.max(1, Math.ceil(countItems.length / COUNT_PAGE_SIZE));
+    const safePage = Math.min(countPage, totalPages);
+    const pageStart = (safePage - 1) * COUNT_PAGE_SIZE;
+    const pagedItems = countItems.slice(pageStart, pageStart + COUNT_PAGE_SIZE);
+
     const countSummary = useMemo(() => {
         const uniqueIds = new Set();
         let totalQty = 0, totalSale = 0, totalCost = 0, totalTax = 0;
@@ -515,20 +599,22 @@ export function InventoryCount({
         });
 
         const baseRows = buildBaseCountRows();
+        const linesById = new Map();
+        baseRows.forEach((r) => {
+            if (!linesById.has(r.id)) linesById.set(r.id, []);
+            linesById.get(r.id).push(r);
+        });
         const unmatched = [];
         let matchedCount = 0;
 
         grouped.forEach((entry) => {
-            const product = products.find(
-                (x) => normGtin(x.barcode) === entry.code || normGtin(x.gtin) === entry.code
-                    || (x.altBarcodes || []).some((b) => normGtin(b) === entry.code) // 🆕 باركود بديل
-            );
+            const product = barcodeIndex.get(entry.code);
             if (!product) {
                 unmatched.push(entry);
                 return;
             }
             matchedCount++;
-            const productLines = baseRows.filter((r) => r.id === product.id);
+            const productLines = linesById.get(product.id) || [];
             if (productLines.length === 0) return;
             // صنف بسطر واحد (الحالة الشائعة، خصوصًا لصيدلية جديدة لسه بتدخل جردها الأول)
             // → الكمية المستوردة بتتحط عليه مباشرة. لو الصنف عنده أكتر من تاريخ صلاحية،
@@ -540,6 +626,7 @@ export function InventoryCount({
         });
 
         setCountItems(baseRows);
+        setCountPage(1);
         setExcelUnmatched(unmatched);
         setShowNew(true);
         showToast(
@@ -735,6 +822,48 @@ export function InventoryCount({
         }
     };
 
+    // ==================== 🆕 الجرد بالفرق (Delta) بدل الاستبدال المطلق ====================
+    // نفس منطق الـ RPC apply_inventory_count بالظبط (لازم يفضلوا متطابقين) — بيطبّق
+    // (الكمية المعدودة − رصيد النظام وقت العدّ) على الرصيد الحالي، فأي بيع/شراء حصل بعد العدّ
+    // ما يتمسحش. occ = ترتيب السطر بين الأسطر اللي ليها نفس (صلاحية + رقم تشغيلة).
+    const applyCountDelta = (prod, lines, date) => {
+        let total = 0;
+        let bts = [...(prod.batches || [])];
+        const hadNoBatches = bts.length === 0;
+        lines.forEach((l) => {
+            const d = l.actual - l.system;
+            total += d;
+            let i = -1, seen = 0;
+            bts.forEach((b, idx) => {
+                if (i === -1 &&
+                    (b.expiry_date || "") === (l.expiry || "") &&
+                    (b.batch_number || "") === (l.batch_number || "")) {
+                    if (seen === (l.occ || 0)) i = idx;
+                    seen++;
+                }
+            });
+            if (i === -1) {
+                // صنف رصيده إجمالي بس (مفيش batches): السطر الوحيد بياخد الرصيد الحالي + الفرق
+                const base = hadNoBatches && l.system > 0 ? (prod.stock || 0) : 0;
+                bts.push({
+                    qty: Math.max(base + d, 0),
+                    expiry_date: l.expiry, batch_number: l.batch_number,
+                    cost: l.cost || prod.cost || 0, salePrice: l.sale_price || prod.price || 0,
+                    date,
+                });
+            } else {
+                bts[i] = {
+                    ...bts[i],
+                    qty: Math.max((bts[i].qty || 0) + d, 0),
+                    ...(l.cost > 0 ? { cost: l.cost } : {}),
+                    ...(l.sale_price > 0 ? { salePrice: l.sale_price } : {}),
+                };
+            }
+        });
+        bts = bts.filter((b) => b.qty > 0);
+        return { stock: Math.max((prod.stock || 0) + total, 0), batches: bts };
+    };
+
     // 🆕 حماية من الحفظ المكرر (Double-submit): لو الصيدلي ضغط "حفظ الجرد" مرتين بسرعة
     // (شائع على الموبايل وقت تأخر الشبكة)، ده كان بيبني ويبعت سجلين جرد منفصلين بنفس
     // البيانات تقريبًا، وبيطبّق تحديث المخزون مرتين — يعني فرق الجرد بيتضاعف غلط.
@@ -925,56 +1054,36 @@ export function InventoryCount({
         // 🆕 + avgCostByProduct: نفس السبب — رصيد افتتاحي بيزرع product.cost لأول مرة
         // حتى لو الكمية نفسها متغيرتش (نادر عمليًا في الافتتاحي، بس عشان الاتساق)
         const allUpdateIds = Array.from(new Set([...changedProductIds, ...priceChangedIds, ...Object.keys(avgCostByProduct)]));
-        const productUpdates = allUpdateIds.map((id) => {
-            const prod = products.find((x) => x.id === id);
-            const rows = countItemsFinal.filter((i) => i.id === id && +i.actualQty > 0);
+        // ✅ productUpdates دلوقتي للسعر/التكلفة بس. الرصيد والـ batches بيتطبقوا بالفرق (Delta)
+        // على السيرفر عن طريق countLines، عشان الجرد يشتغل صح أثناء البيع.
+        const productUpdates = allUpdateIds.map((id) => ({
+            id,
+            pharmacy_id: pharmacyId,
+            ...(priceChangedIds.includes(id) ? { price: salePriceByProduct[id] } : {}),
+            ...(avgCostByProduct[id] != null ? { cost: avgCostByProduct[id] } : {}),
+        }));
 
-            // 🆕 إصلاح مطابقة التشغيلات: قبل كده كنا بنطابق بس بتاريخ الصلاحية (.find())،
-            // وده كان بيرجّع أول تشغيلة لاقيها دايمًا. لو نفس الصنف عنده تشغيلتين بنفس تاريخ
-            // الصلاحية بالظبط (شائع لو المورد معندوش رقم تشغيلة مسجل)، كل أسطر الجرد بتاريخ
-            // الصلاحية ده كانت بتاخد تكلفة/تاريخ أول تشغيلة بس — فيبقى فيه خلط في البيانات
-            // المالية بين تشغيلتين مختلفتين فعليًا. الحل: مفتاح مركب (تاريخ + رقم تشغيلة)،
-            // ولو فيه أكتر من تشغيلة أصلية بنفس المفتاح، بنوزّعهم بالترتيب (أول سطر جرد بالمفتاح
-            // ده ياخد أول تشغيلة أصلية بنفس المفتاح، والتاني ياخد التانية، وهكذا) بدل ما كلهم
-            // ياخدوا نفس التشغيلة.
-            const origBatchesByKey = {};
-            (prod?.batches || []).forEach((b) => {
-                const key = `${b.expiry_date || ""}::${b.batch_number || ""}`;
-                (origBatchesByKey[key] ||= []).push(b);
-            });
-            const usedKeyCount = {};
-            const newBatches = rows.map((r) => {
-                const key = `${r.expiry || ""}::${r.batchNumber || ""}`;
-                const occurrenceIdx = usedKeyCount[key] || 0;
-                usedKeyCount[key] = occurrenceIdx + 1;
-                const origBatch = (origBatchesByKey[key] || [])[occurrenceIdx];
+        // 🆕 أسطر الجرد للتطبيق بالفرق: actual − system (system = رصيد النظام وقت العدّ)
+        const occSeen = {};
+        const countLines = countItemsFinal
+            .map((i) => {
+                const key = `${i.id}::${i.expiry || ""}::${i.batchNumber || ""}`;
+                const occ = occSeen[key] || 0;
+                occSeen[key] = occ + 1;
                 return {
-                    qty: +r.actualQty,
-                    // 🔧 إصلاح بج حرج: التكلفة اللي دخلها الصيدلي في سطر الجرد (r.cost) لها
-                    // الأولوية دايمًا — دي المصدر الوحيد الموثوق في الرصيد الافتتاحي (مفيش
-                    // origBatch أصلاً)، وأي تعديل يدوي للتكلفة في الجرد الدوري كمان. لو مش
-                    // موجودة لأي سبب، نرجع للتشغيلة الأصلية، وبعدين تكلفة الصنف العامة.
-                    cost: (+r.cost > 0) ? +r.cost : (origBatch?.cost ?? prod?.cost ?? 0),
-                    // 🆕 نفس منطق التكلفة بالظبط: سعر البيع اللي دخله الصيدلي في سطر الجرد
-                    // (r.salePrice) له الأولوية دايمًا، وإلا نرجع للتشغيلة الأصلية ثم سعر الصنف العام
-                    salePrice: (+r.salePrice > 0) ? +r.salePrice : (origBatch?.salePrice ?? prod?.price ?? 0),
-                    expiry_date: r.expiry || null,
-                    batch_number: r.batchNumber || null, // 🆕 نحافظ على رقم التشغيلة في التخزين الجديد
-                    date: origBatch?.date || logData.date,
+                    product_id: i.id,
+                    expiry: i.expiry || null,
+                    batch_number: i.batchNumber || null,
+                    occ,
+                    actual: +i.actualQty,
+                    system: +i.systemQty,
+                    cost: +i.cost || 0,
+                    sale_price: +i.salePrice || 0,
+                    isNew: !!i.isNew,
                 };
-            });
-            return {
-                id,
-                pharmacy_id: pharmacyId,
-                stock: productTotals[id].actualQty,
-                batches: newBatches,
-                // 🆕 لو سعر البيع اتغيّر لهذا الصنف، بنحدّث product.price مباشرة كمان
-                ...(priceChangedIds.includes(id) ? { price: salePriceByProduct[id] } : {}),
-                // 🆕 رصيد افتتاحي: بنزرع product.cost بمتوسط التكلفة المرجّح بالكمية —
-                // قيمة تقريبية تفضل تتظبط تلقائي مع كل فاتورة شراء بعد كده
-                ...(avgCostByProduct[id] != null ? { cost: avgCostByProduct[id] } : {}),
-            };
-        });
+            })
+            .filter((l) => countMode === "افتتاحي" || l.isNew || l.actual !== l.system)
+            .map(({ isNew, ...l }) => l);
 
         // 🆕 كاش محلي فوري — يفضل ظاهر في السجل حتى وانت أوفلاين وبعد إعادة تشغيل البرنامج
         await window.offlineAPI.insertInventoryLogCache(logData);
@@ -993,7 +1102,7 @@ export function InventoryCount({
             // (ممكن يكون نفس منطق INVENTORY_COUNT_SAVE بالظبط، بس باسم مختلف للتصنيف).
             type: countMode === "افتتاحي" ? "INITIAL_STOCK_ENTRY" : "INVENTORY_COUNT_SAVE",
             timestamp: new Date().toISOString(),
-            payload: { logData, adjustments, productUpdates },
+            payload: { logData, adjustments, productUpdates, countLines },
         });
 
         if (!synced && error) {
@@ -1009,12 +1118,20 @@ export function InventoryCount({
         });
 
         setInventoryLogs((p) => [logData, ...p]);
+        const updatesById = new Map(productUpdates.map((u) => [u.id, u]));
+        const linesByProduct = new Map();
+        countLines.forEach((l) => {
+            if (!linesByProduct.has(l.product_id)) linesByProduct.set(l.product_id, []);
+            linesByProduct.get(l.product_id).push(l);
+        });
         setProducts((p) =>
             p.map((x) => {
-                const u = productUpdates.find((uu) => uu.id === x.id);
-                if (!u) return x;
-                // 🆕 لو التحديث ده فيه سعر بيع جديد، بنحدّث product.price كمان محليًا
-                return { ...x, stock: u.stock, batches: u.batches, ...(u.price != null ? { price: u.price } : {}), ...(u.cost != null ? { cost: u.cost } : {}) };
+                const u = updatesById.get(x.id);
+                const ls = linesByProduct.get(x.id) || [];
+                if (!u && ls.length === 0) return x;
+                // 🆕 الرصيد والـ batches بالفرق (نفس منطق السيرفر)، والسعر/التكلفة لو اتغيروا
+                const delta = ls.length ? applyCountDelta(x, ls, logData.date) : {};
+                return { ...x, ...delta, ...(u?.price != null ? { price: u.price } : {}), ...(u?.cost != null ? { cost: u.cost } : {}) };
             })
         );
 
@@ -1453,7 +1570,7 @@ export function InventoryCount({
                             </tr>
                         </thead>
                         <tbody>
-                            {countItems.map((item, i) => (
+                            {pagedItems.map((item, pi) => { const i = pageStart + pi; return (
                                 <tr
                                     key={item.lineKey}
                                     style={{
@@ -1794,10 +1911,19 @@ export function InventoryCount({
                                         >🗑</button>
                                     </td>
                                 </tr>
-                            ))}
+                            ); })}
                         </tbody>
                     </table>
                 </div>
+                {totalPages > 1 && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 10, fontSize: 12.5, color: COLORS.textPrimary }}>
+                        <button type="button" disabled={safePage <= 1} onClick={() => setCountPage(safePage - 1)}
+                            style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, cursor: safePage <= 1 ? "default" : "pointer", opacity: safePage <= 1 ? 0.4 : 1 }}>السابق</button>
+                        <span>صفحة <b>{safePage}</b> من <b>{totalPages}</b> — {countItems.length} سطر</span>
+                        <button type="button" disabled={safePage >= totalPages} onClick={() => setCountPage(safePage + 1)}
+                            style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, cursor: safePage >= totalPages ? "default" : "pointer", opacity: safePage >= totalPages ? 0.4 : 1 }}>التالي</button>
+                    </div>
+                )}
                 {/* 🆕 ملخص محاسبي سريع لمراجعة الجرد قبل الحفظ — بيعكس بس الأسطر الداخلة
                     فعليًا دلوقتي (مش الأصناف "لسه ماتجردتش")، شغال في الوضعين بنفس المنطق */}
                 <div

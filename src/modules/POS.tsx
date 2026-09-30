@@ -1109,7 +1109,8 @@ export function POS({
         .filter((i) => !i.isMissed && !i.isJoker && !isPromoLine(i))
         .reduce((s, i) => s + i.price * i.qty, 0);
 
-    const taxAmount = inv.cart
+    // 🆕 الضريبة الكاملة قبل الخصم — taxAmount النهائي (بعد الخصم) بيتحسب تحت
+    const rawTaxAmount = inv.cart
         .filter((i) => !i.isMissed)
         .reduce((s, i) => (i.taxable ? s + i.price * i.qty * TAX_RATE : s), 0);
 
@@ -1117,10 +1118,23 @@ export function POS({
         .filter((i) => i.isMissed)
         .reduce((s, i) => s + i.price * i.qty, 0);
 
-    const discountAmt =
+    // 🆕 الخصم ونقاط الولاء بيتوزعوا بالتناسب على الأساس والضريبة (الضريبة لازم تتحسب بعد الخصم — زاتكا)
+    // نقاط الولاء (برنامج بائع واحد) بتتعامل زي الخصم: الضريبة على اللي اتدفع فعلاً — لازم المحاسب يأكد ده.
+    // المرحلة 1 (خصم الفاتورة فقط):
+    //   grossDiscount = الخصم زي ما الكاشير بيدخله (شامل الضريبة) — سلوك الكاشير ما اتغيرش
+    //   discNet1      = الخصم قبل الضريبة | tax1 = الضريبة بعد الخصم | payableBeforePoints = المستحق قبل النقاط
+    // المرحلة 2 (بعد النقاط): discountAmt = discNet1 + الجزء الصافي من النقاط، taxAmount = الضريبة النهائية
+    // المعادلة: subtotal - discountAmt + taxAmount = total (إجمالي العميل ثابت)
+    const round2 = (n) => Math.round(n * 100) / 100;
+    const grossBeforeDiscount = subtotal + rawTaxAmount;
+    const grossDiscount =
         inv.discountType === "value"
-            ? Math.min(Math.max(inv.discount || 0, 0), subtotal + taxAmount)
-            : Math.round((((subtotal + taxAmount) * (inv.discount || 0)) / 100) * 100) / 100;
+            ? Math.min(Math.max(inv.discount || 0, 0), grossBeforeDiscount)
+            : round2((grossBeforeDiscount * (inv.discount || 0)) / 100);
+    const discountRatio = grossBeforeDiscount > 0 ? grossDiscount / grossBeforeDiscount : 0;
+    const discNet1 = round2(subtotal * discountRatio);
+    const tax1 = round2(rawTaxAmount - (grossDiscount - discNet1));
+    const payableBeforePoints = Math.max(0, round2(subtotal - discNet1 + tax1));
 
     // ✅ لو تغيّر إجمالي الفاتورة (إضافة/حذف صنف) والمبلغ المُستبدل بقى أكبر من الحد المسموح، نصغّره تلقائياً
     // 🆕 customerLoyalty.points رصيد بالنقاط الخام — pointsToRedeem وpointsDiscount فضلوا بالريال
@@ -1128,13 +1142,20 @@ export function POS({
     const perRiyal = loyaltySettings?.points_per_riyal || 1;
     useEffect(() => {
         if (!usePoints) return;
-        const maxRedeemable = Math.max(0, Math.min((customerLoyalty?.points || 0) / perRiyal, subtotal + taxAmount - discountAmt));
+        const maxRedeemable = Math.max(0, Math.min((customerLoyalty?.points || 0) / perRiyal, payableBeforePoints));
         setPointsToRedeem((prev) => (prev > maxRedeemable ? maxRedeemable : prev));
-    }, [usePoints, subtotal, taxAmount, discountAmt, customerLoyalty, perRiyal]);
+    }, [usePoints, payableBeforePoints, customerLoyalty, perRiyal]);
 
-    // ── الإجمالي بعد خصم نقاط الولاء ──
+    // ── نقاط الولاء: بتتوزع بنفس نسبة الخصم على الأساس والضريبة ──
+    // pointsDiscount = قيمة النقاط بالريال (شاملة الضريبة) — بتفضل كما هي في points_redeemed
+    // pointsNet      = الجزء قبل الضريبة منها (بيدخل في discountAmt عشان زاتكا والتقارير)
     const pointsDiscount = usePoints ? pointsToRedeem : 0;
-    const total = Math.max(0, subtotal + taxAmount - discountAmt - pointsDiscount);
+    const pointsApplied = Math.min(pointsDiscount, payableBeforePoints);
+    const pointsRatio = payableBeforePoints > 0 ? pointsApplied / payableBeforePoints : 0;
+    const pointsNet = round2((subtotal - discNet1) * pointsRatio);
+    const discountAmt = round2(discNet1 + pointsNet);              // الخصم + النقاط (قبل الضريبة)
+    const taxAmount = round2(tax1 - (pointsApplied - pointsNet));  // الضريبة النهائية بعد الخصم والنقاط
+    const total = Math.max(0, round2(subtotal - discountAmt + taxAmount));
 
     const completeSale = async (shouldPrint = true) => {
         if (!currentShift) {
@@ -1433,7 +1454,7 @@ export function POS({
                     const catSubtotal = items.reduce((s, it) => s + it.price * it.qty, 0);
                     // خصم الفاتورة (لو موجود) بيتوزع على الفئات بنسبة وزن كل فئة من إجمالي الأصناف المؤهلة
                     const catShareOfDiscount = eligibleSubtotal > 0
-                        ? (catSubtotal / eligibleSubtotal) * (invoice.discount_amt || 0)
+                        ? (catSubtotal / eligibleSubtotal) * discNet1
                         : 0;
                     if (ls.mode === "profit") {
                         const catProfit = items.reduce((s, it) => s + (it.price - (it.cost || 0)) * (it.qty || 0), 0) - catShareOfDiscount;
@@ -2972,7 +2993,7 @@ showToast("تمت عملية البيع ✓");
                                         const newUse = !usePoints;
                                         setUsePoints(newUse);
                                         setPointsToRedeem(newUse
-                                            ? Math.min(customerLoyalty.points / perRiyal, subtotal + taxAmount - discountAmt)
+                                            ? Math.min(customerLoyalty.points / perRiyal, payableBeforePoints)
                                             : 0
                                         );
                                     }}
@@ -2992,7 +3013,7 @@ showToast("تمت عملية البيع ✓");
                             </div>
 
                             {usePoints && (() => {
-                                const maxRedeemable = Math.max(0, Math.min(customerLoyalty.points / perRiyal, subtotal + taxAmount - discountAmt));
+                                const maxRedeemable = Math.max(0, Math.min(customerLoyalty.points / perRiyal, payableBeforePoints));
                                 return (
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                                         <input
@@ -3137,16 +3158,16 @@ showToast("تمت عملية البيع ✓");
                             <span>ضريبة 15%</span>
                             <span>{taxAmount.toFixed(2)} ر.س</span>
                         </div>
-                        {discountAmt > 0 && (
+                        {discNet1 > 0 && (
                             <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.gold, fontSize: 12, marginBottom: 3 }}>
-                                <span>خصم {inv.discountType === "percent" ? `${inv.discount}%` : `${inv.discount} ر.س`}</span>
-                                <span>- {discountAmt.toFixed(2)} ر.س</span>
+                                <span>خصم {inv.discountType === "percent" ? `${inv.discount}%` : `${inv.discount} ر.س`} (قبل الضريبة)</span>
+                                <span>- {discNet1.toFixed(2)} ر.س</span>
                             </div>
                         )}
                         {usePoints && pointsToRedeem > 0 && (
                             <div style={{ display: "flex", justifyContent: "space-between", color: COLORS.green, fontSize: 12, marginBottom: 3 }}>
-                                <span>🌟 نقاط ولاء</span>
-                                <span>- {pointsToRedeem.toFixed(2)} ر.س</span>
+                                <span>🌟 نقاط ولاء {pointsApplied.toFixed(2)} ر.س (قبل الضريبة)</span>
+                                <span>- {pointsNet.toFixed(2)} ر.س</span>
                             </div>
                         )}
                         {missedTotal > 0 && (

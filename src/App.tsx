@@ -41,13 +41,23 @@ import { authService } from "./services/authService";
 import { RasdQueue } from "./services/rasdService";
 import { IC, Toast } from "./ui/primitives";
 import { supabase } from "./lib/supabaseClient";
-import { initOfflineSync } from "./lib/offlineAPI";
+import { initOfflineSync, STOCK_BATCH_FAILURE_EVENT } from "./lib/offlineAPI";
 import { PharmaLogo } from "./components/PharmaLogo";
 import { OnboardingChecklist } from "./modules/OnboardingChecklist";
 import { isOnboardingComplete } from "./lib/onboardingAPI";
 import { default as ShortageReview } from "./modules/ShortageReview";
 
 // ==================== MAIN APP ====================
+// 🆕 ترجمة أسباب الفشل اللي بيرجعها apply_stock_movements_batch / apply_purchase_stock_batch
+// لرسائل مفهومة للكاشير (كان الفشل بيظهر في الـ console بس)
+const STOCK_FAILURE_REASONS: Record<string, string> = {
+    insufficient_stock: "الكمية غير كافية في الدفعة",
+    batch_ref_missing: "الصنف بدون دفعة محددة",
+    batch_not_found: "الدفعة غير موجودة",
+    product_not_found: "الصنف غير موجود",
+    update_failed_pharmacy_mismatch: "خطأ في بيانات الصيدلية",
+};
+
 export default function PharmacyPro() {
     // جوه الكومبوننت الرئيسي:
     useEffect(() => {
@@ -464,9 +474,14 @@ export default function PharmacyPro() {
             });
     }, [pharmacyId]);
     const [isLoading, setIsLoading] = useState(false);
+    // 🆕 رسائل الـ error بتفضل 6 ثواني بدل 3 — تنبيهات زي فشل تحديث المخزون مهمة
+    // والكاشير ممكن يفوّتها لو اختفت بسرعة وهو مشغول مع زبون
+    const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const showToast = useCallback((msg, type = "success") => {
+        // 🆕 بنلغي التايمر القديم عشان توست جديد ما يتقفلش بتايمر توست سابق
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setToast({ msg, type });
-        setTimeout(() => setToast(null), 3000);
+        toastTimerRef.current = setTimeout(() => setToast(null), type === "error" ? 6000 : 3000);
     }, []);
 
     // إخراج الأصناف منتهية الصلاحية من المخزون الفعلي (يستخدمها تقرير الصلاحيات)
@@ -586,6 +601,21 @@ export default function PharmacyPro() {
         RasdQueue.start(showToast);
         return () => RasdQueue.stop();
     }, [pharmacyId, showToast]);
+
+    // 🆕 تنبيه المستخدم لو أي حركة مخزون فشلت داخل الـ RPC (فشل جزئي مش بيرجع error).
+    // قبل كده الحدث كان بيتعلّم synced والمخزون ماتخصمش من غير ما حد يعرف.
+    useEffect(() => {
+        const onStockFailure = (e: Event) => {
+            const { failed } = (e as CustomEvent).detail;
+            // 🆕 بنجمّع الأسباب المختلفة بدل ما نكرر نفس الرسالة لكل صنف
+            const reasons = Array.from(
+                new Set(failed.map((f: any) => STOCK_FAILURE_REASONS[f.reason] ?? f.reason ?? "سبب غير معروف"))
+            ).join("، ");
+            showToast(`⚠️ تعذّر تحديث المخزون لـ ${failed.length} صنف: ${reasons}`, "error");
+        };
+        window.addEventListener(STOCK_BATCH_FAILURE_EVENT, onStockFailure);
+        return () => window.removeEventListener(STOCK_BATCH_FAILURE_EVENT, onStockFailure);
+    }, [showToast]);
 
     const currentShift = shifts.find(
         (s) => !s.end_time && s.user === currentUser?.name
@@ -1361,6 +1391,7 @@ export default function PharmacyPro() {
                             canViewPurchaseReturns={canView("returns", "purchases")}
                             canEditSalesReturns={canEdit("returns", "sales")}
                             canEditPurchaseReturns={canEdit("returns", "purchases")}
+                            loyaltySettings={loyaltySettings}
                         />
                     )}
                     {tab === "purchase_returns" && canView("returns", "purchases") && (

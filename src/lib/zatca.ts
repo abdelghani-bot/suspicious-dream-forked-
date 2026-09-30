@@ -101,6 +101,42 @@ export const buildZatcaInvoiceXML = ({
   total,
   currency = "SAR",
 }) => {
+  // 🆕 الخصم على مستوى الفاتورة (قبل الضريبة) بيتوزع على الأصناف الخاضعة والمعفية بالتناسب،
+  // والضريبة الكلية (taxAmount) جاية من الـ POS بعد الخصم
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const netOf = (arr) => arr.reduce((s, it) => s + round2(it.price * it.qty), 0);
+  const taxableNet = round2(netOf((items || []).filter((it) => it.taxable)));
+  const exemptNet = round2(netOf((items || []).filter((it) => !it.taxable)));
+  const linesNet = round2(taxableNet + exemptNet);
+  const disc = round2(discountAmt || 0);
+  const discTaxable = linesNet > 0 ? round2((disc * taxableNet) / linesNet) : 0;
+  const discExempt = round2(disc - discTaxable);
+  const taxableAfter = round2(taxableNet - discTaxable);
+  const exemptAfter = round2(exemptNet - discExempt);
+  const taxExclusive = round2(linesNet - disc);
+  const taxInclusive = round2(taxExclusive + Number(taxAmount));
+  // نقاط الولاء دلوقتي داخلة في discountAmt (بتتعامل كخصم) فالقيمة دي صفر عادةً — احتياط لأي فرق تاني
+  const prepaid = Math.max(0, round2(taxInclusive - Number(total)));
+
+  const catXML = (id, pct) => `<cac:TaxCategory>
+        <cbc:ID>${id}</cbc:ID>
+        <cbc:Percent>${pct.toFixed(2)}</cbc:Percent>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:TaxCategory>`;
+  const allowanceXML = (amt, id, pct) => amt > 0 ? `
+  <cac:AllowanceCharge>
+    <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+    <cbc:AllowanceChargeReason>discount</cbc:AllowanceChargeReason>
+    <cbc:Amount currencyID="${currency}">${amt.toFixed(2)}</cbc:Amount>
+    ${catXML(id, pct)}
+  </cac:AllowanceCharge>` : "";
+  const subtotalXML = (base, tax, id, pct) => `
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="${currency}">${base.toFixed(2)}</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="${currency}">${tax.toFixed(2)}</cbc:TaxAmount>
+      ${catXML(id, pct)}
+    </cac:TaxSubtotal>`;
+
   const lines = (items || [])
     .map((it, idx) => {
       const lineNet = Math.round(it.price * it.qty * 100) / 100;
@@ -168,16 +204,18 @@ export const buildZatcaInvoiceXML = ({
       </cac:PartyLegalEntity>
     </cac:Party>
   </cac:AccountingSupplierParty>
-  <cac:LegalMonetaryTotal>
-    <cbc:LineExtensionAmount currencyID="${currency}">${Number(subtotal).toFixed(2)}</cbc:LineExtensionAmount>
-    <cbc:TaxExclusiveAmount currencyID="${currency}">${Number(subtotal).toFixed(2)}</cbc:TaxExclusiveAmount>
-    <cbc:TaxInclusiveAmount currencyID="${currency}">${Number(total).toFixed(2)}</cbc:TaxInclusiveAmount>
-    <cbc:AllowanceTotalAmount currencyID="${currency}">${Number(discountAmt || 0).toFixed(2)}</cbc:AllowanceTotalAmount>
-    <cbc:PayableAmount currencyID="${currency}">${Number(total).toFixed(2)}</cbc:PayableAmount>
-  </cac:LegalMonetaryTotal>
+${allowanceXML(discTaxable, "S", 15)}${allowanceXML(discExempt, "E", 0)}
   <cac:TaxTotal>
-    <cbc:TaxAmount currencyID="${currency}">${Number(taxAmount).toFixed(2)}</cbc:TaxAmount>
-  </cac:TaxTotal>${lines}
+    <cbc:TaxAmount currencyID="${currency}">${Number(taxAmount).toFixed(2)}</cbc:TaxAmount>${taxableNet > 0 ? subtotalXML(taxableAfter, Number(taxAmount), "S", 15) : ""}${exemptNet > 0 ? subtotalXML(exemptAfter, 0, "E", 0) : ""}
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="${currency}">${linesNet.toFixed(2)}</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="${currency}">${taxExclusive.toFixed(2)}</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="${currency}">${taxInclusive.toFixed(2)}</cbc:TaxInclusiveAmount>
+    <cbc:AllowanceTotalAmount currencyID="${currency}">${disc.toFixed(2)}</cbc:AllowanceTotalAmount>
+    <cbc:PrepaidAmount currencyID="${currency}">${prepaid.toFixed(2)}</cbc:PrepaidAmount>
+    <cbc:PayableAmount currencyID="${currency}">${Number(total).toFixed(2)}</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>${lines}
 </Invoice>`;
 };
 

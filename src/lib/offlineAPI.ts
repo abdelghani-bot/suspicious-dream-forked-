@@ -11,6 +11,24 @@ export type QueuedEvent = {
     payload: any;
 };
 
+// 🆕 الفشل الجزئي في دفعات المخزون كان بيظهر في الـ console بس، والحدث كان بيتعلّم synced.
+// بنبعت CustomEvent عشان الواجهة تسمعه وتعرض تنبيه للمستخدم، من غير ما offlineAPI.ts
+// يعتمد على نظام الـ toast (عشان الملف يفضل مستقل عن الـ UI).
+export const STOCK_BATCH_FAILURE_EVENT = "stock-batch-failures";
+
+function reportStockBatchFailures(source: string, eventId: string, failed: any[]) {
+    // 🆕 بنسجّل في الـ console برضه زي الأول للتشخيص
+    console.error(`${source}: some events failed`, failed);
+    try {
+        // 🆕 try/catch عشان لو الكود اشتغل في بيئة من غير window ما يكسرش المزامنة
+        window.dispatchEvent(
+            new CustomEvent(STOCK_BATCH_FAILURE_EVENT, {
+                detail: { source, eventId, failed },
+            })
+        );
+    } catch { /* مش لازم نوقف المزامنة عشان التنبيه فشل */ }
+}
+
 // ── تنفيذ فعلي لكل نوع event على Supabase (زي ما هو تمامًا) ──
 async function executeEvent(event: QueuedEvent): Promise<any> {
     switch (event.type) {
@@ -42,7 +60,12 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             });
             if (error) throw error;
             const failed = (data?.results || []).filter((r: any) => r.status === "error");
-            if (failed.length > 0) console.error("apply_stock_movements_batch: some events failed", failed);
+            if (failed.length > 0) {
+                // 🆕 مش بنعمل throw: الخطأ بيزنس (insufficient_stock / batch_ref_missing) والـ retry مش هيصلحه
+                reportStockBatchFailures("apply_stock_movements_batch", event.id, failed);
+                // 🆕 بنرجّع الفشل عشان queueEvent يوصّله للي نادى عليه
+                return { stockFailures: failed };
+            }
             break;
         }
         case "LOYALTY_DELTA": {
@@ -106,7 +129,11 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             });
             if (error) throw error;
             const failed = (data?.results || []).filter((r: any) => r.status === "error");
-            if (failed.length > 0) console.error("apply_purchase_stock_batch: some events failed", failed);
+            if (failed.length > 0) {
+                // 🆕 نفس منطق البيع: تنبيه + إرجاع الفشل بدل الصمت
+                reportStockBatchFailures("apply_purchase_stock_batch", event.id, failed);
+                return { stockFailures: failed };
+            }
             break;
         }
         case "VARIANCE_LOG_INSERT": {
@@ -123,7 +150,24 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
         // executeEvent ما رمتش error — يعني رصيد افتتاحي كان بيتحفظ محليًا/في الـ UI بس، من
         // غير ما يوصل Supabase أونلاين خالص.
         case "INITIAL_STOCK_ENTRY": {
-            const { logData, adjustments, productUpdates, resolveVariance } = event.payload;
+            const { logData, adjustments, productUpdates, resolveVariance, countLines } = event.payload;
+
+            if (countLines) {
+            // ✅ المسار الجديد: transaction واحدة على السيرفر + تطبيق الجرد بالفرق (Delta)
+            // الـ log نفسه هو علامة الـ idempotency (إعادة الإرسال ترجع already_applied)
+            const meta = (productUpdates || [])
+                .filter((u: any) => u.price != null || u.cost != null)
+                .map((u: any) => ({ id: u.id, price: u.price ?? null, cost: u.cost ?? null }));
+            const { error: cntErr } = await supabase.rpc("apply_inventory_count", {
+                p_pharmacy_id: event.pharmacy_id,
+                p_log: logData,
+                p_adjustments: adjustments || [],
+                p_lines: countLines,
+                p_meta: meta,
+            });
+            if (cntErr) throw cntErr;
+            } else {
+            // events قديمة عالقة في الطابور قبل التحديث → المسار القديم زي ما هو
 
             const { error: logErr } = await supabase.from("inventory_logs").insert(logData);
             if (logErr) throw logErr;
@@ -149,6 +193,8 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
                     .eq("pharmacy_id", u.pharmacy_id);
                 if (error) throw error;
             }
+
+            } // نهاية المسار القديم
 
             if (resolveVariance && resolveVariance.length > 0) {
                 for (const r of resolveVariance) {
@@ -773,6 +819,13 @@ function eventModule(type: string): string {
     return type.split("_")[0];
 }
 
+// 🆕 هل الخطأ ده تكرار primary key؟ (الحدث اتنفذ فعلًا على السيرفر قبل كده)
+// بنقصرها على *_pkey بس (مش أي 23505) عشان قيد unique تاني (زي باركود مكرر)
+// ده فشل حقيقي مش لازم نخبّيه بتعليم الحدث synced
+function isDuplicatePkeyError(err: any): boolean {
+    return err?.code === "23505" && /_pkey\b/.test(String(err?.message || ""));
+}
+
 // 🆕 تنفيذ تسلسلي لسلسلة events تابعة لنفس الموديول — نفس منطق الـ for loop القديم
 // بالظبط (تنفيذ + تسجيل نجاح/فشل)، لكن دلوقتي بيتنادى بالتوازي لكذا موديول مع بعض
 async function runChain(events: QueuedEvent[]) {
@@ -781,6 +834,19 @@ async function runChain(events: QueuedEvent[]) {
             await executeEvent(event);
             await window.offlineAPI.markSynced([event.id]);
         } catch (err) {
+            // 🆕 لو السيرفر بيقول الـ primary key موجود، يبقى الحدث ده اتنفذ قبل كده ونجح
+            // (الرد ضاع أو markSynced فشل محليًا). إعادة المحاولة مش هتنفع وهتوصّله dead-letter
+            // بالغلط، فبنعلّمه synced ونكمل. الـ RPCs اللي فيها transaction بتتراجع كلها عند
+            // الفشل، فمفيش خطر إن نكون سجّلنا تنفيذ ناقص.
+            if (isDuplicatePkeyError(err)) {
+                console.warn(`event ${event.id} ${event.type}: السجل موجود بالفعل على السيرفر — تعليمه synced`);
+                try {
+                    await window.offlineAPI.markSynced([event.id]);
+                } catch (markErr) {
+                    console.error("markSynced failed after duplicate-pkey:", markErr);
+                }
+                continue;
+            }
             // 🆕 بدل ما نسيب الـ event يتكرر للأبد كل 30 ثانية، بنسجّل الفشل في SQLite
             // (sync_attempts محفوظة، مش بتتصفّر لو التطبيق اتقفل). لو عدّى الحد الأقصى
             // (5 محاولات)، main.cjs بيعلّمه dead-letter تلقائيًا فمش هيرجع في getPendingEvents تاني

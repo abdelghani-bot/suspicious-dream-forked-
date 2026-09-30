@@ -8,6 +8,9 @@ import { Badge, Btn, Input, Modal, Pagination, Select, StatCard, Table } from ".
 
 // ==================== REPORTS ====================
 export function Reports({ sales, purchases, products, suppliers, customers, returns = [], manufacturers = [], pharmacyId, treasuryEntries = [], creditPayments = [], setTab }) {
+  // 🆕 سجل المرتجع بيخزّن supplier_id بس (من غير الاسم) — فنجيب الاسم من قائمة الموردين
+  const supplierNameOf = (r) =>
+    r.supplier_name || (suppliers || []).find((x) => String(x.id) === String(r.supplier_id))?.name || "";
   const [type, setType] = useState("sales");
   // 🆕 افتراضي "من" = أول الشهر الحالي بدل فاضي — كان بيخلي التقرير (لو المستخدم مسحتش "من")
   // يعرض كل فواتير الصيدلية من أول يوم فتحت فيه الحساب، وده بطيء وغير مفيد في أغلب الاستخدام.
@@ -86,7 +89,7 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       const inId = (r.id || "").toLowerCase().includes(q);
-      const inParty = ((r.customer_name || "") + (r.supplier_name || "")).toLowerCase().includes(q);
+      const inParty = ((r.customer_name || "") + supplierNameOf(r)).toLowerCase().includes(q);
       const inReason = (r.reason || "").toLowerCase().includes(q);
       const inItems = (r.items || []).some((i) => (i.name || "").toLowerCase().includes(q));
       if (!inId && !inParty && !inReason && !inItems) ok = false;
@@ -365,7 +368,7 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
     } else if (type === "purchase_returns") {
       headers = ["رقم المرتجع", "التاريخ", "المورد", "السبب", "الإجمالي"];
       rows = returnsPurchases.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((r) => [
-        r.id, r.date, r.supplier_name || "—", r.reason || "—", (r.total || 0).toFixed(2),
+        r.id, r.date, supplierNameOf(r) || "—", r.reason || "—", (r.total || 0).toFixed(2),
       ]);
       sheetName = "مرتجع المشتريات"; fileLabel = "تقرير_مرتجع_المشتريات";
     } else if (type === "payments") {
@@ -642,9 +645,9 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
                   id: r.id,
                   date: r.date,
                   partyLabel: "المورد",
-                  partyName: r.supplier_name || "—",
+                  partyName: supplierNameOf(r) || "—",
                   payment: "—",
-                  items: (r.items || []).map((it) => ({ name: it.name, qty: it.returnQty ?? it.qty, price: it.price })),
+                  items: (r.items || []).map((it) => ({ name: it.name, qty: it.returnQty ?? it.qty, price: it.price ?? it.cost })),
                   subtotal: r.subtotal,
                   taxAmount: r.tax,
                   total: r.total,
@@ -655,7 +658,7 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
                 style={{ color: COLORS.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}
               >{r.id}</span>,
               r.date,
-              r.supplier_name || "—",
+              supplierNameOf(r) || "—",
               <span>{r.reason || "—"}{isAutoReturn(r) && <span style={{ marginRight: 6 }}><Badge color={COLORS.redSoft} text={COLORS.coral}>تلقائي</Badge></span>}</span>,
               <span style={{ color: COLORS.coral, fontWeight: 700 }}>{(r.total || 0).toFixed(2)} ر.س</span>,
             ])}

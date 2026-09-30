@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { queueEvent, insertTreasuryEntry, getLoyaltyTransactions, reverseLoyaltyPointsForReturn } from "../lib/offlineAPI";
+import { queueEvent, insertTreasuryEntry, getLoyaltyTransactions, reverseLoyaltyPointsForReturn, adjustLoyaltyPoints } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { BarcodeScanner } from "../components/BarcodeScanner";
 import { TAX_RATE } from "../data/seedData";
@@ -33,6 +33,7 @@ export function ReturnsModule({
     canEditSalesReturns = true,
     canEditPurchaseReturns = true,
     fixedType = null,
+    loyaltySettings = null, // 🆕 مطلوب لرد النقاط المستبدلة (points_per_riyal) — مرره من App زي ما بتمرره للـ POS
 }) {
     const [type, setType] = useState(fixedType || (canViewSalesReturns ? "sales" : "purchases"));
     const [returnItems, setReturnItems] = useState([]);
@@ -164,8 +165,9 @@ export function ReturnsModule({
         setInvoiceSearch(invoice.id);
         setInvoiceSearchOpen(false);
         setReturnItems(
-            (invoice.items || []).map((item) => ({
+            (invoice.items || []).map((item, lineIdx) => ({
                 ...item,
+                lineIdx, // موضع السطر في الفاتورة الأصلية — عشان نفس الصنف بسطرين (صلاحيات مختلفة) ما يتلخبطوش
                 returnQty: 0,
                 originalBatch: item.batch || null,
                 originalExpiry: item.expiry || null,
@@ -213,18 +215,52 @@ export function ReturnsModule({
         }
     }, [selPurchaseInvoice, type]);
 
-    const returnSubtotal = returnItems.reduce(
+    const round2 = (n) => Math.round(n * 100) / 100;
+
+    // 🆕 نفس الصنف ممكن يظهر في أكتر من سطر بفاتورة الشراء (دفعات مختلفة) — لازم نطابق السطر بالدفعة مش بالصنف بس
+    const sameInvoiceLine = (a, b) =>
+        a.id === b.id && (a.batch_id || "") === (b.batch_id || "");
+
+    // 🆕 المرتجع بيتحسب كنسبة من الفاتورة الأصلية بأرقامها المخزنة (total / tax_amount) —
+    // فالخصم ونقاط الولاء (اللي بتتعامل كخصم) بيتراعوا تلقائي، وإشعار الدائن بيطابق الفاتورة
+    // (مرتجع كامل = نفس ضريبة وإجمالي الفاتورة بالظبط). شغالة على الفواتير القديمة والجديدة.
+    const grossRawOf = (price, qty, taxable) => (price || 0) * (qty || 0) * (taxable ? 1 + TAX_RATE : 1);
+    const saleReturnShare = (() => {
+        if (type !== "sales" || !selInvoice || selInvoice.total == null) return null;
+        const rawGross = (selInvoice.items || [])
+            .filter((i) => !i.isMissed)
+            .reduce((s, i) => s + grossRawOf(i.price, i.qty, i.taxable), 0);
+        if (rawGross <= 0) return null;
+        const retGross = returnItems.reduce((s, i) => s + grossRawOf(i.price, i.returnQty, i.taxable), 0);
+        return Math.min(1, Math.max(0, retGross / rawGross));
+    })();
+
+    const returnSubtotalRaw = returnItems.reduce(
         (s, i) => s + (type === "purchases" ? i.cost || i.price || 0 : i.price || 0) * (i.returnQty || 0),
         0
     );
-    const returnTax = returnItems.reduce(
+    const returnTaxRaw = returnItems.reduce(
         (s, i) =>
             i.taxable
                 ? s + (type === "purchases" ? i.cost || i.price || 0 : i.price || 0) * (i.returnQty || 0) * TAX_RATE
                 : s,
         0
     );
-    const returnTotal = returnSubtotal + returnTax;
+    let returnSubtotal = returnSubtotalRaw;
+    let returnTax = returnTaxRaw;
+    let returnTotal = returnSubtotalRaw + returnTaxRaw;
+    if (saleReturnShare != null) {
+        const invTax = selInvoice.tax_amount ?? selInvoice.taxAmount ?? 0;
+        returnTotal = round2(saleReturnShare * (selInvoice.total || 0)); // الكاش المدفوع فعلاً
+        returnTax = round2(saleReturnShare * invTax);
+        returnSubtotal = round2(returnTotal - returnTax);
+    }
+
+    // 🆕 نقاط الولاء المستبدلة في الفاتورة الأصلية بتتردّ كنقاط (مش كاش) بنفس نسبة المرتجع
+    const pointsToRestore =
+        saleReturnShare != null && selInvoice?.points_redeemed > 0
+            ? round2(saleReturnShare * selInvoice.points_redeemed * (loyaltySettings?.points_per_riyal || 1))
+            : 0;
 
     const handleReturnScan = (scan) => {
         if (type !== "sales") return;
@@ -247,7 +283,13 @@ export function ReturnsModule({
             return;
         }
 
-        const idx = returnItems.findIndex((i) => i.id === prod.id);
+        const remainingOf = (r) => (r.qty || 0) - (r.alreadyReturnedQty || 0) - (r.returnQty || 0);
+        const sameProd = returnItems.map((r, i) => ({ r, i })).filter(({ r }) => r.id === prod.id);
+        const pick =
+            sameProd.find(({ r }) => scannedExpiry && String(r.originalExpiry || "").slice(0, 7) === scannedExpiry && remainingOf(r) > 0) ||
+            sameProd.find(({ r }) => remainingOf(r) > 0) ||
+            sameProd[0];
+        const idx = pick ? pick.i : -1;
         if (idx === -1) {
             setLastScanResult({ status: "not_in_invoice", name: prod.name, code });
             showToast(`⚠️ "${prod.name}" غير موجود ضمن أصناف هذه الفاتورة`, "error");
@@ -337,7 +379,7 @@ export function ReturnsModule({
         for (const item of returnItems) {
             if (item.returnQty > 0 && !validateItem(item)) return;
             if (type === "sales" && selInvoice) {
-                const origItem = selInvoice.items?.find((x) => x.id === item.id);
+                const origItem = item.lineIdx != null ? selInvoice.items?.[item.lineIdx] : selInvoice.items?.find((x) => x.id === item.id);
                 const alreadyReturned = item.alreadyReturnedQty || 0;
                 if (origItem && item.returnQty + alreadyReturned > origItem.qty) {
                     showToast(
@@ -348,7 +390,7 @@ export function ReturnsModule({
                 }
             }
             if (type === "purchases" && purchaseInvoice) {
-                const origItem = purchaseInvoice.items?.find((x) => x.id === item.id);
+                const origItem = purchaseInvoice.items?.find((x) => sameInvoiceLine(x, item));
                 const alreadyReturned = item.alreadyReturnedQty || 0;
                 if (origItem && item.returnQty + alreadyReturned > origItem.qty) {
                     showToast(
@@ -376,21 +418,62 @@ export function ReturnsModule({
         // 🆕 بنبعت delta (+/-) مش newStock مطلق — السيرفر يطبّق stock = stock + delta جوه RPC
         // واحدة (apply_return_process)، فمفيش خطر تعارض/فقد بيانات لو حصل أكتر من مرتجع أو
         // بيع على نفس الصنف من جهاز/تبويب تاني قبل ما يوصل النت ويحصل الـ sync.
-        const stockDeltas = [];
+        // stockDeltas بتتبني من السطور نفسها (مش جوه setProducts) عشان تتحسب مرة واحدة ومضمونة،
+        // وكل سطر بيحمل تاريخ الصلاحية الأصلي عشان السيرفر يرجّع الكمية لنفس الدفعة.
+        const stockDeltas = itemsToReturn.map((ri) => ({
+            id: ri.id,
+            delta: type === "sales" ? ri.returnQty : -ri.returnQty,
+            expiry_date: type === "sales" ? (ri.originalExpiry || ri.expiry || null) : null,
+            batch_number: type === "sales" ? (ri.originalBatch || ri.batch || null) : null,
+            // مرتجع مشتريات: سطر الفاتورة عنده batch_id، فالسيرفر يخصم من نفس الدفعة بالظبط
+            batch_id: type === "purchases" ? (ri.batch_id || null) : null,
+        }));
+
         setProducts((p) =>
             p.map((x) => {
-                const ri = itemsToReturn.find((i) => i.id === x.id);
-                if (!ri) return x;
-                const delta = type === "sales" ? ri.returnQty : -ri.returnQty;
-                stockDeltas.push({ id: x.id, delta });
-                return { ...x, stock: x.stock + delta };
+                const lines = stockDeltas.filter((dl) => dl.id === x.id);
+                if (lines.length === 0) return x;
+
+                const norm = (v) => (v ? String(v).slice(0, 7) : "");
+                let stock = x.stock;
+                let batches = [...(x.batches || [])];
+
+                for (const dl of lines) {
+                    stock += dl.delta;
+                    // مرتجع مبيعات: نرجّع الكمية لدفعتها محليًا، وننشئ الدفعة لو اتشالت بعد ما رصيدها صفّر.
+                    // الاستثناء: صنف عنده رصيد قديم من غير دفعات، منضيفش دفعة تخفيه.
+                    // مرتجع مشتريات: نخصم من الدفعة المرتجَع منها (بدون ما ينزل رصيدها عن صفر)
+                    if (dl.delta < 0 && dl.batch_id) {
+                        const bi = batches.findIndex((b) => b.id === dl.batch_id);
+                        if (bi >= 0) {
+                            batches[bi] = { ...batches[bi], qty: Math.max(0, (batches[bi].qty || 0) + dl.delta) };
+                        }
+                    }
+                    if (dl.delta > 0 && dl.expiry_date && !(batches.length === 0 && x.stock > 0)) {
+                        const idx = batches.findIndex((b) => norm(b.expiry_date || b.expiry) === norm(dl.expiry_date));
+                        if (idx >= 0) {
+                            batches[idx] = { ...batches[idx], qty: (batches[idx].qty || 0) + dl.delta };
+                        } else {
+                            batches.push({
+                                qty: dl.delta,
+                                cost: x.cost,
+                                salePrice: x.price,
+                                date: todayLocal(),
+                                expiry_date: dl.expiry_date,
+                                batch_number: dl.batch_number || null,
+                            });
+                        }
+                    }
+                }
+                return { ...x, stock, batches };
             })
         );
-        // 🆕 نفس الـ deltas بتتكتب كمان في كاش SQLite المحلي (products_cache) بالتوازي مع
-        // React state — عشان لو قفلت البرنامج وانت أوفلاين قبل ما يوصل النت، الكاش يفضل
-        // مطابق للمخزون الفعلي، مش نسخة قديمة من آخر full sync.
+        // نفس الـ deltas في كاش SQLite المحلي
         try {
-            await window.offlineAPI?.applyProductStockDeltaCache?.({ pharmacyId, deltas: stockDeltas });
+            await window.offlineAPI?.applyProductStockDeltaCache?.({
+                pharmacyId,
+                deltas: stockDeltas.map((dl) => ({ id: dl.id, delta: dl.delta })),
+            });
         } catch (err) {
             console.error("applyProductStockDeltaCache failed:", err);
         }
@@ -411,8 +494,8 @@ export function ReturnsModule({
                 return all.slice(ri.alreadyReturnedQty || 0, (ri.alreadyReturnedQty || 0) + ri.returnQty);
             });
 
-            updatedItems = (selInvoice.items || []).map((item) => {
-                const ri = itemsToReturn.find((i) => i.id === item.id);
+            updatedItems = (selInvoice.items || []).map((item, idx) => {
+                const ri = itemsToReturn.find((i) => i.id === item.id && (i.lineIdx == null || i.lineIdx === idx));
                 if (!ri) return item;
                 return { ...item, returnedQty: (item.returnedQty || 0) + ri.returnQty };
             });
@@ -423,6 +506,7 @@ export function ReturnsModule({
             salesReturnItems = itemsToReturn.map((ri) => ({
                 sale_id: selInvoice.id,
                 item_id: ri.id,
+                line_index: ri.lineIdx ?? null,
                 return_qty: ri.returnQty,
             }));
 
@@ -526,6 +610,21 @@ export function ReturnsModule({
                 } catch (err) {
                     console.error("reverseLoyaltyPointsForReturn failed:", err);
                 }
+
+                // 🆕 رد النقاط اللي العميل استبدلها في الفاتورة الأصلية (بنسبة المرتجع) كنقاط، مش كاش
+                if (pointsToRestore > 0) {
+                    try {
+                        await adjustLoyaltyPoints(
+                            pharmacyId,
+                            customerIdForPoints,
+                            pointsToRestore,
+                            `رد نقاط مستبدلة بسبب مرتجع من فاتورة ${selInvoice.id}`
+                        );
+                        showToast(`↩️ تم رد ${pointsToRestore.toFixed(1)} نقطة لرصيد العميل`);
+                    } catch (err) {
+                        console.error("restore redeemed loyalty points failed:", err);
+                    }
+                }
             }
         }
 
@@ -537,7 +636,7 @@ export function ReturnsModule({
             supplierIdForReturn = purchaseInvoice.supplier;
             newReturnedAmount = (purchaseInvoice.returned_amount || 0) + returnTotal;
             purchaseUpdatedItems = (purchaseInvoice.items || []).map((item) => {
-                const ri = itemsToReturn.find((i) => i.id === item.id);
+                const ri = itemsToReturn.find((i) => sameInvoiceLine(i, item));
                 if (!ri) return item;
                 return { ...item, returnedQty: (item.returnedQty || 0) + ri.returnQty };
             });
@@ -547,6 +646,7 @@ export function ReturnsModule({
             purchaseReturnItems = itemsToReturn.map((ri) => ({
                 purchase_id: purchaseInvoice.id,
                 item_id: ri.id,
+                batch_id: ri.batch_id || null,
                 return_qty: ri.returnQty,
             }));
 
@@ -1169,6 +1269,11 @@ export function ReturnsModule({
                             {selInvoice.payment === "آجل"
                                 ? "↳ سيُخصم هذا المبلغ من مديونية العميل"
                                 : "↳ سيُسجَّل هذا المبلغ كمصروف من الخزنة"}
+                        </div>
+                    )}
+                    {pointsToRestore > 0 && (
+                        <div style={{ marginTop: 6, fontSize: 11, color: COLORS.green }}>
+                            ↳ سيتم رد {pointsToRestore.toFixed(1)} نقطة ولاء لرصيد العميل (استُبدلت في الفاتورة الأصلية)
                         </div>
                     )}
                     {type === "purchases" && purchaseInvoice && (
