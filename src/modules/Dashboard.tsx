@@ -4,6 +4,9 @@ import { getPendingZeroStockVariance } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
 import { useEssentialAlerts } from "../hooks/useEssentialAlerts";
 import { todayLocal } from "../lib/dateUtils";
+import { getCurrentOperationalDay, hasBusinessDayConfig, getScheduledDayEndTs, getBlockStartTs, makeRecordDateResolver } from "../lib/businessDay";
+import { computeDaySummary } from "../lib/treasuryUtils";
+import { useBusinessDayContext } from "../lib/useBusinessDayContext";
 import { MAIN_CATEGORIES } from "../lib/productConstants";
 import { calcAutoDiscount, describePromo, isPromoFulfillable } from "../lib/promoUtils";
 import { PromotionsModule } from "./PromotionsModule";
@@ -65,26 +68,34 @@ export function Dashboard({
     const monthKey = today.substring(0, 7);
 
     // ══════════════════════════════════════════════════════════
-    // 🆕 نقطة بداية "اليوم" الفعلية لكروت المبيعات/الفرص/الأقسام:
-    // بيتساوى منتصف الليل التقويمي إلا لو حصل تقفيل يومي (daily_closing)
-    // بعد منتصف الليل ده — يعني الصيدلي قفل يوم امبارح فعليًا وقت
-    // بقت الساعة داخلة في تاريخ اليوم. في الحالة دي نعتبر "اليوم" بادئ
-    // من لحظة التقفيل نفسها، عشان الكروت تصفر فورًا وقت التقفيل مش
-    // تفضل شايلة أرقام اليوم اللي فات لحد منتصف الليل التقويمي التالي.
-    const todayMidnightTs = new Date(); todayMidnightTs.setHours(0, 0, 0, 0);
-    const lastClosingTs = (treasuryEntries || [])
-        .filter((e) => e.sub_type === "daily_closing" && e.created_at)
-        .reduce((latest, e) => {
-            const t = new Date(e.created_at).getTime();
-            return t > latest ? t : latest;
-        }, 0);
-    const todayStartTs = Math.max(todayMidnightTs.getTime(), lastClosingTs);
-    // 🆕 بيستخدم created_at لو موجود (أدق وبيحل مشكلة التقفيل بعد نص الليل)،
-    // ولو مش موجود (سجلات قديمة) بيرجع للمقارنة بالتاريخ التقويمي العادية
-    const isTodayRecord = (record) => {
-        if (!record?.created_at) return record?.date === today;
-        return new Date(record.created_at).getTime() >= todayStartTs;
-    };
+    // 🆕 اليوم التشغيلي: اليوم = business_date لآخر شفت اتفتح، وبدايته = أقدم شفت في اليوم ده.
+    // مفيش تصفير عند التقفيل ولا عند منتصف الليل — كروت المبيعات/الفرص/الأقسام بتعرض إجمالي
+    // اليوم التشغيلي كله (قبل التقفيل وبعده)، واليوم بيتغير بس لما شفت جديد يتختم بتاريخ جديد.
+    // لو مفيش شفتات: منتصف الليل التقويمي (نفس السلوك القديم من غير تقفيل).
+    const { ctx: bdCtx, loaded: bdLoaded } = useBusinessDayContext(pharmacyId);
+    const nowDate = new Date();
+    const opDay = getCurrentOperationalDay({ now: nowDate, shifts });
+    const opDate = opDay.date;
+    // 🆕 نفس مُحدِّد "يوم السجل" المستخدم في تبويب الخزنة (حسب الشفت أو created_at)
+    const recDate = makeRecordDateResolver(shifts || []);
+    const todayStartTs = opDay.startTs;
+    // بيستخدم created_at لو موجود (أدق)، ولو مش موجود (سجلات قديمة) بيقارن بتاريخ اليوم التشغيلي
+    // 🆕 اتوحّد مع الخزنة: السجل "النهاردة" لو recDate بتاعه = اليوم التشغيلي الحالي. قبل كده كان
+    // بيقارن created_at بـ todayStartTs، فكان ممكن فاتورة تبان في الخزنة وما تبانش في كروت المبيعات.
+    const isTodayRecord = (record) => !!record && recDate(record) === opDate;
+    // 🆕 تعريف موحّد لفاتورة الآجل: بنطبّع الهمزات والمسافات ("آجل" / "أجل" / "اجل" / "اجل ") عشان أي اختلاف في الكتابة
+    // مايخليش الفاتورة تتسرب لإجمالي المبيعات والربح كأنها نقدي (المقارنة القديمة === "آجل" كانت حرفية).
+    const normPay = (v) => String(v ?? "").replace(/[أإآ]/g, "ا").replace(/\s+/g, " ").trim();
+    const isCreditSale = (s) => normPay(s?.payment) === "اجل";
+
+    // بانرات اليوم التشغيلي
+    const hasBdConfig = hasBusinessDayConfig(bdCtx);
+    const opDayClosed = (treasuryEntries || []).some((e) => e.sub_type === "daily_closing" && e.date === opDate);
+    const opDayEndRefTs = opDay.fromShifts && hasBdConfig
+        ? (getScheduledDayEndTs(opDate, bdCtx) ?? getBlockStartTs(opDate, bdCtx).ts)
+        : null;
+    const showNoScheduleBanner = bdLoaded && !hasBdConfig;
+    const showUnclosedBanner = opDayEndRefTs != null && !opDayClosed && nowDate.getTime() >= opDayEndRefTs;
 
     useEffect(() => {
         if (!pharmacyId) return;
@@ -221,18 +232,22 @@ export function Dashboard({
     const requiredDaily = daysLeftInMonth > 0 ? targetRemaining / daysLeftInMonth : targetRemaining;
     // ── حسابات المبيعات ──
     const todaySales = sales.filter((s) => isTodayRecord(s) && !s.returned);
-    const todayCashSales = todaySales.filter((s) => s.payment !== "آجل" && s.payment !== "تحصيل آجل");
-    const todayCreditPaid = creditPayments.filter((p) => isTodayRecord(p)).reduce((a, p) => a + p.amount, 0);
+    const todayCashSales = todaySales.filter((s) => !isCreditSale(s) && s.payment !== "تحصيل آجل");
+    // 🆕 أرقام "خزنة اليوم" والمرتجعات من الدالة المشتركة مع تبويب الخزنة (نفس recDate ونفس التعريف)
+    // — بدل isTodayRecord اللي كان بيدّي فروقات مع الخزنة (قيد ناقص created_at، الفواتير المختلطة، إلخ).
+    // 🆕 بنشيل فواتير الآجل من الداخل: الآجل مش كاش ولا شبكة، وبيدخل الخزنة فقط عن طريق سداده (creditPayments).
+    // لو splitSaleByMethod عامل الآجل "كاش افتراضي" ده كان بيسرّبه في كاش اليوم وصافي المبيعات.
+    const salesNoCredit = sales.filter((s) => !isCreditSale(s));
+    const treasuryDay = computeDaySummary({ sales: salesNoCredit, creditPayments, entries: treasuryEntries, returns: returnsData, recDate, day: opDate });
+    const todayCreditPaid = treasuryDay.creditIncome;
     // 🆕 المرتجعات هنا بتتحسب من treasury_entries (نفس مصدر تقفيل اليوم) مش من sales.returned مباشرة،
     // عشان: 1) مرتجع فاتورة آجل ميتخصمش من الخزنة (مفيش كاش خرج أصلاً)، 2) المرتجع الجزئي (مش كل الفاتورة) يتحسب صح.
-    const todayReturnsForDash = (treasuryEntries || [])
-        .filter((e) => isTodayRecord(e) && e.type === "expense" && e.sub_type === "sales_return")
-        .reduce((a, e) => a + (e.amount || 0), 0);
+    const todayReturnsForDash = treasuryDay.returnsEntries;
     const monthReturnsForDash = (treasuryEntries || [])
         .filter((e) => e.date?.startsWith(monthKey) && e.type === "expense" && e.sub_type === "sales_return")
         .reduce((a, e) => a + (e.amount || 0), 0);
     const todayRev = todayCashSales.reduce((a, s) => a + s.total, 0);
-    const todayAjilTotal = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
+    const todayAjilTotal = todaySales.filter((s) => isCreditSale(s)).reduce((a, s) => a + s.total, 0);
     const todayAvgInvoice = todayCashSales.length > 0 ? todayRev / todayCashSales.length : 0;
 
     // ── مبيعات الشبكة اليوم (فواتير بطاقة كاملة + جزء الكارت من الفواتير المختلطة) ──
@@ -247,19 +262,13 @@ export function Dashboard({
     // 🆕 نسخة خاصة بكارت "خزنة اليوم" بس (تحسب الكاش الفعلي): ما بتستبعدش الفاتورة اللي اترجعت
     // بالكامل زي todaySales فوق — عشان لو استبعدناها هنا هي كمان، المرتجع هيتخصم مرتين (تشال بالكامل
     // من هنا + قيمتها تتخصم تاني من todayReturnsForDash). المرتجع الصحيح مصدره الوحيد todayReturnsForDash.
-    const todayCashSalesForTreasury = sales.filter((s) => isTodayRecord(s) && s.payment !== "آجل" && s.payment !== "تحصيل آجل");
-    const todayRevForTreasury = todayCashSalesForTreasury.reduce((a, s) => a + s.total, 0);
-    const todayNetworkSalesForTreasury = todayCashSalesForTreasury.reduce((a, s) => {
-        if (s.payment === "بطاقة") return a + (s.total || 0);
-        if (s.payment === "مختلط" && s.payment_split) return a + (s.payment_split.card || 0);
-        return a;
-    }, 0);
-    const todayCashOnlySalesForTreasury = todayRevForTreasury - todayNetworkSalesForTreasury;
+    // 🆕 "شبكة / صراف" = بطاقة + تحويل (نفس المحفظة البنكية)، والكاش = النقدي + جزء الكاش من المختلط
+    const todayCashOnlySalesForTreasury = treasuryDay.cash;
+    const todayNetworkSalesForTreasury = treasuryDay.card + treasuryDay.transfer;
+    const todayRevForTreasury = todayCashOnlySalesForTreasury + todayNetworkSalesForTreasury;
 
     // ── النثريات المسجّلة اليوم من سجل الخزنة ──
-    const todayPettyExpenses = (treasuryEntries || [])
-        .filter((e) => isTodayRecord(e) && e.type === "expense" && e.sub_type === "petty")
-        .reduce((a, e) => a + (e.amount || 0), 0);
+    const todayPettyExpenses = treasuryDay.petty;
 
     const monthSales = sales.filter((s) => s.date?.startsWith(monthKey) && !s.returned);
 
@@ -283,10 +292,16 @@ export function Dashboard({
         .filter((s) => s.prescription_img && !s.returned && rxInRange(s))
         .sort((a, b) => (b.created_at || b.date || "").localeCompare(a.created_at || a.date || ""));
     const rxTotal = rxInvoices.reduce((a, s) => a + (s.total || 0), 0);
-    const monthCashSales = monthSales.filter((s) => s.payment !== "آجل");
+    const monthCashSales = monthSales.filter((s) => !isCreditSale(s));
     const monthRev = monthCashSales.reduce((a, s) => a + s.total, 0);
+    // 🆕 صافي مبيعات الشهر بعد المرتجعات: الإجمالي هنا بيشمل الفواتير المرتجعة بالكامل (غير الآجل) لأن
+    // مرتجعها بيتخصم من قيد الخزنة، فمفيش خصم مزدوج. (monthRev فوق بيستبعدها فمايستخدمش في الصافي.)
+    const monthGrossAll = sales
+        .filter((s) => s.date?.startsWith(monthKey) && !isCreditSale(s) && s.payment !== "تحصيل آجل")
+        .reduce((a, s) => a + (s.total || 0), 0);
+    const monthNetSales = monthGrossAll - monthReturnsForDash;
     const monthCreditCollected = creditPayments.filter((p) => p.date?.startsWith(monthKey)).reduce((a, p) => a + p.amount, 0);
-    const monthAjilTotal = monthSales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
+    const monthAjilTotal = monthSales.filter((s) => isCreditSale(s)).reduce((a, s) => a + s.total, 0);
     const monthAvgInvoice = monthCashSales.length > 0 ? monthRev / monthCashSales.length : 0;
 
     // ── آخر 7 أيام للجراف ──
@@ -296,7 +311,7 @@ export function Dashboard({
         return todayLocal(d);
     });
     const last7Data = last7Days.map((day) => {
-        const daySales = sales.filter((s) => s.date === day && !s.returned && s.payment !== "آجل");
+        const daySales = sales.filter((s) => s.date === day && !s.returned && !isCreditSale(s));
         return { day, rev: daySales.reduce((a, s) => a + s.total, 0) };
     });
     const maxRev = Math.max(...last7Data.map((d) => d.rev), 1);
@@ -332,7 +347,7 @@ export function Dashboard({
     };
     const monthsData = last6Months.map((mk) => {
         const mSales = sales.filter((s) => s.date?.startsWith(mk) && !s.returned);
-        const mCash = mSales.filter((s) => s.payment !== "آجل");
+        const mCash = mSales.filter((s) => !isCreditSale(s));
         const mRev = mCash.reduce((a, s) => a + s.total, 0);
         const mPurchases = purchases.filter((p) => (p.created_at || p.date || "").startsWith(mk)).reduce((a, p) => a + (p.total || 0), 0);
         const mCreditPaid = creditPayments.filter((p) => p.date?.startsWith(mk)).reduce((a, p) => a + p.amount, 0);
@@ -398,6 +413,55 @@ export function Dashboard({
     const todayReturns = (returnsData || []).filter((r) => isTodayRecord(r));
     const monthReturns = (returnsData || []).filter((r) => r.date?.startsWith(monthKey));
     const deptStatsToday = computeDeptStats(todaySales, todayReturns);
+
+    // 🆕 الصافي بعد المرتجعات (للكروت العلوية): المبيعات = كاش+شبكة+تحويل − المرتجعات (نفس الخزنة)،
+    // والربح = ربح كل فواتير اليوم (حتى المرتجعة بالكامل) − ربح الأصناف المرتجعة (كامل + جزئي).
+    // 🆕 أساس التحصيل: الآجل مايدخلش المبيعات وقت البيع، بيدخل بقيمة اللي اتسدد منه (todayCreditPaid) في يوم السداد.
+    const todayNetSales = todayRevForTreasury + todayCreditPaid - todayReturnsForDash;
+    const itemProfitOf = (it, qty) => {
+        const cost = it.cost ?? products.find((p) => p.id === it.id)?.cost ?? 0;
+        return ((it.price ?? 0) - cost) * (qty || 0);
+    };
+    const saleProfitOf = (s) => getSaleItems(s).filter((it) => !it.isMissed).reduce((x, it) => x + itemProfitOf(it, it.qty), 0);
+    // 🆕 ربح الفواتير غير الآجل فقط (المحصّل فعليًا وقت البيع)
+    const todayNonCreditProfit = sales
+        .filter((s) => isTodayRecord(s) && !isCreditSale(s))
+        .reduce((a, s) => a + saleProfitOf(s), 0);
+    // 🆕 ربح الآجل بنسبة المسدد: ربح الفاتورة × (مبلغ السداد ÷ إجمالي الفاتورة)، في يوم السداد (حتى لو الفاتورة من يوم قبل).
+    // الجزء غير المسدد مايدخلش الربح، وبالتالي نسبة الربح للمبيعات بتفضل منطقية.
+    const salesById = new Map((sales || []).map((s) => [s.id, s]));
+    const todayCreditProfitCollected = (creditPayments || [])
+        .filter((p) => isTodayRecord(p))
+        .reduce((a, p) => {
+            const inv = salesById.get(p.invoice_id);
+            if (!inv || !(inv.total > 0)) return a;
+            const ratio = Math.min((p.amount || 0) / inv.total, 1);
+            return a + saleProfitOf(inv) * ratio;
+        }, 0);
+    const todayGrossProfitAll = todayNonCreditProfit + todayCreditProfitCollected;
+    // نشيل التكرار بالـ id: لو نفس سجل المرتجع اتضاف مرتين في الـ state (إضافة محلية + تحميل من السيرفر)
+    // كان ربح المرتجع بيتحسب مرتين.
+    // وبنحسب ربح المرتجع بس لفواتير اليوم نفسها: ربح اليوم = ربح فواتير اليوم − ربح اللي اترجع منها.
+    // مرتجع فاتورة من يوم/شفت تاني (زي تجارب قبل بداية الشفت) كان بيتخصم هنا من غير ما ربح فاتورته يدخل في الإجمالي.
+    const todaySaleIds = new Set(sales.filter((s) => isTodayRecord(s) && !isCreditSale(s)).map((s) => s.id));
+    const seenReturnIds = new Set();
+    const todaySalesReturnsUnique = todayReturns.filter((r) => {
+        if (!r || r.type !== "sales") return false;
+        if (!todaySaleIds.has(r.invoice_id)) return false;
+        if (r.id == null) return true;
+        if (seenReturnIds.has(r.id)) return false;
+        seenReturnIds.add(r.id);
+        return true;
+    });
+    const todayReturnsProfit = todaySalesReturnsUnique
+        .reduce((a, r) => a + (r.items || []).reduce((x, it) => x + itemProfitOf(it, it.returnQty), 0), 0);
+    const todayNetProfit = todayGrossProfitAll - todayReturnsProfit;
+    // 🔎 تشخيص مؤقت: لو فيه فاتورة النهاردة قيمة payment بتاعتها مش من القيم المعروفة هيطبعها هنا (امسح الكتلة دي بعد التأكد)
+    {
+        const known = new Set(["نقدي", "بطاقة", "تحويل", "مختلط", "اجل", "تحصيل اجل"]);
+        const odd = sales.filter((s) => isTodayRecord(s) && !known.has(normPay(s.payment)));
+        if (odd.length) console.log("[dash-payment-unknown]", odd.map((s) => ({ id: s.id, payment: s.payment, total: s.total })));
+    }
     const deptStatsMonth = computeDeptStats(monthSales, monthReturns);
 
     // ══════════ أكثر الأصناف مبيعًا (يومي/شهري) — عدد قابل للتحديد من الصيدلي/المدير ══════════
@@ -476,7 +540,7 @@ export function Dashboard({
 
     // عملاء متأخرين في سداد مديونية الآجل (حسب فترة السداد الخاصة بكل عميل)
     const customerDues = (customers || []).map((c) => {
-        const ajilSales = (sales || []).filter((s) => s.customer === c.id && s.payment === "آجل");
+        const ajilSales = (sales || []).filter((s) => s.customer === c.id && isCreditSale(s));
         const terms = c.payment_terms || 30;
         let oldestDaysLeft = null, isOverdue = false, remainingTotal = 0;
         ajilSales.forEach((inv) => {
@@ -557,10 +621,26 @@ export function Dashboard({
     const shiftSales = currentShift
         ? sales.filter((s) => s.shift === currentShift.id && !s.returned)
         : [];
-    const shiftReturns = currentShift
-        ? sales.filter((s) => s.shift === currentShift.id && s.returned)
-        : [];
-    const shiftReturnsTotal = shiftReturns.reduce((a, s) => a + (s.total || 0), 0);
+    // 🆕 مرتجع الشفت = قيود مرتجع الخزنة (كامل + جزئي) على فواتير الشفت ده. قبل كده كان بيعدّ
+    // الفواتير المرتجعة بالكامل بس (returned=true)، فالمرتجع الجزئي ماكانش بيظهر.
+    // الفاتورة بتتعرف من ref_id، وللقيود القديمة (من غير ref_id) من نص الملاحظة "فاتورة <رقم>".
+    const shiftInvoiceIds = new Set(currentShift ? sales.filter((s) => s.shift === currentShift.id).map((s) => s.id) : []);
+    const shiftReturnsTotal = currentShift
+        ? (treasuryEntries || [])
+            .filter((e) => e && e.type === "expense" && e.sub_type === "sales_return")
+            .filter((e) => shiftInvoiceIds.has(e.ref_id || (e.note || "").match(/فاتورة\s+(\S+)/)?.[1]))
+            .reduce((a, e) => a + (e.amount || 0), 0)
+        : 0;
+    // 🆕 توضيح الآجل في كارت الشفت: "مبيعات الشفت" فضلت إجمالي الفواتير (اللي بتتسلّم وتتقفل عليه الشفت)،
+    // وضفنا تحتها الجزء الآجل والمحصّل فعليًا عشان مايحصلش لبس مع "مبيعات اليوم" (أساس التحصيل).
+    const shiftGrossTotal = shiftSales.reduce((a, s) => a + (s.total || 0), 0);
+    const shiftCreditSales = shiftSales.filter((s) => isCreditSale(s));
+    const shiftCreditTotal = shiftCreditSales.reduce((a, s) => a + (s.total || 0), 0);
+    const shiftCreditIds = new Set(shiftCreditSales.map((s) => s.id));
+    const shiftCreditPaid = (creditPayments || [])
+        .filter((p) => shiftCreditIds.has(p.invoice_id))
+        .reduce((a, p) => a + (p.amount || 0), 0);
+    const shiftCollected = shiftGrossTotal - shiftCreditTotal + shiftCreditPaid;
     const shiftItems = shiftSales.flatMap((s) => {
         try { return typeof s.items === "string" ? JSON.parse(s.items) : s.items || []; }
         catch { return []; }
@@ -660,6 +740,7 @@ export function Dashboard({
         const creditPaid = isToday ? todayCreditPaid : monthCreditCollected;
         const ajilTotal = isToday ? todayAjilTotal : monthAjilTotal;
         const returns = isToday ? todayReturnsForDash : monthReturnsForDash;
+        const netSales = isToday ? todayNetSales : monthNetSales;
         const isTodayReturn = (s) => {
             if (!s.returnCreatedAt) return s.returnDate === today; // سجلات قديمة قبل إضافة الحقل الجديد
             return new Date(s.returnCreatedAt).getTime() >= todayStartTs;
@@ -671,11 +752,12 @@ export function Dashboard({
         return (
             <>
                 {/* 5 stat cells — كل كارت دلالي بخلفية Soft Tint من لونه */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, padding: "14px 16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, padding: "14px 16px" }}>
                     {[
                         { label: "إجمالي المبيعات", val: rev.toFixed(0) + " ر.س", color: VAR.accent, sub: `${invoices.length} فاتورة` },
                         { label: "سداد الآجل", val: creditPaid.toFixed(0) + " ر.س", color: VAR.accent2, sub: `مديونية ${ajilTotal.toFixed(0)}` },
                         { label: "مرتجع المبيعات", val: returns.toFixed(0) + " ر.س", color: VAR.danger, sub: `${returnsCnt} فاتورة مرتجعة` },
+                        { label: "صافي المبيعات", val: netSales.toFixed(0) + " ر.س", color: VAR.accent2, sub: "بعد المرتجعات" },
                         { label: "الفرص الضائعة", val: missed.toFixed(0) + " ر.س", color: VAR.warn, sub: `${missedCnt} صنف مفقود`, onClick: () => setShowMissedModal(true) },
                         { label: "متوسط الفاتورة", val: avgInv.toFixed(1) + " ر.س", color: VAR.text, sub: "ريال", neutral: true },
                     ].map((cell, i) => (
@@ -884,6 +966,34 @@ export function Dashboard({
     return (
         <div style={{ fontFamily: "'Cairo', sans-serif" }}>
 
+            {/* ── بانرات اليوم التشغيلي ── */}
+            {showUnclosedBanner && (
+                <div style={{
+                    background: tint(VAR.warn, 0.1), border: `1px solid ${tint(VAR.warn, 0.35)}`,
+                    borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: VAR.muted,
+                    display: "flex", alignItems: "center", gap: 10,
+                }}>
+                    <span style={{ fontSize: 16 }}>🔔</span>
+                    <span>
+                        <strong style={{ color: VAR.warn }}>اليوم التشغيلي {opDate} لسه مقفلش</strong>
+                        {" — عدّى وقت نهايته المجدولة. اقفله من تبويب الخزنة قبل فتح شفت جديد."}
+                    </span>
+                </div>
+            )}
+            {showNoScheduleBanner && (
+                <div style={{
+                    background: tint(VAR.warn, 0.08), border: `1px solid ${tint(VAR.warn, 0.3)}`,
+                    borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: VAR.muted,
+                    display: "flex", alignItems: "center", gap: 10,
+                }}>
+                    <span style={{ fontSize: 16 }}>ℹ️</span>
+                    <span>
+                        <strong style={{ color: VAR.warn }}>مفيش جدول دوام ولا وقت بداية يوم تشغيلي</strong>
+                        {" — فالنظام بيعتبر اليوم بيبدأ منتصف الليل (التنبيه بالتقفيل والمنع هيشتغلوا على الأساس ده). للحل: املأ جدول الدوام، أو حدد «وقت بداية اليوم التشغيلي» من إعدادات الصيدلية."}
+                    </span>
+                </div>
+            )}
+
             {/* ── Alert Strip (مختصر يفتح مركز التنبيهات) ── */}
             {totalAlertsCount > 0 && (
                 <div style={{
@@ -1058,8 +1168,8 @@ export function Dashboard({
                 marginRight: "auto",
             }}>
                 {[
-                    { label: "مبيعات اليوم", value: todayRev, color: VAR.accent, icon: "📊" },
-                    { label: "ربح اليوم", value: deptStatsToday.totalProfit, color: COLORS.green, icon: "💹" },
+                    { label: "مبيعات اليوم", value: todayNetSales, color: VAR.accent, icon: "📊" },
+                    { label: "ربح اليوم", value: todayNetProfit, color: COLORS.green, icon: "💹" },
                     { label: "خزنة اليوم", value: todayRevForTreasury + todayCreditPaid - todayReturnsForDash - todayPettyExpenses, color: VAR.accent2, icon: "💵" },
                     { label: "تنبيهات تحتاج تدخل", value: totalAlertsCount, isCount: true, color: totalAlertsCount > 0 ? VAR.danger : VAR.muted, icon: "🔔" },
                 ].map((m) => (
@@ -1117,7 +1227,7 @@ export function Dashboard({
 
                 {/* 1) المبيعات والفرص */}
                 {activeTab === "sales" && (
-                    <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayRev.toFixed(0)} ر.س` : null} badgeColor={VAR.accent} wide>
+                    <CollapsibleCard cardKey="sales" icon="📊" title="المبيعات والفرص" badge={salesTab === "today" ? `${todayNetSales.toFixed(0)} ر.س` : null} badgeColor={VAR.accent} wide>
                         <div style={{ display: "flex", background: VAR.surface2, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 2, gap: 2, margin: "10px 14px 0" }}>
                             {SALES_TABS.map((t) => (
                                 <button
@@ -1731,12 +1841,18 @@ export function Dashboard({
                                 { label: "فواتير الشفت", val: shiftSales.length },
                                 { label: "متوسط الأصناف/فاتورة", val: avgItemsPerInvoice },
                                 { label: "عملاء مسجلين", val: shiftSales.filter((s) => s.customer_id).length + " / " + shiftSales.length },
-                                { label: "مبيعات الشفت", val: S(shiftSales.reduce((a, s) => a + s.total, 0).toFixed(0) + " ر.س") },
+                                {
+                                    label: "مبيعات الشفت",
+                                    val: S(shiftGrossTotal.toFixed(0) + " ر.س"),
+                                    // 🆕 سطر توضيحي يظهر بس لو فيه آجل في الشفت
+                                    sub: shiftCreditTotal > 0 ? S(`منها آجل ${shiftCreditTotal.toFixed(0)} · محصّل ${shiftCollected.toFixed(0)}`) : null,
+                                },
                                 { label: "مرتجع الشفت", val: S(shiftReturnsTotal.toFixed(0) + " ر.س"), color: VAR.danger },
                             ].map((stat, i) => (
                                 <div key={i} style={{ background: VAR.surface, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", padding: "8px 10px" }}>
                                     <div style={{ fontSize: 10, color: VAR.muted }}>{stat.label}</div>
                                     <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: stat.color || VAR.text, marginTop: 2 }}>{stat.val}</div>
+                                    {stat.sub && <div style={{ fontSize: 9, color: VAR.muted, marginTop: 2 }}>{stat.sub}</div>}
                                 </div>
                             ))}
                         </div>

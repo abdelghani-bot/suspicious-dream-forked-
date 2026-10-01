@@ -7,6 +7,7 @@ import { TAX_RATE } from "../data/seedData";
 import { logAudit } from "../lib/auditLog";
 import { normGtin } from "../lib/barcodeUtils";
 import { todayLocal } from "../lib/dateUtils";
+import { getCurrentOperationalDay, shiftBusinessDate } from "../lib/businessDay";
 import { POS } from "./POS";
 import { SuppliersModule } from "./SuppliersModule";
 import { RasdQueue } from "../services/rasdService";
@@ -45,12 +46,14 @@ export function ReturnsModule({
     const [invoiceSearch, setInvoiceSearch] = useState("");
     const [invoiceSearchOpen, setInvoiceSearchOpen] = useState(false);
 
-    const todayStr = todayLocal();
+    // 🆕 "النهاردة" هنا = اليوم التشغيلي (نفس تعريف الداشبورد والخزنة) مش التاريخ التقويمي،
+    // عشان مرتجع بعد منتصف الليل (واليوم التشغيلي لسه ماخلصش) يتنسب لنفس اليوم ويظهر فيهم.
+    const todayStr = getCurrentOperationalDay({ now: new Date(), shifts }).date;
     const dayClosedToday = (entries || []).some(
         (e) => e.date === todayStr && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
     );
     const openShiftToday = (shifts || [])
-        .filter((s) => s.pharmacy_id === pharmacyId && !s.end_time && s.start_time?.startsWith(todayStr))
+        .filter((s) => s.pharmacy_id === pharmacyId && !s.end_time && shiftBusinessDate(s) === todayStr)
         .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())[0] || null;
     const [refundSource, setRefundSource] = useState("pending");
     useEffect(() => {
@@ -410,8 +413,9 @@ export function ReturnsModule({
         }
 
         const returnId = `RET-${Date.now()}`;
-        const today = todayLocal();
         const nowISO = new Date().toISOString();
+        const today = todayLocal(); // تاريخ المرتجع/الفاتورة/دفعة الآجل يفضل تقويمي (ضرائب + مستندات العميل)
+        const opToday = getCurrentOperationalDay({ now: new Date(nowISO), shifts }).date; // 🆕 اليوم التشغيلي — لقيد الخزنة بس
         const itemsToReturn = returnItems.filter((i) => i.returnQty > 0);
 
         // ── 1) تحديث المخزون محليًا فورًا (optimistic) + تجميع stockDeltas للـ event ──
@@ -542,7 +546,8 @@ export function ReturnsModule({
                     amount: returnTotal,
                     note: `مرتجع بيع — فاتورة ${selInvoice.id}${reason ? " - " + reason : ""}${refundMethod === "بطاقة" ? " — رجاعة شبكة" : ""
                         }${isShiftFundedRefund ? ` — من النقد الافتتاحي لشفت ${openShiftToday.id}` : ""}`,
-                    date: today,
+                    date: opToday,
+                    created_at: nowISO, // 🆕 عشان الداشبورد/الخزنة يلقطوا وقت المرتجع الفعلي
                     pharmacy_id: pharmacyId,
                     created_by: currentUser?.name || "",
                     ref_id: selInvoice.id,
@@ -554,7 +559,9 @@ export function ReturnsModule({
                         sub_type: "sales_return",
                         method: refundMethod,
                         amount: returnTotal,
-                        date: today,
+                        date: opToday,
+                        created_at: nowISO, // 🆕 من غيره القيد المحلي بيتفلتر بالتاريخ بس لحد أول reload
+                        ref_id: selInvoice.id,
                         pharmacy_id: pharmacyId,
                         created_by: currentUser?.name || "",
                     }, ...p]);

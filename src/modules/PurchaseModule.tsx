@@ -17,6 +17,7 @@ import { getDeviceId } from "../lib/deviceID";
 import { printHTML } from "../lib/printHelper";
 import { detectSupplierOfferPattern } from "../lib/promoUtils";
 import { saveProduct } from "../lib/offlineAPI";
+import { validateStockLines, formatValidationToast } from "../lib/validateStockLines"; // 🆕 شروط الحفظ المشتركة
 
 // 🆕 إعادة محاولة بسيطة لكتابات الكاش المحلي (SQLite) — دي مش مصدر الحقيقة (الـ pending_sync_events
 // هو المصدر)، بس لو فشلت لسبب عابر (قفل ملف، IO مؤقت) منستحقش نسيبها من أول مرة.
@@ -1406,6 +1407,25 @@ export function PurchaseModule({
             return;
         }
         const sup = suppliers.find((s) => s.id === selSupplier);
+
+        // 🆕 شرط الحفظ: كل سطر لازم يكون فيه تاريخ صلاحية + تكلفة > 0 + سعر بيع > 0
+        // (والتكلفة مينفعش تعدّي سعر البيع). بيسري على الفاتورة الجديدة واستكمال المسودة.
+        // الكمية المدفوعة (من غير البونص) لازم تكون أكبر من صفر.
+        const lineErrors = validateStockLines(
+            items.map((i) => ({
+                name: i.name,
+                expiry_date: i.expiry_date,
+                cost: i.receivedCost,
+                price: i.newSalePrice,
+                qty: (+i.qty || 0) + (+i.bonusQty || 0),
+                paidQty: +i.qty || 0,
+            })),
+            { requirePositiveQty: true } // 🆕 الكمية لازم تكون أكبر من صفر
+        );
+        if (lineErrors.length > 0) {
+            showToast(formatValidationToast(lineErrors), "error");
+            return;
+        }
 
         // ═══════════════════════════════════════════════════
         // 🆕 مسار "استكمال فاتورة مسودة موجودة" (جاية من رصيد صفر في نقطة البيع) —
@@ -3818,6 +3838,22 @@ for (const ci of standaloneOfferItems) {
                             onClick={async () => {
     if (!canEdit) {
         showToast("ليس لديك صلاحية تعديل فواتير الشراء", "error");
+        return;
+    }
+    // 🆕 نفس شرط الحفظ في تعديل الفاتورة (وفي استكمال المسودة من مودال التفاصيل)
+    const editLineErrors = validateStockLines(
+        editItems.map((i) => ({
+            name: i.name,
+            expiry_date: i.expiry_date,
+            cost: i.receivedCost,
+            price: i.newSalePrice,
+            qty: (+i.qty || 0) + (+i.bonusQty || 0),
+            paidQty: +i.qty || 0,
+        })),
+        { requirePositiveQty: true } // 🆕 الكمية لازم تكون أكبر من صفر
+    );
+    if (editLineErrors.length > 0) {
+        showToast(formatValidationToast(editLineErrors), "error");
         return;
     }
     const editCalcSubtotal = editItems.reduce(

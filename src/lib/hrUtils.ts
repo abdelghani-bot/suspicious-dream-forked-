@@ -1,4 +1,4 @@
-import { isRamadan } from "./dateUtils";
+import { isRamadan, isSamePharmacist } from "./dateUtils";
 import { AttendanceModule } from "../modules/AttendanceModule";
 
 // ========== نظام الرواتب — دوال مساعدة مشتركة ==========
@@ -83,7 +83,9 @@ export function getExpectedShiftForSalary(pharmacistName, dow, shiftNumber, date
   // شفتات التناوب الدوري (rotation_schedules) لأن منطق تحديد "صاحب الدور" مرتبط بحالة داخلية في
   // موديول الحضور. لو عندك صيادلة شغالين بنظام تناوب، تأخيرهم المحسوب هنا ممكن يبقى غير دقيق —
   // راجعه يدويًا في فورم الصرف قبل التأكيد.
-  const ramadanActive = isRamadan();
+  // 🆕 رمضان بيتحدد بتاريخ اليوم المطلوب (dateStr) مش بتاريخ النهارده — عشان صرف/مراجعة شهر سابق ياخد جدول الشهر ده.
+  // isRamadan بتشمل الفترات اليدوية من إعدادات الصيدلية (ramadan_ranges) لو اتحمّلت قبل الحساب.
+  const ramadanActive = isRamadan(dateStr);
   if (ramadanActive) {
     const ramadanMatch = (workSchedules || []).find(
       (s) => s.pharmacist_name === pharmacistName && s.day_of_week === dow && s.shift_number === shiftNumber && !s.is_off && s.is_ramadan
@@ -136,16 +138,28 @@ export function computeMonthlyAttendanceStats(pharmacistName, monthKey, ctx, sta
 
 // 🆕 إجمالي ساعات الدوام الأسبوعية المجدولة لموظف من work_schedules — بيُستخدم لحساب معدل الأجر
 // الساعي الفعلي بدل افتراض ثابت (8 ساعات)، عشان موظف شفته 6 ساعات ميتحاسبش بمعدل موظف شفته 9 ساعات
-export function calcWeeklyScheduledHours(pharmacistName, workSchedules) {
-  const ramadanActive = isRamadan();
-  const rows = (workSchedules || []).filter(
-    (s) => s.pharmacist_name === pharmacistName && !s.is_off && !!s.is_ramadan === ramadanActive
-  );
+export function calcWeeklyScheduledHours(pharmacistName, workSchedules, referenceDate, pharmacistUserId) {
+  // 🆕 referenceDate (اختياري، "YYYY-MM-DD"): التاريخ اللي بنحدد بيه رمضان. من غيره بيستخدم النهارده (السلوك القديم).
+  const ramadanActive = isRamadan(referenceDate);
+  // 🆕 المطابقة بالـ user_id لو متاح (وإلا الاسم) — نفس isSamePharmacist المستخدمة في الحضور، فتغيير اسم الصيدلي ما يصفّرش ساعاته
+  const mine = (workSchedules || []).filter((s) => isSamePharmacist(s, pharmacistName, pharmacistUserId) && !s.is_off);
+  // 🆕 نفس أولوية getExpectedShiftForSalary: في رمضان نستخدم صفوف رمضان لكل يوم عنده نسخة رمضان، واليوم اللي ملوش نسخة رمضان
+  // بيرجع للجدول العادي (قبل كده كان بيطلع صفر ساعات ويتحول لـ 26×8 في صرف الراتب).
+  const rows = mine.filter((s) => {
+    if (!ramadanActive) return !s.is_ramadan;
+    const dayHasRamadan = mine.some((r) => r.day_of_week === s.day_of_week && r.is_ramadan);
+    return dayHasRamadan ? !!s.is_ramadan : !s.is_ramadan;
+  });
   return rows.reduce((sum, s) => {
     if (!s.shift_start || !s.shift_end) return sum;
     const [sh, sm] = s.shift_start.split(":").map(Number);
     const [eh, em] = s.shift_end.split(":").map(Number);
-    return sum + Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 60);
+    if ([sh, sm, eh, em].some((v) => isNaN(v))) return sum;
+    const start = sh * 60 + sm;
+    const end = eh * 60 + em;
+    // 🆕 الشفت الليلي (النهاية <= البداية) بيعدّي منتصف الليل فنضيف 24 ساعة — قبل كده Math.max(0, ...) كان بيحسبه صفر ساعات
+    // فمعدل الأجر الساعي كان بيطلع أعلى من الحقيقي. نفس منطق shiftRangeMinutes و calcCappedHours.
+    return sum + (end > start ? end - start : end + 1440 - start) / 60;
   }, 0);
 }
 

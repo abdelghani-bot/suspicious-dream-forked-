@@ -6,6 +6,18 @@ import { DAY_NAMES, calcCappedHours, diffMin, findHolidayForDate, fmt, fmtHours,
 import { SAUDI_CITIES, fetchPrayerTimes } from "../lib/prayerTimes";
 import { SYSTEM_SECTIONS } from "./PermissionsModule";
 
+// 🆕 ساعات الشفت بالساعة؛ لو النهاية <= البداية يبقى شفت ليلي بيعدّي منتصف الليل (+24 ساعة).
+// نفس منطق calcCappedHours و shiftRangeMinutes — قبل كده الحساب كان (نهاية − بداية) فقط، فالشفت الليلي كان بيطلع سالب.
+const shiftHours = (start?: string | null, end?: string | null): number => {
+    if (!start || !end) return 0;
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh, em] = end.split(":").map(Number);
+    if ([sh, sm, eh, em].some((v) => isNaN(v))) return 0;
+    const st = sh * 60 + sm;
+    const en = eh * 60 + em;
+    return (en > st ? en - st : en + 1440 - st) / 60;
+};
+
 // ══════════════════════════════════════════════════════
 // Component منفصل — ضعه خارج AttendanceModule
 // ══════════════════════════════════════════════════════
@@ -148,11 +160,7 @@ export function WorkScheduleTab({ pharmacists, users = [], workSchedules, pharma
     // حساب إجمالي ساعات الأسبوع
     const weeklyHours = weekForm.reduce((total, day) => {
         if (day.is_off) return total;
-        return total + day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => {
-            const [sh, sm] = s.shift_start.split(":").map(Number);
-            const [eh, em] = s.shift_end.split(":").map(Number);
-            return sum + ((eh * 60 + em) - (sh * 60 + sm)) / 60;
-        }, 0);
+        return total + day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => sum + shiftHours(s.shift_start, s.shift_end), 0);
     }, 0);
 
     return (
@@ -203,11 +211,7 @@ export function WorkScheduleTab({ pharmacists, users = [], workSchedules, pharma
                 <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
                     {weekForm.map((day) => {
                         const isToday = day.day_of_week === todayDow;
-                        const dayHours = day.is_off ? 0 : day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => {
-                            const [sh, sm] = s.shift_start.split(":").map(Number);
-                            const [eh, em] = s.shift_end.split(":").map(Number);
-                            return sum + ((eh * 60 + em) - (sh * 60 + sm)) / 60;
-                        }, 0);
+                        const dayHours = day.is_off ? 0 : day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => sum + shiftHours(s.shift_start, s.shift_end), 0);
 
                         return (
                             <div key={day.day_of_week} style={{
@@ -274,10 +278,8 @@ export function WorkScheduleTab({ pharmacists, users = [], workSchedules, pharma
                                                         />
                                                         <span style={{ fontSize: 11, color: C.muted }}>
                                                             {(() => {
-                                                                const [sh_h, sh_m] = sh.shift_start.split(":").map(Number);
-                                                                const [eh, em] = sh.shift_end.split(":").map(Number);
-                                                                const h = ((eh * 60 + em) - (sh_h * 60 + sh_m)) / 60;
-                                                                return h > 0 ? `${h.toFixed(1)} س` : "";
+                                                                const h = shiftHours(sh.shift_start, sh.shift_end);
+                                                                return h > 0 ? `${h.toFixed(1)} س${sh.shift_end <= sh.shift_start ? " 🌙" : ""}` : "";
                                                             })()}
                                                         </span>
                                                         <span style={{ fontSize: 11, color: C.muted, marginRight: 4 }}>+أوفر تايم</span>
@@ -341,12 +343,7 @@ export function WorkScheduleTab({ pharmacists, users = [], workSchedules, pharma
                         {Array.from(new Map(workSchedules.map((s: any) => [s.pharmacist_user_id || `name:${s.pharmacist_name}`, s] as [string, any])).values()).map((first: any) => {
                             const name = (first.pharmacist_user_id && users.find((u: any) => String(u.id) === String(first.pharmacist_user_id))?.name) || first.pharmacist_name;
                             const pharmSchedules = workSchedules.filter((s: any) => (first.pharmacist_user_id ? s.pharmacist_user_id === first.pharmacist_user_id : (!s.pharmacist_user_id && s.pharmacist_name === first.pharmacist_name)) && !s.is_off);
-                            const totalHours = pharmSchedules.reduce((sum: number, s: any) => {
-                                if (!s.shift_start || !s.shift_end) return sum;
-                                const [sh, sm] = s.shift_start.split(":").map(Number);
-                                const [eh, em] = s.shift_end.split(":").map(Number);
-                                return sum + ((eh * 60 + em) - (sh * 60 + sm)) / 60;
-                            }, 0);
+                            const totalHours = pharmSchedules.reduce((sum: number, s: any) => sum + shiftHours(s.shift_start, s.shift_end), 0);
                             return (
                                 <div
                                     key={name}
@@ -1214,7 +1211,10 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     }
 
     async function loadMonthlyReport(month: string) {
-        const from = month + "-01", to = month + "-31";
+        // 🆕 آخر يوم فعلي في الشهر — "-31" كان بيرجّع خطأ 22008 من Postgres في الشهور اللي 30 يوم أو فبراير، فالتقرير كان بيقع على الكاش المحلي بصمت
+        const [yy, mm] = month.split("-").map(Number);
+        const lastDay = new Date(yy, mm, 0).getDate();
+        const from = month + "-01", to = month + "-" + String(lastDay).padStart(2, "0");
         try {
             if (!navigator.onLine) throw new Error("offline");
             const { data, error } = await supabase.from("attendance_logs").select("*, prayer_breaks(*)").eq("pharmacy_id", pharmacyId).gte("date", from).lte("date", to).order("date");
@@ -1288,15 +1288,31 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         return candidates.sort((x, y) => dist(x) - dist(y) || x.n - y.n)[0].n;
     }
 
+    // 🆕 التأخير بيتحسب على الشفت الصح: لو الحضور بعد منتصف الليل وفيه شفت ليلي بدأ امبارح وعدّى منتصف الليل ولسه شغال
+    // (بداية الشفت <= الحضور < نهايته + الأوفر تايم) يبقى الحضور ده تبعه، ومش تبع شفت النهاردة.
+    // كمان تاريخ البحث في الجدول بقى التاريخ المحلي (قبل كده كان slice(0,10) من ISO أي UTC، فبعد 12 بالليل كان بيلقط يوم امبارح).
     function calcLateMinutes(pharmacistName: string, shiftNum: number, checkInTime: string) {
-        const schedule = getExpectedShift(pharmacistName, new Date(checkInTime).getDay(), shiftNum, checkInTime.slice(0, 10));
-        if (!schedule) return 0;
-        const [expH, expM] = schedule.shift_start.split(":").map(Number);
-        const expected = new Date(checkInTime);
-        expected.setHours(expH, expM, 0, 0);
         const actual = new Date(checkInTime);
-        const diff = Math.round((actual.getTime() - expected.getTime()) / 60000);
-        const grace = +schedule.grace_minutes || 0;
+        const build = (base: Date) => {
+            const sch = getExpectedShift(pharmacistName, base.getDay(), shiftNum, todayLocal(base));
+            if (!sch?.shift_start || !sch?.shift_end) return null;
+            const [sH, sM] = sch.shift_start.split(":").map(Number);
+            const [eH, eM] = sch.shift_end.split(":").map(Number);
+            const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sH, sM, 0, 0);
+            const crosses = eH * 60 + eM <= sH * 60 + sM;
+            const end = new Date(base.getFullYear(), base.getMonth(), base.getDate() + (crosses ? 1 : 0), eH, eM, 0, 0);
+            return { sch, start, end, crosses };
+        };
+        const prev = build(new Date(actual.getFullYear(), actual.getMonth(), actual.getDate() - 1));
+        let picked = null as ReturnType<typeof build>;
+        if (prev && prev.crosses && actual.getTime() >= prev.start.getTime() &&
+            actual.getTime() < prev.end.getTime() + (+prev.sch.overtime_minutes || 0) * 60000) {
+            picked = prev;
+        }
+        if (!picked) picked = build(new Date(actual.getFullYear(), actual.getMonth(), actual.getDate()));
+        if (!picked) return 0;
+        const diff = Math.round((actual.getTime() - picked.start.getTime()) / 60000);
+        const grace = +picked.sch.grace_minutes || 0;
         return Math.max(0, diff - grace);
     }
 
@@ -1508,9 +1524,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
             const schedule2 = getExpectedShift(pharmacistName, dow, 2, dateStr, p.id);
             [schedule, schedule2].forEach((s) => {
                 if (!s?.shift_start || !s?.shift_end) return;
-                const [sh, sm] = s.shift_start.split(":").map(Number);
-                const [eh, em] = s.shift_end.split(":").map(Number);
-                requiredHours += (eh * 60 + em - (sh * 60 + sm)) / 60;
+                requiredHours += shiftHours(s.shift_start, s.shift_end); // 🆕 الشفت الليلي كان بيطلع سالب هنا
             });
         }
 

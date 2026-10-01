@@ -4,10 +4,12 @@ import { insertTreasuryEntry, insertTreasuryEntries } from "../lib/offlineAPI";
 import { COLORS, SHADOW, tint } from "../theme";
 import { AUDIT_ENTITY_LABELS, logAudit } from "../lib/auditLog";
 import { todayLocal } from "../lib/dateUtils";
+import { getCurrentOperationalDay, makeRecordDateResolver, shiftBusinessDate } from "../lib/businessDay";
 import { calcEndOfServiceBenefit, calcGosi, calcLeaveBalanceDays, calcWeeklyScheduledHours, computeMonthlyAttendanceStats, computeStaffCommissionForMonth } from "../lib/hrUtils";
-import { computeAvailableForPayment, computeTreasuryBalance } from "../lib/treasuryUtils";
+import { computeAvailableForPayment, computeTreasuryBalance, computeDaySummary, splitSaleByMethod } from "../lib/treasuryUtils";
 import { Btn, Input, Modal, Select } from "../ui/primitives";
 import { printHTML } from "../lib/printHelper";
+import { computeShiftClosing, printShiftClosing } from "../lib/shiftClosingPrint";
 
 // ==================== TREASURY MODULE ====================
 // 🆕 مدفوعات/قيود بتخص رصيد الخزنة المتراكم مباشرة (مش دخل/مصروف اليوم أو الشهر الفعلي) — زي
@@ -186,8 +188,14 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
             });
     }, [pharmacyId]);
 
-    const today = todayLocal();
-    const monthKey = today.substring(0, 7);
+    // 🆕 "اليوم" في الخزنة = اليوم التشغيلي (نفس تعريف الداشبورد): business_date لآخر شفت اتفتح.
+    // كل حركة (فاتورة/مرتجع/سداد آجل/قيد) بتتنسب ليومها عن طريق recDate (شفتها أو وقت إنشائها)
+    // بدل التاريخ التقويمي، فالشفت اللي بيعدّي منتصف الليل مابيتقسمش والعرض يطابق التقفيل.
+    // من غير شفتات مختومة بيرجع لنفس السلوك القديم بالظبط (التاريخ التقويمي).
+    const calendarToday = todayLocal();
+    const today = getCurrentOperationalDay({ now: new Date(), shifts }).date;
+    const recDate = useMemo(() => makeRecordDateResolver(shifts), [shifts]);
+    const monthKey = calendarToday.substring(0, 7);
 
     const [closingForm, setClosingForm] = useState({
         extra_income: "",
@@ -206,7 +214,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     useEffect(() => {
         if (!pharmacyId) return;
         const localClosing = (entries || []).find(
-            (e) => e.date === today && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
+            (e) => recDate(e) === today && e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing"
         );
         if (localClosing) { setClosingSaved(true); setClosingRecord(localClosing); return; }
         // 🆕 offline fallback: لو مفيش نت، نفحص الكاش المحلي الموحّد قبل ما نستسلم
@@ -238,7 +246,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // 🆕 نقطة القياس (cursor) لازم تتحرك مع كل تسوية تتضاف، مش تفضل ثابتة عند وقت التقفيل الأصلي —
     // وإلا نفس الفواتير اللي اتسوّت هتفضل تظهر "معلّقة" تاني وتتضاف مرتين لو ضغطنا تسوية تاني.
     const lastAdjustmentAt = (entries || [])
-        .filter((e) => e.pharmacy_id === pharmacyId && e.date === today && e.sub_type === "closing_adjustment" && e.created_at)
+        .filter((e) => e.pharmacy_id === pharmacyId && recDate(e) === today && e.sub_type === "closing_adjustment" && e.created_at)
         .reduce((max, e) => Math.max(max, new Date(e.created_at).getTime()), 0);
     const postClosingCursor = closingCreatedAt ? Math.max(closingCreatedAt, lastAdjustmentAt) : null;
     // 🆕 المبيعات الجديدة بعد التقفيل: من غير استبعاد المرتجعة بالكامل (!s.returned) — لو فاتورة
@@ -246,7 +254,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // يتخصم مرة واحدة بس تحت من postClosingReturns (بتوقيت المرتجع نفسه مش الفاتورة).
     const postClosingSales = postClosingCursor
         ? (sales || []).filter(
-            (s) => s.date === today && s.created_at && new Date(s.created_at).getTime() > postClosingCursor
+            (s) => recDate(s) === today && s.created_at && new Date(s.created_at).getTime() > postClosingCursor
         )
         : [];
     // 🆕 المرتجعات (كامل + جزئي) بعد التقفيل: بنستخدم جدول returns بتوقيت المرتجع نفسه (r.created_at)
@@ -261,7 +269,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // بقت مقصورة على المبيعات الجديدة فقط كدخل. بنسيب postClosingReturns للعرض الإعلامي بس.
     const postClosingReturns = postClosingCursor
         ? (returns || []).filter(
-            (r) => r.type === "sales" && r.date === today && r.refund_source !== "shift" &&
+            (r) => r.type === "sales" && recDate(r) === today && r.refund_source !== "shift" &&
                 r.refund_method && r.refund_method !== "بطاقة" &&
                 r.created_at && new Date(r.created_at).getTime() > postClosingCursor
         )
@@ -278,7 +286,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const isDuplicateAdjustment = (dateVal, saleIds) => {
         if (saleIds.length === 0) return false;
         const priorAdjustments = (entries || []).filter(
-            (e) => e.pharmacy_id === pharmacyId && e.date === dateVal && e.sub_type === "closing_adjustment"
+            (e) => e.pharmacy_id === pharmacyId && recDate(e) === dateVal && e.sub_type === "closing_adjustment"
         );
         return priorAdjustments.some((e) => saleIds.every((sid) => (e.note || "").includes(String(sid))));
     };
@@ -339,7 +347,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // لأيام فاتت من غير أي طريقة لتصليحه غير التعديل اليدوي في Supabase.
     // ═══════════════════════════════════════════════════
     const closedDaysList = Array.from(
-        new Set((entries || []).filter((e) => e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing").map((e) => e.date))
+        new Set((entries || []).filter((e) => e.pharmacy_id === pharmacyId && e.sub_type === "daily_closing").map((e) => recDate(e)))
     ).sort().reverse();
     // 🆕 نفس تشخيص "الأيام اللي فيها فرق فعلي" اللي كان في تقرير السداد والمصروفات —
     // اتنقل هنا عشان يبقى جنب أداة التسوية الفعلية، فيقدر المستخدم يتصرف فورًا بدل ما يقرأ تحذير في شاشة تانية.
@@ -347,34 +355,34 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // 🆕 الأيام اللي المستخدم تجاهلها يدويًا بعد ما راجعها ولقى إن الفرق مش قابل للإصلاح
     // التلقائي (مصدره مش "مبيعات جديدة" — زي مرتجع بمبلغ مختلف أو سداد آجل غير متطابق)
     const dismissedDiagnosticDates = new Set(
-        (entries || []).filter((e) => e && e.pharmacy_id === pharmacyId && e.sub_type === "diagnostics_dismissed").map((e) => e.date)
+        (entries || []).filter((e) => e && e.pharmacy_id === pharmacyId && e.sub_type === "diagnostics_dismissed").map((e) => recDate(e))
     );
     const closedDaysDiagnostics = closedDaysList.map((d) => {
         const expected =
-            (sales || []).filter((s) => s.date === d && !s.returned && s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0)
-            - (returns || []).filter((r) => r.type === "sales" && r.date === d && r.refund_method && !(r.invoice_id && fullyReturnedSaleIdsForDiag.has(r.invoice_id))).reduce((a, r) => a + (r.total || 0), 0)
-            + (creditPayments || []).filter((p) => p.date === d).reduce((a, p) => a + (p.amount || 0), 0)
-            + (entries || []).filter((e) => e && e.type === "income" && e.sub_type === "other" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
+            (sales || []).filter((s) => recDate(s) === d && !s.returned && s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0)
+            - (returns || []).filter((r) => r.type === "sales" && recDate(r) === d && r.refund_method && !(r.invoice_id && fullyReturnedSaleIdsForDiag.has(r.invoice_id))).reduce((a, r) => a + (r.total || 0), 0)
+            + (creditPayments || []).filter((p) => recDate(p) === d).reduce((a, p) => a + (p.amount || 0), 0)
+            + (entries || []).filter((e) => e && e.type === "income" && e.sub_type === "other" && recDate(e) === d).reduce((a, e) => a + (e.amount || 0), 0);
         const recorded =
-            (entries || []).filter((e) => e && e.type === "income" && e.sub_type !== "opening_balance" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0)
-            - (entries || []).filter((e) => e && e.type === "expense" && e.sub_type === "sales_return" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
+            (entries || []).filter((e) => e && e.type === "income" && e.sub_type !== "opening_balance" && recDate(e) === d).reduce((a, e) => a + (e.amount || 0), 0)
+            - (entries || []).filter((e) => e && e.type === "expense" && e.sub_type === "sales_return" && recDate(e) === d).reduce((a, e) => a + (e.amount || 0), 0);
         return { date: d, diff: expected - recorded };
     }).filter((r) => Math.abs(r.diff) > 0.01 && !dismissedDiagnosticDates.has(r.date));
     const [reviewDate, setReviewDate] = useState("");
     const reviewClosingRecord = reviewDate
-        ? (entries || []).find((e) => e.pharmacy_id === pharmacyId && e.date === reviewDate && e.sub_type === "daily_closing")
+        ? (entries || []).find((e) => e.pharmacy_id === pharmacyId && recDate(e) === reviewDate && e.sub_type === "daily_closing")
         : null;
     const reviewClosingCreatedAt = reviewClosingRecord?.created_at ? new Date(reviewClosingRecord.created_at).getTime() : null;
     const reviewLastAdjustmentAt = (entries || [])
-        .filter((e) => e.pharmacy_id === pharmacyId && e.date === reviewDate && e.sub_type === "closing_adjustment" && e.created_at)
+        .filter((e) => e.pharmacy_id === pharmacyId && recDate(e) === reviewDate && e.sub_type === "closing_adjustment" && e.created_at)
         .reduce((max, e) => Math.max(max, new Date(e.created_at).getTime()), 0);
     const reviewPostClosingCursor = reviewClosingCreatedAt ? Math.max(reviewClosingCreatedAt, reviewLastAdjustmentAt) : null;
     const reviewPostClosingSales = reviewPostClosingCursor
-        ? (sales || []).filter((s) => s.date === reviewDate && s.created_at && new Date(s.created_at).getTime() > reviewPostClosingCursor)
+        ? (sales || []).filter((s) => recDate(s) === reviewDate && s.created_at && new Date(s.created_at).getTime() > reviewPostClosingCursor)
         : [];
     const reviewPostClosingReturns = reviewPostClosingCursor
         ? (returns || []).filter(
-            (r) => r.type === "sales" && r.date === reviewDate && r.refund_source !== "shift" &&
+            (r) => r.type === "sales" && recDate(r) === reviewDate && r.refund_source !== "shift" &&
                 r.refund_method && r.refund_method !== "بطاقة" &&
                 r.created_at && new Date(r.created_at).getTime() > reviewPostClosingCursor
         )
@@ -458,24 +466,29 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
 
     useEffect(() => {
         if (!pharmacyId) return;
+        // 🆕 قيود الولاء بتتسجل من نقطة البيع بالتاريخ التقويمي، فبنجيب اليوم التشغيلي واليوم التقويمي اللي بعده
+        // وبننسب كل قيد ليومه بنفس recDate (عشان الشفت اللي بعدّى منتصف الليل مايتقسمش).
+        const nextDay = (() => { const [y, m, d] = today.split("-").map(Number); const x = new Date(y, m - 1, d + 1); return todayLocal(x); })();
+        const sum = (rows) => (rows || []).filter((r) => recDate(r) === today).reduce((s, r) => s + (r.amount || 0), 0);
         // 🆕 offline fallback: لو مفيش نت، بنجمع نفس الحساب من الكاش المحلي الموحّد
         if (!navigator.onLine && window.offlineAPI?.getTreasuryEntriesCache) {
-            window.offlineAPI.getTreasuryEntriesCache({ pharmacyId, date: today, subType: "loyalty_redeem" })
-                .then((rows) => setLoyaltyRedeemed((rows || []).reduce((s, r) => s + (r.amount || 0), 0)))
+            Promise.all([today, nextDay].map((dt) =>
+                window.offlineAPI.getTreasuryEntriesCache({ pharmacyId, date: dt, subType: "loyalty_redeem" })))
+                .then(([a, b]) => setLoyaltyRedeemed(sum([...(a || []), ...(b || [])])))
                 .catch(() => { });
             return;
         }
         supabase
             .from("treasury_entries")
-            .select("amount")
+            .select("amount, date, created_at, sub_type")
             .eq("pharmacy_id", pharmacyId)
-            .eq("date", today)
+            .in("date", [today, nextDay])
             .eq("sub_type", "loyalty_redeem")
             .then(({ data }) => {
-                if (data) setLoyaltyRedeemed(data.reduce((s, r) => s + (r.amount || 0), 0));
+                if (data) setLoyaltyRedeemed(sum(data));
             })
             .catch(() => { });
-    }, [today, pharmacyId]);
+    }, [today, pharmacyId, recDate]);
     const [fixedForm, setFixedForm] = useState({ name: "", amount: "", due_day: "1", recurrence: "monthly", due_month: "1" });
     const [licenseForm, setLicenseForm] = useState({ name: "", renew_date: "", amount: "", note: "" });
 
@@ -558,7 +571,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     useEffect(() => {
     if (!pharmacyId || !payMonth) return;
     const [year, month] = payMonth.split("-").map(Number);
-    const nextMonthStart = new Date(year, month, 1).toISOString().slice(0, 10); // first day of next month
+    const nextMonthStart = todayLocal(new Date(year, month, 1)); // first day of next month (محلي — toISOString كان بيرجّع آخر يوم في الشهر الحالي بتوقيت السعودية UTC+3 فكان آخر يوم بيطلع من السجلات)
 
     supabase.from("attendance_logs").select("*")
         .eq("pharmacy_id", pharmacyId)
@@ -630,7 +643,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         }, emp.user_id || null);
         const fridayRate = +emp.friday_allowance_rate || 0;
         const fridayAllowance = fridayRate * attendanceStats.fridaysWorked;
-        const weeklyHours = calcWeeklyScheduledHours(emp.name, workSchedulesForSalary);
+        const weeklyHours = calcWeeklyScheduledHours(emp.name, workSchedulesForSalary, payMonth + "-15", emp.user_id || null); // 🆕 رمضان بتاريخ الشهر المختار مش النهارده
         const monthlyHours = weeklyHours > 0 ? weeklyHours * 4.345 : 26 * 8;
         const hourlyRate = ((+emp.base_salary || 0) + (+emp.allowances || 0)) / monthlyHours;
         const latenessDeduction = (attendanceStats.lateMinutes / 60) * hourlyRate;
@@ -911,15 +924,15 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // هنا كمان بيبقى فيه خصم مزدوج (الفاتورة تتشال بالكامل + قيمتها تتخصم تاني من المرتجعات).
     // الآجل مختلف: مفيش حركة خزنة فعلية عند مرتجعه (مديونيته بترجع صفر مباشرة عبر credit_payments)،
     // فبيفضل مستبعد زي ما كان عشان مايفضلش ظاهر كمديونية مستحقة وهو أصلاً اترجع.
-    const todaySales = sales.filter((s) => s.date === today && (s.payment === "آجل" ? !s.returned : true));
-    const todayCash = todaySales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0);
-    const todayCard = todaySales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
-    const todayTransfer = todaySales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
-    const todayAjil = todaySales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
-    const todayCreditIncome = creditPayments.filter((p) => p.date === today).reduce((a, p) => a + p.amount, 0);
-    const todayReturns = (entries || []).filter(
-        (e) => e.date === today && e.type === "expense" && e.sub_type === "sales_return"
-    ).reduce((a, e) => a + e.amount, 0);
+    const todaySales = sales.filter((s) => recDate(s) === today && (s.payment === "آجل" ? !s.returned : true));
+    // 🆕 أرقام اليوم من الدالة المشتركة (نفس اللي الداشبورد بيستخدمها) — بتتعامل مع "مختلط" كمان
+    const daySummary = computeDaySummary({ sales, creditPayments, entries, returns, recDate, day: today });
+    const todayCash = daySummary.cash;
+    const todayCard = daySummary.card;
+    const todayTransfer = daySummary.transfer;
+    const todayAjil = daySummary.ajil;
+    const todayCreditIncome = daySummary.creditIncome;
+    const todayReturns = daySummary.returnsEntries;
     const todaySalesIncome = todayCash + todayCard + todayTransfer + todayCreditIncome - todayReturns;
 
     // ── رصيد الخزنة اللحظي من كل السجلات ──
@@ -933,37 +946,55 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const balanceTotal = balanceCash + balanceCard + balanceTransfer;
 
     // ── تقفيل الشفتات ──
-    const todayShifts = shifts.filter((s) => s.start_time?.startsWith(today));
+    const todayShifts = shifts.filter((s) => shiftBusinessDate(s) === today);
 
     // 🆕 مرتجعات كل شفت — بنربط كل سطر في جدول returns بالفاتورة الأصلية (invoice_id) عشان نعرف شفتها
     const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
     // 🆕 refund_method بيبقى null لمرتجعات فواتير الآجل (مفيش رجّاعة كاش/بطاقة فعلية، بيترد كمديونية
     // مباشرة) — نستبعدها هنا عشان ماتخصمش غلط من إجمالي الكاش/البطاقة/التحويل لكل شفت.
-    const todayReturnsSales = (returns || []).filter((r) => r.type === "sales" && r.date === today && r.refund_method !== null);
+    const todayReturnsSales = (returns || []).filter((r) => r.type === "sales" && recDate(r) === today && r.refund_method !== null);
     // 🆕 إجمالي مرتجعات اليوم (كامل + جزئي) عشان يتخصم من "إجمالي اليوم" في الخزنة، بنفس منطق كل شفت
-    const todayReturnsSalesTotal = todayReturnsSales.reduce((a, r) => a + (r.total || 0), 0);
+    // 🆕 نفس مصدر todayReturns (قيود الخزنة) عشان "الإجمالي" و"صافي اليوم" يتطابقوا
+    const todayReturnsSalesTotal = todayReturns;
+    // 🆕 سبب ظهور مرتجع الشفت صفر: start_time/end_time في الشفت متخزنة بصيغة فيها "Z" (الداشبورد بيعرض بداية الشفت 02:37 ص
+    // رغم إنه اتفتح 23:37)، لكن created_at بتاع المرتجع بدون "Z" (ساعة محلية). new Date() كانت بتفهمهم بفرق 3 ساعات،
+    // فالمرتجع يقع قبل بداية الشفت ويتستبعد. الحل: نقارن "الساعة المكتوبة" في الاتنين من غير ما نترجم المنطقة الزمنية.
+    const localMs = (v) => {
+        if (!v) return NaN;
+        const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+        return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime() : new Date(v).getTime();
+    };
     const getShiftReturns = (shift) =>
         todayReturnsSales
             .filter((r) =>
                 r.created_at &&
-                new Date(r.created_at).getTime() >= new Date(shift.start_time).getTime() &&
-                (!shift.end_time || new Date(r.created_at).getTime() <= new Date(shift.end_time).getTime())
+                localMs(r.created_at) >= localMs(shift.start_time) &&
+                (!shift.end_time || localMs(r.created_at) <= localMs(shift.end_time))
             )
             .reduce((a, r) => a + (r.total || 0), 0);
 
     const getShiftSales = (shiftId) => {
         const shiftSales = todaySales.filter((s) => s.shift === shiftId);
-        const shiftReturns = getShiftReturns(shiftId);
+        // 🆕 getShiftReturns مستنية كائن الشفت (start_time/end_time) مش الـ id — قبل كده كانت بتاخد الـ id فمرتجعات الشفت كانت بتطلع صفر دايمًا
+        const shiftObj = (shifts || []).find((x) => x.id === shiftId);
+        const shiftReturns = shiftObj ? getShiftReturns(shiftObj) : 0;
         const grossTotal = shiftSales.filter((s) => s.payment !== "آجل").reduce((a, s) => a + s.total, 0);
         return {
-            cash: shiftSales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0),
-            card: shiftSales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0),
-            transfer: shiftSales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0),
+            cash: shiftSales.reduce((a, s) => a + splitSaleByMethod(s)["نقدي"], 0),
+            card: shiftSales.reduce((a, s) => a + splitSaleByMethod(s)["بطاقة"], 0),
+            transfer: shiftSales.reduce((a, s) => a + splitSaleByMethod(s)["تحويل"], 0),
             ajil: shiftSales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0),
             returns: shiftReturns, // 🆕 إجمالي مرتجعات الشفت (كامل + جزئي) من جدول returns
             total: grossTotal - shiftReturns, // 🆕 صافي بعد خصم المرتجعات
             count: shiftSales.length,
         };
+    };
+
+    // 🆕 طباعة تقفيل شفت واحد (مش تقفيل اليوم): الصيدلي بيطبع شفته بس، من غير ما اليوم يتقفل.
+    // الحساب في lib/shiftClosingPrint (نفس دالة شاشة تقفيل الشفت) عشان الأرقام تطلع واحدة في كل مكان.
+    const printShiftReport = (sh, mode = "a4") => {
+        const report = computeShiftClosing({ shift: sh, sales, creditPayments, returns });
+        printShiftClosing(report, pharmInfo, mode);
     };
 
     // ── حسابات المصروفات ──
@@ -1101,8 +1132,9 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     const safeEntries = (entries || []).filter(Boolean);
     const groupedByDay = {};
     safeEntries.forEach((e) => {
-        if (!groupedByDay[e.date]) groupedByDay[e.date] = [];
-        groupedByDay[e.date].push(e);
+        const dk = recDate(e);
+        if (!groupedByDay[dk]) groupedByDay[dk] = [];
+        groupedByDay[dk].push(e);
     });
     const sortedDaysAll = Object.keys(groupedByDay).sort((a, b) => b.localeCompare(a));
     // 🆕 فلتر نطاق التاريخ لتاب السجل — افتراضيًا آخر 3 شهور، بدل ما نعرض/نلف على كل تاريخ الصيدلية
@@ -1140,29 +1172,29 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // بنستبعد أي يوم لسه فيه شفت مفتوح (لسه الوقت متاح يتقفل بالطريقة العادية لما يتقفل الشفت).
     // ═══════════════════════════════════════════════════
     const closedDaySet = useMemo(
-        () => new Set(safeEntries.filter((e) => e.sub_type === "daily_closing").map((e) => e.date)),
-        [safeEntries]
+        () => new Set(safeEntries.filter((e) => e.sub_type === "daily_closing").map((e) => recDate(e))),
+        [safeEntries, recDate]
     );
     const openShiftDaySet = useMemo(
-        () => new Set((shifts || []).filter((s) => !s.end_time && s.start_time).map((s) => todayLocal(new Date(s.start_time)))),
+        () => new Set((shifts || []).filter((s) => !s.end_time && s.start_time).map((s) => shiftBusinessDate(s))),
         [shifts]
     );
     const missingClosingDays = useMemo(() => {
-        const saleDates = new Set((sales || []).filter((s) => s.date && s.date < today).map((s) => s.date));
+        const saleDates = new Set((sales || []).map((s) => recDate(s)).filter((d) => d && d < today));
         return Array.from(saleDates)
             .filter((d) => !closedDaySet.has(d) && !openShiftDaySet.has(d))
             .sort((a, b) => b.localeCompare(a))
             .slice(0, 30); // آخر 30 يوم ناقص بس، تجنبًا لضوضاء بيانات قديمة قبل تفعيل هذا الفحص
-    }, [sales, closedDaySet, openShiftDaySet, today]);
+    }, [sales, closedDaySet, openShiftDaySet, today, recDate]);
 
     // ── حساب إجماليات يوم سابق بعينه (بنفس منطق حسابات "اليوم" لكن لتاريخ محدد) ──
     const computeDayTotals = (dateStr) => {
-        const daySales = (sales || []).filter((s) => s.date === dateStr && !s.returned);
-        const cash = daySales.filter((s) => s.payment === "نقدي").reduce((a, s) => a + s.total, 0);
-        const card = daySales.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
-        const transfer = daySales.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
-        const creditIncome = (creditPayments || []).filter((p) => p.date === dateStr).reduce((a, p) => a + p.amount, 0);
-        return { cash, card, transfer, creditIncome, count: daySales.length };
+        // 🆕 إصلاح الخصم المزدوج: الفواتير النقدية/بطاقة/تحويل المرتجعة بالكامل لازم تفضل في الإجمالي
+        // (نفس منطق todaySales في تقفيل اليوم العادي)، لأن مرتجعها بيتخصم مرة واحدة من قيد sales_return.
+        // الآجل بس بيتستبعد لأن مرتجعه مالوش حركة خزنة.
+        // 🆕 نفس الدالة المشتركة بتاعة "اليوم" (بتتعامل مع المختلط وبتفضل الفواتير المرتجعة في الإجمالي)
+        const d = computeDaySummary({ sales, creditPayments, entries, returns, recDate, day: dateStr });
+        return { cash: d.cash, card: d.card, transfer: d.transfer, creditIncome: d.creditIncome, count: d.count };
     };
 
     // ═══════════════════════════════════════════════════
@@ -2143,8 +2175,25 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                                 <span style={{ color: COLORS.blue, fontWeight: 700 }}>{sh.id}</span>
                                                 <span style={{ color: COLORS.textDim, fontSize: 11, marginRight: 10 }}>{sh.user}</span>
                                             </div>
-                                            <div style={{ color: sh.end_time ? COLORS.green : COLORS.gold, fontSize: 11, fontWeight: 700 }}>
-                                                {sh.end_time ? "✅ مغلق" : "🟡 مفتوح"}
+                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                {/* 🆕 طباعة تقفيل الشفت ده بس (A4 أو طابعة الفواتير) */}
+                                                <button
+                                                    onClick={() => printShiftReport(sh, "a4")}
+                                                    title="طباعة تقفيل الشفت (A4)"
+                                                    style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 10px", color: COLORS.textPrimary, fontSize: 11, cursor: "pointer" }}
+                                                >
+                                                    🖨️ A4
+                                                </button>
+                                                <button
+                                                    onClick={() => printShiftReport(sh, "receipt")}
+                                                    title="طباعة تقفيل الشفت (طابعة فواتير)"
+                                                    style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 10px", color: COLORS.textPrimary, fontSize: 11, cursor: "pointer" }}
+                                                >
+                                                    🧾 إيصال
+                                                </button>
+                                                <div style={{ color: sh.end_time ? COLORS.green : COLORS.gold, fontSize: 11, fontWeight: 700 }}>
+                                                    {sh.end_time ? "✅ مغلق" : "🟡 مفتوح"}
+                                                </div>
                                             </div>
                                         </div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
@@ -2177,12 +2226,15 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                             {/* إجمالي اليوم */}
                             <div style={{ ...cardStyle("#2a3a1a"), marginTop: 8 }}>
                                 <div style={{ color: COLORS.green, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📊 إجمالي اليوم</div>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+                                {/* 🆕 سداد الآجل اتضاف كخانة، والإجمالي بقى = نقدي + بطاقة + تحويل + سداد آجل − مرتجعات
+                                    (نفس تعريف "مبيعات اليوم" في الداشبورد و todaySalesIncome) — قبل كده كان الإجمالي هنا ناقص سداد الآجل */}
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 8 }}>
                                     {[
                                         { l: "نقدي", v: todayCash, c: COLORS.green },
                                         { l: "بطاقة", v: todayCard, c: COLORS.blue },
                                         { l: "تحويل", v: todayTransfer, c: COLORS.purple },
-                                        { l: "الإجمالي", v: todayCash + todayCard + todayTransfer - todayReturnsSalesTotal, c: COLORS.gold },
+                                        { l: "سداد آجل", v: todayCreditIncome, c: COLORS.coral },
+                                        { l: "الإجمالي", v: todayCash + todayCard + todayTransfer + todayCreditIncome - todayReturnsSalesTotal, c: COLORS.gold },
                                     ].map((x) => (
                                         <div key={x.l} style={{ background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderRadius: 8, padding: 10, textAlign: "center" as const }}>
                                             <div style={{ color: COLORS.textDim, fontSize: 10 }}>{x.l}</div>

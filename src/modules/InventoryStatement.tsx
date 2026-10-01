@@ -6,6 +6,7 @@ import { todayLocal } from "../lib/dateUtils";
 import { MergeGroupCard } from "./ExpiryReport";
 import { Modal, Table } from "../ui/primitives";
 import { queueEvent, getPendingZeroStockVariance } from "../lib/offlineAPI";
+import { validateAdjustment } from "../lib/validateStockLines"; // 🆕 شرط تاريخ الصلاحية في التسوية
 
 // ==================== كشف المخزون (Inventory Statement) ====================
 // تقرير سريع بكل الأصناف والتشغيلات الموجودة فعليًا بالمخزون (كمية + تاريخ صلاحية +
@@ -21,6 +22,9 @@ export function InventoryStatement({
     canEdit = true,
 }) {
     const [search, setSearch] = useState("");
+    // 🆕 Pagination لكشف المخزون (client-side — البيانات كلها في الذاكرة)
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(50);
     const [editingRow, setEditingRow] = useState(null); // الصف اللي بيتعمله تسوية دلوقتي (وضع التشغيلة)
     const [adjQty, setAdjQty] = useState("");
     const [adjExpiry, setAdjExpiry] = useState("");
@@ -167,6 +171,23 @@ export function InventoryStatement({
         return groups;
     }, [filtered]);
 
+    // ===== 🆕 Pagination =====
+    // الإجماليات (totals) والطباعة بيفضلوا على كل النتائج، والتقسيم للعرض بس.
+    const pageCount = Math.max(
+        1,
+        Math.ceil((viewMode === "batch" ? filtered.length : groupedRows.length) / pageSize)
+    );
+    const safePage = Math.min(page, pageCount);
+    const pageStart = (safePage - 1) * pageSize;
+    const pagedRows = filtered.slice(pageStart, pageStart + pageSize);
+    const pagedGroups = groupedRows.slice(pageStart, pageStart + pageSize);
+    const totalForView = viewMode === "batch" ? filtered.length : groupedRows.length;
+
+    // رجوع للصفحة الأولى لما البحث أو وضع العرض أو حجم الصفحة يتغير
+    useEffect(() => {
+        setPage(1);
+    }, [search, viewMode, pageSize]);
+
     // ===== 🆕 كشف الأصناف المكررة (نفس الباركود، أصناف مختلفة في قاعدة البيانات) =====
     // بيحصل لما فاتورة شراء تتسجل ومتلقاش تطابق بالباركود مع الصنف الموجود، فتعمل صنف
     // جديد بدل ما تضيف تشغيلة للصنف القديم. النتيجة: نفس الدواء ظاهر في أكتر من سطر
@@ -262,6 +283,12 @@ export function InventoryStatement({
         const newQty = Number(adjQty);
         if (Number.isNaN(newQty) || newQty < 0) {
             showToast("❌ اكتب كمية صحيحة", "error");
+            return;
+        }
+        // 🆕 تاريخ الصلاحية مطلوب في أي تسوية كميتها بعد التسوية أكبر من صفر (التصفير مسموح بدونه)
+        const adjErrors = validateAdjustment({ expiry_date: adjExpiry, qty: newQty });
+        if (adjErrors.length > 0) {
+            showToast("❌ " + adjErrors[0], "error");
             return;
         }
         setSaving(true);
@@ -418,6 +445,13 @@ export function InventoryStatement({
                     setSaving(false);
                     return;
                 }
+                // 🆕 الصنف ده مالوش تشغيلات (مفيش خانة تاريخ صلاحية هنا) — مينفع نغيّر كميته
+                // لرقم أكبر من صفر من غير تاريخ. التصفير مسموح، أو تسوية من زر "⚖️ تسوية" على سطره.
+                if (newTotal > 0 && newTotal !== settlingProduct.totalQty) {
+                    showToast("❌ الصنف ده مالوش تاريخ صلاحية مسجل — اعمل التسوية من زر ⚖️ تسوية على سطره عشان تدخل التاريخ", "error");
+                    setSaving(false);
+                    return;
+                }
                 updatedBatches = prod.batches || [];
             } else {
                 // ===== التحقق: كل سطر بيه كمية لازم رقم صحيح =====
@@ -428,6 +462,13 @@ export function InventoryStatement({
                         setSaving(false);
                         return;
                     }
+                }
+                // 🆕 أي سطر كميته أكبر من صفر لازم يكون له تاريخ صلاحية (السطر المصفّر مسموح من غيره)
+                const missingExpiryRows = itemBatchRows.filter((r) => Number(r.qty) > 0 && !r.expiry).length;
+                if (missingExpiryRows > 0) {
+                    showToast(`❌ تاريخ الصلاحية مطلوب — فيه ${missingExpiryRows} سطر كميته أكبر من صفر من غير تاريخ`, "error");
+                    setSaving(false);
+                    return;
                 }
 
                 // دمج السطور اللي بنفس الصلاحية (لو المستخدم غيّر صلاحية سطر موجود لتطابق سطر تاني، أو ضاف سطر جديد بصلاحية موجودة أصلاً)
@@ -657,6 +698,19 @@ export function InventoryStatement({
         boxShadow: SHADOW.card,
     };
 
+    // 🆕 ستايل أزرار الـ Pagination
+    const pgBtn = (disabled) => ({
+        background: COLORS.surface,
+        color: disabled ? COLORS.textDim : COLORS.textPrimary,
+        border: `1px solid ${COLORS.border}`,
+        borderRadius: 8,
+        padding: "6px 12px",
+        fontSize: 12,
+        fontWeight: 700,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+    });
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
@@ -740,7 +794,7 @@ export function InventoryStatement({
             {viewMode === "batch" ? (
                 <Table
                     headers={["الصنف", "الباركود", "رقم التشغيلة", "تاريخ الانتهاء", "الكمية", "سعر التكلفة", "سعر البيع", "إجراءات"]}
-                    rows={filtered.map((r) => [
+                    rows={pagedRows.map((r) => [
                         r.name,
                         r.barcode,
                         r.batchNumber || "-",
@@ -771,7 +825,7 @@ export function InventoryStatement({
                             لا توجد أصناف بالمخزون
                         </div>
                     ) : (
-                        groupedRows.map((g) => {
+                        pagedGroups.map((g) => {
                             const isExpanded = !!expandedProducts[g.productId];
                             const hasMultiple = g.batches.length > 1;
                             return (
@@ -851,6 +905,44 @@ export function InventoryStatement({
                             );
                         })
                     )}
+                </div>
+            )}
+
+            {/* 🆕 شريط الـ Pagination */}
+            {totalForView > 0 && (
+                <div
+                    style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        gap: 12, flexWrap: "wrap", fontSize: 13, color: COLORS.textDim,
+                    }}
+                >
+                    <div>
+                        عرض {pageStart + 1}–{Math.min(pageStart + pageSize, totalForView)} من {totalForView}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button onClick={() => setPage(1)} disabled={safePage === 1} style={pgBtn(safePage === 1)}>«</button>
+                        <button onClick={() => setPage(safePage - 1)} disabled={safePage === 1} style={pgBtn(safePage === 1)}>السابق</button>
+                        <span style={{ color: COLORS.textPrimary, fontWeight: 700, padding: "0 6px" }}>
+                            {safePage} / {pageCount}
+                        </span>
+                        <button onClick={() => setPage(safePage + 1)} disabled={safePage === pageCount} style={pgBtn(safePage === pageCount)}>التالي</button>
+                        <button onClick={() => setPage(pageCount)} disabled={safePage === pageCount} style={pgBtn(safePage === pageCount)}>»</button>
+                    </div>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        عدد الأسطر
+                        <select
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                            style={{
+                                padding: "6px 8px", borderRadius: 8, border: `1px solid ${COLORS.border}`,
+                                background: COLORS.surface, color: COLORS.textPrimary, fontSize: 13,
+                            }}
+                        >
+                            {[25, 50, 100, 200].map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                            ))}
+                        </select>
+                    </label>
                 </div>
             )}
 

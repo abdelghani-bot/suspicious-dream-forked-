@@ -109,6 +109,8 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                         categoryCostDiscounts: data.category_cost_discounts || {},
                         // 🆕 فترات رمضان [{start:"YYYY-MM-DD", end:"YYYY-MM-DD"}] — بتفعّل جدول رمضان تلقائيًا
                         ramadanRanges: Array.isArray(data.ramadan_ranges) ? data.ramadan_ranges : [],
+                        // 🆕 وقت بداية اليوم التشغيلي (HH:MM) — فاضي = من جدول الدوام
+                        businessDayStart: data.business_day_start ? String(data.business_day_start).slice(0, 5) : "",
                     };
                     setSettings(fresh);
                     setRamadanRanges(fresh.ramadanRanges); // 🆕
@@ -184,6 +186,13 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             return;
         }
 
+        // 🆕 وقت بداية اليوم التشغيلي: فاضي أو HH:MM صحيح
+        const bdsTrimmed = (settings.businessDayStart || "").trim();
+        if (bdsTrimmed && !/^([01]\d|2[0-3]):[0-5]\d$/.test(bdsTrimmed)) {
+            showToast("وقت بداية اليوم التشغيلي غير صحيح", "error");
+            return;
+        }
+
         const updates = {
             name_ar: settings.nameAr,
             name_en: settings.nameEn,
@@ -207,12 +216,13 @@ export function PharmacySettings({ showToast, pharmacyId }) {
             // 🆕
             category_cost_discounts: cleanedCategoryDiscounts,
             ramadan_ranges: cleanedRamadanRanges, // 🆕
+            business_day_start: bdsTrimmed || null, // 🆕
         };
 
         setRamadanRanges(cleanedRamadanRanges); // 🆕 يسري فورًا على الجهاز ده
         // نحدّث الكاش المحلي فورًا (نفس شكل الفورم عشان أي قراءة تالية أوفلاين تلاقيه جاهز)
         try {
-            localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify({ ...settings, ramadanRanges: cleanedRamadanRanges }));
+            localStorage.setItem(`pharmacy_settings_${pharmacyId}`, JSON.stringify({ ...settings, businessDayStart: bdsTrimmed, ramadanRanges: cleanedRamadanRanges }));
         } catch (err) {
             console.error("failed to cache pharmacy_settings on save:", err);
         }
@@ -500,6 +510,43 @@ export function PharmacySettings({ showToast, pharmacyId }) {
                                 : "غير مفعّل — كل مرتجع يُعتبر كاش دايمًا (الوضع الافتراضي)"}
                         </span>
                     </div>
+                </div>
+
+                {/* 🆕 وقت بداية اليوم التشغيلي */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ color: COLORS.textDim, fontSize: 12, display: "block", marginBottom: 6 }}>
+                        وقت بداية اليوم التشغيلي (اختياري)
+                    </label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, maxWidth: 420 }}>
+                        <input
+                            type="time"
+                            value={settings.businessDayStart || ""}
+                            onChange={(e) => setSettings((p) => ({ ...p, businessDayStart: e.target.value }))}
+                            style={{
+                                width: 140, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                                border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                                padding: "8px 12px", color: COLORS.textPrimary,
+                                fontSize: 13, outline: "none", boxSizing: "border-box",
+                            }}
+                        />
+                        {settings.businessDayStart && (
+                            <button
+                                type="button"
+                                onClick={() => setSettings((p) => ({ ...p, businessDayStart: "" }))}
+                                style={{
+                                    background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                                    padding: "8px 12px", color: COLORS.textDim, fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+                                }}
+                            >
+                                مسح
+                            </button>
+                        )}
+                    </div>
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: COLORS.textDim }}>
+                        {settings.businessDayStart
+                            ? `اليوم التشغيلي بيبدأ ${settings.businessDayStart} يوميًا — من الوقت ده لازم اليوم السابق يتقفل قبل فتح شفت جديد.`
+                            : "فاضي = بيتحدد تلقائيًا من جدول الدوام (أقدم شفت في اليوم). ولو مفيش جدول، بيبدأ عند منتصف الليل."}
+                    </p>
                 </div>
 
                 {/* 🆕 نسبة الخصم الافتراضية لكل فئة توريد — التكلفة الافتراضية = سعر البيع × (1 − النسبة).

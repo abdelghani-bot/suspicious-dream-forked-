@@ -207,13 +207,19 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
   // يتقارن بكل درج/محفظة لوحده: مبيعات نقدي/بطاقة/تحويل (مش آجل) ناقص مرتجعاتها + دخل إضافي مُسجّل
   // يدويًا عند التقفيل (نثريات/فلوس زيادة اتلاقت في الدرج). تحصيلات الآجل بتتحسب "نقدي" دايمًا،
   // نفس الافتراض المستخدم في حساب رصيد الخزنة بتاب "الخزنة".
-  const cashSalesInRange = (sales || []).filter((s) => inDateRange(s.date) && !s.returned && s.payment !== "آجل");
+  // 🆕 فاتورة "تحصيل آجل" (PAY-...) هي مجرد إيصال لسداد مديونية، وقيمتها محسوبة أصلًا في creditPayments —
+  // لو دخلت هنا كمبيعات كمان بتتحسب مرتين (فرق +6.00 يوم 28-09).
+  const isCreditCollectionSale = (s) => s && (s.payment === "تحصيل آجل" || String(s.id || "").startsWith("PAY-"));
+  // 🆕 قيود الدخل الإضافية المتوقعة في الخزنة: "other" + زيادة الشفت (shift_variance). عجز الشفت بيتسجّل كمصروف
+  // ومش بيتخصم في المسجّل، فالزيادة لازم تتحسب في المتوقع كمان عشان المطابقة تبقى متماثلة (فرق −55.00 يوم 16-09).
+  const isExpectedExtraIncome = (e) => e && e.type === "income" && (e.sub_type === "other" || e.sub_type === "shift_variance");
+  const cashSalesInRange = (sales || []).filter((s) => inDateRange(s.date) && !s.returned && s.payment !== "آجل" && !isCreditCollectionSale(s));
   const cashReturnsInRange = (returns || []).filter(
     (r) => r.type === "sales" && inDateRange(r.date) && r.refund_method &&
       !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id))
   );
   const otherIncomeInRange = (treasuryEntries || []).filter(
-    (e) => e && e.type === "income" && e.sub_type === "other" && inDateRange(e.date)
+    (e) => isExpectedExtraIncome(e) && inDateRange(e.date)
   );
   const METHODS = ["نقدي", "بطاقة", "تحويل"];
   const methodBreakdown = METHODS.map((m) => {
@@ -260,19 +266,20 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
   // ونستخدمها لتحديد لون/رسالة الكارت بس، من غير ما نلمس cashBasisIncome ولا تكسير طرق
   // الدفع ولا جدول السداد المعروضين تحت (لسه شاملين اليوم الحالي زي ما هما).
   // ═══════════════════════════════════════════════════════════════
+  const [inspectDate, setInspectDate] = useState(null);
   const todayStr = todayLocal();
   const isTodayClosed = (treasuryEntries || []).some((e) => e && e.date === todayStr && e.sub_type === "daily_sales");
   const todayInRange = (!fromDate || fromDate <= todayStr) && (!toDate || toDate >= todayStr);
   const excludeUnclosedToday = todayInRange && !isTodayClosed;
   const closedRangeCheck = (d) => inDateRange(d) && !(excludeUnclosedToday && d === todayStr);
 
-  const closedCashSalesInRange = (sales || []).filter((s) => closedRangeCheck(s.date) && !s.returned && s.payment !== "آجل");
+  const closedCashSalesInRange = (sales || []).filter((s) => closedRangeCheck(s.date) && !s.returned && s.payment !== "آجل" && !isCreditCollectionSale(s));
   const closedCashReturnsInRange = (returns || []).filter(
     (r) => r.type === "sales" && closedRangeCheck(r.date) && r.refund_method &&
       !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id))
   );
   const closedOtherIncomeInRange = (treasuryEntries || []).filter(
-    (e) => e && e.type === "income" && e.sub_type === "other" && closedRangeCheck(e.date)
+    (e) => isExpectedExtraIncome(e) && closedRangeCheck(e.date)
   );
   const closedCashBasisIncome =
     closedCashSalesInRange.reduce((a, s) => a + (s.total || 0), 0)
@@ -290,8 +297,7 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
   // المعروض فوق كـ StatCard من غير أي فايدة في دقة المطابقة.
   const closedExpectedNetChange = closedCashBasisIncome - totalPayments;
   const closedRecordedNetChange = closedRecordedIncome - totalPayments - closedRecordedSalesReturnExpense;
-  const closedReconciliationVariance = closedExpectedNetChange - closedRecordedNetChange;
-  const isReconciled = Math.abs(closedReconciliationVariance) < 0.01;
+  const rawReconciliationVariance = closedExpectedNetChange - closedRecordedNetChange;
 
   // 🆕 تشخيص يوم بيوم — بدل ما نفترض "فيه يوم ما اتقفلش" من غير دليل، بنحسب لكل يوم في الفترة
   // (المُقفّل منها) الفرق بين "المتوقع من الفواتير الخام" و"المسجّل فعليًا في قيود الخزنة"،
@@ -305,16 +311,56 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
   (creditPayments || []).forEach((p) => { if (p && closedRangeCheck(p.date)) dailyReconDates.add(p.date); });
   const dailyReconciliation = Array.from(dailyReconDates).sort().map((d) => {
     const expected =
-      (sales || []).filter((s) => s.date === d && !s.returned && s.payment !== "آجل").reduce((a, s) => a + (s.total || 0), 0)
+      (sales || []).filter((s) => s.date === d && !s.returned && s.payment !== "آجل" && !isCreditCollectionSale(s)).reduce((a, s) => a + (s.total || 0), 0)
       - (returns || []).filter((r) => r.type === "sales" && r.date === d && r.refund_method && !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id))).reduce((a, r) => a + (r.total || 0), 0)
       + (creditPayments || []).filter((p) => p.date === d).reduce((a, p) => a + (p.amount || 0), 0)
-      + (treasuryEntries || []).filter((e) => e && e.type === "income" && e.sub_type === "other" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
+      + (treasuryEntries || []).filter((e) => isExpectedExtraIncome(e) && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
     const recorded =
       (treasuryEntries || []).filter((e) => e && e.type === "income" && e.sub_type !== "opening_balance" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0)
       - (treasuryEntries || []).filter((e) => e && e.type === "expense" && e.sub_type === "sales_return" && e.date === d).reduce((a, e) => a + (e.amount || 0), 0);
     const wasClosed = (treasuryEntries || []).some((e) => e && e.date === d && e.sub_type === "daily_closing");
-    return { date: d, expected, recorded, diff: expected - recorded, wasClosed };
+    // 🆕 اليوم ده اتعمله "تجاهل" يدويًا من تبويب الخزنة؟ (بيختفي هناك لكن فرقه لسه محسوب هنا)
+    const dismissed = (treasuryEntries || []).some((e) => e && e.date === d && e.sub_type === "diagnostics_dismissed");
+    return { date: d, expected, recorded, diff: expected - recorded, wasClosed, dismissed };
   }).filter((r) => Math.abs(r.diff) > 0.01);
+
+  // 🆕 الأيام اللي اتعمل لها "تجاهل" يدوي في الخزنة بعد مراجعتها بتتشال من التحذير نفسه
+  // (مش بس بتتعلّم)، عشان التحذير الأحمر يفضل ينبّه على فروق لسه محتاجة مراجعة فعلًا.
+  const dismissedVarianceTotal = dailyReconciliation.filter((r) => r.dismissed).reduce((a, r) => a + r.diff, 0);
+  const pendingReconciliation = dailyReconciliation.filter((r) => !r.dismissed);
+  const dismissedReconciliationCount = dailyReconciliation.length - pendingReconciliation.length;
+  const dismissedReconciliationDays = dailyReconciliation.filter((r) => r.dismissed);
+
+  // 🔍 فحص يوم محدد: بنفكّ "المتوقع" و"المسجّل" لمكوّناتهم الفعلية سطر بسطر، ونحط علامات على الأسباب الشائعة
+  const inspection = (() => {
+    if (!inspectDate) return null;
+    const d = inspectDate;
+    const daySales = (sales || []).filter((s) => s.date === d);
+    const dayReturns = (returns || []).filter((r) => r.type === "sales" && r.date === d);
+    const dayCredit = (creditPayments || []).filter((p) => p.date === d);
+    const dayEntries = (treasuryEntries || []).filter((e) => e && e.date === d);
+    const countedSales = daySales.filter((s) => !s.returned && s.payment !== "آجل" && !isCreditCollectionSale(s));
+    const returnedSales = daySales.filter((s) => s.returned);
+    const countedReturns = dayReturns.filter((r) => r.refund_method && !(r.invoice_id && fullyReturnedSaleIds.has(r.invoice_id)));
+    const skippedReturns = dayReturns.filter((r) => !countedReturns.includes(r));
+    const otherIncome = dayEntries.filter((e) => isExpectedExtraIncome(e));
+    const recIncome = dayEntries.filter((e) => e.type === "income" && e.sub_type !== "opening_balance");
+    const recReturnExp = dayEntries.filter((e) => e.type === "expense" && e.sub_type === "sales_return");
+    const sum = (arr, f) => arr.reduce((a, x) => a + (f(x) || 0), 0);
+    const expectedCalc = sum(countedSales, (s) => s.total) - sum(countedReturns, (r) => r.total) + sum(dayCredit, (p) => p.amount) + sum(otherIncome, (e) => e.amount);
+    const recordedCalc = sum(recIncome, (e) => e.amount) - sum(recReturnExp, (e) => e.amount);
+    const clues = [];
+    if (returnedSales.length) clues.push(`فيه ${returnedSales.length} فاتورة مرتجعة بالكامل (${sum(returnedSales, (s) => s.total).toFixed(2)}) — بتتشال من المتوقع، فلو كانت محسوبة في التقفيل قبل ما تترجع هيظهر فرق سالب.`);
+    if (skippedReturns.length) clues.push(`فيه ${skippedReturns.length} مرتجع مش محسوب في المتوقع (من غير طريقة رد، أو لفاتورة مرتجعة بالكامل).`);
+    const odd = recIncome.filter((e) => !["daily_sales", "daily_closing", "closing_adjustment", "other", "shift_variance", "credit_payment"].includes(e.sub_type) && Math.abs(e.amount || 0) > 0);
+    if (odd.length) clues.push(`فيه قيود دخل في الخزنة من نوع مش متوقع في الفواتير: ${Array.from(new Set(odd.map((e) => e.sub_type))).join("، ")}.`);
+    const late = dayEntries.filter((e) => e.created_at && String(e.created_at).slice(0, 10) !== d);
+    if (late.length) clues.push(`فيه ${late.length} قيد تاريخه ${d} لكن اتسجّل في يوم تاني (created_at مختلف) — ممكن يكون تأخير تقفيل أو فرق توقيت.`);
+    if (!dayEntries.some((e) => e.sub_type === "daily_closing")) clues.push("اليوم ده مفيهوش قيد تقفيل أصلًا.");
+    return { d, countedSales, returnedSales, countedReturns, skippedReturns, dayCredit, otherIncome, recIncome, recReturnExp, expectedCalc, recordedCalc, clues };
+  })();
+  const closedReconciliationVariance = rawReconciliationVariance - dismissedVarianceTotal;
+  const isReconciled = Math.abs(closedReconciliationVariance) < 0.01;
 
   // ═══════════════════════════════════════════════════════════════
   // 🆕 تصدير Excel — بيصدّر نفس بيانات التبويب المفتوح حاليًا وبنفس الفلاتر
@@ -780,7 +826,7 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
                   }}>
                       <span>
                           {isReconciled
-                              ? `✅ مطابق مع سجل تقفيل الخزنة${excludeUnclosedToday ? " (للأيام المُقفّلة قبل النهارده)" : ""}`
+                              ? `✅ مطابق مع سجل تقفيل الخزنة${excludeUnclosedToday ? " (للأيام المُقفّلة قبل النهارده)" : ""}${dismissedReconciliationCount > 0 ? ` · ${dismissedReconciliationCount} يوم متجاهَل يدويًا بفرق إجمالي ${dismissedVarianceTotal.toFixed(2)} ر.س` : ""}`
                               : `⚠️ فيه فرق ${closedReconciliationVariance.toFixed(2)} ر.س بين الفواتير وسجل التقفيل${excludeUnclosedToday ? " (بعد استبعاد النهارده)" : ""} — راجع الأيام غير المتطابقة في تبويب الخزنة`}
                       </span>
                       {!isReconciled && setTab && (
@@ -789,6 +835,61 @@ export function Reports({ sales, purchases, products, suppliers, customers, retu
                           </button>
                       )}
                   </div>
+                  {/* 🆕 تشخيص: الأيام اللي مكوّنة الفرق اللي فوق، وليه ممكن ما تظهرش في تبويب الخزنة */}
+                  {!isReconciled && pendingReconciliation.length > 0 && (
+                      <div style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 14px", marginTop: 8, fontSize: 12 }}>
+                          <div style={{ fontWeight: 700, color: COLORS.textPrimary, marginBottom: 6 }}>📅 الأيام المكوّنة للفرق (فواتير − سجل التقفيل)</div>
+                          {pendingReconciliation.map((r) => (
+                              <div key={r.date} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "4px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+                                  <span style={{ color: COLORS.textPrimary }}>{r.date}</span>
+                                  <span style={{ color: COLORS.red, fontWeight: 700 }}>{r.diff > 0 ? "+" : ""}{r.diff.toFixed(2)} ر.س</span>
+                                  <span style={{ color: COLORS.textDim }}>
+                                      {!r.wasClosed ? "⛔ اليوم لم يُقفل" : "⚠️ مقفول وفيه فرق فعلي"}
+                                  </span>
+                                  <button onClick={() => setInspectDate(inspectDate === r.date ? null : r.date)} style={{ border: `1px solid ${COLORS.border}`, background: "transparent", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer", color: COLORS.textPrimary }}>🔍 فحص</button>
+                              </div>
+                          ))}
+                          <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6, lineHeight: 1.7 }}>
+                              موجب = الفواتير أكبر من المسجّل في الخزنة · سالب = المسجّل أكبر من الفواتير.
+                          </div>
+                      </div>
+                  )}
+                  {dismissedReconciliationDays.length > 0 && (
+                      <div style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 14px", marginTop: 8, fontSize: 12 }}>
+                          <div style={{ fontWeight: 700, color: COLORS.textPrimary, marginBottom: 6 }}>🙈 أيام متجاهَلة يدويًا (فرقها لسه موجود فعليًا)</div>
+                          {dismissedReconciliationDays.map((r) => (
+                              <div key={r.date} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "4px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+                                  <span>{r.date}</span>
+                                  <span style={{ fontWeight: 700 }}>{r.diff > 0 ? "+" : ""}{r.diff.toFixed(2)} ر.س</span>
+                                  <button onClick={() => setInspectDate(inspectDate === r.date ? null : r.date)} style={{ border: `1px solid ${COLORS.border}`, background: "transparent", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer", color: COLORS.textPrimary }}>🔍 فحص</button>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+                  {inspection && (
+                      <div style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "12px 14px", marginTop: 8, fontSize: 12, lineHeight: 1.8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, marginBottom: 6 }}>
+                              <span>🔍 فحص يوم {inspection.d}</span>
+                              <button onClick={() => setInspectDate(null)} style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.textDim }}>✕</button>
+                          </div>
+                          <div style={{ fontWeight: 700 }}>المتوقع من الفواتير = {inspection.expectedCalc.toFixed(2)}</div>
+                          {inspection.countedSales.map((s) => <div key={s.id} style={{ color: COLORS.textDim }}>+ فاتورة #{s.id} ({s.payment}) {(s.total || 0).toFixed(2)}</div>)}
+                          {inspection.countedReturns.map((r) => <div key={r.id} style={{ color: COLORS.textDim }}>− مرتجع #{r.id} {(r.total || 0).toFixed(2)}</div>)}
+                          {inspection.dayCredit.map((p, i) => <div key={i} style={{ color: COLORS.textDim }}>+ سداد آجل {(p.amount || 0).toFixed(2)}</div>)}
+                          {inspection.otherIncome.map((e) => <div key={e.id} style={{ color: COLORS.textDim }}>+ دخل آخر {(e.amount || 0).toFixed(2)} {e.note || ""}</div>)}
+                          {inspection.returnedSales.map((s) => <div key={s.id} style={{ color: COLORS.red }}>⛔ فاتورة #{s.id} مرتجعة بالكامل ({(s.total || 0).toFixed(2)}) — مستبعدة من المتوقع</div>)}
+                          <div style={{ fontWeight: 700, marginTop: 8 }}>المسجّل في الخزنة = {inspection.recordedCalc.toFixed(2)}</div>
+                          {inspection.recIncome.map((e) => <div key={e.id} style={{ color: COLORS.textDim }}>+ {e.sub_type} {(e.amount || 0).toFixed(2)} {e.note ? `— ${e.note}` : ""}</div>)}
+                          {inspection.recReturnExp.map((e) => <div key={e.id} style={{ color: COLORS.textDim }}>− مرتجع مسجّل {(e.amount || 0).toFixed(2)}</div>)}
+                          <div style={{ fontWeight: 700, marginTop: 8, color: COLORS.red }}>الفرق = {(inspection.expectedCalc - inspection.recordedCalc).toFixed(2)}</div>
+                          {inspection.clues.length > 0 && (
+                              <div style={{ marginTop: 8, padding: "8px 10px", background: COLORS.surfaceAlt, borderRadius: 6 }}>
+                                  <div style={{ fontWeight: 700 }}>أسباب محتملة:</div>
+                                  {inspection.clues.map((c, i) => <div key={i}>• {c}</div>)}
+                              </div>
+                          )}
+                      </div>
+                  )}
                   {excludeUnclosedToday && (
                       <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 6 }}>
                           ℹ️ اليوم الحالي ({todayStr}) لسه ما اتقفلش، فمستبعد مؤقتًا من فحص المطابقة.

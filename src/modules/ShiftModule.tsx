@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { queueEvent, insertTreasuryEntry } from "../lib/offlineAPI";
+import { queueEvent, insertTreasuryEntry, getPharmacySettings } from "../lib/offlineAPI";
+import { resolveNewShiftBusinessDate, checkNewShiftBlock } from "../lib/businessDay";
 import { COLORS, tint } from "../theme";
 import { calcCappedHours, todayLocal } from "../lib/dateUtils";
 import { Badge, Btn, Input, Pagination, Table } from "../ui/primitives";
@@ -15,6 +16,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
     const [shiftDiffReason, setShiftDiffReason] = useState("");
     const [expandedVarianceEmployee, setExpandedVarianceEmployee] = useState(null);
     const isAdmin = currentUser?.role === "admin";
+    const [overrideReason, setOverrideReason] = useState(""); // 🆕 سبب تجاوز المنع (مدير فقط)
     const [forceCloseTarget, setForceCloseTarget] = useState<any>(null);
     const [forceCloseCash, setForceCloseCash] = useState("");
     const [forceCloseNotes, setForceCloseNotes] = useState("");
@@ -39,6 +41,39 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             }
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pharmacyId]);
+
+    // 🆕 سياق اليوم التشغيلي (إعداد الصيدلية + جدول الدوام) — بيتحمّل مرة عند فتح الشاشة.
+    // أوفلاين: الإعدادات من getPharmacySettings (كاشها)، وجدول الدوام من نسخة localStorage.
+    // لو مفيش ولا واحد منهم، الحد بيبقى منتصف الليل (نفس السلوك الحالي).
+    const [bdCtx, setBdCtx] = useState<any>({ manualStart: null, workSchedules: [] });
+    useEffect(() => {
+        if (!pharmacyId) return;
+        let cancelled = false;
+        (async () => {
+            let manualStart: string | null = null;
+            let workSchedules: any[] = [];
+            try {
+                const { data } = await getPharmacySettings(pharmacyId);
+                manualStart = data?.business_day_start || null;
+            } catch (err) {
+                console.error("business day settings load failed:", err);
+            }
+            const wsKey = `work_schedules_cache_${pharmacyId}`;
+            try {
+                const { data, error } = await supabase.from("work_schedules").select("*").eq("pharmacy_id", pharmacyId);
+                if (!error && Array.isArray(data)) {
+                    workSchedules = data;
+                    try { localStorage.setItem(wsKey, JSON.stringify(data)); } catch { /* ignore */ }
+                } else {
+                    throw error || new Error("no data");
+                }
+            } catch {
+                try { workSchedules = JSON.parse(localStorage.getItem(wsKey) || "[]"); } catch { workSchedules = []; }
+            }
+            if (!cancelled) setBdCtx({ manualStart, workSchedules });
+        })();
+        return () => { cancelled = true; };
     }, [pharmacyId]);
 
     const currentShift = shifts.find(
@@ -95,6 +130,18 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
     const totalShortageAll = varianceEntries.filter((e) => e.type === "expense").reduce((a, e) => a + (e.amount || 0), 0);
     const totalSurplusAll = varianceEntries.filter((e) => e.type === "income").reduce((a, e) => a + (e.amount || 0), 0);
 
+    // 🆕 مرحلة 5: منع فتح شفت يوم جديد واليوم التشغيلي السابق لسه مقفلش.
+    // بيتحسب من shifts و entries اللي في الـ state (نفس الكاش أوفلاين)، فمفيش نداء شبكة.
+    const closedDates = new Set<string>(
+        (entries || [])
+            .filter((e) => e.sub_type === "daily_closing" && e.date)
+            .map((e) => String(e.date).slice(0, 10))
+    );
+    const blockCheck = !currentShift
+        ? checkNewShiftBlock({ now: new Date(), shifts, ctx: bdCtx, openerName: currentUser?.name, closedDates })
+        : null;
+    const openBlocked = !!blockCheck?.block;
+
     // 🆕 فتح الشفت — كتابة فورية في الكاش المحلي + queueEvent (نفس نمط completeSale).
     // لا نداء مباشر لـ supabase هنا؛ الـ sync الفعلي بيحصل جوه offlineSync.ts (SHIFT_OPEN/ATTENDANCE_CHECKIN).
     const openShift = async () => {
@@ -103,6 +150,22 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             return;
         }
         const nowISO = new Date().toISOString();
+        // 🆕 مرحلة 5: إعادة الفحص لحظة الفتح (مش بنعتمد على قيمة الريندر)
+        const chk = checkNewShiftBlock({ now: new Date(nowISO), shifts, ctx: bdCtx, openerName: currentUser?.name, closedDates });
+        let overrideNote = "";
+        if (chk.block) {
+            if (!isAdmin) {
+                showToast(`🚫 اليوم التشغيلي ${chk.unclosedDate} لسه مقفلش — اقفله من الخزنة أو اطلب من المدير`, "error");
+                return;
+            }
+            if (!overrideReason.trim()) {
+                showToast("اكتب سبب التجاوز قبل فتح الشفت", "error");
+                return;
+            }
+            overrideNote = `[تجاوز منع فتح اليوم بواسطة ${currentUser?.name || "مدير"} — يوم ${chk.unclosedDate} لم يُقفل] ${overrideReason.trim()}`;
+        }
+        // 🆕 تاريخ اليوم التشغيلي للشفت ده
+        const { businessDate } = resolveNewShiftBusinessDate({ now: new Date(nowISO), shifts, ctx: bdCtx, openerName: currentUser?.name });
         const sh = {
             id: "SH-" + Date.now(),
             user: currentUser.name,
@@ -112,8 +175,9 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             open_cash: +openCash,
             close_cash: null,
             sales: 0,
-            notes: "",
+            notes: overrideNote, // 🆕 سبب التجاوز بيتسجل هنا (عمود موجود، مفيش تغيير في الداتابيز)
             pharmacy_id: pharmacyId,
+            business_date: businessDate, // 🆕
         };
 
         try {
@@ -153,6 +217,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             },
         });
 
+        setOverrideReason("");
         showToast("تم فتح الشفت ✓");
     };
 
@@ -180,7 +245,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             end_time: nowISO,
             close_cash: +closeCash,
             sales: shiftRevenue,
-            notes,
+            notes: [currentShift.notes, notes].filter(Boolean).join(" | "), // 🆕 نحافظ على ملاحظة تجاوز المنع
         };
 
         try {
@@ -323,8 +388,24 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                             type="number"
                             placeholder="500"
                         />
-                        <Btn icon="shift" onClick={openShift} size="lg">
-                            فتح الشفت
+                        {openBlocked && (
+                            <div style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 10, padding: 12, fontSize: 13, lineHeight: 1.7 }}>
+                                🚫 اليوم التشغيلي <b>{blockCheck?.unclosedDate}</b> لسه مقفلش، وبدأ يوم جديد.
+                                {isAdmin
+                                    ? " اقفل اليوم من الخزنة، أو اكتب سبب التجاوز وافتح الشفت."
+                                    : " اقفل اليوم من الخزنة أو اطلب من المدير."}
+                            </div>
+                        )}
+                        {openBlocked && isAdmin && (
+                            <Input
+                                label="سبب التجاوز (مطلوب)"
+                                value={overrideReason}
+                                onChange={setOverrideReason}
+                                placeholder="مثال: نسيان التقفيل، هيتقفل بأثر رجعي"
+                            />
+                        )}
+                        <Btn icon="shift" onClick={openShift} size="lg" disabled={openBlocked && !isAdmin}>
+                            {openBlocked && isAdmin ? "تجاوز وفتح الشفت" : "فتح الشفت"}
                         </Btn>
                     </div>
                 </div>

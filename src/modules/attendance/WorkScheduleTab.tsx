@@ -1,3 +1,14 @@
+// 🆕 ساعات الشفت بالساعة؛ لو النهاية <= البداية يبقى شفت ليلي بيعدّي منتصف الليل (+24 ساعة) — نفس منطق shiftRangeMinutes و calcCappedHours
+const shiftHours = (start?: string | null, end?: string | null): number => {
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  if ([sh, sm, eh, em].some((v) => isNaN(v))) return 0;
+  const s = sh * 60 + sm;
+  const e = eh * 60 + em;
+  return (e > s ? e - s : e + 1440 - s) / 60;
+};
+
 export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayDow, C, onSaved, globalToast }: any) {
   const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
@@ -112,11 +123,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
   // حساب إجمالي ساعات الأسبوع
   const weeklyHours = weekForm.reduce((total, day) => {
     if (day.is_off) return total;
-    return total + day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => {
-      const [sh, sm] = s.shift_start.split(":").map(Number);
-      const [eh, em] = s.shift_end.split(":").map(Number);
-      return sum + ((eh * 60 + em) - (sh * 60 + sm)) / 60;
-    }, 0);
+    return total + day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => sum + shiftHours(s.shift_start, s.shift_end), 0);
   }, 0);
 
   return (
@@ -156,11 +163,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
         <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
           {weekForm.map((day) => {
             const isToday = day.day_of_week === todayDow;
-            const dayHours = day.is_off ? 0 : day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => {
-              const [sh, sm] = s.shift_start.split(":").map(Number);
-              const [eh, em] = s.shift_end.split(":").map(Number);
-              return sum + ((eh * 60 + em) - (sh * 60 + sm)) / 60;
-            }, 0);
+            const dayHours = day.is_off ? 0 : day.shifts.filter((s: any) => s.enabled).reduce((sum: number, s: any) => sum + shiftHours(s.shift_start, s.shift_end), 0);
 
             return (
               <div key={day.day_of_week} style={{
@@ -227,10 +230,8 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
                             />
                             <span style={{ fontSize: 11, color: C.muted }}>
                               {(() => {
-                                const [sh_h, sh_m] = sh.shift_start.split(":").map(Number);
-                                const [eh, em] = sh.shift_end.split(":").map(Number);
-                                const h = ((eh * 60 + em) - (sh_h * 60 + sh_m)) / 60;
-                                return h > 0 ? `${h.toFixed(1)} س` : "";
+                                const h = shiftHours(sh.shift_start, sh.shift_end);
+                                return h > 0 ? `${h.toFixed(1)} س${sh.shift_end <= sh.shift_start ? " 🌙" : ""}` : "";
                               })()}
                             </span>
                           </>
@@ -271,12 +272,7 @@ export function WorkScheduleTab({ pharmacists, workSchedules, pharmacyId, todayD
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[...new Set(workSchedules.map((s: any) => s.pharmacist_name))].map((name: any) => {
               const pharmSchedules = workSchedules.filter((s: any) => s.pharmacist_name === name && !s.is_off);
-              const totalHours = pharmSchedules.reduce((sum: number, s: any) => {
-                if (!s.shift_start || !s.shift_end) return sum;
-                const [sh, sm] = s.shift_start.split(":").map(Number);
-                const [eh, em] = s.shift_end.split(":").map(Number);
-                return sum + ((eh * 60 + em) - (sh * 60 + sm)) / 60;
-              }, 0);
+              const totalHours = pharmSchedules.reduce((sum: number, s: any) => sum + shiftHours(s.shift_start, s.shift_end), 0);
               return (
                 <div
                   key={name}

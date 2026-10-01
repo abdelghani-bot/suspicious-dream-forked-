@@ -4,6 +4,7 @@ import { COLORS } from "../theme";
 import * as XLSX from "xlsx";
 import { logAudit } from "../lib/auditLog";
 import { normGtin } from "../lib/barcodeUtils";
+import { validateStockLines, formatValidationToast } from "../lib/validateStockLines"; // 🆕 شروط الحفظ المشتركة
 import { todayLocal } from "../lib/dateUtils";
 import { Badge, Btn, Input, Modal, Table } from "../ui/primitives";
 import { queueEvent, saveProduct } from "../lib/offlineAPI"; // 🆕 عدّل المسار حسب مكان الملف عندك
@@ -915,6 +916,41 @@ export function InventoryCount({
                   ];
         });
         const countItemsFinal = [...countItems, ...autoZeroRows];
+
+        // 🆕 شرط الحفظ (رصيد افتتاحي وجرد دوري): كل سطر كميته الفعلية أكبر من صفر لازم يكون
+        // فيه تاريخ صلاحية + تكلفة > 0 + سعر بيع > 0. أصناف "لسه ماتجردتش" (autoZero) بتتخطى.
+        // سعر البيع = اللي في السطر، وإلا سعر الصنف الحالي.
+        // 🆕 الكمية الصفرية: في الرصيد الافتتاحي ممنوعة على أي سطر. في الجرد الدوري ممنوعة على
+        // سطر تشغيلة جديدة (isNew)، وعلى مستوى الصنف كله (تحت) — لأن تشغيلة واحدة بصفر جوه
+        // صنف متعدد التشغيلات ممكن تبقى نتيجة عد حقيقية (التشغيلة مش موجودة على الرف).
+        const countLineErrors = validateStockLines(
+            countItemsFinal.map((i) => ({
+                name: i.name,
+                expiry_date: i.expiry,
+                cost: i.cost,
+                price: +i.salePrice || +(productsById.get(i.id)?.price) || 0,
+                qty: i.actualQty,
+                requirePositiveQty: !i.autoZero && (countMode === "افتتاحي" || !!i.isNew),
+            }))
+        );
+        // 🆕 جرد أعمى: صنف اتضاف للجرد ومجموع كمياته الفعلية صفر = غالبًا نسيت تسجل الكمية.
+        // لو فعلًا مفيش منه، احذفه من الجرد وهيتحسب نقص كامل تلقائي عند القفل.
+        if (countMode !== "افتتاحي") {
+            const actualByProduct = new Map();
+            countItems.forEach((i) => {
+                const cur = actualByProduct.get(i.id) || { name: i.name, total: 0 };
+                cur.total += +i.actualQty || 0;
+                actualByProduct.set(i.id, cur);
+            });
+            actualByProduct.forEach((v) => {
+                if (!(v.total > 0))
+                    countLineErrors.push(`${v.name}: لم تُسجَّل له كمية — سجّلها أو احذفه من الجرد (هيتحسب نقص كامل تلقائيًا)`);
+            });
+        }
+        if (countLineErrors.length > 0) {
+            showToast(formatValidationToast(countLineErrors), "error");
+            return;
+        }
 
         // 🆕 بلوك إجباري: في وضع الرصيد الافتتاحي، مينفعش نحفظ لو فيه ولو صنف واحد
         // تكلفته لسه صفر — لإن ده هيكسر أي تقرير أرباح بعد كده. نفس منطق فاتورة المورد بالظبط.
