@@ -1658,6 +1658,7 @@ export default function PharmacyPro() {
                             returns={returnsData}
                             entries={treasuryEntries}
                             setEntries={setTreasuryEntries}
+                            creditPayments={creditPayments}
                         />
                     )}
                     {tab === "attendance" && canView("attendance") && (

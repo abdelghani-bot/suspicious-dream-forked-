@@ -1,16 +1,66 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { queueEvent, insertTreasuryEntry, getPharmacySettings } from "../lib/offlineAPI";
-import { resolveNewShiftBusinessDate, checkNewShiftBlock } from "../lib/businessDay";
+import { resolveNewShiftBusinessDate, checkNewShiftBlock, getBlockStartTs } from "../lib/businessDay";
+import { getScheduledShiftEndTs } from "../lib/attendanceCalc";
 import { COLORS, tint } from "../theme";
 import { calcCappedHours, todayLocal } from "../lib/dateUtils";
 import { Badge, Btn, Input, Pagination, Table } from "../ui/primitives";
+import { splitSaleByMethod } from "../lib/treasuryUtils";
+import { computeShiftClosing, printShiftClosing } from "../lib/shiftClosingPrint";
 
 // ==================== SHIFT MODULE ====================
 export const SHIFT_CASH_DIFF_REASON_THRESHOLD = 20;
+// 🆕 المدة اللي الصيدلي يقدر فيها يعيد فتح شفته بعد التقفيل (المدير مالوش حد زمني)
+export const SHIFT_REOPEN_WINDOW_MIN = 30;
 
-export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices, returns = [], entries = [], setEntries }) {
-    const [openCash, setOpenCash] = useState("500");
+// 🆕 مقارنة "الساعة المكتوبة": start_time/end_time للشفت UTC حقيقي (toISOString) لكن created_at للمرتجع/السداد ساعة UTC
+// من غير "Z"، فالمتصفح كان بيفهمه بتوقيته المحلي (فرق 3 ساعات) والمرتجع يطلع "قبل" بداية الشفت ويتستبعد من النقد المتوقع
+// (فيظهر عجز وهمي). بنقارن أرقام الساعة نفسها في الاتنين من غير ترجمة منطقة زمنية.
+const localMs = (v: any) => {
+    if (!v) return NaN;
+    const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime() : new Date(v).getTime();
+};
+// 🆕 فحص إن إعداد اليوم التشغيلي موجود (بداية يدوية أو جدول دوام). من غيره حد المنع = منتصف الليل فمبنمنعش بيه.
+const hasBusinessDayConfigSafe = (ctx: any) =>
+    !!ctx && (!!ctx.manualStart || (ctx.workSchedules || []).some((w: any) => !w.is_off && w.shift_start && w.shift_end));
+// تطبيع "آجل" بكل صيغ الهمزة (نفس منطق الداشبورد والخزنة)
+const isCreditSale = (s: any) => String(s?.payment ?? "").replace(/[أإآ]/g, "ا").trim() === "اجل";
+
+export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, pharmacyId, invoices, returns = [], entries = [], setEntries, creditPayments = [] }: any) {
+    const [openCash, setOpenCashRaw] = useState("500");
+    // 🆕 لو الصيدلي عدّل النقد الافتتاحي بإيده مانرحّلش القيمة التلقائية فوقه
+    const [openCashEdited, setOpenCashEdited] = useState(false);
+    const setOpenCash = (v: any) => { setOpenCashEdited(true); setOpenCashRaw(v); };
+
+    // 🆕 طباعة تقفيل الشفت من هنا مباشرة (الصيدلي مش محتاج صلاحية الخزنة). بيانات الصيدلية/الطابعات نفس مصدر الخزنة.
+    const [pharmInfo, setPharmInfo] = useState<any>({ name: "", address: "", taxNumber: "", reportsPrinterName: "", thermalPrinterName: "", receiptPaperWidth: "" });
+    const [justClosed, setJustClosed] = useState<any>(null); // آخر شفت اتقفل في الجلسة دي (لزرار الطباعة بعد التقفيل)
+    // 🆕 المدة المسموحة لإعادة فتح الشفت (بالدقايق) — بتتحمّل من إعدادات الصيدلية، والمدير بس هو اللي يغيّرها (كارت فوق)
+    const [reopenWindowMin, setReopenWindowMin] = useState<number>(SHIFT_REOPEN_WINDOW_MIN);
+    const [reopenWindowDraft, setReopenWindowDraft] = useState<string>(String(SHIFT_REOPEN_WINDOW_MIN));
+    const [settingsRaw, setSettingsRaw] = useState<any>(null); // نسخة الإعدادات (عشان نحدّث الكاش المحلي من غير ما نمسح باقي القيم)
+    useEffect(() => {
+        if (!pharmacyId) return;
+        const apply = (d: any) => d && setPharmInfo({
+            name: d.name_ar || "", address: d.address || "", taxNumber: d.tax_number || "",
+            reportsPrinterName: d.reports_printer_name || "", thermalPrinterName: d.thermal_printer_name || "",
+            receiptPaperWidth: String(d.receipt_paper_width || ""),
+        });
+        supabase.from("pharmacy_settings").select("*").eq("pharmacy_id", pharmacyId).maybeSingle()
+            .then(({ data, error }) => {
+                if (data) apply(data);
+                else if (error && window.offlineAPI?.getPharmacySettingsCache) {
+                    window.offlineAPI.getPharmacySettingsCache(pharmacyId).then(apply).catch(() => { });
+                }
+            });
+    }, [pharmacyId]);
+    // الحساب بيتعمل لحظة الطباعة من أحدث بيانات (مبيعات/مرتجعات/سداد آجل) — نفس دالة تقرير الخزنة عشان الأرقام تتطابق
+    const printShiftReport = (shiftObj: any, mode: "a4" | "receipt" = "a4") => {
+        const report = computeShiftClosing({ shift: shiftObj, sales, creditPayments, returns });
+        printShiftClosing(report, pharmInfo, mode);
+    };
     const [closeCash, setCloseCash] = useState("");
     const [notes, setNotes] = useState("");
     const [shiftDiffReason, setShiftDiffReason] = useState("");
@@ -56,6 +106,14 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             try {
                 const { data } = await getPharmacySettings(pharmacyId);
                 manualStart = data?.business_day_start || null;
+                // 🆕 مدة إعادة فتح الشفت من الإعدادات (لو العمود مش موجود أو فاضي بنفضل على الافتراضي 30)
+                if (!cancelled) {
+                    setSettingsRaw(data || null);
+                    if (data?.shift_reopen_window_minutes != null) {
+                        setReopenWindowMin(+data.shift_reopen_window_minutes);
+                        setReopenWindowDraft(String(+data.shift_reopen_window_minutes));
+                    }
+                }
             } catch (err) {
                 console.error("business day settings load failed:", err);
             }
@@ -76,6 +134,34 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         return () => { cancelled = true; };
     }, [pharmacyId]);
 
+    // 🆕 جداول الدوام الكاملة (عادي + تناوب + إجازات رسمية) — لحساب نهاية دوام الشفت بدقة عند إعادة الفتح.
+    // نفس مصادر الحضور (resolveExpectedShift). أوفلاين: نسخة localStorage.
+    const [schedCtx, setSchedCtx] = useState<any>({ workSchedules: [], rotationSchedules: [], officialHolidays: [] });
+    useEffect(() => {
+        if (!pharmacyId) return;
+        let cancelled = false;
+        const load = async (table: string) => {
+            const key = `${table}_cache_${pharmacyId}`;
+            try {
+                const { data, error } = await supabase.from(table).select("*").eq("pharmacy_id", pharmacyId);
+                if (!error && Array.isArray(data)) {
+                    try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* ignore */ }
+                    return data;
+                }
+                throw error || new Error("no data");
+            } catch {
+                try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; }
+            }
+        };
+        (async () => {
+            const [workSchedules, rotationSchedules, officialHolidays] = await Promise.all([
+                load("work_schedules"), load("rotation_schedules"), load("official_holidays"),
+            ]);
+            if (!cancelled) setSchedCtx({ workSchedules, rotationSchedules, officialHolidays });
+        })();
+        return () => { cancelled = true; };
+    }, [pharmacyId]);
+
     const currentShift = shifts.find(
         (s) => !s.end_time && s.user === currentUser?.name
     );
@@ -88,13 +174,24 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             r.type === "sales" &&
             r.refund_method !== null &&
             r.created_at &&
-            new Date(r.created_at).getTime() >= new Date(currentShift.start_time).getTime()
+            localMs(r.created_at) >= localMs(currentShift.start_time)
         )
         : [];
     const shiftReturnsTotal = shiftPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
+    // 🆕 النقد المتوقع بقى كامل: نقدي + جزء الكاش من الفواتير المختلطة (payment_split.cash) + سداد الآجل المحصّل كاش أثناء الشفت.
+    // قبل كده كان بيحسب payment === "نقدي" بس، فالمختلط وسداد الآجل كانوا بيطلعوا "زيادة" وهمية عند التقفيل.
     const shiftCashSales = shiftSalesRaw
-        .filter((s) => s.payment === "نقدي")
-        .reduce((a, s) => a + s.total, 0);
+        .filter((s) => !isCreditSale(s))
+        .reduce((a, s) => a + (splitSaleByMethod(s)["نقدي"] || 0), 0);
+    const shiftCreditCashCollected = currentShift
+        ? (creditPayments || [])
+            .filter((p) => {
+                const m = p.method || p.payment_method || "نقدي";
+                return m !== "بطاقة" && m !== "تحويل" && p.created_at &&
+                    localMs(p.created_at) >= localMs(currentShift.start_time);
+            })
+            .reduce((a, p) => a + (p.amount || 0), 0)
+        : 0;
     const shiftCashRefundsPaidNow = currentShift
         ? (returns || []).filter(
             (r) =>
@@ -102,10 +199,20 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                 (salesById[r.invoice_id]?.payment || "نقدي") !== "آجل" &&
                 (r.refund_method || "نقدي") !== "بطاقة" &&
                 r.created_at &&
-                new Date(r.created_at).getTime() >= new Date(currentShift.start_time).getTime()
+                localMs(r.created_at) >= localMs(currentShift.start_time)
         ).reduce((a, r) => a + (r.total || 0), 0)
         : 0;
-    const expectedCloseCash = (currentShift?.open_cash || 0) + shiftCashSales - shiftCashRefundsPaidNow;
+    const expectedCloseCash = (currentShift?.open_cash || 0) + shiftCashSales + shiftCreditCashCollected - shiftCashRefundsPaidNow;
+
+    // 🆕 فرق النقد اللي اتسجل قبل كده في الخزنة على نفس الشفت (لو الشفت اتقفل واتعاد فتحه): دخل بالموجب ومصروف بالسالب.
+    // عند التقفيل التاني بنسجل الفرق الإضافي بس (الكلي − اللي اتسجل) عشان الفرق الأول مايتعدش مرتين.
+    const recordedVarianceNet = currentShift
+        ? (entries || [])
+            .filter((e) => e.sub_type === "shift_variance" && e.ref_id === currentShift.id)
+            .reduce((a, e) => a + (e.type === "income" ? 1 : -1) * (e.amount || 0), 0)
+        : 0;
+    const cashDiffTotal = closeCash === "" ? 0 : +closeCash - expectedCloseCash;
+    const cashDiffNew = cashDiffTotal - recordedVarianceNet;
     const shiftSales = shiftSalesRaw;
     const shiftRevenue = shiftSalesRaw.reduce((a, s) => a + s.total, 0) - shiftReturnsTotal;
     const shiftCardSales = shiftSalesRaw.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
@@ -141,6 +248,59 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         ? checkNewShiftBlock({ now: new Date(), shifts, ctx: bdCtx, openerName: currentUser?.name, closedDates })
         : null;
     const openBlocked = !!blockCheck?.block;
+
+    // 🆕 ترحيل النقدية: لو نفس الصيدلي قفل شفت قبل كده في نفس اليوم التشغيلي وفتح شفت جديد، النقد الافتتاحي بيبدأ بنقدية
+    // تقفيله الأخير بدل 500 الثابتة. قبل كده الدرج كان فيه (500 + مبيعات) والشفت الجديد بيبدأ بـ 500 فيظهر "زيادة" وهمية.
+    let nextBizDate: string | null = null;
+    try {
+        nextBizDate = resolveNewShiftBusinessDate({ now: new Date(), shifts, ctx: bdCtx, openerName: currentUser?.name })?.businessDate || null;
+    } catch { nextBizDate = null; }
+    const carryCash: number | null = (() => {
+        if (currentShift || !nextBizDate) return null;
+        const prev = (shifts || [])
+            .filter((s) => s.user === currentUser?.name && s.end_time && s.close_cash != null && s.business_date === nextBizDate)
+            .sort((a, b) => new Date(b.end_time).getTime() - new Date(a.end_time).getTime())[0];
+        return prev ? +prev.close_cash : null;
+    })();
+    useEffect(() => {
+        if (carryCash != null && !openCashEdited) setOpenCashRaw(String(carryCash));
+    }, [carryCash, openCashEdited]);
+
+    // 🆕 إعادة فتح آخر شفت: الصيدلي بس لشفته، لحد (نهاية دوامه المجدولة + reopenWindowMin دقيقة)،
+    // مش من وقت التقفيل. ممنوعة تمامًا بعد بداية اليوم التشغيلي التالي (getBlockStartTs) — للجميع بما فيهم المدير —
+    // لأن البيع هيبقى ممنوع أصلًا. المدير ملوش حد زمني قبل كده بس. لو مفيش جدول للصيدلي → fallback: من وقت التقفيل.
+    // وطالما مفتحش بعده شفت تاني، واليوم التشغيلي لسه ما اتقفلش، والشفت مش مقفول قسريًا.
+    const reopenCandidate: { shift: any; ageMin: number; deadlineTs: number | null } | null = (() => {
+        if (currentShift || !currentUser?.name) return null;
+        const mine = (shifts || []).filter((s) => s.user === currentUser.name);
+        const last = mine
+            .filter((s) => s.end_time)
+            .sort((a, b) => new Date(b.end_time).getTime() - new Date(a.end_time).getTime())[0];
+        if (!last) return null;
+        if (String(last.notes || "").includes("إغلاق قسري")) return null;
+        const openedAfter = mine.some((s) => s.id !== last.id && new Date(s.start_time).getTime() > new Date(last.start_time).getTime());
+        if (openedAfter) return null;
+        if (last.business_date && closedDates.has(String(last.business_date).slice(0, 10))) return null;
+        const nowMs = Date.now();
+        const ageMin = (nowMs - new Date(last.end_time).getTime()) / 60000;
+
+        // منع بعد بداية اليوم التشغيلي التالي (للكل)
+        const bd = last.business_date ? String(last.business_date).slice(0, 10) : null;
+        if (bd && hasBusinessDayConfigSafe(bdCtx)) {
+            const { ts } = getBlockStartTs(bd, bdCtx);
+            if (nowMs >= ts) return null;
+        }
+
+        // المهلة: نهاية الدوام المجدولة + المدة (أو من وقت التقفيل لو مفيش جدول)
+        let deadlineTs: number | null = null;
+        if (bd) {
+            const schedEnd = getScheduledShiftEndTs(schedCtx, currentUser.name, currentUser.id || null, bd, new Date(last.start_time));
+            if (schedEnd != null) deadlineTs = schedEnd + reopenWindowMin * 60000;
+        }
+        if (deadlineTs == null) deadlineTs = new Date(last.end_time).getTime() + reopenWindowMin * 60000;
+        if (!isAdmin && nowMs > deadlineTs) return null; // 0 = إعادة الفتح للمدير فقط (المهلة = نهاية الدوام بالظبط)
+        return { shift: last, ageMin, deadlineTs };
+    })();
 
     // 🆕 فتح الشفت — كتابة فورية في الكاش المحلي + queueEvent (نفس نمط completeSale).
     // لا نداء مباشر لـ supabase هنا؛ الـ sync الفعلي بيحصل جوه offlineSync.ts (SHIFT_OPEN/ATTENDANCE_CHECKIN).
@@ -207,6 +367,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                 pharmacist_name: currentUser.name,
                 date: today,
                 record: {
+                    id: crypto.randomUUID(), // 🆕 id من العميل: يمنع تكرار سجل الحضور لو الحدث اتكرر (المعالج idempotent بالـ id)
                     pharmacy_id: pharmacyId,
                     pharmacist_name: currentUser.name,
                     pharmacist_user_id: currentUser.id || null,
@@ -218,7 +379,98 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         });
 
         setOverrideReason("");
+        setOpenCashEdited(false);
+        setJustClosed(null);
         showToast("تم فتح الشفت ✓");
+    };
+
+    // 🆕 المدير بس: حفظ مدة إعادة الفتح. بتتحدّث في الإعدادات عبر نفس حدث PHARMACY_SETTINGS_UPDATE (أوفلاين-أول)،
+    // ومحليًا فورًا. لازم عمود shift_reopen_window_minutes يكون موجود في pharmacy_settings.
+    const saveReopenWindow = async () => {
+        if (!isAdmin) return;
+        const n = Math.round(+reopenWindowDraft);
+        if (reopenWindowDraft === "" || !isFinite(n) || n < 0 || n > 1440) {
+            showToast("اكتب مدة من 0 إلى 1440 دقيقة", "error");
+            return;
+        }
+        setReopenWindowMin(n);
+        if (settingsRaw) {
+            // مانكتبش الكاش لو الإعدادات مش متحمّلة، عشان ماننزّلش كاش فيه قيمة واحدة بس
+            const merged = { ...settingsRaw, shift_reopen_window_minutes: n };
+            setSettingsRaw(merged);
+            try { await window.offlineAPI?.upsertPharmacySettingsCache?.({ pharmacyId, settings: merged }); } catch (err) { console.error(err); }
+        }
+        await queueEvent({
+            id: crypto.randomUUID(),
+            type: "PHARMACY_SETTINGS_UPDATE",
+            pharmacy_id: pharmacyId,
+            timestamp: new Date().toISOString(),
+            payload: { pharmacy_id: pharmacyId, updates: { shift_reopen_window_minutes: n } },
+        });
+        showToast(n === 0 ? "إعادة فتح الشفت للصيدلي اتعطّلت (المدير فقط) ✓" : `مدة إعادة فتح الشفت بقت ${n} دقيقة ✓`);
+    };
+
+    // 🆕 إعادة فتح نفس الشفت (بدل شفت جديد) عشان التقفيل ما يتقسمش لشفتين.
+    // - نفس id الشفت: بنمسح end_time/close_cash بحدث SHIFT_CLOSE (معالجه في offlineAPI.ts تحديث عام بالـ id فمش محتاج نوع حدث جديد).
+    // - الحضور: ATTENDANCE_CHECKIN جديد بنفس shift_id (التقفيل الأول قفل سجل الحضور، فبيظهر جلستين في اليوم وده الصح).
+    // - فرق النقد المسجل قبل كده مش بيتلمس: التقفيل التاني بيسجل الفرق الإضافي بس (شوف recordedVarianceNet).
+    const reopenShift = async () => {
+        if (currentShift) {
+            showToast("يوجد شفت مفتوح بالفعل", "warn");
+            return;
+        }
+        if (!reopenCandidate) {
+            showToast("لا يمكن إعادة فتح الشفت (انتهت المدة بعد نهاية الدوام أو بدأ اليوم التشغيلي التالي أو اتفتح شفت بعده أو اليوم اتقفل)", "error");
+            return;
+        }
+        const target = reopenCandidate.shift;
+        const nowISO = new Date().toISOString();
+        const updates = {
+            end_time: null,
+            close_cash: null,
+            notes: [target.notes, `[أُعيد فتح الشفت بواسطة ${currentUser?.name || ""} — ${nowISO}]`].filter(Boolean).join(" | "),
+        };
+        try {
+            await window.offlineAPI.upsertShiftCache({ ...target, ...updates, pharmacy_id: pharmacyId });
+        } catch (err) {
+            console.error("upsertShiftCache (reopen) failed:", err);
+        }
+        setShifts((p) => p.map((s) => (s.id === target.id ? { ...s, ...updates } : s)));
+
+        await queueEvent({
+            id: crypto.randomUUID(),
+            type: "SHIFT_CLOSE", // نفس معالج التحديث بالـ id (end_time = null هنا)
+            pharmacy_id: pharmacyId,
+            timestamp: nowISO,
+            payload: { shiftId: target.id, updates },
+        });
+        const today = todayLocal();
+        await queueEvent({
+            id: crypto.randomUUID(),
+            type: "ATTENDANCE_CHECKIN",
+            pharmacy_id: pharmacyId,
+            timestamp: nowISO,
+            payload: {
+                pharmacy_id: pharmacyId,
+                pharmacist_name: currentUser.name,
+                date: today,
+                is_reopen: true, // 🆕 المعالج بيورّث shift_number من جلسة الشفت الأولى ويخلي التأخير 0
+                record: {
+                    id: crypto.randomUUID(),
+                    pharmacy_id: pharmacyId,
+                    pharmacist_name: currentUser.name,
+                    pharmacist_user_id: currentUser.id || null,
+                    date: today,
+                    shift_id: target.id,
+                    check_in: nowISO,
+                },
+            },
+        });
+        setCloseCash("");
+        setNotes("");
+        setShiftDiffReason("");
+        setJustClosed(null);
+        showToast("تم إعادة فتح الشفت ✓");
     };
 
     // 🆕 إغلاق الشفت — نفس فكرة الفاليديشن الأصلية بالظبط، لكن التنفيذ بقى عبر الكاش المحلي + queueEvent.
@@ -234,7 +486,8 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             showToast("يرجى إدخال النقد الفعلي عند الإغلاق", "error");
             return;
         }
-        const shiftCashDiff = +closeCash - expectedCloseCash;
+        // 🆕 الفرق اللي هيتسجل = الفرق الكلي − اللي اتسجل قبل كده على نفس الشفت (لو اتعاد فتحه)، عشان مايتعدش مرتين
+        const shiftCashDiff = cashDiffNew;
         if (Math.abs(shiftCashDiff) > SHIFT_CASH_DIFF_REASON_THRESHOLD && !shiftDiffReason.trim()) {
             showToast(`⚠️ فيه فرق نقد ${shiftCashDiff > 0 ? "زيادة" : "عجز"} قدره ${Math.abs(shiftCashDiff).toFixed(2)} ر.س — اكتب السبب قبل إغلاق الشفت`, "error");
             return;
@@ -269,7 +522,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         // ⚠️ ملحوظة: البلوك ده كان متكرر جوه نفسه بالغلط (نسخة ولزقة) وده اللي كان بيسيب
         // قوس closeShift كله من غير إقفال، وده سبب خطأ "Unexpected end of file" في آخر الملف.
         // اتشال التكرار وبقى بلوك واحد بس.
-        if (shiftCashDiff !== 0) {
+        if (Math.abs(shiftCashDiff) > 0.005) {
             const reasonNote = shiftDiffReason.trim()
                 ? `فرق نقد ${shiftCashDiff > 0 ? "زيادة" : "عجز"} عند تسليم شفت ${currentUser?.name || ""} — ${shiftDiffReason.trim()}`
                 : `فرق نقد ${shiftCashDiff > 0 ? "زيادة" : "عجز"} عند تسليم شفت ${currentUser?.name || ""} (متوقع: ${expectedCloseCash.toFixed(2)} / فعلي: ${(+closeCash).toFixed(2)})`;
@@ -291,10 +544,12 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                     id, type: shiftCashDiff > 0 ? "income" : "expense", sub_type: "shift_variance",
                     method: "نقدي", amount: Math.abs(shiftCashDiff), note: reasonNote,
                     date: todayLocal(), pharmacy_id: pharmacyId, created_by: currentUser?.name || "",
+                    ref_id: currentShift.id, // 🆕 لازم يتسجل محليًا كمان عشان recordedVarianceNet يشوفه لو الشفت اتعاد فتحه
                 }, ...p]);
             }
         }
         setShiftDiffReason("");
+        setJustClosed({ ...currentShift, ...updates }); // 🆕 يظهر زرار "طباعة تقفيل الشفت" بعد التقفيل
 
         // ✅ تسجيل انصراف تلقائي — حساب الساعات نفسه اتأجل لـ ATTENDANCE_CHECKOUT جوه offlineSync.ts
         await queueEvent({
@@ -305,6 +560,8 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             payload: {
                 pharmacy_id: pharmacyId,
                 pharmacist_name: currentUser.name,
+                pharmacist_user_id: currentUser.id || null, // 🆕 المعالج كان بيقراه بس الحدث ما كانش بيبعته (فبيدوّر بالاسم)
+                shift_id: currentShift.id, // 🆕 ربط الانصراف بسجل حضور الشفت ده حتى لو اتقفل بعد منتصف الليل
                 date: todayLocal(),
                 check_out: nowISO,
             },
@@ -348,6 +605,26 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             console.error("upsertShiftCache (force close) failed:", err);
         }
         setShifts((p) => p.map((s) => (s.id === forceCloseTarget.id ? { ...s, ...updates } : s)));
+        // 🆕 الإغلاق القسري كان بيقفل الشفت ويسيب سجل حضور صاحبه مفتوح (من غير انصراف) — فساعات الشفت ما بتتحسبش في الرواتب.
+        // دلوقتي بنسجل الانصراف بنفس وقت الإغلاق، والمعالج بيقفل السجل بالـ shift_id (والساعات بتتحسب بسقف الجدول).
+        try {
+            await queueEvent({
+                id: crypto.randomUUID(),
+                type: "ATTENDANCE_CHECKOUT",
+                pharmacy_id: pharmacyId,
+                timestamp: updates.end_time,
+                payload: {
+                    pharmacy_id: pharmacyId,
+                    pharmacist_name: forceCloseTarget.user,
+                    pharmacist_user_id: forceCloseTarget.user_id || null,
+                    shift_id: forceCloseTarget.id,
+                    date: todayLocal(),
+                    check_out: updates.end_time,
+                },
+            });
+        } catch (err) {
+            console.error("force close attendance checkout failed:", err);
+        }
         showToast(`تم إغلاق الشفت اليتيم ${forceCloseTarget.id} قسرياً ✓`);
         setForceCloseTarget(null);
         setForceCloseCash("");
@@ -359,6 +636,22 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             <h2 style={{ margin: "0 0 18px", fontSize: 20, fontWeight: 800 }}>
                 إدارة الشفتات
             </h2>
+            {isAdmin && (
+                <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 14, marginBottom: 16, maxWidth: 480 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: COLORS.textPrimary, marginBottom: 8 }}>
+                        ⚙️ مدة السماح بإعادة فتح الشفت (للصيدلي)
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                        <div style={{ flex: 1 }}>
+                            <Input label="بالدقايق (0 = المدير فقط)" value={reopenWindowDraft} onChange={setReopenWindowDraft} type="number" placeholder="30" />
+                        </div>
+                        <Btn onClick={saveReopenWindow} disabled={reopenWindowDraft === String(reopenWindowMin)}>حفظ</Btn>
+                    </div>
+                    <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6 }}>
+                        الحالي: {reopenWindowMin} دقيقة بعد نهاية الدوام المجدول للشفت. المدير بدون حد زمني، وإعادة الفتح ممنوعة للكل بعد بداية اليوم التشغيلي التالي.
+                    </div>
+                </div>
+            )}
             {!currentShift ? (
                 <div
                     style={{
@@ -381,6 +674,28 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                         فتح شفت جديد
                     </h3>
                     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        {justClosed && (
+                            <div style={{ background: COLORS.greenSoft, border: `1px solid ${tint(COLORS.green, 0.35)}`, borderRadius: 10, padding: 12, fontSize: 13, lineHeight: 1.7 }}>
+                                <div style={{ color: COLORS.green, fontWeight: 700 }}>تم تقفيل شفتك ✓ ({justClosed.id})</div>
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                    <Btn onClick={() => printShiftReport(justClosed, "a4")} style={{ flex: 1, justifyContent: "center" }}>🖨️ طباعة A4</Btn>
+                                    <Btn onClick={() => printShiftReport(justClosed, "receipt")} style={{ flex: 1, justifyContent: "center" }}>🧾 طباعة إيصال</Btn>
+                                </div>
+                            </div>
+                        )}
+                        {reopenCandidate && (
+                            <div style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, fontSize: 13, lineHeight: 1.7 }}>
+                                <div style={{ color: COLORS.textPrimary, fontWeight: 700 }}>
+                                    محتاج تبيع حاجة تانية؟ أعد فتح شفتك الأخير بدل ما تفتح شفت جديد:
+                                </div>
+                                <div style={{ color: COLORS.textDim, fontSize: 12, marginBottom: 8 }}>
+                                    {reopenCandidate.shift.id} — اتقفل من {Math.max(0, Math.round(reopenCandidate.ageMin))} دقيقة{!isAdmin && reopenCandidate.deadlineTs ? ` — متاحة لحد ${new Date(reopenCandidate.deadlineTs).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" })}` : ""}. التقفيل هيفضل واحد، وفرق النقد المسجل قبل كده مش هيتعد تاني.
+                                </div>
+                                <Btn onClick={reopenShift} style={{ width: "100%", justifyContent: "center" }}>
+                                    إعادة فتح نفس الشفت
+                                </Btn>
+                            </div>
+                        )}
                         <Input
                             label="النقد الافتتاحي (ر.س)"
                             value={openCash}
@@ -388,6 +703,11 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                             type="number"
                             placeholder="500"
                         />
+                        {carryCash != null && !openCashEdited && (
+                            <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: -6 }}>
+                                مرحّل من نقدية آخر تقفيل ليك النهارده ({carryCash} ر.س) — عدّله لو الدرج اتغيّر.
+                            </div>
+                        )}
                         {openBlocked && (
                             <div style={{ background: COLORS.redSoft, border: `1px solid ${tint(COLORS.red, 0.35)}`, borderRadius: 10, padding: 12, fontSize: 13, lineHeight: 1.7 }}>
                                 🚫 اليوم التشغيلي <b>{blockCheck?.unclosedDate}</b> لسه مقفلش، وبدأ يوم جديد.
@@ -521,6 +841,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                                 { l: "💳 بطاقة", v: shiftCardSales, c: COLORS.blue },
                                 { l: "🏦 تحويل", v: shiftTransferSales, c: COLORS.purple },
                                 { l: "📋 آجل", v: shiftAjilSales, c: COLORS.red },
+                                { l: "💰 سداد آجل محصّل (كاش)", v: shiftCreditCashCollected, c: COLORS.green },
                             ].map((x) => x.v > 0 && (
                                 <div key={x.l} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                                     <span style={{ color: COLORS.textDim }}>{x.l}</span>
@@ -528,6 +849,10 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                                 </div>
                             ))}
                         </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                        <Btn onClick={() => printShiftReport(currentShift, "a4")} style={{ flex: 1, justifyContent: "center" }}>🖨️ تقرير مبدئي A4</Btn>
+                        <Btn onClick={() => printShiftReport(currentShift, "receipt")} style={{ flex: 1, justifyContent: "center" }}>🧾 تقرير مبدئي إيصال</Btn>
                     </div>
                     <Input
                         label="النقد الفعلي عند الإغلاق (ر.س)"
@@ -554,19 +879,19 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                                 fontSize: 13,
                             }}
                         >
-                            فرق النقد (نقدي فقط):{" "}
-                            {(+closeCash - expectedCloseCash).toFixed(2)}{" "}
+                            فرق النقد (نقدي فقط){recordedVarianceNet !== 0 ? ` — إجمالي ${cashDiffTotal.toFixed(2)}، منه ${recordedVarianceNet.toFixed(2)} مسجّل قبل كده (بيتسجل الإضافي بس)` : ""}:{" "}
+                            {cashDiffNew.toFixed(2)}{" "}
                             ر.س
-                            {(+closeCash - expectedCloseCash) !== 0 && (
+                            {cashDiffNew !== 0 && (
                                 <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 4 }}>
-                                    {(+closeCash - expectedCloseCash) > 0 ? "الزيادة" : "العجز"} ده هيتسجل كقيد {(+closeCash - expectedCloseCash) > 0 ? "دخل" : "مصروف"} في الخزنة تلقائيًا عند إغلاق الشفت.
+                                    {cashDiffNew > 0 ? "الزيادة" : "العجز"} ده هيتسجل كقيد {cashDiffNew > 0 ? "دخل" : "مصروف"} في الخزنة تلقائيًا عند إغلاق الشفت.
                                 </div>
                             )}
                         </div>
                     )}
-                    {closeCash && Math.abs(+closeCash - expectedCloseCash) > SHIFT_CASH_DIFF_REASON_THRESHOLD && (
+                    {closeCash && Math.abscashDiffNew > SHIFT_CASH_DIFF_REASON_THRESHOLD && (
                         <Input
-                            label={`سبب ${(+closeCash - expectedCloseCash) > 0 ? "الزيادة" : "العجز"} (إلزامي لفرق أكبر من ${SHIFT_CASH_DIFF_REASON_THRESHOLD} ر.س)`}
+                            label={`سبب ${cashDiffNew > 0 ? "الزيادة" : "العجز"} (إلزامي لفرق أكبر من ${SHIFT_CASH_DIFF_REASON_THRESHOLD} ر.س)`}
                             value={shiftDiffReason}
                             onChange={setShiftDiffReason}
                             placeholder="مثال: باقي اتحسب غلط لعميل، صرف بدون تسجيل..."
@@ -666,6 +991,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                     "المبيعات",
                     "النقد الختامي",
                     "الحالة",
+                    "طباعة",
                 ]}
                 rows={[...shifts].reverse().slice((shiftsPage - 1) * SHIFTS_PAGE_SIZE, shiftsPage * SHIFTS_PAGE_SIZE).map((s) => [
                     <span style={{ color: COLORS.blue, fontWeight: 700 }}>{s.id}</span>,
@@ -686,6 +1012,13 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                             مفتوح
                         </Badge>
                     ),
+                    // 🆕 الصيدلي يطبع شفتاته هو بس، والمدير يطبع أي شفت
+                    (isAdmin || s.user === currentUser?.name) ? (
+                        <span style={{ display: "inline-flex", gap: 6 }}>
+                            <button onClick={() => printShiftReport(s, "a4")} title="طباعة A4" style={{ cursor: "pointer", border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, borderRadius: 6, padding: "2px 8px", fontSize: 11 }}>🖨️</button>
+                            <button onClick={() => printShiftReport(s, "receipt")} title="طباعة إيصال" style={{ cursor: "pointer", border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.textPrimary, borderRadius: 6, padding: "2px 8px", fontSize: 11 }}>🧾</button>
+                        </span>
+                    ) : "-",
                 ])}
             />
             <Pagination page={shiftsPage} onPageChange={setShiftsPage} totalItems={shifts.length} pageSize={SHIFTS_PAGE_SIZE} />

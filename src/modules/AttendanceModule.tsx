@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { queueEvent } from "../lib/offlineAPI";
 import { COLORS, tint } from "../theme";
-import { DAY_NAMES, calcCappedHours, diffMin, findHolidayForDate, fmt, fmtHours, findUserIdByName, getRotationTurnIndex, isRamadan, isSamePharmacist, resolveExpectedShift, rotationDisplayNames, todayLocal } from "../lib/dateUtils";
+import { DAY_NAMES, calcCappedHours, getScheduleWindow, diffMin, findHolidayForDate, fmt, fmtHours, findUserIdByName, getRotationTurnIndex, isRamadan, isSamePharmacist, resolveExpectedShift, rotationDisplayNames, todayLocal } from "../lib/dateUtils";
 import { SAUDI_CITIES, fetchPrayerTimes } from "../lib/prayerTimes";
 import { SYSTEM_SECTIONS } from "./PermissionsModule";
 
@@ -1035,12 +1035,9 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
             let closeDate: Date;
             let reason: string;
             if (schedule?.shift_start && schedule?.shift_end) {
-                const [startH, startM] = schedule.shift_start.split(":").map(Number);
-                const [endH, endM] = schedule.shift_end.split(":").map(Number);
-                const scheduledEnd = new Date(log.check_in);
-                scheduledEnd.setHours(endH, endM, 0, 0);
-                if (endH * 60 + endM <= startH * 60 + startM) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
-                closeDate = new Date(scheduledEnd.getTime() + (+schedule.overtime_minutes || 0) * 60000);
+                // 🆕 نفس نافذة calcCappedHours (بتراعي الشفت الليلي اللي الحضور فيه بعد منتصف الليل)
+                const win = getScheduleWindow(log.check_in, schedule);
+                closeDate = win ? win.cappedEnd : new Date(log.check_in);
                 reason = "shift_end_plus_overtime";
             } else {
                 // مفيش جدول مطابق أصلاً — نقفله على نهاية يوم الحضور، وهيتحسب صفر ساعات زي أي حضور خارج الدوام
@@ -1510,7 +1507,9 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         const logs = monthlyLogs.filter((l) => pharmKeyOf(l) === p.key);
         const totalNet = logs.reduce((s, l) => s + (l.net_hours || 0), 0);
         const totalLate = logs.reduce((s, l) => s + (l.late_minutes || 0), 0);
-        const daysWorked = logs.filter((l) => l.check_out).length;
+        // 🆕 أيام العمل = عدد التواريخ المختلفة اللي فيها سجل مقفول، مش عدد السجلات. إعادة فتح الشفت (أو شفتين في اليوم)
+        // بتعمل أكتر من سجل حضور لنفس اليوم، فالعدّ بالسجلات كان بيطلع أيام زيادة.
+        const daysWorked = new Set(logs.filter((l) => l.check_out).map((l) => l.date || String(l.check_in).slice(0, 10))).size;
 
         // حساب الساعات المطلوبة من جدول الدوام — مع مراعاة الإجازات الرسمية وتبديل الجمعة ورمضان
         const year = parseInt(selectedMonth.split("-")[0]);

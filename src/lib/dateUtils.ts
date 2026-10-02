@@ -209,28 +209,45 @@ export function fmtHours(h: number) {
 // نهاية الشفت + الأوفر تايم المعتمد) ميتحسبش ولا دقيقة — صفر ساعات، مش الوقت الفعلي كامل.
 // لو الصيدلي داوم زيادة عن نهاية شفته المجدولة، الوقت الزايد ميتحسبش —
 // إلا لو فيه دقائق أوفر تايم معتمدة مسبقاً على نفس الشفت (schedule.overtime_minutes)، تتحسب لحد سقفها بس.
+// 🆕 نافذة الشفت المجدولة المرتبطة بلحظة حضور معيّنة (start / end / cappedEnd = النهاية + الأوفر تايم المعتمد).
+// ليه؟ قبل كده الحساب كان بيبني بداية ونهاية الشفت من تاريخ الحضور التقويمي، فالشفت الليلي (مثلاً 20:00–02:00)
+// لو الحضور/إعادة الفتح حصل بعد منتصف الليل (00:30) كانت النهاية بتطلع بكرة 02:00 والسقف بيتلغي والساعات الزايدة بتتحسب.
+// الحل (نفس فلسفة calcLateMinutesAt): للشفت اللي بيعدي نص الليل، لو الحضور قبل بداية "النهارده" ووقع جوه نافذة
+// الشفت اللي بدأ "امبارح" (لحد نهايته + الأوفر تايم) → النافذة تتبني على امبارح.
+export function getScheduleWindow(checkInISO: string | Date, schedule: any): { start: Date; end: Date; cappedEnd: Date } | null {
+  if (!schedule?.shift_start || !schedule?.shift_end) return null;
+  const at = new Date(checkInISO);
+  if (isNaN(at.getTime())) return null;
+  const [startH, startM] = schedule.shift_start.split(":").map(Number);
+  const [endH, endM] = schedule.shift_end.split(":").map(Number);
+  if ([startH, startM, endH, endM].some((v) => isNaN(v))) return null;
+  const crosses = endH * 60 + endM <= startH * 60 + startM;
+  const overtimeMs = (+schedule.overtime_minutes || 0) * 60000;
+
+  const build = (dayOffset: number) => {
+    const start = new Date(at.getFullYear(), at.getMonth(), at.getDate() + dayOffset, startH, startM, 0, 0);
+    const end = new Date(at.getFullYear(), at.getMonth(), at.getDate() + dayOffset + (crosses ? 1 : 0), endH, endM, 0, 0);
+    return { start, end, cappedEnd: new Date(end.getTime() + overtimeMs) };
+  };
+
+  if (crosses) {
+    const prev = build(-1);
+    if (at.getTime() >= prev.start.getTime() && at.getTime() < prev.cappedEnd.getTime()) return prev;
+  }
+  return build(0);
+}
+
 export function calcCappedHours(checkInISO: string, checkOutISO: string, schedule: any) {
   const checkInDate = new Date(checkInISO);
   const actualCheckOut = new Date(checkOutISO);
 
   // ⛔ مفيش جدول دوام مطابق أصلاً لهذا اليوم/الشفت (زي فتح شفت إضافي بعد التقفيل الرسمي) →
   // الحضور خارج الدوام بالكامل ولا يُحتسب أي ساعات.
-  if (!schedule?.shift_start || !schedule?.shift_end) {
+  const win = getScheduleWindow(checkInDate, schedule);
+  if (!win) {
     return { totalHours: 0, capped: true, outsideSchedule: true };
   }
-
-  const [startH, startM] = schedule.shift_start.split(":").map(Number);
-  const scheduledStart = new Date(checkInDate);
-  scheduledStart.setHours(startH, startM, 0, 0);
-
-  const [endH, endM] = schedule.shift_end.split(":").map(Number);
-  const scheduledEnd = new Date(checkInDate);
-  scheduledEnd.setHours(endH, endM, 0, 0);
-  // لو الشفت بيعدي نص الليل (النهاية أصغر من البداية رقمياً) نضيف يوم
-  if (endH * 60 + endM <= startH * 60 + startM) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
-
-  const overtimeAllowed = +schedule.overtime_minutes || 0;
-  const cappedEnd = new Date(scheduledEnd.getTime() + overtimeAllowed * 60000);
+  const cappedEnd = win.cappedEnd;
 
   // ⛔ وقت الحضور نفسه وقع كله بعد نهاية الشفت + الأوفر تايم المسموح (يعني فتح خارج نطاق الدوام تمامًا) →
   // صفر ساعات، مش الوقت الفعلي.

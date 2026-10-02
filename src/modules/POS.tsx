@@ -17,10 +17,22 @@ import { Btn, IC, Modal, Select } from "../ui/primitives";
 import { getDeviceId } from "../lib/deviceID";
 import { computeCustomerStats, trendConfig } from "../modules/CustomersModule"; // 🆕 مسار الاستيراد ده افتراضي — عدّله لو مكان الملف مختلف عندك
 import { printHTML, loadZebraScripts, canvasToZPLGraphic, sendZPL } from "../lib/printHelper";
+import { useBusinessDayContext } from "../lib/useBusinessDayContext"; // 🆕 منع البيع بعد بداية اليوم التشغيلي التالي
+import { getSalesBlock } from "../lib/salesGuard";
 
 // 🆕 ضغط/تصغير صورة الوصفة قبل تحويلها لـ base64 وتخزينها —
 // عشان الصورة متبقاش تضخّم صف الفاتورة أو ملف الـ SQLite المحلي وهي بتتزامن مع Supabase.
 // أقصى بعد 1280px وجودة JPEG 0.7 عادة كافية لقراءة وصفة بوضوح مع حجم أصغر بكتير من الأصل.
+// 🆕 الرصيد الكسري ممكن يتراكم عليه خطأ تقريب صغير بعد عمليات بيع/مرتجع كتير (مثلاً 0.16666633 بدل 1/6)،
+// فنص/سدس علبة متبقي كان يترفض بـ "الرصيد أقل من المطلوب". هنا بنقرّب الرصيد لأقرب وحدة بيع لو الفرق أقل من 0.001 وحدة.
+function snapAvail(avail, saleUnits) {
+    const units = saleUnits > 1 ? saleUnits : 1;
+    const a = Number(avail) || 0;
+    const k = a * units;
+    const r = Math.round(k);
+    return Math.abs(k - r) < 0.001 ? r / units : a;
+}
+
 function compressPrescriptionImage(file, maxDim = 1280, quality = 0.7) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -73,6 +85,14 @@ export function POS({
     autoPromoConfig,
     loyaltySettings, // 🆕 جاي من الـ App دلوقتي (مشترك بين POS وموديول الولاء)، مبقاش بيتجاب هنا
 }) {
+    // 🆕 منع البيع: لو الشفت لسه مفتوح وعدّى بداية اليوم التشغيلي التالي
+    const { ctx: bdCtx, loaded: bdLoaded } = useBusinessDayContext(pharmacyId);
+    const [, setSalesGuardTick] = useState(0);
+    useEffect(() => {
+        const id = setInterval(() => setSalesGuardTick((n) => n + 1), 30000);
+        return () => clearInterval(id);
+    }, []);
+    const salesBlock = getSalesBlock({ now: new Date(), shift: currentShift, ctx: bdCtx, ctxLoaded: bdLoaded });
     const [showPrint, setShowPrint] = useState(null);
     const fileRef = useRef();
     const barcodeInputRef = useRef(null);
@@ -561,7 +581,7 @@ export function POS({
                     (b) => b.expiry_date === ex.expiry && (!ex.batch || b.batch_number === ex.batch)
                 );
                 const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0);
-                if (ex.qty + 1 > availableQty) {
+                if (ex.qty + 1 > snapAvail(availableQty, ex.saleUnits ?? p.saleUnits) + 1e-6) {
                     showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
                     cartAfterAdd = prev.cart;
                     return prev;
@@ -578,9 +598,45 @@ export function POS({
                 return { ...prev, cart: updatedCart };
             }
             // صنف جديد
-            const initQty = p.qty !== undefined && !isNaN(p.qty) && !p.isPartial
+            let initQty = p.qty !== undefined && !isNaN(p.qty) && !p.isPartial
                 ? p.qty
                 : 1;
+
+            // 🆕 فحص الرصيد للسطر الجديد (كان بيدخل بكمية 1 من غير مقارنة بالرصيد، فنص علبة كان يعدّي)
+            if (!opts.skipZeroStockCheck && !p.isMissed && !p.isJoker) {
+                const prodNew = products.find((x) => x.id === p.id);
+                const batchesNew = prodNew?.batches || [];
+                const nmExp = (v) => (v ? String(v).slice(0, 7) : ""); // مقارنة بدقة الشهر (السكانر ممكن يرجّع YYYY-MM)
+                let availableNew = batchesNew.length
+                    ? batchesNew.reduce((s2, b) => s2 + (+b.qty || 0), 0)
+                    : (prodNew?.stock ?? p.stock ?? 0);
+                if (p.expiry) {
+                    const exactNew = batchesNew.find(
+                        (b) => b.expiry_date === p.expiry && (!p.batch || b.batch_number === p.batch)
+                    );
+                    if (exactNew) {
+                        availableNew = exactNew.qty;
+                    } else {
+                        // رقم تشغيلة الباركود مش متسجل عندنا: نقيّد بمجموع التشغيلات اللي بنفس تاريخ الصلاحية
+                        // بدل ما نسيب الفحص على الرصيد الإجمالي (أضعف)
+                        const sameExp = batchesNew.filter((b) => nmExp(b.expiry_date) === nmExp(p.expiry));
+                        if (sameExp.length) availableNew = sameExp.reduce((s2, b) => s2 + (b.qty || 0), 0);
+                    }
+                }
+                availableNew = snapAvail(availableNew, p.saleUnits);
+                if (initQty > availableNew + 1e-6) {
+                    const units = p.saleUnits > 1 ? p.saleUnits : 1;
+                    const fit = Math.floor(availableNew * units + 1e-6) / units; // أكبر كمية قابلة للبيع
+                    if (units > 1 && fit > 0) {
+                        initQty = fit; // يدخل بالمتبقي (مثلاً نص علبة)
+                        showToast(`الرصيد المتاح ${fit} علبة فقط، اتضافت بالمتاح`, "warning");
+                    } else {
+                        showToast(`الرصيد المتاح (${availableNew}) أقل من الكمية المطلوبة`, "error");
+                        cartAfterAdd = prev.cart;
+                        return prev;
+                    }
+                }
+            }
             const effective = p.isMissed || p.isJoker
                 ? { price: p.price, discountPct: 0, source: null }
                 : getEffectivePrice(p, promos, discountRules, productEarliestExpiry, products, sales, autoPromoConfig, productFirstStocked);
@@ -1158,8 +1214,10 @@ export function POS({
     const total = Math.max(0, round2(subtotal - discountAmt + taxAmount));
 
     const completeSale = async (shouldPrint = true) => {
-        if (!currentShift) {
-            showToast("يرجى فتح شفت أولاً", "error");
+        // 🆕 فحص لحظي (مش بيعتمد على الـ tick) قبل أي حفظ
+        const guard = getSalesBlock({ now: new Date(), shift: currentShift, ctx: bdCtx, ctxLoaded: bdLoaded });
+        if (guard.blocked) {
+            showToast(guard.reason || "البيع غير متاح حاليًا", "error");
             return;
         }
         if (inv.cart.length === 0) {
@@ -1181,6 +1239,26 @@ export function POS({
             if (expiryOptions.length > 1 && !ci.expiry) {
                 showToast(`اختر تاريخ الصلاحية للصنف "${ci.name}" قبل حفظ الفاتورة`, "error");
                 return;
+            }
+        }
+
+        // 🆕 حماية أخيرة: إجمالي الكمية المطلوبة لكل صنف (مجمّعة عبر كل أسطر السلة) لازم ما يزيدش عن الرصيد
+        {
+            const need = new Map();
+            for (const ci of inv.cart) {
+                if (ci.isMissed || ci.isJoker) continue;
+                need.set(ci.id, (need.get(ci.id) || 0) + (+ci.qty || 0));
+            }
+            for (const [pid, qty] of need) {
+                const prod = products.find((x) => x.id === pid);
+                if (!prod) continue;
+                const have = (prod.batches && prod.batches.length)
+                    ? prod.batches.reduce((s2, b) => s2 + (+b.qty || 0), 0)
+                    : (prod.stock ?? 0);
+                if (qty > have + 1e-6) {
+                    showToast(`رصيد "${prod.name}" (${have}) أقل من المطلوب (${qty})`, "error");
+                    return;
+                }
             }
         }
 
@@ -1222,6 +1300,17 @@ export function POS({
                 runningBatches[ci.id] = result.updatedBatches;
             }
         }
+        // 🆕 لو التشغيلات ما كفتش الكمية (حتى لو الرصيد الإجمالي عدّى)، نوقف الحفظ بدل ما الخصم يقف عند الصفر
+        for (const ci of inv.cart) {
+            if (ci.isMissed || ci.isJoker) continue;
+            const r = newFifoResults[ci.lineId];
+            if (!r) continue;
+            const sold = (r.soldBatches || []).reduce((s2, b) => s2 + (b.qtySold || 0), 0);
+            if (sold + 1e-6 < +ci.qty) {
+                showToast(`رصيد "${ci.name}" في التشغيلات لا يكفي (${sold} من ${ci.qty})`, "error");
+                return;
+            }
+        }
         setFifoResults(newFifoResults);
 
         const invoice = {
@@ -1235,6 +1324,8 @@ export function POS({
                 name: i.name,
                 name_en: i.name_en || i.nameEn || null,
                 qty: +i.qty,
+                // 🆕 وحدات بيع الصنف وقت البيع — المرتجعات تستخدمها لتحديد أصغر كمية قابلة للإرجاع (0.5 لصنف بوحدتين)
+                saleUnits: i.saleUnits > 1 ? i.saleUnits : 1,
                 // مهم: السعر المحفوظ لازم يكون سعر سطر السلة (i.price) لأنه هو اللي فيه أي عرض مطبّق
                 // (نسبة/BOGO/كمية/باقة...). سعر التشغيلة (salePrice) بيرجع سعر التشغيلة الأصلي في المخزون
                 // ومفيهوش أي خصم، فاستخدامه هنا كان بيلغي العرض عند حفظ الفاتورة.
@@ -1482,7 +1573,8 @@ export function POS({
                     ...x,
                     stock: newStock,
                     batches: updatedBatches,
-                    price: updatedBatches[0]?.salePrice ?? x.price,
+                    // سعر التشغيلة الصفري (تشغيلة فاتورة مؤقتة) ممنوع يمسح سعر الصنف — ?? مش بتمسك الصفر
+                    price: +updatedBatches[0]?.salePrice > 0 ? updatedBatches[0].salePrice : x.price,
                 };
             })
         );
@@ -2493,7 +2585,7 @@ showToast("تمت عملية البيع ✓");
                                     const matchedBatchForQty = (prodForQty?.batches || []).find(
                                         (b) => b.expiry_date === item.expiry && (!item.batch || b.batch_number === item.batch)
                                     );
-                                    const maxQty = matchedBatchForQty ? matchedBatchForQty.qty : (prodForQty?.stock || 0);
+                                    const maxQty = snapAvail(matchedBatchForQty ? matchedBatchForQty.qty : (prodForQty?.stock || 0), item.saleUnits);
                                     // 🆕 السعر المعروض في صف السلة لازم يكون شامل الضريبة (زي سعر الرف/الملصق)،
                                     // ده مجرد عرض بصري بس - القيمة الأصلية (item.price) فاضلة زي ما هي وتحتها
                                     // بيتحسب "قبل الضريبة" و"ضريبة 15%" و"الإجمالي" في فوتر الفاتورة عادي.
@@ -2577,9 +2669,9 @@ showToast("تمت عملية البيع ✓");
                                                                     const newLineId = `${item.id}::${newExpiry || ""}::${newBatchNumber}`;
                                                                     setInv((p) => {
                                                                         const dup = p.cart.find((i) => i.lineId === newLineId && i.lineId !== item.lineId);
-                                                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0);
+                                                                        const availableQty = snapAvail(matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0), item.saleUnits);
                                                                         const mergedQty = (dup ? dup.qty : 0) + item.qty;
-                                                                        if (mergedQty > availableQty) {
+                                                                        if (mergedQty > availableQty + 1e-6) {
                                                                             showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
                                                                             return p;
                                                                         }
@@ -2633,7 +2725,8 @@ showToast("تمت عملية البيع ✓");
                                                             ...p,
                                                             cart: p.cart.map((i) => {
                                                                 if (i.lineId !== item.lineId) return i;
-                                                                const newQty = Math.max(1, i.qty - 1);
+                                                                const stepQ = i.saleUnits > 1 ? 1 / i.saleUnits : 1;
+                                                                const newQty = Math.max(stepQ, +(i.qty - 1).toFixed(4));
                                                                 // 🛠️ دواء بس: لو الكمية نقصت لازم نقلّم مصفوفة السيريالات لنفس العدد،
                                                                 // وإلا هيتسجل سيريال أكتر من العلب اللي فعلاً اتباعت وقت الفاتورة
                                                                 // (العلبة اللي رجعت الرف هتتسجل "مباعة" غلط في sold_serials).
@@ -2755,8 +2848,8 @@ showToast("تمت عملية البيع ✓");
                                                                 const matchedBatch = (prod?.batches || []).find(
                                                                     (b) => b.expiry_date === i.expiry && (!i.batch || b.batch_number === i.batch)
                                                                 );
-                                                                const mx = matchedBatch ? matchedBatch.qty : (prod?.stock || 0);
-                                                                if (i.qty + 1 > mx) {
+                                                                const mx = snapAvail(matchedBatch ? matchedBatch.qty : (prod?.stock || 0), i.saleUnits);
+                                                                if (i.qty + 1 > mx + 1e-6) {
                                                                     showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
                                                                     return i;
                                                                 }
@@ -3186,6 +3279,8 @@ showToast("تمت عملية البيع ✓");
     <Btn
         size="lg"
         onClick={() => completeSale(false)}
+        disabled={salesBlock.blocked}
+        title={salesBlock.reason || undefined}
         variant="ghost"
         style={{ flex: 1, justifyContent: "center" }}
         icon="save"
@@ -3195,6 +3290,8 @@ showToast("تمت عملية البيع ✓");
     <Btn
         size="lg"
         onClick={() => completeSale(true)}
+        disabled={salesBlock.blocked}
+        title={salesBlock.reason || undefined}
         style={{ flex: 1.5, justifyContent: "center" }}
         variant={inv.success ? "success" : "primary"}
         icon={inv.success ? "check" : "print"}
@@ -3326,23 +3423,37 @@ showToast("تمت عملية البيع ✓");
                                     const newBatchNumber = matchedBatch?.batch_number || "";
                                     const newLineId = `${expiryPickerLine.productId}::${newExpiry}::${newBatchNumber}`;
 
+                                    // 🆕 فحص مسبق قبل أي تعديل: لو كمية السطر أكبر من رصيد التشغيلة المختارة
+                                    // نقصّها للمتاح (للأصناف اللي بتتباع بالوحدات) أو نرفض ونسيب النافذة مفتوحة
+                                    const curLine = inv.cart.find((i) => i.lineId === expiryPickerLine.lineId);
+                                    const dupLine = inv.cart.find((i) => i.lineId === newLineId && i.lineId !== expiryPickerLine.lineId);
+                                    const availQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0);
+                                    const wantQty = (dupLine ? dupLine.qty : 0) + (curLine ? curLine.qty : 0);
+                                    let finalQty = wantQty;
+                                    if (wantQty > availQty + 1e-6) {
+                                        const units = curLine?.saleUnits > 1 ? curLine.saleUnits : 1;
+                                        const fit = Math.floor(availQty * units + 1e-6) / units;
+                                        if (units > 1 && fit > 0) {
+                                            finalQty = fit;
+                                            showToast(`رصيد هذه التشغيلة ${fit} علبة فقط، اتعدلت الكمية للمتاح`, "warning");
+                                        } else {
+                                            showToast("رصيد هذه التشغيلة لا يكفي — اختر تشغيلة أخرى أو الغِ الصنف", "error");
+                                            return; // النافذة تفضل مفتوحة
+                                        }
+                                    }
+
                                     setInv((prev) => {
                                         const currentLine = prev.cart.find((i) => i.lineId === expiryPickerLine.lineId);
                                         const dup = prev.cart.find((i) => i.lineId === newLineId && i.lineId !== expiryPickerLine.lineId);
-                                        const availableQty = matchedBatch ? matchedBatch.qty : (prod?.stock ?? 0);
-                                        const mergedQty = (dup ? dup.qty : 0) + (currentLine ? currentLine.qty : 0);
-
-                                        if (mergedQty > availableQty) {
-                                            showToast("لا يوجد مخزون كافٍ في هذه التشغيلة", "error");
-                                            return prev;
-                                        }
+                                        const mergedQty = finalQty;
 
                                         if (dup) {
                                             // 🛠️ دواء بس: دمج السيريالات بدل ما نفقد سيريالات currentLine وقت الدمج
                                             const isDrugLine = (currentLine?.mainCategory || currentLine?.main_category || currentLine?.category) === "دواء";
-                                            const mergedSerials = isDrugLine
+                                            let mergedSerials = isDrugLine
                                                 ? [...(dup.serials || []), ...(currentLine?.serials || [])]
                                                 : dup.serials;
+                                            if (isDrugLine && mergedSerials && mergedSerials.length > mergedQty) mergedSerials = mergedSerials.slice(0, mergedQty);
                                             return {
                                                 ...prev,
                                                 cart: prev.cart
@@ -3357,11 +3468,22 @@ showToast("تمت عملية البيع ✓");
 
                                         return {
                                             ...prev,
-                                            cart: prev.cart.map((i) =>
-                                                i.lineId === expiryPickerLine.lineId
-                                                    ? { ...i, expiry: newExpiry, batch: newBatchNumber || i.batch, lineId: newLineId }
-                                                    : i
-                                            ),
+                                            cart: prev.cart.map((i) => {
+                                                if (i.lineId !== expiryPickerLine.lineId) return i;
+                                                const isDrugLine = (i.mainCategory || i.main_category || i.category) === "دواء";
+                                                const newSerials = (isDrugLine && i.serials && i.serials.length > mergedQty)
+                                                    ? i.serials.slice(0, mergedQty)
+                                                    : i.serials;
+                                                return {
+                                                    ...i,
+                                                    expiry: newExpiry,
+                                                    batch: newBatchNumber || i.batch,
+                                                    lineId: newLineId,
+                                                    qty: mergedQty,
+                                                    serials: newSerials,
+                                                    price: mergedQty !== i.qty ? recalcCartLinePrice(i, mergedQty) : i.price,
+                                                };
+                                            }),
                                         };
                                     });
                                     setExpiryPickerLine(null);
@@ -3375,6 +3497,20 @@ showToast("تمت عملية البيع ✓");
                                 {exp}
                             </button>
                         ))}
+                        <button
+                            onClick={() => {
+                                // 🆕 مخرج: لو مفيش تشغيلة تكفي، الكاشير يلغي السطر بدل ما يفضل محبوس في النافذة
+                                setInv((prev) => ({ ...prev, cart: prev.cart.filter((i) => i.lineId !== expiryPickerLine.lineId) }));
+                                setExpiryPickerLine(null);
+                            }}
+                            style={{
+                                padding: "8px 14px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                                border: `1px solid ${COLORS.border}`, background: "transparent",
+                                color: COLORS.textDim, fontSize: 12.5, fontWeight: 600,
+                            }}
+                        >
+                            إلغاء الصنف من الفاتورة
+                        </button>
                     </div>
                 )}
             </Modal>

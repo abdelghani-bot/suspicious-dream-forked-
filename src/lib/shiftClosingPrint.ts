@@ -49,7 +49,7 @@ export function computeShiftClosing({
     sales = [],
     creditPayments = [],
     returns = [],
-    now = Date.now(),
+    now = ts(new Date().toISOString()), // 🆕 نفس مساحة الساعة المكتوبة (UTC) اللي بتتقارن بيها باقي الأوقات
 }: {
     shift: any;
     sales?: any[];

@@ -316,7 +316,7 @@ export function ReturnsModule({
                 j === idx
                     ? {
                         ...x,
-                        returnQty: Math.min(x.returnQty + 1, maxReturnable),
+                        returnQty: Math.min(roundQty(x.returnQty + 1), maxReturnable),
                         scannedBatch: scannedBatch || x.scannedBatch || "",
                         scannedExpiry: scannedExpiry || x.scannedExpiry || "",
                         batchMismatch,
@@ -332,7 +332,7 @@ export function ReturnsModule({
             originalExpiry: item.originalExpiry || null,
             scannedBatch: scannedBatch || null,
             scannedExpiry: scannedExpiry || null,
-            newQty: Math.min(item.returnQty + 1, maxReturnable),
+            newQty: Math.min(roundQty(item.returnQty + 1), maxReturnable),
         });
 
         if (batchMismatch) {
@@ -341,6 +341,25 @@ export function ReturnsModule({
             showToast(`✓ تم تسجيل إرجاع: ${item.name}`, "success");
         }
     };
+
+    // 🆕 خطوة الكمية حسب وحدات البيع في كرت الصنف (saleUnits): صنف بوحدتين => الخطوة 0.5 (علبة أو نص).
+    // نفس قاعدة الـ POS (saleUnits > 1 ? 1/saleUnits : 1). تنطبق على مرتجع البيع فقط؛ المشتريات تفضل بالعلبة.
+    const stepOf = (item) => {
+        if (type !== "sales") return 1;
+        const p = (products || []).find((x) => x.id === item.id);
+        const units = Number(item.saleUnits ?? p?.saleUnits) || 1;
+        return units > 1 ? 1 / units : 1;
+    };
+    const roundQty = (v) => Math.round(v * 1000000) / 1000000;
+    const snapToStep = (v, step) => roundQty(Math.round(v / step + 1e-9) * step);
+    // 🆕 نفس صيغ الـ POS: 2/6 أو 1 2/6 أو 0.5 أو 3 — بترجع null لو الصيغة غلط
+    const parseQtyInput = (raw) => {
+        const m = String(raw).trim().match(/^(\d+)\s+(\d+)\/(\d+)$|^(\d+)\/(\d+)$|^(\d*\.?\d+)$/);
+        if (!m) return null;
+        const v = m[1] ? +m[1] + +m[2] / +m[3] : m[4] ? +m[4] / +m[5] : +m[6];
+        return Number.isFinite(v) ? v : null;
+    };
+    const isOnStep = (v, step) => Math.abs(Math.round(v / step) * step - v) < 0.0001; // نفس تسامح الـ POS
 
     const validateItem = (item) => {
         if (!selInvoice || adminOverride) return true;
@@ -381,10 +400,18 @@ export function ReturnsModule({
 
         for (const item of returnItems) {
             if (item.returnQty > 0 && !validateItem(item)) return;
+            if (item.returnQty > 0 && !isOnStep(item.returnQty, stepOf(item))) {
+                const st = stepOf(item);
+                showToast(
+                    `⚠️ ${item.name}: الكمية المرتجعة (${item.returnQty}) لا تتوافق مع وحدات بيع الصنف — لازم تكون من مضاعفات ${st}`,
+                    "error"
+                );
+                return;
+            }
             if (type === "sales" && selInvoice) {
                 const origItem = item.lineIdx != null ? selInvoice.items?.[item.lineIdx] : selInvoice.items?.find((x) => x.id === item.id);
                 const alreadyReturned = item.alreadyReturnedQty || 0;
-                if (origItem && item.returnQty + alreadyReturned > origItem.qty) {
+                if (origItem && item.returnQty + alreadyReturned > origItem.qty + 0.0001) {
                     showToast(
                         `⚠️ ${item.name}: الكمية المرتجعة (${item.returnQty}) + سابق إرجاعه (${alreadyReturned}) أكبر من المباعة (${origItem.qty})`,
                         "error"
@@ -395,7 +422,7 @@ export function ReturnsModule({
             if (type === "purchases" && purchaseInvoice) {
                 const origItem = purchaseInvoice.items?.find((x) => sameInvoiceLine(x, item));
                 const alreadyReturned = item.alreadyReturnedQty || 0;
-                if (origItem && item.returnQty + alreadyReturned > origItem.qty) {
+                if (origItem && item.returnQty + alreadyReturned > origItem.qty + 0.0001) {
                     showToast(
                         `⚠️ ${item.name}: الكمية المرتجعة (${item.returnQty}) + سابق إرجاعه (${alreadyReturned}) أكبر من المشتراة (${origItem.qty})`,
                         "error"
@@ -503,7 +530,7 @@ export function ReturnsModule({
                 if (!ri) return item;
                 return { ...item, returnedQty: (item.returnedQty || 0) + ri.returnQty };
             });
-            allReturned = updatedItems.every((item) => (item.returnedQty || 0) >= item.qty);
+            allReturned = updatedItems.every((item) => (item.returnedQty || 0) >= item.qty - 0.0001);
 
             // 🆕 بنبعت delta لكل سطر (return_qty) بدل الفاتورة كاملة بعد ما اتحسبت أوفلاين —
             // الـ RPC هو اللي بيقرأ الحالة الحالية وقت الـ sync الفعلي ويزوّد عليها.
@@ -1213,6 +1240,7 @@ export function ReturnsModule({
                                 ? Math.max(0, Math.min(remainingFromInvoice, item.stockQty ?? 0))
                                 : remainingFromInvoice;
                         const soldQty = type === "purchases" ? Math.max(0, remainingFromInvoice - (item.stockQty ?? 0)) : 0;
+                        const step = stepOf(item);
                         return (
                             <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: item.batchMismatch ? `1px solid ${COLORS.red}` : `1px solid ${COLORS.border}` }}>
                                 <div style={{ flex: 1 }}>
@@ -1241,16 +1269,35 @@ export function ReturnsModule({
                                     {(type === "purchases" ? item.cost || item.price : item.price).toFixed(2)} ر.س
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                    <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.max(0, x.returnQty - 1) } : x))}
+                                    <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.max(0, roundQty(x.returnQty - step)), qtyDisplay: undefined } : x))}
                                         style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>-</button>
-                                    <input type="number" min={0} max={maxReturnable}
-                                        value={item.returnQty}
-                                        onChange={(e) => setReturnItems((p) => p.map((x, j) => j === i ? {
-                                            ...x, returnQty: Math.min(Math.max(0, +e.target.value), maxReturnable)
-                                        } : x))}
-                                        style={{ width: 50, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 6px", color: COLORS.textPrimary, fontSize: 13, outline: "none", textAlign: "center" }}
+                                    <input type="text" inputMode="decimal"
+                                        title={step < 1
+                                            ? `العلبة مقسّمة لـ ${Math.round(1 / step)} وحدة بيع — اكتب 1 لعلبة كاملة، أو كسر زي 2/${Math.round(1 / step)} لإرجاع وحدتين بس`
+                                            : "اكتب رقم صحيح"}
+                                        value={item.qtyDisplay ?? item.returnQty}
+                                        onChange={(e) => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, qtyDisplay: e.target.value } : x))}
+                                        onBlur={(e) => {
+                                            const raw = e.target.value.trim();
+                                            const reset = () => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, qtyDisplay: undefined } : x));
+                                            if (raw === "") { setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: 0, qtyDisplay: undefined } : x)); return; }
+                                            const val = parseQtyInput(raw);
+                                            if (val === null || val < 0) {
+                                                showToast(`⚠️ ${item.name}: صيغة غير صحيحة — اكتب رقم أو كسر زي ${step < 1 ? `2/${Math.round(1 / step)}` : "2"}`, "error");
+                                                reset();
+                                                return;
+                                            }
+                                            if (!isOnStep(val, step)) {
+                                                const su = Math.round(1 / step);
+                                                showToast(`⚠️ ${item.name}: العلبة مقسّمة لـ ${su} وحدة بيع بس — اكتب كسر زي 2/${su} (وحدتين من ${su})، أو 1 لعلبة كاملة`, "error");
+                                                reset();
+                                                return;
+                                            }
+                                            setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(roundQty(val), maxReturnable), qtyDisplay: undefined } : x));
+                                        }}
+                                        style={{ width: 64, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "4px 6px", color: COLORS.textPrimary, fontSize: 13, outline: "none", textAlign: "center" }}
                                     />
-                                    <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(x.returnQty + 1, maxReturnable) } : x))}
+                                    <button onClick={() => setReturnItems((p) => p.map((x, j) => j === i ? { ...x, returnQty: Math.min(roundQty(x.returnQty + step), maxReturnable), qtyDisplay: undefined } : x))}
                                         style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.surfaceAlt, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "none", color: COLORS.blue, cursor: "pointer", fontWeight: 700 }}>+</button>
                                 </div>
                                 {item.taxable && <Badge color={COLORS.greenSoft} text={COLORS.green}>15%</Badge>}

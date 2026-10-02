@@ -979,13 +979,25 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
         const shiftObj = (shifts || []).find((x) => x.id === shiftId);
         const shiftReturns = shiftObj ? getShiftReturns(shiftObj) : 0;
         const grossTotal = shiftSales.filter((s) => s.payment !== "آجل").reduce((a, s) => a + s.total, 0);
+        // 🆕 سداد الآجل اللي اتحصّل أثناء الشفت ده (بوقت السداد، ونفس يوم الخزنة) — بيتحسب في الشفت اللي استلمه عشان
+        // مجموع الشفتات يطابق "إجمالي اليوم". سجل السداد من غير created_at مش قادرين ننسبه لشفت فبيفضل في إجمالي اليوم بس.
+        const creditPaid = shiftObj
+            ? (creditPayments || [])
+                .filter((p) =>
+                    p.created_at && recDate(p) === today &&
+                    localMs(p.created_at) >= localMs(shiftObj.start_time) &&
+                    (!shiftObj.end_time || localMs(p.created_at) <= localMs(shiftObj.end_time))
+                )
+                .reduce((a, p) => a + (p.amount || 0), 0)
+            : 0;
         return {
             cash: shiftSales.reduce((a, s) => a + splitSaleByMethod(s)["نقدي"], 0),
             card: shiftSales.reduce((a, s) => a + splitSaleByMethod(s)["بطاقة"], 0),
             transfer: shiftSales.reduce((a, s) => a + splitSaleByMethod(s)["تحويل"], 0),
             ajil: shiftSales.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0),
             returns: shiftReturns, // 🆕 إجمالي مرتجعات الشفت (كامل + جزئي) من جدول returns
-            total: grossTotal - shiftReturns, // 🆕 صافي بعد خصم المرتجعات
+            creditPaid, // 🆕 سداد آجل اتحصّل في الشفت
+            total: grossTotal + creditPaid - shiftReturns, // 🆕 صافي بعد خصم المرتجعات وإضافة سداد الآجل المحصّل
             count: shiftSales.length,
         };
     };
@@ -2212,6 +2224,11 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
                                         {ss.ajil > 0 && (
                                             <div style={{ marginTop: 8, color: COLORS.red, fontSize: 12 }}>
                                                 مديونية: {ss.ajil.toFixed(2)} ر.س ({ss.count} فاتورة)
+                                            </div>
+                                        )}
+                                        {ss.creditPaid > 0 && (
+                                            <div style={{ marginTop: 8, color: COLORS.green, fontSize: 12 }}>
+                                                💰 سداد آجل محصّل: {ss.creditPaid.toFixed(2)} ر.س (داخل في الإجمالي)
                                             </div>
                                         )}
                                         {ss.returns > 0 && (

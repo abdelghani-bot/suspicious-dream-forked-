@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient";
 import { buildZatcaChainForInvoice } from "./zatca";
 import { authService } from "../services/authService"; // 🆕 عدّل المسار حسب مكان الملف الفعلي عندك
 import { calcCappedHours, isRamadan, setRamadanRanges } from "./dateUtils";
+import { computeCheckInFields } from "./attendanceCalc";
 import { getDeviceId } from "./deviceID";
 
 export type QueuedEvent = {
@@ -27,6 +28,40 @@ function reportStockBatchFailures(source: string, eventId: string, failed: any[]
             })
         );
     } catch { /* مش لازم نوقف المزامنة عشان التنبيه فشل */ }
+}
+
+// 🆕 استكمال حقول سجل الحضور التلقائي (اللي بيتعمل عند فتح الشفت): shift_number / expected_start / late_minutes.
+// قبل كده كانت ناقصة فالتأخير بيطلع 0 في التقرير الشهري والساعات بتتحسب على جدول الشفت 1 دايمًا.
+// - السجل اليدوي من AttendanceModule فيه shift_number أصلًا → مابنلمسوش.
+// - إعادة فتح الشفت (payload.is_reopen): نفس shift_number/expected_start بتاعة جلسة الشفت الأولى، والتأخير 0 (مش وصول متأخر).
+// - لو الجداول ماتحمّلتش لأي سبب بنكمل بالسجل زي ما هو (مانمنعش الحضور بسبب فشل الحساب).
+async function enrichCheckInRecord(rec: any, payload: any): Promise<any> {
+    if (!rec || rec.shift_number != null) return rec;
+    try {
+        const pid = payload.pharmacy_id;
+        const name = payload.pharmacist_name || rec.pharmacist_name;
+        const userId = payload.pharmacist_user_id || rec.pharmacist_user_id || null;
+        if (payload.is_reopen && rec.shift_id) {
+            const { data: prev } = await supabase.from("attendance_logs").select("shift_number, expected_start")
+                .eq("pharmacy_id", pid).eq("shift_id", rec.shift_id).not("shift_number", "is", null)
+                .order("check_in", { ascending: true }).limit(1).maybeSingle();
+            if (prev?.shift_number != null) {
+                return { ...rec, shift_number: prev.shift_number, expected_start: prev.expected_start || null, late_minutes: 0 };
+            }
+        }
+        const [ws, rot, hol] = await Promise.all([
+            supabase.from("work_schedules").select("*").eq("pharmacy_id", pid),
+            supabase.from("rotation_schedules").select("*").eq("pharmacy_id", pid),
+            supabase.from("official_holidays").select("*").eq("pharmacy_id", pid),
+        ]);
+        if (ws.error || rot.error || hol.error) return rec;
+        const ctx = { workSchedules: ws.data || [], rotationSchedules: rot.data || [], officialHolidays: hol.data || [] };
+        const fields = computeCheckInFields(ctx, name, userId, new Date(rec.check_in));
+        return { ...rec, ...fields, late_minutes: payload.is_reopen ? 0 : fields.late_minutes };
+    } catch (err) {
+        console.warn("enrichCheckInRecord failed (inserting as-is):", err);
+        return rec;
+    }
 }
 
 // ── تنفيذ فعلي لكل نوع event على Supabase (زي ما هو تمامًا) ──
@@ -242,18 +277,33 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             q = userId ? q.eq("pharmacist_user_id", userId) : q.eq("pharmacist_name", event.payload.pharmacist_name);
             const existing = await q.maybeSingle();
             if (!existing.data) {
-                const { error } = await supabase.from("attendance_logs").insert(rec);
+                const toInsert = await enrichCheckInRecord(rec, event.payload); // 🆕
+                const { error } = await supabase.from("attendance_logs").insert(toInsert);
                 if (error) throw error;
             }
             break;
         }
         case "ATTENDANCE_CHECKOUT": {
             // 🆕 حساب الساعات بيتأجل هنا (وقت النت الفعلي) بدل وقت إغلاق الشفت أوفلاين
-            const { pharmacy_id, pharmacist_name, pharmacist_user_id, date, check_out } = event.payload;
-            let openQ = supabase.from("attendance_logs").select("*")
-                .eq("pharmacy_id", pharmacy_id).eq("date", date).is("check_out", null);
-            openQ = pharmacist_user_id ? openQ.eq("pharmacist_user_id", pharmacist_user_id) : openQ.eq("pharmacist_name", pharmacist_name);
-            const { data: openLog } = await openQ.maybeSingle();
+            const { pharmacy_id, pharmacist_name, pharmacist_user_id, date, check_out, shift_id } = event.payload;
+            // 🆕 الربط بالشفت: لو الحدث فيه shift_id بندور على سجل الحضور المفتوح بتاع الشفت ده بالذات.
+            // السبب: الشفت اللي بيعدّي منتصف الليل بيتفتح بتاريخ وبيتقفل بتاريخ تاني، والبحث بـ date (تاريخ التقفيل) كان مابيلاقيش
+            // سجل الحضور (تاريخه تاريخ الفتح) فكان بيعمل break بصمت ويسيب السجل مفتوح — وساعات العمل بتضيع من الرواتب.
+            let openLog: any = null;
+            if (shift_id) {
+                const { data: byShift } = await supabase.from("attendance_logs").select("*")
+                    .eq("pharmacy_id", pharmacy_id).eq("shift_id", shift_id).is("check_out", null)
+                    .order("check_in", { ascending: false }).limit(1).maybeSingle();
+                openLog = byShift;
+            }
+            if (!openLog) {
+                // الأحداث القديمة (من غير shift_id) والتسجيل اليدوي: نفس البحث القديم بالتاريخ
+                let openQ = supabase.from("attendance_logs").select("*")
+                    .eq("pharmacy_id", pharmacy_id).eq("date", date).is("check_out", null);
+                openQ = pharmacist_user_id ? openQ.eq("pharmacist_user_id", pharmacist_user_id) : openQ.eq("pharmacist_name", pharmacist_name);
+                const { data: byDate } = await openQ.maybeSingle();
+                openLog = byDate;
+            }
             if (!openLog) break; // اتقفل فعلاً (مثلاً sync اتكرر)
 
             // 🔧 بعد إضافة is_ramadan للقيد الفريد ممكن يبقى فيه صفين (عادي + رمضان) لنفس اليوم والشيفت،

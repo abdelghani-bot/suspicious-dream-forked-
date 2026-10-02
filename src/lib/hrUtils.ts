@@ -1,5 +1,7 @@
 import { isRamadan, isSamePharmacist } from "./dateUtils";
-import { AttendanceModule } from "../modules/AttendanceModule";
+// 🆕 اتشال import { AttendanceModule } — كان مش مستخدم أصلًا، وبيعمل اعتمادية دائرية ويحمّل موديول الحضور كله مع ملف حسابات الرواتب.
+// 🆕 دوال الحضور النقية (نفس منطق AttendanceModule) لإعادة حساب التأخير للسجلات القديمة اللي مفيهاش late_minutes محفوظ
+import { calcLateMinutesAt, computeCheckInFields } from "./attendanceCalc";
 
 // ========== نظام الرواتب — دوال مساعدة مشتركة ==========
 // 🆕 حساب مكافأة نهاية الخدمة حسب نظام العمل السعودي (المادة 84/85):
@@ -114,6 +116,12 @@ export function calcLateMinutesForSalary(pharmacistName, shiftNum, checkInTime, 
 // 🆕 إحصائيات حضور موظف خلال شهر: إجمالي دقائق التأخير + عدد أيام الجمعة اللي حضر فيها فعليًا (يوم 5 = الجمعة)
 export function computeMonthlyAttendanceStats(pharmacistName, monthKey, ctx, staffUserId) {
   const { attendanceLogs = [] } = ctx || {};
+  // 🆕 سياق الجداول للحساب الدقيق (التناوب والإجازات الرسمية لو متوفرة — لو مش متوفرة بتتعامل كأنها فاضية)
+  const schedCtx = {
+    workSchedules: (ctx && ctx.workSchedules) || [],
+    rotationSchedules: (ctx && ctx.rotationSchedules) || [],
+    officialHolidays: (ctx && ctx.officialHolidays) || [],
+  };
   const logMatchesStaff = (l) => staffUserId ? l.pharmacist_user_id === staffUserId : l.pharmacist_name === pharmacistName;
   const myLogs = attendanceLogs.filter((l) => logMatchesStaff(l) && l.date && l.date.startsWith(monthKey) && l.check_in);
   let lateMinutes = 0;
@@ -124,14 +132,27 @@ export function computeMonthlyAttendanceStats(pharmacistName, monthKey, ctx, sta
     // في AttendanceModule (بياخد التناوب الدوري في الاعتبار). إعادة الحساب هنا (calcLateMinutesForSalary)
     // بتتجاهل التناوب، فكانت بترجّع صفر غلط لأي موظف شغال بنظام تناوب. بنرجع لإعادة الحساب بس لو السجل قديم
     // ومفيهوش قيمة محفوظة أصلاً.
-    lateMinutes += (log.late_minutes != null ? log.late_minutes : calcLateMinutesForSalary(pharmacistName, log.shift_number || 1, log.check_in, ctx));
+    // 🆕 السجلات القديمة (من غير late_minutes) كانت بتتحسب بـ calcLateMinutesForSalary: بتفترض الشفت 1 دايمًا (موظف الشفت التاني
+    // كان بيتحسب عليه تأخير مقابل بداية الشفت الأول)، وبتاخد تاريخ UTC من النص، وبتتجاهل التناوب والشفت الليلي.
+    // دلوقتي بنستخدم نفس منطق الحضور: الشفت المسجّل على السجل لو موجود، وإلا بنستنتجه من وقت الحضور.
+    if (log.late_minutes != null) {
+      lateMinutes += log.late_minutes;
+    } else {
+      const at = new Date(log.check_in);
+      const uid = staffUserId || log.pharmacist_user_id || null;
+      lateMinutes += log.shift_number != null
+        ? calcLateMinutesAt(schedCtx, pharmacistName, uid, log.shift_number, at)
+        : computeCheckInFields(schedCtx, pharmacistName, uid, at).late_minutes;
+    }
     const dow = new Date(log.check_in).getDay(); // 5 = الجمعة
     if (dow === 5 && log.check_out && !countedFridayDates.has(log.date)) {
       countedFridayDates.add(log.date);
       fridaysWorked += 1;
     }
   }
-  return { lateMinutes, fridaysWorked, daysWorked: myLogs.filter((l) => l.check_out).length };
+  // 🆕 أيام العمل بالتواريخ المختلفة مش بعدد السجلات (إعادة فتح الشفت أو شفتين في اليوم = أكتر من سجل لنفس اليوم)
+  const daysWorked = new Set(myLogs.filter((l) => l.check_out).map((l) => l.date)).size;
+  return { lateMinutes, fridaysWorked, daysWorked };
 }
 
 
