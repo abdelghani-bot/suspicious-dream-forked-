@@ -1,13 +1,14 @@
 import { supabase } from "./supabaseClient";
 import { buildZatcaChainForInvoice } from "./zatca";
 import { authService } from "../services/authService"; // 🆕 عدّل المسار حسب مكان الملف الفعلي عندك
-import { calcCappedHours, isRamadan, setRamadanRanges } from "./dateUtils";
+import { calcCappedHours, resolveExpectedShift, setRamadanRanges } from "./dateUtils";
 import { computeCheckInFields } from "./attendanceCalc";
 import { getDeviceId } from "./deviceID";
 
 export type QueuedEvent = {
     id: string;
     type: string;
+    pharmacy_id?: string | null; // 🆕 على مستوى الحدث نفسه: executeEvent وoffline sync بيعتمدوا عليه (event.pharmacy_id)
     timestamp: string;
     payload: any;
 };
@@ -306,18 +307,37 @@ async function executeEvent(event: QueuedEvent): Promise<any> {
             }
             if (!openLog) break; // اتقفل فعلاً (مثلاً sync اتكرر)
 
-            // 🔧 بعد إضافة is_ramadan للقيد الفريد ممكن يبقى فيه صفين (عادي + رمضان) لنفس اليوم والشيفت،
-            // فـ maybeSingle() كان هيفشل. بنجيب الاتنين ونختار حسب تاريخ سجل الحضور (نفس منطق
-            // resolveExpectedShift: رمضان لو موجود وتاريخ السجل في رمضان، وإلا العادي).
-            const { data: schedList } = await supabase.from("work_schedules").select("*")
-                .eq("pharmacy_id", pharmacy_id).eq("pharmacist_name", pharmacist_name)
-                .eq("day_of_week", new Date(openLog.check_in).getDay())
-                .eq("shift_number", openLog.shift_number || 1).eq("is_off", false);
-            const wantRamadan = isRamadan(openLog.date || date);
-            const schedRows =
-                (wantRamadan ? (schedList || []).find((r: any) => !!r.is_ramadan) : null) ||
-                (schedList || []).find((r: any) => !r.is_ramadan) ||
-                null;
+            // 🆕 الجدول المتوقع بنفس منطق الحضور بالظبط (resolveExpectedShift: إجازة رسمية ← تناوب ← رمضان ← عادي)
+            // وبمراعاة user_id. قبل كده كان بيجيب work_schedules بالاسم بس فبيتجاهل التناوب (الجمعة) والإجازات،
+            // وبيستخدم getDay() بتاع وقت الحضور فالشفت الليلي المفتوح بعد منتصف الليل كان بيجيب جدول اليوم الغلط.
+            // اليوم المرجعي = business_date بتاع الشفت (لو متاح) وإلا تاريخ سجل الحضور.
+            let refDate: string = openLog.date || date;
+            if (openLog.shift_id) {
+                const { data: shRow } = await supabase.from("shifts").select("business_date")
+                    .eq("pharmacy_id", pharmacy_id).eq("id", openLog.shift_id).maybeSingle();
+                if (shRow?.business_date) refDate = String(shRow.business_date).slice(0, 10);
+            }
+            const [wsRes, rotRes, holRes] = await Promise.all([
+                supabase.from("work_schedules").select("*").eq("pharmacy_id", pharmacy_id),
+                supabase.from("rotation_schedules").select("*").eq("pharmacy_id", pharmacy_id),
+                supabase.from("official_holidays").select("*").eq("pharmacy_id", pharmacy_id),
+            ]);
+            // لو الجداول ماتحمّلتش نرمي الخطأ عشان الحدث يتعاد في المزامنة اللي بعدها بدل ما نحسب ساعات غلط
+            if (wsRes.error || rotRes.error || holRes.error) throw (wsRes.error || rotRes.error || holRes.error);
+            const schedCtx = {
+                workSchedules: wsRes.data || [],
+                rotationSchedules: rotRes.data || [],
+                officialHolidays: holRes.data || [],
+            };
+            const refDow = new Date(refDate + "T12:00:00").getDay();
+            const schedRows = resolveExpectedShift(
+                schedCtx,
+                openLog.pharmacist_name || pharmacist_name,
+                refDow,
+                openLog.shift_number || 1,
+                refDate,
+                openLog.pharmacist_user_id || pharmacist_user_id || null
+            );
             const { data: breaks } = await supabase.from("prayer_breaks")
                 .select("deducted_minutes").eq("attendance_id", openLog.id);
 

@@ -287,6 +287,7 @@ export function CustomersModule({
     creditPayments,
     setCreditPayments,
     currentUser,
+    currentShift = null, // 🆕 الشفت المفتوح للمستخدم الحالي (من App) — بيتسجل على سداد الآجل كـ shift_id
     pharmacyId,
     canAdd = true,
     canDelete = true,
@@ -368,6 +369,11 @@ export function CustomersModule({
             return;
         }
 
+        // 🆕 سداد الآجل كاش بيدخل درج الشفت — لازم شفت مفتوح (وإلا فلوس داخلة من غير درج تتنسب له)
+        if (!currentShift) {
+            showToast("يرجى فتح شفت أولاً قبل تسجيل سداد آجل", "error");
+            return;
+        }
         const nowISO = new Date().toISOString();
         const paymentRow = {
             id: crypto.randomUUID(), // 🆕 id مولّد من العميل عشان الكاش المحلي والمزامنة يقدروا يعملوا dedupe
@@ -378,6 +384,8 @@ export function CustomersModule({
             notes: "سداد جزئي/كامل",
             created_by: currentUser?.name || "",
             pharmacy_id: pharmacyId,
+            shift_id: currentShift?.id ?? null, // 🆕 ربط السداد بالشفت (يتطلب عمود credit_payments.shift_id)
+            created_at: nowISO, // 🆕 وقت السداد صريح (كاش SQLite ماكانش بيحفظ created_at فالتقرير أوفلاين كان بيفقد وقت السداد)
         };
 
         try {

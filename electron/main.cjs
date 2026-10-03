@@ -654,6 +654,22 @@ CREATE INDEX IF NOT EXISTS idx_attendance_gaps_cache_pharmacy ON attendance_gaps
     db.exec(`CREATE INDEX IF NOT EXISTS idx_work_schedules_cache_user ON work_schedules_cache(pharmacy_id, pharmacist_user_id)`);
 })();
 
+// 🆕 Migration: ربط الشفت/اليوم التشغيلي في الكاش المحلي.
+//  - shifts_cache.business_date: من غيره الشفتات المقروءة من الكاش (أوفلاين) كانت بتفقد تاريخ اليوم التشغيلي،
+//    فمنع البيع/إعادة الفتح/الداشبورد/الخزنة كلها بترجع تحسب بالتاريخ التقويمي.
+//  - returns_cache / credit_payments_cache: shift_id (نسب الحركة لدرج شفت واحد) + created_at (وقت الحركة).
+(function migrateShiftLinkColumns() {
+    const addCol = (table, col, type) => {
+        const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    };
+    addCol("shifts_cache", "business_date", "TEXT");
+    addCol("returns_cache", "shift_id", "TEXT");
+    addCol("returns_cache", "created_at", "TEXT");
+    addCol("credit_payments_cache", "shift_id", "TEXT");
+    addCol("credit_payments_cache", "created_at", "TEXT");
+})();
+
 ipcMain.handle("app:getVersion", () => app.getVersion());
 
 // ==================== كاش المنتجات محلياً (products_cache) ====================
@@ -1032,14 +1048,16 @@ ipcMain.handle("offline:upsertShiftCache", (_event, shift) => {
         db.prepare(`
       INSERT INTO shifts_cache (
         id, pharmacy_id, user_name, user_id, role, start_time, end_time,
-        open_cash, close_cash, sales, notes, updated_at
+        open_cash, close_cash, sales, notes, business_date, updated_at
       ) VALUES (
         @id, @pharmacy_id, @user_name, @user_id, @role, @start_time, @end_time,
-        @open_cash, @close_cash, @sales, @notes, @updated_at
+        @open_cash, @close_cash, @sales, @notes, @business_date, @updated_at
       )
       ON CONFLICT(id) DO UPDATE SET
         end_time=excluded.end_time, close_cash=excluded.close_cash,
-        sales=excluded.sales, notes=excluded.notes, updated_at=excluded.updated_at
+        sales=excluded.sales, notes=excluded.notes,
+        business_date=COALESCE(excluded.business_date, shifts_cache.business_date),
+        updated_at=excluded.updated_at
     `).run({
             id: shift.id,
             pharmacy_id: shift.pharmacy_id,
@@ -1052,6 +1070,7 @@ ipcMain.handle("offline:upsertShiftCache", (_event, shift) => {
             close_cash: shift.close_cash ?? null,
             sales: shift.sales ?? 0,
             notes: shift.notes || null,
+            business_date: shift.business_date ? String(shift.business_date).slice(0, 10) : null,
             updated_at: new Date().toISOString(),
         });
         return { success: true };
@@ -1146,11 +1165,11 @@ ipcMain.handle("offline:insertReturnCache", (_event, ret) => {
       INSERT INTO returns_cache (
         id, pharmacy_id, date, type, invoice_id, purchase_invoice_id, supplier_id,
         customer, customer_name, items, reason, subtotal, tax, total, admin_override,
-        refund_source, refund_shift_id, refund_method, updated_at
+        refund_source, refund_shift_id, refund_method, shift_id, created_at, updated_at
       ) VALUES (
         @id, @pharmacy_id, @date, @type, @invoice_id, @purchase_invoice_id, @supplier_id,
         @customer, @customer_name, @items, @reason, @subtotal, @tax, @total, @admin_override,
-        @refund_source, @refund_shift_id, @refund_method, @updated_at
+        @refund_source, @refund_shift_id, @refund_method, @shift_id, @created_at, @updated_at
       )
       ON CONFLICT(id) DO NOTHING
     `).run({
@@ -1172,6 +1191,8 @@ ipcMain.handle("offline:insertReturnCache", (_event, ret) => {
             refund_source: ret.refund_source || null,
             refund_shift_id: ret.refund_shift_id || null,
             refund_method: ret.refund_method || null,
+            shift_id: ret.shift_id || null,
+            created_at: ret.created_at || null,
             updated_at: new Date().toISOString(),
         });
         return { success: true };
@@ -1229,9 +1250,9 @@ ipcMain.handle("offline:upsertCreditPaymentCache", (_event, payment) => {
     try {
         db.prepare(`
       INSERT INTO credit_payments_cache (
-        id, pharmacy_id, invoice_id, customer_id, amount, date, notes, created_by, updated_at
+        id, pharmacy_id, invoice_id, customer_id, amount, date, notes, created_by, shift_id, created_at, updated_at
       ) VALUES (
-        @id, @pharmacy_id, @invoice_id, @customer_id, @amount, @date, @notes, @created_by, @updated_at
+        @id, @pharmacy_id, @invoice_id, @customer_id, @amount, @date, @notes, @created_by, @shift_id, @created_at, @updated_at
       )
       ON CONFLICT(id) DO NOTHING
     `).run({
@@ -1243,6 +1264,8 @@ ipcMain.handle("offline:upsertCreditPaymentCache", (_event, payment) => {
             date: payment.date,
             notes: payment.notes || null,
             created_by: payment.created_by || null,
+            shift_id: payment.shift_id || null,
+            created_at: payment.created_at || null,
             updated_at: new Date().toISOString(),
         });
         return { success: true };

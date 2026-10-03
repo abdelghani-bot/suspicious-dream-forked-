@@ -33,7 +33,8 @@ export type ShiftClosingReport = {
     transfer: number;
     ajilTotal: number; // إجمالي فواتير الآجل المبيعة في الشفت (مش داخل في المبيعات المحصّلة)
     ajilCount: number;
-    creditPaid: number; // سداد آجل اتحصّل أثناء الشفت
+    creditPaid: number; // سداد آجل اتحصّل أثناء الشفت (كل الطرق)
+    creditPaidCash: number; // 🆕 الجزء اللي اتحصّل كاش بس (هو اللي بيدخل الدرج)
     returnsCash: number;
     returnsCard: number;
     returnsTransfer: number;
@@ -41,28 +42,55 @@ export type ShiftClosingReport = {
     creditReturns: number; // مرتجع فواتير آجل (بيتخصم من المديونية، مفيش فلوس خرجت)
     collected: number; // كاش + شبكة + تحويل + سداد آجل
     net: number; // المحصّل − المرتجعات (نفس تعريف "مبيعات اليوم" في الداشبورد)
-    expectedCash: number; // المفروض يكون في الدرج: نقدي + سداد آجل − مرتجع نقدي
+    expectedCash: number; // حركة النقد في الشفت: نقدي + سداد آجل كاش − مرتجع نقدي (من غير النقد الافتتاحي)
+    openCash: number; // 🆕 النقد الافتتاحي للشفت
+    expectedDrawer: number; // 🆕 المفروض في الدرج فعلًا = النقد الافتتاحي + expectedCash (نفس رقم شاشة التقفيل)
 };
+
+// 🆕 نسب المرتجع/سداد الآجل لشفت واحد بس.
+// المشكلة: النسب بنافذة الوقت لوحدها بيحسب نفس المرتجع في كل شفت مفتوح وقتها (شفتين متداخلين = عجز وهمي).
+// الترتيب: ١) لو السجل عليه شفت صريح (shift / shift_id) → بيروح لده بس.
+//          ٢) غير كده، لو أكتر من شفت نافذته بتشمل الوقت → أحدث شفت بدأ قبل وقت السجل (واحد بس، فالمجموع مايتعدش مرتين).
+//          ٣) شفت واحد بس بيشمله → هو.
+// allShifts مش متبعتة → السلوك القديم (نافذة الوقت). الأدق دايمًا إن المرتجع وسداد الآجل يتسجل عليهم shift_id وقت الإنشاء.
+export function belongsToShift(rec: any, shift: any, allShifts?: any[] | null): boolean {
+    if (!rec || !shift) return false;
+    const explicit = rec.shift_id ?? rec.shift ?? null;
+    if (explicit != null && explicit !== "") return String(explicit) === String(shift.id);
+
+    const t = ts(rec.created_at);
+    if (isNaN(t)) return false;
+    const inWin = (sh: any) => {
+        const a = ts(sh.start_time);
+        const b = sh.end_time ? ts(sh.end_time) : Infinity;
+        return !isNaN(a) && t >= a && t <= b;
+    };
+    if (!inWin(shift)) return false;
+    if (!allShifts || allShifts.length === 0) return true;
+    const candidates = allShifts.filter((sh) => sh && inWin(sh));
+    if (candidates.length <= 1) return true;
+    const winner = candidates.sort((x, y) => ts(y.start_time) - ts(x.start_time))[0];
+    return String(winner.id) === String(shift.id);
+}
 
 export function computeShiftClosing({
     shift,
     sales = [],
     creditPayments = [],
     returns = [],
+    allShifts = null,
     now = ts(new Date().toISOString()), // 🆕 نفس مساحة الساعة المكتوبة (UTC) اللي بتتقارن بيها باقي الأوقات
 }: {
     shift: any;
     sales?: any[];
     creditPayments?: any[];
     returns?: any[];
+    allShifts?: any[] | null; // 🆕 كل الشفتات — لتفادي حساب نفس المرتجع/السداد في شفتين متداخلين
     now?: number;
 }): ShiftClosingReport {
-    const start = ts(shift.start_time);
-    const end = shift.end_time ? ts(shift.end_time) : now;
-    const inWindow = (t: any) => {
-        const x = ts(t);
-        return !isNaN(x) && x >= start && x <= end;
-    };
+    void now; // 🆕 النافذة بقت جوه belongsToShift (الشفت المفتوح نهايته مفتوحة)
+    // 🆕 الشفت المفتوح نهايته "الآن" — بنبدّلها في نسخة محلية عشان belongsToShift يشوف النافذة صح
+    const shiftForAttr = shift.end_time ? shift : { ...shift, end_time: null };
 
     // فواتير الشفت (بما فيها المرتجعة بالكامل: مرتجعها بيتخصم مرة واحدة من قيود/جدول المرتجعات)
     const shiftSales = (sales || []).filter((s) => s.shift === shift.id);
@@ -79,12 +107,16 @@ export function computeShiftClosing({
 
     // سداد الآجل اللي اتحصّل أثناء الشفت (بوقت السداد). لو السجل مالوش created_at (قديم) بنربطه بفواتير آجل الشفت.
     const creditIds = new Set(creditSales.map((s) => s.id));
-    const creditPaid = (creditPayments || [])
-        .filter((p) => (p.created_at ? inWindow(p.created_at) : creditIds.has(p.invoice_id)))
+    const myCreditPayments = (creditPayments || [])
+        .filter((p) => (p.created_at || p.shift_id || p.shift ? belongsToShift(p, shiftForAttr, allShifts) : creditIds.has(p.invoice_id)));
+    const creditPaid = myCreditPayments.reduce((a, p) => a + (p.amount || 0), 0);
+    // 🆕 الدرج بيدخله الكاش بس: سداد البطاقة/التحويل مش داخل (زي حساب شاشة التقفيل)
+    const creditPaidCash = myCreditPayments
+        .filter((p) => { const m = p.method || p.payment_method || "نقدي"; return m !== "بطاقة" && m !== "تحويل"; })
         .reduce((a, p) => a + (p.amount || 0), 0);
 
     // مرتجعات الشفت بوقت المرتجع نفسه (الكاشير هو اللي رجّع الفلوس في شفته)
-    const shiftReturns = (returns || []).filter((r) => r && r.type === "sales" && inWindow(r.created_at));
+    const shiftReturns = (returns || []).filter((r) => r && r.type === "sales" && belongsToShift(r, shiftForAttr, allShifts));
     const refundRows = shiftReturns.filter((r) => r.refund_method !== null); // null = مرتجع آجل
     const byMethod = (m: string) =>
         refundRows
@@ -109,11 +141,13 @@ export function computeShiftClosing({
         count: shiftSales.length,
         cash, card, transfer,
         ajilTotal, ajilCount: creditSales.length,
-        creditPaid,
+        creditPaid, creditPaidCash,
         returnsCash, returnsCard, returnsTransfer, returnsTotal, creditReturns,
         collected,
         net: collected - returnsTotal,
-        expectedCash: cash + creditPaid - returnsCash,
+        expectedCash: cash + creditPaidCash - returnsCash,
+        openCash: +shift.open_cash || 0,
+        expectedDrawer: (+shift.open_cash || 0) + cash + creditPaidCash - returnsCash,
     };
 }
 
@@ -180,7 +214,8 @@ export function printShiftClosing(report: ShiftClosingReport, pharm: PharmInfo =
  <div class="r" style="border-top:1px dashed #000;margin-top:3px"><span>إجمالي المحصّل</span><span class="a">${fmt(report.collected)}</span></div>
  ${out.length ? `<div class="d"></div>${out.map(([l, v]) => row(l, v, "-")).join("")}` : ""}
  <div class="t"><span>صافي الشفت</span><span>${fmt(report.net)} ر.س</span></div>
- <div class="r" style="margin-top:6px"><span>المفروض في الدرج (نقدي)</span><span class="a">${fmt(report.expectedCash)}</span></div>
+ <div class="r" style="margin-top:6px"><span>نقد افتتاحي</span><span class="a">${fmt(report.openCash)}</span></div>
+ <div class="r"><span>المفروض في الدرج</span><span class="a">${fmt(report.expectedDrawer)}</span></div>
  ${ajilNote || creditRetNote ? `<div class="d"></div><div class="s">${[ajilNote, creditRetNote].filter(Boolean).join("<br>")}</div>` : ""}
  <div class="m c">طُبع بواسطة: ${esc(report.user)} — ${when(Date.now())}</div>
 </body></html>`;
@@ -225,7 +260,7 @@ export function printShiftClosing(report: ShiftClosingReport, pharm: PharmInfo =
  </tbody></table>
  ${out.length ? `<h2>المرتجعات</h2><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${out.map(([l, v]) => tr(l, v, "-", "#a30f0f")).join("")}</tbody></table>` : ""}
  <div class="total-line"><span>صافي الشفت</span><span>${fmt(report.net)} ر.س</span></div>
- <div class="total-line" style="border-top:1px dashed #222"><span>المفروض في الدرج (نقدي + سداد آجل − مرتجع نقدي)</span><span>${fmt(report.expectedCash)} ر.س</span></div>
+ <div class="total-line" style="border-top:1px dashed #222"><span>رصيد الدرج (افتتاحي ${fmt(report.openCash)} + نقدي + سداد آجل كاش − مرتجع نقدي)</span><span>${fmt(report.expectedDrawer)} ر.س</span></div>
  ${ajilNote || creditRetNote ? `<div class="note">${[ajilNote, creditRetNote].filter(Boolean).join("<br>")}</div>` : ""}
  <div class="sign"><span>توقيع الصيدلي: ______________</span><span>توقيع المستلم: ______________</span></div>
  <div class="meta">طُبع بواسطة: ${esc(report.user)} — ${when(Date.now())}</div>

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { queueEvent, insertTreasuryEntry, getPharmacySettings } from "../lib/offlineAPI";
-import { resolveNewShiftBusinessDate, checkNewShiftBlock, getBlockStartTs } from "../lib/businessDay";
+import { resolveNewShiftBusinessDate, checkNewShiftBlock, getBlockStartTs, hasBusinessDayConfig } from "../lib/businessDay";
+import { loadScheduleTables } from "../lib/useBusinessDayContext";
 import { getScheduledShiftEndTs } from "../lib/attendanceCalc";
 import { COLORS, tint } from "../theme";
 import { calcCappedHours, todayLocal } from "../lib/dateUtils";
@@ -14,17 +15,6 @@ export const SHIFT_CASH_DIFF_REASON_THRESHOLD = 20;
 // 🆕 المدة اللي الصيدلي يقدر فيها يعيد فتح شفته بعد التقفيل (المدير مالوش حد زمني)
 export const SHIFT_REOPEN_WINDOW_MIN = 30;
 
-// 🆕 مقارنة "الساعة المكتوبة": start_time/end_time للشفت UTC حقيقي (toISOString) لكن created_at للمرتجع/السداد ساعة UTC
-// من غير "Z"، فالمتصفح كان بيفهمه بتوقيته المحلي (فرق 3 ساعات) والمرتجع يطلع "قبل" بداية الشفت ويتستبعد من النقد المتوقع
-// (فيظهر عجز وهمي). بنقارن أرقام الساعة نفسها في الاتنين من غير ترجمة منطقة زمنية.
-const localMs = (v: any) => {
-    if (!v) return NaN;
-    const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-    return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime() : new Date(v).getTime();
-};
-// 🆕 فحص إن إعداد اليوم التشغيلي موجود (بداية يدوية أو جدول دوام). من غيره حد المنع = منتصف الليل فمبنمنعش بيه.
-const hasBusinessDayConfigSafe = (ctx: any) =>
-    !!ctx && (!!ctx.manualStart || (ctx.workSchedules || []).some((w: any) => !w.is_off && w.shift_start && w.shift_end));
 // تطبيع "آجل" بكل صيغ الهمزة (نفس منطق الداشبورد والخزنة)
 const isCreditSale = (s: any) => String(s?.payment ?? "").replace(/[أإآ]/g, "ا").trim() === "اجل";
 
@@ -58,7 +48,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
     }, [pharmacyId]);
     // الحساب بيتعمل لحظة الطباعة من أحدث بيانات (مبيعات/مرتجعات/سداد آجل) — نفس دالة تقرير الخزنة عشان الأرقام تتطابق
     const printShiftReport = (shiftObj: any, mode: "a4" | "receipt" = "a4") => {
-        const report = computeShiftClosing({ shift: shiftObj, sales, creditPayments, returns });
+        const report = computeShiftClosing({ shift: shiftObj, sales, creditPayments, returns, allShifts: shifts });
         printShiftClosing(report, pharmInfo, mode);
     };
     const [closeCash, setCloseCash] = useState("");
@@ -96,7 +86,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
     // 🆕 سياق اليوم التشغيلي (إعداد الصيدلية + جدول الدوام) — بيتحمّل مرة عند فتح الشاشة.
     // أوفلاين: الإعدادات من getPharmacySettings (كاشها)، وجدول الدوام من نسخة localStorage.
     // لو مفيش ولا واحد منهم، الحد بيبقى منتصف الليل (نفس السلوك الحالي).
-    const [bdCtx, setBdCtx] = useState<any>({ manualStart: null, workSchedules: [] });
+    const [bdCtx, setBdCtx] = useState<any>({ manualStart: null, workSchedules: [], rotationSchedules: [], officialHolidays: [] });
     useEffect(() => {
         if (!pharmacyId) return;
         let cancelled = false;
@@ -117,92 +107,37 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             } catch (err) {
                 console.error("business day settings load failed:", err);
             }
-            const wsKey = `work_schedules_cache_${pharmacyId}`;
-            try {
-                const { data, error } = await supabase.from("work_schedules").select("*").eq("pharmacy_id", pharmacyId);
-                if (!error && Array.isArray(data)) {
-                    workSchedules = data;
-                    try { localStorage.setItem(wsKey, JSON.stringify(data)); } catch { /* ignore */ }
-                } else {
-                    throw error || new Error("no data");
-                }
-            } catch {
-                try { workSchedules = JSON.parse(localStorage.getItem(wsKey) || "[]"); } catch { workSchedules = []; }
-            }
-            if (!cancelled) setBdCtx({ manualStart, workSchedules });
+            // 🆕 جداول الدوام (عادي + تناوب + إجازات رسمية) — نفس المحمّل المشترك بتاع useBusinessDayContext
+            const sched = await loadScheduleTables(pharmacyId);
+            workSchedules = sched.workSchedules;
+            if (!cancelled) setBdCtx({ manualStart, workSchedules, rotationSchedules: sched.rotationSchedules, officialHolidays: sched.officialHolidays });
         })();
         return () => { cancelled = true; };
     }, [pharmacyId]);
 
-    // 🆕 جداول الدوام الكاملة (عادي + تناوب + إجازات رسمية) — لحساب نهاية دوام الشفت بدقة عند إعادة الفتح.
-    // نفس مصادر الحضور (resolveExpectedShift). أوفلاين: نسخة localStorage.
-    const [schedCtx, setSchedCtx] = useState<any>({ workSchedules: [], rotationSchedules: [], officialHolidays: [] });
-    useEffect(() => {
-        if (!pharmacyId) return;
-        let cancelled = false;
-        const load = async (table: string) => {
-            const key = `${table}_cache_${pharmacyId}`;
-            try {
-                const { data, error } = await supabase.from(table).select("*").eq("pharmacy_id", pharmacyId);
-                if (!error && Array.isArray(data)) {
-                    try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* ignore */ }
-                    return data;
-                }
-                throw error || new Error("no data");
-            } catch {
-                try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; }
-            }
-        };
-        (async () => {
-            const [workSchedules, rotationSchedules, officialHolidays] = await Promise.all([
-                load("work_schedules"), load("rotation_schedules"), load("official_holidays"),
-            ]);
-            if (!cancelled) setSchedCtx({ workSchedules, rotationSchedules, officialHolidays });
-        })();
-        return () => { cancelled = true; };
-    }, [pharmacyId]);
+    // 🆕 bdCtx بقى فيه الجداول الثلاثة (عادي + تناوب + إجازات) — بنستخدمه لحساب نهاية دوام الشفت عند إعادة الفتح
+    const schedCtx = bdCtx;
 
     const currentShift = shifts.find(
         (s) => !s.end_time && s.user === currentUser?.name
     );
     const shiftSalesRaw = currentShift
-        ? sales.filter((s) => s.shift === currentShift.id && (s.payment === "آجل" ? !s.returned : true))
+        ? sales.filter((s) => s.shift === currentShift.id && (isCreditSale(s) ? !s.returned : true))
         : [];
-    const salesById = (sales || []).reduce((map, s) => { map[s.id] = s; return map; }, {});
-    const shiftPartialReturns = currentShift
-        ? (returns || []).filter((r) =>
-            r.type === "sales" &&
-            r.refund_method !== null &&
-            r.created_at &&
-            localMs(r.created_at) >= localMs(currentShift.start_time)
-        )
-        : [];
-    const shiftReturnsTotal = shiftPartialReturns.reduce((a, r) => a + (r.total || 0), 0);
-    // 🆕 النقد المتوقع بقى كامل: نقدي + جزء الكاش من الفواتير المختلطة (payment_split.cash) + سداد الآجل المحصّل كاش أثناء الشفت.
-    // قبل كده كان بيحسب payment === "نقدي" بس، فالمختلط وسداد الآجل كانوا بيطلعوا "زيادة" وهمية عند التقفيل.
+    // 🆕 المرتجعات وسداد الآجل والنقد المتوقع بقوا من نفس دالة تقرير التقفيل (computeShiftClosing) —
+    // مصدر واحد للشاشة والطباعة والخزنة، وبيربط المرتجع/السداد بشفت واحد بس حتى لو فيه شفتين مفتوحين مع بعض
+    // (قبل كده كل شفت مفتوح كان بيخصم نفس المرتجع من النقد المتوقع بتاعه فيطلع عجز وهمي).
+    const closingReport = currentShift
+        ? computeShiftClosing({ shift: currentShift, sales, creditPayments, returns, allShifts: shifts })
+        : null;
+    const shiftReturnsTotal = closingReport?.returnsTotal || 0;
     const shiftCashSales = shiftSalesRaw
         .filter((s) => !isCreditSale(s))
         .reduce((a, s) => a + (splitSaleByMethod(s)["نقدي"] || 0), 0);
-    const shiftCreditCashCollected = currentShift
-        ? (creditPayments || [])
-            .filter((p) => {
-                const m = p.method || p.payment_method || "نقدي";
-                return m !== "بطاقة" && m !== "تحويل" && p.created_at &&
-                    localMs(p.created_at) >= localMs(currentShift.start_time);
-            })
-            .reduce((a, p) => a + (p.amount || 0), 0)
-        : 0;
-    const shiftCashRefundsPaidNow = currentShift
-        ? (returns || []).filter(
-            (r) =>
-                r.type === "sales" &&
-                (salesById[r.invoice_id]?.payment || "نقدي") !== "آجل" &&
-                (r.refund_method || "نقدي") !== "بطاقة" &&
-                r.created_at &&
-                localMs(r.created_at) >= localMs(currentShift.start_time)
-        ).reduce((a, r) => a + (r.total || 0), 0)
-        : 0;
-    const expectedCloseCash = (currentShift?.open_cash || 0) + shiftCashSales + shiftCreditCashCollected - shiftCashRefundsPaidNow;
+    const shiftCreditCashCollected = closingReport?.creditPaidCash || 0;
+    const shiftCashRefundsPaidNow = closingReport?.returnsCash || 0;
+    // المفروض في الدرج = النقد الافتتاحي + نقدي + سداد آجل كاش − مرتجع نقدي (نفس رقم الطباعة)
+    const expectedCloseCash = closingReport?.expectedDrawer ?? 0;
 
     // 🆕 فرق النقد اللي اتسجل قبل كده في الخزنة على نفس الشفت (لو الشفت اتقفل واتعاد فتحه): دخل بالموجب ومصروف بالسالب.
     // عند التقفيل التاني بنسجل الفرق الإضافي بس (الكلي − اللي اتسجل) عشان الفرق الأول مايتعدش مرتين.
@@ -217,7 +152,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
     const shiftRevenue = shiftSalesRaw.reduce((a, s) => a + s.total, 0) - shiftReturnsTotal;
     const shiftCardSales = shiftSalesRaw.filter((s) => s.payment === "بطاقة").reduce((a, s) => a + s.total, 0);
     const shiftTransferSales = shiftSalesRaw.filter((s) => s.payment === "تحويل").reduce((a, s) => a + s.total, 0);
-    const shiftAjilSales = shiftSalesRaw.filter((s) => s.payment === "آجل").reduce((a, s) => a + s.total, 0);
+    const shiftAjilSales = shiftSalesRaw.filter((s) => isCreditSale(s)).reduce((a, s) => a + s.total, 0);
 
     const varianceEntries = (entries || []).filter((e) => e.sub_type === "shift_variance");
     const varianceByEmployee = {};
@@ -286,7 +221,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
 
         // منع بعد بداية اليوم التشغيلي التالي (للكل)
         const bd = last.business_date ? String(last.business_date).slice(0, 10) : null;
-        if (bd && hasBusinessDayConfigSafe(bdCtx)) {
+        if (bd && hasBusinessDayConfig(bdCtx)) {
             const { ts } = getBlockStartTs(bd, bdCtx);
             if (nowMs >= ts) return null;
         }
@@ -298,7 +233,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             if (schedEnd != null) deadlineTs = schedEnd + reopenWindowMin * 60000;
         }
         if (deadlineTs == null) deadlineTs = new Date(last.end_time).getTime() + reopenWindowMin * 60000;
-        if (!isAdmin && nowMs > deadlineTs) return null; // 0 = إعادة الفتح للمدير فقط (المهلة = نهاية الدوام بالظبط)
+        if (!isAdmin && nowMs > deadlineTs) return null; // 0 = لحد نهاية الدوام المجدول بالظبط من غير دقايق زيادة
         return { shift: last, ageMin, deadlineTs };
     })();
 
@@ -327,7 +262,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         // 🆕 تاريخ اليوم التشغيلي للشفت ده
         const { businessDate } = resolveNewShiftBusinessDate({ now: new Date(nowISO), shifts, ctx: bdCtx, openerName: currentUser?.name });
         const sh = {
-            id: "SH-" + Date.now(),
+            id: "SH-" + Date.now() + "-" + crypto.randomUUID().slice(0, 8), // 🆕 لاحقة عشوائية: الـ id لوحده (timestamp) ممكن يتكرر بين جهازين/صيدليتين
             user: currentUser.name,
             role: currentUser.role,
             start_time: nowISO,
@@ -356,7 +291,8 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         });
 
         // ✅ تسجيل حضور تلقائي — بيتنفذ فوراً لو أونلاين، أو يتأجل لو أوفلاين (نفس فلسفة queueEvent)
-        const today = todayLocal();
+        // 🆕 تاريخ الحضور = اليوم التشغيلي للشفت (مش التاريخ التقويمي) — عشان الفتح بعد منتصف الليل يفضل في نفس اليوم
+        const today = sh.business_date || todayLocal();
         await queueEvent({
             id: crypto.randomUUID(),
             type: "ATTENDANCE_CHECKIN",
@@ -407,7 +343,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             timestamp: new Date().toISOString(),
             payload: { pharmacy_id: pharmacyId, updates: { shift_reopen_window_minutes: n } },
         });
-        showToast(n === 0 ? "إعادة فتح الشفت للصيدلي اتعطّلت (المدير فقط) ✓" : `مدة إعادة فتح الشفت بقت ${n} دقيقة ✓`);
+        showToast(n === 0 ? "إعادة فتح الشفت للصيدلي بقت لحد نهاية الدوام بالظبط ✓" : `مدة إعادة فتح الشفت بقت ${n} دقيقة ✓`);
     };
 
     // 🆕 إعادة فتح نفس الشفت (بدل شفت جديد) عشان التقفيل ما يتقسمش لشفتين.
@@ -444,7 +380,8 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             timestamp: nowISO,
             payload: { shiftId: target.id, updates },
         });
-        const today = todayLocal();
+        // 🆕 تاريخ الحضور = اليوم التشغيلي للشفت المُعاد فتحه
+        const today = target.business_date ? String(target.business_date).slice(0, 10) : todayLocal();
         await queueEvent({
             id: crypto.randomUUID(),
             type: "ATTENDANCE_CHECKIN",
@@ -562,7 +499,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                 pharmacist_name: currentUser.name,
                 pharmacist_user_id: currentUser.id || null, // 🆕 المعالج كان بيقراه بس الحدث ما كانش بيبعته (فبيدوّر بالاسم)
                 shift_id: currentShift.id, // 🆕 ربط الانصراف بسجل حضور الشفت ده حتى لو اتقفل بعد منتصف الليل
-                date: todayLocal(),
+                date: currentShift.business_date ? String(currentShift.business_date).slice(0, 10) : todayLocal(),
                 check_out: nowISO,
             },
         });
@@ -618,7 +555,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                     pharmacist_name: forceCloseTarget.user,
                     pharmacist_user_id: forceCloseTarget.user_id || null,
                     shift_id: forceCloseTarget.id,
-                    date: todayLocal(),
+                    date: forceCloseTarget.business_date ? String(forceCloseTarget.business_date).slice(0, 10) : todayLocal(),
                     check_out: updates.end_time,
                 },
             });
@@ -643,7 +580,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                         <div style={{ flex: 1 }}>
-                            <Input label="بالدقايق (0 = المدير فقط)" value={reopenWindowDraft} onChange={setReopenWindowDraft} type="number" placeholder="30" />
+                            <Input label="بالدقايق بعد نهاية الدوام (0 = لحد نهاية الدوام بالظبط)" value={reopenWindowDraft} onChange={setReopenWindowDraft} type="number" placeholder="30" />
                         </div>
                         <Btn onClick={saveReopenWindow} disabled={reopenWindowDraft === String(reopenWindowMin)}>حفظ</Btn>
                     </div>

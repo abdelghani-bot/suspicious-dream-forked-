@@ -1005,7 +1005,7 @@ export function TreasuryModule({ sales, creditPayments, purchases, suppliers, ph
     // 🆕 طباعة تقفيل شفت واحد (مش تقفيل اليوم): الصيدلي بيطبع شفته بس، من غير ما اليوم يتقفل.
     // الحساب في lib/shiftClosingPrint (نفس دالة شاشة تقفيل الشفت) عشان الأرقام تطلع واحدة في كل مكان.
     const printShiftReport = (sh, mode = "a4") => {
-        const report = computeShiftClosing({ shift: sh, sales, creditPayments, returns });
+        const report = computeShiftClosing({ shift: sh, sales, creditPayments, returns, allShifts: shifts }); // 🆕 allShifts: يمنع حساب نفس المرتجع في شفتين متداخلين
         printShiftClosing(report, pharmInfo, mode);
     };
 

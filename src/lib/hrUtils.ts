@@ -100,16 +100,16 @@ export function getExpectedShiftForSalary(pharmacistName, dow, shiftNumber, date
 }
 
 
+// 🆕 بقت غلاف على calcLateMinutesAt (منطق الحضور نفسه): كانت قبل كده بتاخد التاريخ من نص UTC (checkInTime.slice(0,10))
+// وبتتجاهل الشفت الليلي اللي بدأ امبارح والتناوب والإجازات. دلوقتي بتستخدم التاريخ المحلي وتراعيهم.
+// (حاليًا مفيش حد بينادي عليها — computeMonthlyAttendanceStats بتستخدم calcLateMinutesAt مباشرة — سيبناها للتوافق.)
 export function calcLateMinutesForSalary(pharmacistName, shiftNum, checkInTime, ctx) {
-  const schedule = getExpectedShiftForSalary(pharmacistName, new Date(checkInTime).getDay(), shiftNum, checkInTime.slice(0, 10), ctx);
-  if (!schedule) return 0;
-  const [expH, expM] = schedule.shift_start.split(":").map(Number);
-  const expected = new Date(checkInTime);
-  expected.setHours(expH, expM, 0, 0);
-  const actual = new Date(checkInTime);
-  const diff = Math.round((actual.getTime() - expected.getTime()) / 60000);
-  const grace = +schedule.grace_minutes || 0;
-  return Math.max(0, diff - grace);
+  const schedCtx = {
+    workSchedules: (ctx && ctx.workSchedules) || [],
+    rotationSchedules: (ctx && ctx.rotationSchedules) || [],
+    officialHolidays: (ctx && ctx.officialHolidays) || [],
+  };
+  return calcLateMinutesAt(schedCtx, pharmacistName, (ctx && ctx.userId) || null, shiftNum, new Date(checkInTime));
 }
 
 

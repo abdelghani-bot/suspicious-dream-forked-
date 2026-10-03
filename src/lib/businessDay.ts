@@ -10,10 +10,11 @@
 // ملحوظة: الشفتات اللي بتعدّي منتصف الليل (end <= start) بتتحسب على إن نهايتها في اليوم التالي.
 // ما تستخدمش calcWeeklyScheduledHours في أي حاجة هنا — بتقص الشفت الليلي لصفر ساعات.
 // ═══════════════════════════════════════════════════════════════════════════
-import { isRamadan, todayLocal } from "./dateUtils";
+import { isRamadan, todayLocal, findHolidayForDate, getRotationTurnIndex, rotationHasPharmacist } from "./dateUtils";
 
 export type WorkScheduleRow = {
   pharmacist_name?: string;
+  pharmacist_user_id?: string | null;
   day_of_week: number; // 0 = الأحد … 6 = السبت (نفس getDay())
   shift_number?: number;
   shift_start?: string | null;
@@ -28,7 +29,10 @@ export interface BusinessDayContext {
   /** pharmacy_settings.business_day_start — "HH:MM" أو فاضي */
   manualStart?: string | null;
   workSchedules?: WorkScheduleRow[] | null;
-  /** لو متبعتش، بيستخدم isRamadan() */
+  /** 🆕 جداول التناوب (الجمعة مثلًا) والإجازات الرسمية — نفس مصادر الحضور (resolveExpectedShift). اختيارية. */
+  rotationSchedules?: any[] | null;
+  officialHolidays?: any[] | null;
+  /** لو متبعتش، بيستخدم isRamadan(التاريخ المستهدف) لو متاح وإلا isRamadan() */
   ramadanActive?: boolean;
 }
 
@@ -51,28 +55,48 @@ export function shiftRangeMinutes(start: unknown, end: unknown): { start: number
   return { start: s, end: e > s ? e : e + 1440 };
 }
 
-function rowsForDay(dow: number, ctx: BusinessDayContext): WorkScheduleRow[] {
-  const rows = (ctx.workSchedules || []).filter((s) => s.day_of_week === dow && !s.is_off);
-  const ramadan = ctx.ramadanActive ?? isRamadan();
-  if (ramadan) {
-    const r = rows.filter((s) => s.is_ramadan);
-    if (r.length > 0) return r; // نفس منطق getExpectedShiftForSalary: رمضان أولًا، وإلا الجدول العادي
+// 🆕 dateStr (اختياري "YYYY-MM-DD"): لما يتبعت بنراعي نفس أولوية الحضور (إجازة رسمية ← تناوب ← رمضان ← عادي)
+// وبنحدد رمضان بتاريخ اليوم المستهدف مش بتاريخ النهارده. من غيره: السلوك القديم بالظبط (جدول عادي/رمضان حسب النهارده).
+function rowsForDay(dow: number, ctx: BusinessDayContext, dateStr?: string): WorkScheduleRow[] {
+  if (dateStr) {
+    const holiday = findHolidayForDate(ctx.officialHolidays || [], dateStr);
+    if (holiday) {
+      if (!holiday.is_worked) return []; // إجازة كاملة — مفيش دوام
+      return [{ day_of_week: dow, shift_number: 1, shift_start: holiday.work_hours_start, shift_end: holiday.work_hours_end }];
+    }
   }
-  return rows.filter((s) => !s.is_ramadan);
+  const rows = (ctx.workSchedules || []).filter((s) => s.day_of_week === dow && !s.is_off);
+  const ramadan = ctx.ramadanActive ?? isRamadan(dateStr || undefined);
+  let base: WorkScheduleRow[];
+  const ram = ramadan ? rows.filter((s) => s.is_ramadan) : [];
+  base = ram.length > 0 ? ram : rows.filter((s) => !s.is_ramadan); // نفس منطق getExpectedShiftForSalary: رمضان أولًا، وإلا العادي
+
+  if (dateStr) {
+    for (const rot of (ctx.rotationSchedules || []).filter((r: any) => r.active && r.day_of_week === dow)) {
+      // أعضاء التناوب بيطلعوا من جدولهم العادي في اليوم ده؛ صاحب الدور بس بيدخل بساعات التناوب
+      base = base.filter((row) => !rotationHasPharmacist(rot, row.pharmacist_name, row.pharmacist_user_id));
+      if (getRotationTurnIndex(rot, dateStr) >= 0 && rot.shift_start && rot.shift_end) {
+        base = [...base, { day_of_week: dow, shift_number: 1, shift_start: rot.shift_start, shift_end: rot.shift_end }];
+      }
+    }
+  }
+  return base;
 }
 
 /** هل فيه أي مصدر (يدوي أو جدول) نقدر نحسب منه؟ — لو false الداشبورد يعرض بانر "مفيش جدول" */
 export function hasBusinessDayConfig(ctx: BusinessDayContext): boolean {
   if (parseHHMM(ctx.manualStart) != null) return true;
-  return (ctx.workSchedules || []).some((s) => !s.is_off && shiftRangeMinutes(s.shift_start, s.shift_end) != null);
+  if ((ctx.workSchedules || []).some((s) => !s.is_off && shiftRangeMinutes(s.shift_start, s.shift_end) != null)) return true;
+  // 🆕 صيدلية جدولها كله تناوب فعّال (rowsForDay بيقراه) — من غير السطر ده getBlockStartTs كان بيشتغل وhasBusinessDayConfig بتقول "مفيش إعداد" فالمنع يتعطل
+  return (ctx.rotationSchedules || []).some((r: any) => r && r.active && shiftRangeMinutes(r.shift_start, r.shift_end) != null);
 }
 
 /** وقت بداية اليوم التشغيلي (بالدقائق) ليوم أسبوع معين + مصدره */
-export function getDayStart(dow: number, ctx: BusinessDayContext): { minutes: number; source: DayStartSource } {
+export function getDayStart(dow: number, ctx: BusinessDayContext, dateStr?: string): { minutes: number; source: DayStartSource } {
   const manual = parseHHMM(ctx.manualStart);
   if (manual != null) return { minutes: manual, source: "manual" };
 
-  const starts = rowsForDay(dow, ctx)
+  const starts = rowsForDay(dow, ctx, dateStr)
     .map((s) => shiftRangeMinutes(s.shift_start, s.shift_end)?.start)
     .filter((v): v is number => v != null);
   if (starts.length > 0) return { minutes: Math.min(...starts), source: "schedule" };
@@ -81,8 +105,8 @@ export function getDayStart(dow: number, ctx: BusinessDayContext): { minutes: nu
 }
 
 /** نهاية آخر شفت مجدول في يوم أسبوع (بالدقائق، ممكن تعدّي 1440 للشفت الليلي)، أو null لو مفيش جدول */
-export function getScheduledDayEnd(dow: number, ctx: BusinessDayContext): number | null {
-  const ends = rowsForDay(dow, ctx)
+export function getScheduledDayEnd(dow: number, ctx: BusinessDayContext, dateStr?: string): number | null {
+  const ends = rowsForDay(dow, ctx, dateStr)
     .map((s) => shiftRangeMinutes(s.shift_start, s.shift_end)?.end)
     .filter((v): v is number => v != null);
   return ends.length > 0 ? Math.max(...ends) : null;
@@ -96,7 +120,7 @@ function ymdToLocalDate(ymd: string): Date {
 /** نهاية اليوم التشغيلي المجدولة (timestamp) ليوم تشغيلي "YYYY-MM-DD" — للبانر "اليوم لسه مقفلش" */
 export function getScheduledDayEndTs(businessDate: string, ctx: BusinessDayContext): number | null {
   const d = ymdToLocalDate(businessDate);
-  const end = getScheduledDayEnd(d.getDay(), ctx);
+  const end = getScheduledDayEnd(d.getDay(), ctx, todayLocal(d));
   if (end == null) return null;
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, end).getTime();
 }
@@ -111,8 +135,15 @@ export function getBlockStartTs(
 ): { ts: number; source: DayStartSource } {
   const next = ymdToLocalDate(openBusinessDate);
   next.setDate(next.getDate() + 1);
-  const { minutes, source } = getDayStart(next.getDay(), ctx);
-  return { ts: new Date(next.getFullYear(), next.getMonth(), next.getDate(), 0, minutes).getTime(), source };
+  const { minutes, source } = getDayStart(next.getDay(), ctx, todayLocal(next));
+  let ts = new Date(next.getFullYear(), next.getMonth(), next.getDate(), 0, minutes).getTime();
+  // 🆕 اليوم التالي مالوش بداية (إجازة/مفيهوش جدول) → الحد كان منتصف الليل، فالبيع كان بيتمنع 00:00 حتى لو فيه شفت ليلي
+  // مجدول لحد 02:00. بنخلي الحد = الأبعد بين منتصف الليل ونهاية دوام اليوم المفتوح المجدولة (source بتفضل "calendar" زي ما هي).
+  if (source === "calendar") {
+    const endTs = getScheduledDayEndTs(openBusinessDate, ctx);
+    if (endTs != null && endTs > ts) ts = endTs;
+  }
+  return { ts, source };
 }
 
 /** هل لازم نمنع فتح شفت جديد لأن اليوم التشغيلي المفتوح عدّى بداية اليوم اللي بعده؟ */

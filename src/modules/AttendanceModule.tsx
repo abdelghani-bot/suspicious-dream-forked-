@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { queueEvent } from "../lib/offlineAPI";
+import { loadScheduleTable } from "../lib/useBusinessDayContext"; // 🆕 مصدر واحد لتحميل الجداول (أونلاين + SQLite + localStorage)
 import { COLORS, tint } from "../theme";
 import { DAY_NAMES, calcCappedHours, getScheduleWindow, diffMin, findHolidayForDate, fmt, fmtHours, findUserIdByName, getRotationTurnIndex, isRamadan, isSamePharmacist, resolveExpectedShift, rotationDisplayNames, todayLocal } from "../lib/dateUtils";
 import { SAUDI_CITIES, fetchPrayerTimes } from "../lib/prayerTimes";
@@ -1080,18 +1081,25 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         setPharmacists(users.filter((u: any) => u.role === "pharmacist").map((u: any) => u.name).sort());
     }
 
+    // 🆕 سجلات "النهاردة" = سجلات اليوم + أي سجل لسه مفتوح من امبارح. تاريخ سجل الحضور بقى business_date بتاع الشفت،
+    // فشفت اتفتح قبل منتصف الليل وفضل شغال بعده سجله تاريخه امبارح — لو بنفلتر بتاريخ النهارده بس كان بيختفي من الشاشة
+    // و handleCheckIn كان يفتح سجل تاني للصيدلي نفسه.
     async function loadTodayLogs() {
+        const yd = new Date(); yd.setDate(yd.getDate() - 1);
+        const yesterday = todayLocal(yd);
+        const keep = (l: any) => String(l.date || "").slice(0, 10) === today || (String(l.date || "").slice(0, 10) === yesterday && !l.check_out);
         try {
             if (!navigator.onLine) throw new Error("offline");
-            const { data, error } = await supabase.from("attendance_logs").select("*").eq("pharmacy_id", pharmacyId).eq("date", today).order("check_in");
+            const { data, error } = await supabase.from("attendance_logs").select("*").eq("pharmacy_id", pharmacyId)
+                .or(`date.eq.${today},and(date.eq.${yesterday},check_out.is.null)`).order("check_in");
             if (error) throw error;
             setTodayLogs(data || []);
         } catch {
             try {
-                const cached = await window.offlineAPI.getTodayAttendanceLogsCache({ pharmacyId, date: today });
-                setTodayLogs(cached || []);
+                const cached = await window.offlineAPI.getAttendanceLogsRangeCache({ pharmacyId, from: yesterday, to: today });
+                setTodayLogs((cached || []).filter(keep).sort((a: any, b: any) => String(a.check_in).localeCompare(String(b.check_in))));
             } catch (err) {
-                console.error("getTodayAttendanceLogsCache failed:", err);
+                console.error("getAttendanceLogsRangeCache failed:", err);
             }
         }
     }
@@ -1131,60 +1139,21 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     }
 
     async function loadWorkSchedules() {
-        try {
-            if (!navigator.onLine) throw new Error("offline");
-            const { data, error } = await supabase.from("work_schedules").select("*").eq("pharmacy_id", pharmacyId).order("pharmacist_name");
-            if (error) throw error;
-            setWorkSchedules(data || []);
-            return data || [];
-        } catch {
-            try {
-                const cached = await window.offlineAPI.getWorkSchedulesCache(pharmacyId);
-                setWorkSchedules(cached || []);
-                return cached || [];
-            } catch (err) {
-                console.error("getWorkSchedulesCache failed:", err);
-                return [];
-            }
-        }
+        const data = (await loadScheduleTable("work_schedules", pharmacyId)).slice().sort((a: any, b: any) => String(a?.pharmacist_name ?? "").localeCompare(String(b?.pharmacist_name ?? "")));
+        setWorkSchedules(data);
+        return data;
     }
 
     async function loadOfficialHolidays() {
-        try {
-            if (!navigator.onLine) throw new Error("offline");
-            const { data, error } = await supabase.from("official_holidays").select("*").eq("pharmacy_id", pharmacyId).order("date_start");
-            if (error) throw error;
-            setOfficialHolidays(data || []);
-            return data || [];
-        } catch {
-            try {
-                const cached = await window.offlineAPI.getHolidaysCache(pharmacyId);
-                setOfficialHolidays(cached || []);
-                return cached || [];
-            } catch (err) {
-                console.error("getHolidaysCache failed:", err);
-                return [];
-            }
-        }
+        const data = (await loadScheduleTable("official_holidays", pharmacyId)).slice().sort((a: any, b: any) => String(a?.date_start ?? "").localeCompare(String(b?.date_start ?? "")));
+        setOfficialHolidays(data);
+        return data;
     }
 
     async function loadRotationSchedules() {
-        try {
-            if (!navigator.onLine) throw new Error("offline");
-            const { data, error } = await supabase.from("rotation_schedules").select("*").eq("pharmacy_id", pharmacyId).order("group_name");
-            if (error) throw error;
-            setRotationSchedules(data || []);
-            return data || [];
-        } catch {
-            try {
-                const cached = await window.offlineAPI.getRotationSchedulesCache(pharmacyId);
-                setRotationSchedules(cached || []);
-                return cached || [];
-            } catch (err) {
-                console.error("getRotationSchedulesCache failed:", err);
-                return [];
-            }
-        }
+        const data = (await loadScheduleTable("rotation_schedules", pharmacyId)).slice().sort((a: any, b: any) => String(a?.group_name ?? "").localeCompare(String(b?.group_name ?? "")));
+        setRotationSchedules(data);
+        return data;
     }
 
     async function loadReport(date: string) {
@@ -1326,12 +1295,14 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
         const schedule = getExpectedShift(pharmacistName, todayDow, shiftNum, today, pharmacistUserId);
         const lateMin = calcLateMinutes(pharmacistName, shiftNum, new Date().toISOString());
 
+        // 🆕 تاريخ الحضور = اليوم التشغيلي للشفت المفتوح (زي فتح الشفت التلقائي) مش التاريخ التقويمي
+        const logDate = openShift?.business_date ? String(openShift.business_date).slice(0, 10) : today;
         const logRow = {
             id: crypto.randomUUID(),
             pharmacy_id: pharmacyId,
             pharmacist_name: pharmacistName,
             pharmacist_user_id: pharmacistUserId,
-            date: today,
+            date: logDate,
             check_in: new Date().toISOString(),
             shift_id: openShift?.id || null,
             shift_number: shiftNum,
@@ -1352,7 +1323,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
             type: "ATTENDANCE_CHECKIN",
             pharmacy_id: pharmacyId,
             timestamp: logRow.check_in,
-            payload: { pharmacy_id: pharmacyId, pharmacist_name: pharmacistName, pharmacist_user_id: pharmacistUserId, date: today, record: logRow },
+            payload: { pharmacy_id: pharmacyId, pharmacist_name: pharmacistName, pharmacist_user_id: pharmacistUserId, date: logDate, record: logRow },
         });
 
         setTodayLogs((p) => [...p, logRow]);
@@ -1365,7 +1336,7 @@ export function AttendanceModule({ pharmacyId, shifts, setShifts, currentUser, u
     async function handleCheckOut(log: any) {
         if (!canEditTab("attendance")) { globalToast("❌ لا تملك صلاحية تسجيل الانصراف", "error"); return; }
         const now = new Date();
-        const schedule = getExpectedShift(log.pharmacist_name, new Date(log.check_in).getDay(), log.shift_number || 1, log.date || todayLocal(), log.pharmacist_user_id);
+        const schedule = getExpectedShift(log.pharmacist_name, new Date((log.date || todayLocal()) + "T12:00:00").getDay(), log.shift_number || 1, log.date || todayLocal(), log.pharmacist_user_id);
         const { totalHours, capped, outsideSchedule } = calcCappedHours(log.check_in, now.toISOString(), schedule);
         const myBreaks = prayerBreaks.filter((b) => b.attendance_id === log.id);
         const totalDeductions = myBreaks.reduce((s: number, b: any) => s + (b.deducted_minutes || 0), 0) / 60;

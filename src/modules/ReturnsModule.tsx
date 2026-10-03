@@ -8,6 +8,8 @@ import { logAudit } from "../lib/auditLog";
 import { normGtin } from "../lib/barcodeUtils";
 import { todayLocal } from "../lib/dateUtils";
 import { getCurrentOperationalDay, shiftBusinessDate } from "../lib/businessDay";
+import { useBusinessDayContext } from "../lib/useBusinessDayContext"; // 🆕 منع مرتجع المبيعات بعد بداية اليوم التشغيلي التالي (نفس منع البيع)
+import { getSalesBlock } from "../lib/salesGuard";
 import { POS } from "./POS";
 import { SuppliersModule } from "./SuppliersModule";
 import { RasdQueue } from "../services/rasdService";
@@ -29,6 +31,7 @@ export function ReturnsModule({
     setReturnsData,
     entries = [],
     shifts = [],
+    currentShift = null, // 🆕 الشفت المفتوح للمستخدم الحالي (من App) — بيتسجل على المرتجع وسداد الآجل كـ shift_id
     canViewSalesReturns = true,
     canViewPurchaseReturns = true,
     canEditSalesReturns = true,
@@ -45,6 +48,7 @@ export function ReturnsModule({
     const [selInvoice, setSelInvoice] = useState(null);
     const [invoiceSearch, setInvoiceSearch] = useState("");
     const [invoiceSearchOpen, setInvoiceSearchOpen] = useState(false);
+    const { ctx: bdCtx, loaded: bdLoaded } = useBusinessDayContext(pharmacyId);
 
     // 🆕 "النهاردة" هنا = اليوم التشغيلي (نفس تعريف الداشبورد والخزنة) مش التاريخ التقويمي،
     // عشان مرتجع بعد منتصف الليل (واليوم التشغيلي لسه ماخلصش) يتنسب لنفس اليوم ويظهر فيهم.
@@ -385,6 +389,15 @@ export function ReturnsModule({
     //   3) كل تحديث لواجهة الـ state بيحصل فورًا (optimistic) قبل القيود الفعلية بالسيرفر
     // ═══════════════════════════════════════════════════════════════════
     const processReturn = async () => {
+        // 🆕 مرتجع المبيعات لازم يتنفذ جوه شفت مفتوح — الفلوس الراجعة للعميل بتتحسب على درج الشفت ده (shift_id)
+        // 🆕 + نفس قواعد منع البيع: شفت مقفول، أو عدّى بداية اليوم التشغيلي التالي (الشفت القديم المنسي مايقدرش يطلّع كاش من الدرج)
+        if (type === "sales") {
+            const guard = getSalesBlock({ now: new Date(), shift: currentShift, ctx: bdCtx, ctxLoaded: bdLoaded });
+            if (guard.blocked) {
+                showToast(guard.reason === "يرجى فتح شفت أولاً" ? "يرجى فتح شفت أولاً قبل تنفيذ مرتجع مبيعات" : (guard.reason || "مرتجع المبيعات غير متاح حاليًا"), "error");
+                return;
+            }
+        }
         if (type === "sales" && !selInvoice && !adminOverride) {
             showToast("يجب اختيار فاتورة البيع أولاً", "error");
             return;
@@ -561,6 +574,7 @@ export function ReturnsModule({
                             notes: "مرتجع بيع",
                             created_by: currentUser?.name || "",
                             pharmacy_id: pharmacyId,
+                            shift_id: currentShift?.id ?? null, // 🆕 ربط الخصم بالشفت (يتطلب عمود credit_payments.shift_id)
                         }],
                     },
                 });
@@ -715,6 +729,7 @@ export function ReturnsModule({
             pharmacy_id: pharmacyId,
             refund_source: type === "sales" ? refundSource : null,
             refund_shift_id: isShiftFundedRefundRow ? openShiftToday.id : null,
+            shift_id: type === "sales" ? (currentShift?.id ?? null) : null, // 🆕 الشفت اللي نفّذ المرتجع (يتطلب عمود returns.shift_id)
             refund_method: type === "sales" && (selInvoice?.payment || "نقدي") !== "آجل" ? refundMethod : null,
         };
 

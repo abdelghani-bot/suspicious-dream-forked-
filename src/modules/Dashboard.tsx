@@ -90,7 +90,7 @@ export function Dashboard({
 
     // بانرات اليوم التشغيلي
     const hasBdConfig = hasBusinessDayConfig(bdCtx);
-    const opDayClosed = (treasuryEntries || []).some((e) => e.sub_type === "daily_closing" && e.date === opDate);
+    const opDayClosed = (treasuryEntries || []).some((e) => e.sub_type === "daily_closing" && String(e.date || "").slice(0, 10) === opDate); // 🆕 slice: date ممكن يرجع بصيغة timestamp
     const opDayEndRefTs = opDay.fromShifts && hasBdConfig
         ? (getScheduledDayEndTs(opDate, bdCtx) ?? getBlockStartTs(opDate, bdCtx).ts)
         : null;

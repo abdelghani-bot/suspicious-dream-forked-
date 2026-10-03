@@ -256,7 +256,9 @@ export function calcCappedHours(checkInISO: string, checkOutISO: string, schedul
   }
 
   const effectiveCheckOut = actualCheckOut > cappedEnd ? cappedEnd : actualCheckOut;
-  const totalMinutes = Math.max(0, (effectiveCheckOut.getTime() - checkInDate.getTime()) / 60000);
+  // 🆕 الحضور قبل بداية الشفت المجدولة مش بيتحسب: الحساب من (الأكبر بين وقت الحضور وبداية الشفت)
+  const countedFrom = Math.max(checkInDate.getTime(), win.start.getTime());
+  const totalMinutes = Math.max(0, (effectiveCheckOut.getTime() - countedFrom) / 60000);
   return { totalHours: totalMinutes / 60, capped: effectiveCheckOut < actualCheckOut, outsideSchedule: false };
 }
 
