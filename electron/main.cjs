@@ -664,6 +664,7 @@ CREATE INDEX IF NOT EXISTS idx_attendance_gaps_cache_pharmacy ON attendance_gaps
         if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
     };
     addCol("shifts_cache", "business_date", "TEXT");
+    addCol("shifts_cache", "sales_block_at", "TEXT"); // 🆕 حد منع البيع (ISO) — بيتحسب وقت فتح الشفت
     addCol("returns_cache", "shift_id", "TEXT");
     addCol("returns_cache", "created_at", "TEXT");
     addCol("credit_payments_cache", "shift_id", "TEXT");
@@ -1048,15 +1049,16 @@ ipcMain.handle("offline:upsertShiftCache", (_event, shift) => {
         db.prepare(`
       INSERT INTO shifts_cache (
         id, pharmacy_id, user_name, user_id, role, start_time, end_time,
-        open_cash, close_cash, sales, notes, business_date, updated_at
+        open_cash, close_cash, sales, notes, business_date, sales_block_at, updated_at
       ) VALUES (
         @id, @pharmacy_id, @user_name, @user_id, @role, @start_time, @end_time,
-        @open_cash, @close_cash, @sales, @notes, @business_date, @updated_at
+        @open_cash, @close_cash, @sales, @notes, @business_date, @sales_block_at, @updated_at
       )
       ON CONFLICT(id) DO UPDATE SET
         end_time=excluded.end_time, close_cash=excluded.close_cash,
         sales=excluded.sales, notes=excluded.notes,
         business_date=COALESCE(excluded.business_date, shifts_cache.business_date),
+        sales_block_at=COALESCE(excluded.sales_block_at, shifts_cache.sales_block_at),
         updated_at=excluded.updated_at
     `).run({
             id: shift.id,
@@ -1071,6 +1073,7 @@ ipcMain.handle("offline:upsertShiftCache", (_event, shift) => {
             sales: shift.sales ?? 0,
             notes: shift.notes || null,
             business_date: shift.business_date ? String(shift.business_date).slice(0, 10) : null,
+            sales_block_at: shift.sales_block_at || null, // 🆕
             updated_at: new Date().toISOString(),
         });
         return { success: true };

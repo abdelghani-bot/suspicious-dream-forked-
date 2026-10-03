@@ -1405,6 +1405,12 @@ export function POS({
             timestamp: new Date().toISOString(),
             payload: { invoice, zatcaInput },
         });
+        // 🆕 الداتابيز رفضت الفاتورة (شفت مقفول / خارج اليوم التشغيلي) — نوقف قبل أي أثر جانبي
+        // ليه: باقي الخطوات (سيريالات، مخزون، ولاء، رصد) كانت هتتنفذ والفاتورة نفسها مش مسجلة
+        if (saleResult.rejected) {
+            showToast("🚫 الفاتورة اترفضت: الشفت مقفول أو اليوم التشغيلي انتهى. افتح شفت جديد وكرر العملية", "error");
+            return;
+        }
         if (!saleResult.synced) {
             showToast("📴 الفاتورة اتحفظت محليًا - هتتزامن تلقائيًا لما النت يرجع", "warning");
         } else if (saleResult.result) {

@@ -261,6 +261,17 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
         }
         // 🆕 تاريخ اليوم التشغيلي للشفت ده
         const { businessDate } = resolveNewShiftBusinessDate({ now: new Date(nowISO), shifts, ctx: bdCtx, openerName: currentUser?.name });
+        // 🆕 حد منع البيع/المرتجع/سداد الآجل لليوم التشغيلي ده (بداية اليوم التالي، أو نهاية الدوام لو اليوم التالي إجازة).
+        // بنخزنه مع الشفت عشان الداتابيز (trigger المرحلة 4ب) تطبّق المنع من غير ما تعيد حساب الجداول.
+        // null لو مفيش إعداد دوام/جداول لسه اتحمّلت → الداتابيز مبتفرضش حد (أأمن من حد غلط يوقف البيع).
+        let salesBlockAt: string | null = null;
+        try {
+            if (businessDate && hasBusinessDayConfig(bdCtx)) {
+                salesBlockAt = new Date(getBlockStartTs(String(businessDate).slice(0, 10), bdCtx).ts).toISOString();
+            }
+        } catch (err) {
+            console.warn("sales_block_at calc failed (shift opens without a DB block limit):", err);
+        }
         const sh = {
             id: "SH-" + Date.now() + "-" + crypto.randomUUID().slice(0, 8), // 🆕 لاحقة عشوائية: الـ id لوحده (timestamp) ممكن يتكرر بين جهازين/صيدليتين
             user: currentUser.name,
@@ -273,6 +284,7 @@ export function ShiftModule({ shifts, setShifts, sales, currentUser, showToast, 
             notes: overrideNote, // 🆕 سبب التجاوز بيتسجل هنا (عمود موجود، مفيش تغيير في الداتابيز)
             pharmacy_id: pharmacyId,
             business_date: businessDate, // 🆕
+            sales_block_at: salesBlockAt, // 🆕 يتطلب تنفيذ SQL المرحلة 4أ قبل النشر (وإلا insert الشفت هيفشل بعمود مجهول)
         };
 
         try {
